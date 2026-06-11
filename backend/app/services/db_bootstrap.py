@@ -51,6 +51,7 @@ from app.models import (
     UserCosmeticPurchase,
     UserEncouragement,
     UserFollow,
+    UserGalleryImage,
 )
 from app.services.media import MEDIA_URL_PREFIX, parse_media_token
 
@@ -407,7 +408,7 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
     if "image_model" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN image_model VARCHAR(120) NOT NULL DEFAULT 'flux.2-pro'"
+            "ADD COLUMN image_model VARCHAR(120) NOT NULL DEFAULT 'black-forest-labs/flux.2-pro'"
         )
     if "image_style_prompt" not in existing_columns:
         alter_statements.append(
@@ -1376,6 +1377,10 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryTurnImage.__tablename__} (game_id, assistant_message_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_turn_images_game_undone_id "
         f"ON {StoryTurnImage.__tablename__} (game_id, undone_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_user_gallery_images_user_created_id "
+        f"ON {UserGalleryImage.__tablename__} (user_id, created_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_user_gallery_images_user_turn_image "
+        f"ON {UserGalleryImage.__tablename__} (user_id, turn_image_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_instruction_cards_game_id_id "
         f"ON {StoryInstructionCard.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_instruction_templates_user_id_id "

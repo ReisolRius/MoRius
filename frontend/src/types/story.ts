@@ -40,10 +40,9 @@ export type StoryAppearanceBackgroundMode = 'default' | 'custom'
 export type StoryAppearanceUiStyle = 'default' | 'cyberpunk' | 'fantasy' | 'modern'
 export type StoryAppearanceTextStyle = 'default' | 'serif' | 'terminal'
 export type StoryImageModelId =
-  | 'flux.2-klein-4b'
-  | 'flux.2-pro'
-  | 'seedream-4.5'
-  | 'qwen-image-edit'
+  | 'black-forest-labs/flux.2-klein-4b'
+  | 'black-forest-labs/flux.2-pro'
+  | 'bytedance-seed/seedream-4.5'
   | 'google/gemini-2.5-flash-image'
   | 'google/gemini-3.1-flash-image-preview'
 export type StoryCharacterEmotionId =
@@ -509,6 +508,12 @@ export type StoryStreamDonePayload = {
   plot_card_created?: boolean
   ambient?: StoryAmbientProfile
   postprocess_pending?: boolean
+  cancelled?: boolean
+  token_limit_finish_reason?: string | null
+  token_limit_repair_attempted?: boolean
+  token_limit_repaired?: boolean
+  token_limit_repair_finish_reason?: string | null
+  token_limit_warning?: string | null
 }
 
 export type StoryStreamPlotMemoryPayload = {

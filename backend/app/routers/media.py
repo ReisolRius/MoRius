@@ -9,7 +9,17 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import CosmeticItem, DashboardNewsCard, StoryCharacter, StoryGame, StoryTurnImage, StoryWorldCard, StoryWorldCardTemplate, User
+from app.models import (
+    CosmeticItem,
+    DashboardNewsCard,
+    StoryCharacter,
+    StoryGame,
+    StoryTurnImage,
+    StoryWorldCard,
+    StoryWorldCardTemplate,
+    User,
+    UserGalleryImage,
+)
 from app.services.story_emotions import deserialize_story_character_emotion_assets
 from app.services.media import (
     MEDIA_URL_PREFIX,
@@ -79,6 +89,16 @@ MEDIA_KIND_SPECS: dict[str, tuple[type[Any], Callable[[Any, dict[str, Any]], Any
     ),
     "story-turn-image-data": (
         StoryTurnImage,
+        lambda record, _: getattr(record, "image_data_url", None),
+        lambda record: getattr(record, "updated_at", None),
+    ),
+    "profile-gallery-image-url": (
+        UserGalleryImage,
+        lambda record, _: getattr(record, "image_url", None),
+        lambda record: getattr(record, "updated_at", None),
+    ),
+    "profile-gallery-image-data": (
+        UserGalleryImage,
         lambda record, _: getattr(record, "image_data_url", None),
         lambda record: getattr(record, "updated_at", None),
     ),

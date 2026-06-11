@@ -91,6 +91,7 @@ import {
   createCoinTopUpPayment,
   getOnboardingGuideState,
   getCoinTopUpPlans,
+  saveStoryTurnImageToGallery,
   syncCoinTopUpPayment,
   updateCurrentUserAvatar,
   updateCurrentUserProfile,
@@ -109,12 +110,12 @@ import {
   createStoryNpcFromCharacter,
   createStoryPlotCard,
   createStoryWorldCard,
-  cancelStoryGeneration,
   deleteStoryCharacter,
   deleteStoryInstructionCard,
   deleteStoryMemoryBlock,
   deleteStoryPlotCard,
   deleteStoryWorldCard,
+  cancelStoryGeneration,
   generateStoryResponseStream,
   generateStoryTurnImage,
   getCommunityCharacter,
@@ -671,8 +672,8 @@ const STORY_GENERATION_INTERRUPTION_MARKERS = [
   'failed to connect to api',
   'generation stream connection was interrupted',
   'generation stream ended unexpectedly before terminal event',
-  'failed while reading polza.ai chat stream',
-  'игровая сессия сейчас занята',
+  'failed while reading openrouter chat stream',
+  'failed while reading routerai chat stream',
 ] as const
 const STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 const STORY_PROMPT_MAX_LENGTH = 4000
@@ -757,10 +758,9 @@ const STORY_TEMPERATURE_MIN = 0
 const STORY_TEMPERATURE_MAX = 2
 const STORY_DEFAULT_TEMPERATURE = 0.75
 const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-chat-v3-0324'
-const STORY_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'flux.2-pro'
-const STORY_IMAGE_MODEL_FLUX_KLEIN_4B_ID: StoryImageModelId = 'flux.2-klein-4b'
-const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'seedream-4.5'
-const STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID: StoryImageModelId = 'qwen-image-edit'
+const STORY_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
+const STORY_IMAGE_MODEL_FLUX_KLEIN_4B_ID: StoryImageModelId = 'black-forest-labs/flux.2-klein-4b'
+const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
 const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
 const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_FLUX_ID
@@ -1157,7 +1157,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'google/gemini-3.1-pro-preview',
     title: 'Gemini 3.1 Pro',
     description:
-      'Новая Pro-модель Gemini через Polza AI для сложных сцен, строгих правил и аккуратной работы с большим контекстом.',
+      'Новая Pro-модель Gemini через OpenRouter для сложных сцен, строгих правил и аккуратной работы с большим контекстом.',
     portraitSrc: narratorOgmaPortrait,
     portraitAlt: 'Gemini 3.1 Pro',
     stats: [
@@ -1205,7 +1205,7 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
   {
     id: STORY_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
     title: 'Flux.2 Klein 4B',
-    description: 'AITunnel. 6 единиц валюты за генерацию кадра.',
+    description: 'OpenRouter. 6 единиц валюты за генерацию кадра.',
     priceLabel: '6',
   },
   {
@@ -1223,20 +1223,14 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
   {
     id: STORY_IMAGE_MODEL_FLUX_ID,
     title: 'Flux 2 Pro',
-    description: 'AITunnel. 18 единиц валюты за генерацию кадра.',
+    description: 'OpenRouter. 18 единиц валюты за генерацию кадра.',
     priceLabel: '18',
   },
   {
     id: STORY_IMAGE_MODEL_SEEDREAM_ID,
     title: 'Seedream 4.5',
-    description: 'AITunnel. 20 единиц валюты за генерацию кадра.',
+    description: 'OpenRouter. 20 единиц валюты за генерацию кадра.',
     priceLabel: '20',
-  },
-  {
-    id: STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID,
-    title: 'Qwen Image Edit',
-    description: 'AITunnel. Художник-редактор для аккуратной стилизации и правки кадра.',
-    priceLabel: '24',
   },
 ]
 const STORY_SETTINGS_INFO_TEXT = {
@@ -1246,7 +1240,7 @@ const STORY_SETTINGS_INFO_TEXT = {
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
     'Ограничение памяти истории для ИИ. GLM 5.1 и AionLabs могут держать до 128000 токенов, остальные рассказчики ограничены 64000. Чем выше лимит, тем дороже ход.',
-  responseTokens: 'Ограничьте объем ответа ИИ точнее в токенах. ИИ получает инструкцию завершать мысль внутри выбранного бюджета, а не писать до обрыва.',
+  responseTokens: 'Максимум токенов ответа. ИИ может ответить короче и получает инструкцию завершать мысль внутри выбранного бюджета.',
   responseTokenLimit:
     'Админ-настройка. Когда выключена, скрытый потолок 4500 токенов не отправляется в запрос рассказчика. Обычные пользователи всегда остаются под защитным лимитом.',
   showGgThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли вашего ГГ.',
@@ -1268,6 +1262,24 @@ const STORY_SETTINGS_INFO_TEXT = {
   contextUsage: 'Следите за тем, сколько у вас осталось места в памяти истории для ИИ.',
 } as const
 
+function shouldLogStoryPerf(): boolean {
+  if (!import.meta.env.DEV || typeof window === 'undefined') {
+    return false
+  }
+  try {
+    return window.localStorage.getItem('morius.story.perf') === '1'
+  } catch {
+    return false
+  }
+}
+
+function logStoryPerf(eventName: string, payload: Record<string, unknown> = {}): void {
+  if (!shouldLogStoryPerf()) {
+    return
+  }
+  console.debug(`[story-perf] ${eventName}`, payload)
+}
+
 const ADVANCED_REGENERATION_STORAGE_PREFIX = 'morius-advanced-regeneration'
 const DEFAULT_SMART_REGENERATION_OPTIONS: SmartRegenerationOption[] = ['preserve_format']
 
@@ -1287,6 +1299,10 @@ function isStoryGenerationInterruptionDetail(value: string): boolean {
     normalizedValue &&
       STORY_GENERATION_INTERRUPTION_MARKERS.some((marker) => normalizedValue.includes(marker)),
   )
+}
+
+function isStoryGenerationAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
 }
 
 function resolveNarratorStatLabel(label: string, index: number): string {
@@ -3622,7 +3638,7 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
 
 function getStoryTurnCostTooltipText(): string {
   return [
-    'Стоимость хода зависит от рассказчика и использованного контекста:',
+    'Стоимость хода зависит от рассказчика и использованного контекста, но не выше выбранного лимита:',
     '',
     'DeepSeek V3/V3.2:',
     'до 6000 — 1 ед.',
@@ -3698,7 +3714,7 @@ function StoryTurnCostTooltipContent() {
             Стоимость хода
           </Typography>
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.32 }}>
-            Валюта за один ответ. 128k показан только там, где сейчас доступен.
+            Валюта за один ответ. Если фактический контекст вышел за выбранный лимит, переплата не берется.
           </Typography>
         </Stack>
         <Box
@@ -3784,7 +3800,10 @@ function getStoryTurnCostTokens(
   ambientEnabled: boolean,
   emotionVisualizationEnabled = false,
 ): number {
-  const normalizedUsage = Math.max(0, Math.round(contextUsageTokens))
+  const normalizedUsage = Math.min(
+    Math.max(0, Math.round(contextUsageTokens)),
+    getStoryContextLimitMax(narratorModelId),
+  )
   const [tier1Cost, tier2Cost, tier3Cost, tier4Cost, tier5Cost] = getStoryNarratorTurnCostTiers(narratorModelId)
   let totalCost = tier5Cost
   if (normalizedUsage <= STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX) {
@@ -3857,9 +3876,14 @@ function getStoryNarratorSamplingDefaults(modelId: StoryNarratorModelId): StoryN
 function normalizeStoryImageModelId(value: string | null | undefined): StoryImageModelId {
   const rawValue = (value ?? '').trim()
   const legacyImageModelAliases: Record<string, StoryImageModelId> = {
+    'flux.2-pro': STORY_IMAGE_MODEL_FLUX_ID,
+    'flux.2-klein-4b': STORY_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
+    'seedream-4.5': STORY_IMAGE_MODEL_SEEDREAM_ID,
     'black-forest-labs/flux.2-pro': STORY_IMAGE_MODEL_FLUX_ID,
     'bytedance/seedream-4.5': STORY_IMAGE_MODEL_SEEDREAM_ID,
     'bytedance-seed/seedream-4.5': STORY_IMAGE_MODEL_SEEDREAM_ID,
+    'qwen-image-edit': STORY_DEFAULT_IMAGE_MODEL_ID,
+    'qwen/qwen-image-edit': STORY_DEFAULT_IMAGE_MODEL_ID,
   }
   const normalized = (legacyImageModelAliases[rawValue] ?? rawValue) as StoryImageModelId
   if (STORY_IMAGE_MODEL_OPTIONS.some((option) => option.id === normalized)) {
@@ -5337,6 +5361,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [turnImageByAssistantMessageId, setTurnImageByAssistantMessageId] = useState<
     Record<number, StoryTurnImageEntry[]>
   >({})
+  const [gallerySavingTurnImageIds, setGallerySavingTurnImageIds] = useState<Set<number>>(() => new Set())
+  const [savedGalleryTurnImageIds, setSavedGalleryTurnImageIds] = useState<Set<number>>(() => new Set())
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isGameMenuOpen, setIsGameMenuOpen] = useState(false)
@@ -5632,7 +5658,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const streamingAssistantTextStore = useMemo(() => createStreamingAssistantTextStore(), [])
   const [characterMenuAnchorEl, setCharacterMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [characterMenuCharacterId, setCharacterMenuCharacterId] = useState<number | null>(null)
-  const generationAbortRef = useRef<AbortController | null>(null)
+  const generationRequestRef = useRef<{
+    requestId: number
+    gameId: number
+    controller: AbortController
+    cancelledByUser: boolean
+  } | null>(null)
+  const responseTokenSettingsSaveVersionRef = useRef(0)
+  const rightPanelOpenStartedAtRef = useRef<number | null>(null)
+  const rightPanelRenderCountRef = useRef(0)
+  const storySettingsSaveCounterRef = useRef(0)
   const pendingContextBudgetCheckRef = useRef(false)
   const hiddenContinueTempUserMessageIdRef = useRef<number | null>(null)
   const turnImageAbortControllersRef = useRef<Map<number, AbortController>>(new Map())
@@ -5761,6 +5796,51 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   useEffect(() => {
     activeGameIdRef.current = activeGameId
   }, [activeGameId])
+
+  useEffect(() => {
+    if (!isRightPanelOpen || rightPanelOpenStartedAtRef.current === null) {
+      return
+    }
+    const startedAt = rightPanelOpenStartedAtRef.current
+    const frameId = window.requestAnimationFrame(() => {
+      logStoryPerf('right-panel-opened', {
+        elapsedMs: Math.round((performance.now() - startedAt) * 10) / 10,
+        mode: rightPanelMode,
+        aiTab: activeAiPanelTab,
+        settingsTab: storySettingsTab,
+      })
+      rightPanelOpenStartedAtRef.current = null
+    })
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [activeAiPanelTab, isRightPanelOpen, rightPanelMode, storySettingsTab])
+
+  useEffect(() => {
+    if (!isRightPanelOpen) {
+      return
+    }
+    rightPanelRenderCountRef.current += 1
+    logStoryPerf('right-panel-render', {
+      renderCount: rightPanelRenderCountRef.current,
+      mode: rightPanelMode,
+      aiTab: activeAiPanelTab,
+      settingsTab: storySettingsTab,
+      responseMaxTokensEnabled,
+      responseTokenLimitEnabled,
+      saving: isSavingResponseMaxTokens || isSavingResponseMaxTokensEnabled || isSavingResponseTokenLimit,
+    })
+  }, [
+    activeAiPanelTab,
+    isRightPanelOpen,
+    isSavingResponseMaxTokens,
+    isSavingResponseMaxTokensEnabled,
+    isSavingResponseTokenLimit,
+    responseMaxTokensEnabled,
+    responseTokenLimitEnabled,
+    rightPanelMode,
+    storySettingsTab,
+  ])
 
   useEffect(() => {
     isAutoScrollPausedRef.current = isAutoScrollPaused
@@ -6747,12 +6827,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const currentTurnCostTokens = useMemo(
     () =>
       getStoryTurnCostTokens(
-        cardsContextCharsUsed,
+        Math.min(cardsContextCharsUsed, contextLimitChars),
         storyLlmModel,
         effectiveAmbientEnabled,
         effectiveEmotionVisualizationEnabled,
       ),
-    [cardsContextCharsUsed, effectiveAmbientEnabled, effectiveEmotionVisualizationEnabled, storyLlmModel],
+    [cardsContextCharsUsed, contextLimitChars, effectiveAmbientEnabled, effectiveEmotionVisualizationEnabled, storyLlmModel],
   )
   const hasInsufficientTokensForTurn = user.coins < currentTurnCostTokens
   useEffect(() => {
@@ -8161,6 +8241,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return nextMap
     })
   }, [])
+
+  const refreshStoryEnvironmentMemorySnapshot = useCallback(
+    async (gameId: number) => {
+      const payload = await getStoryGame({
+        token: authToken,
+        gameId,
+        assistantTurnsLimit: 1,
+        beforeMessageId: null,
+      })
+      applyUpdatedGameSummary(payload.game)
+      setAiMemoryBlocks(normalizeStoryMemoryBlocks(payload.memory_blocks))
+    },
+    [applyUpdatedGameSummary, authToken],
+  )
 
   const applyActiveMainHeroCardId = useCallback((gameId: number, cardId: number | null) => {
     const updateGame = (game: StoryGameSummary): StoryGameSummary => ({
@@ -9790,6 +9884,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const refs = [
         ...(detail.createdEntities ?? []),
         ...(detail.updatedEntities ?? []),
+        ...(detail.deletedEntities ?? []),
       ]
       if (detail.redirectUrl) {
         refs.push({ type: 'world', id: currentGameId, title: '', url: detail.redirectUrl })
@@ -9980,7 +10075,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     return () => {
       isActive = false
       cancelDeferredGameListLoad()
-      generationAbortRef.current?.abort()
       turnImageAbortControllers.forEach((controller) => controller.abort())
       turnImageAbortControllers.clear()
     }
@@ -12090,6 +12184,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
   }, [])
 
+  const handleToggleRightPanel = useCallback(() => {
+    setIsRightPanelOpen((previousValue) => {
+      const nextValue = !previousValue
+      if (nextValue) {
+        rightPanelOpenStartedAtRef.current = performance.now()
+      }
+      return nextValue
+    })
+  }, [])
+
   const toggleResponseTokenLimitEnabled = useCallback(async () => {
     const targetGameId = activeGameId
     if (
@@ -12105,6 +12209,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     const previousValue = responseTokenLimitEnabled
     const nextValue = !previousValue
+    const saveVersion = responseTokenSettingsSaveVersionRef.current + 1
+    responseTokenSettingsSaveVersionRef.current = saveVersion
+    const saveCount = storySettingsSaveCounterRef.current + 1
+    storySettingsSaveCounterRef.current = saveCount
+    const startedAt = performance.now()
     setResponseTokenLimitEnabled(nextValue)
     setStorySettingsOverrides((previousOverrides) => ({
       ...previousOverrides,
@@ -12133,15 +12242,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const updatedGame = await updateStoryGameSettings({
         token: authToken,
         gameId: targetGameId,
-        responseMaxTokens,
-        responseMaxTokensEnabled,
         responseTokenLimitEnabled: nextValue,
       })
+      if (responseTokenSettingsSaveVersionRef.current !== saveVersion) {
+        return
+      }
       setResponseTokenLimitEnabled(Boolean(updatedGame.response_token_limit_enabled))
       setResponseMaxTokens(clampStoryResponseMaxTokens(updatedGame.response_max_tokens))
       setResponseMaxTokensEnabled(Boolean(updatedGame.response_max_tokens_enabled))
       applyUpdatedGameSummary(updatedGame)
+      logStoryPerf('response-token-limit-save', {
+        saveCount,
+        elapsedMs: Math.round((performance.now() - startedAt) * 10) / 10,
+        fields: ['response_token_limit_enabled'],
+      })
     } catch (error) {
+      if (responseTokenSettingsSaveVersionRef.current !== saveVersion) {
+        return
+      }
       setResponseTokenLimitEnabled(previousValue)
       setStorySettingsOverrides((previousOverrides) => ({
         ...previousOverrides,
@@ -12167,7 +12285,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const detail = error instanceof Error ? error.message : 'Не удалось обновить лимит ответов'
       setErrorMessage(detail)
     } finally {
-      setIsSavingResponseTokenLimit(false)
+      if (responseTokenSettingsSaveVersionRef.current === saveVersion) {
+        setIsSavingResponseTokenLimit(false)
+      }
     }
   }, [
     activeGameId,
@@ -12284,6 +12404,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
 
       const normalizedValue = clampStoryResponseMaxTokens(nextValue)
+      const saveVersion = responseTokenSettingsSaveVersionRef.current + 1
+      responseTokenSettingsSaveVersionRef.current = saveVersion
+      const saveCount = storySettingsSaveCounterRef.current + 1
+      storySettingsSaveCounterRef.current = saveCount
+      const startedAt = performance.now()
       setResponseMaxTokens(normalizedValue)
       setStorySettingsOverrides((previousOverrides) => ({
         ...previousOverrides,
@@ -12312,18 +12437,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           gameId: targetGameId,
           responseMaxTokens: normalizedValue,
           responseMaxTokensEnabled: true,
-          memoryOptimizationEnabled: memoryOptimizationEnabled,
-          showGgThoughts: showGgThoughts,
-          showNpcThoughts: showNpcThoughts,
         })
+        if (responseTokenSettingsSaveVersionRef.current !== saveVersion) {
+          return
+        }
         setGames((previousGames) =>
           sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
         )
+        logStoryPerf('response-max-tokens-save', {
+          saveCount,
+          elapsedMs: Math.round((performance.now() - startedAt) * 10) / 10,
+          fields: ['response_max_tokens', 'response_max_tokens_enabled'],
+        })
       } catch (error) {
+        if (responseTokenSettingsSaveVersionRef.current !== saveVersion) {
+          return
+        }
         const detail = error instanceof Error ? error.message : 'Не удалось обновить лимит ответа '
         setErrorMessage(detail)
       } finally {
-        setIsSavingResponseMaxTokens(false)
+        if (responseTokenSettingsSaveVersionRef.current === saveVersion) {
+          setIsSavingResponseMaxTokens(false)
+        }
       }
     },
     [
@@ -13788,6 +13923,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const nextValue = !responseMaxTokensEnabled
     const normalizedResponseMaxTokens = clampStoryResponseMaxTokens(responseMaxTokens)
     const previousValue = responseMaxTokensEnabled
+    const previousResponseMaxTokens = responseMaxTokens
     const previousStoryLlmModel = storyLlmModel
     const previousMemoryOptimization = memoryOptimizationEnabled
     const previousStoryTopK = storyTopK
@@ -13795,7 +13931,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const previousShowGgThoughts = showGgThoughts
     const previousShowNpcThoughts = showNpcThoughts
     const previousAmbientEnabled = ambientEnabled
+    const saveVersion = responseTokenSettingsSaveVersionRef.current + 1
+    responseTokenSettingsSaveVersionRef.current = saveVersion
+    const saveCount = storySettingsSaveCounterRef.current + 1
+    storySettingsSaveCounterRef.current = saveCount
+    const startedAt = performance.now()
     setResponseMaxTokensEnabled(nextValue)
+    setResponseMaxTokens(normalizedResponseMaxTokens)
     setStorySettingsOverrides((previousOverrides) => ({
       ...previousOverrides,
       [targetGameId]: {
@@ -13821,24 +13963,32 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         gameId: targetGameId,
         responseMaxTokensEnabled: nextValue,
         responseMaxTokens: normalizedResponseMaxTokens,
-        responseTokenLimitEnabled,
-        memoryOptimizationEnabled: previousMemoryOptimization,
-        showGgThoughts: previousShowGgThoughts,
-        showNpcThoughts: previousShowNpcThoughts,
       })
+      if (responseTokenSettingsSaveVersionRef.current !== saveVersion) {
+        return
+      }
       setResponseMaxTokensEnabled(Boolean(updatedGame.response_max_tokens_enabled))
       setResponseMaxTokens(clampStoryResponseMaxTokens(updatedGame.response_max_tokens))
       setResponseTokenLimitEnabled(Boolean(updatedGame.response_token_limit_enabled))
       applyUpdatedGameSummary(updatedGame)
+      logStoryPerf('response-max-tokens-enabled-save', {
+        saveCount,
+        elapsedMs: Math.round((performance.now() - startedAt) * 10) / 10,
+        fields: ['response_max_tokens_enabled', 'response_max_tokens'],
+        enabled: nextValue,
+      })
     } catch (error) {
+      if (responseTokenSettingsSaveVersionRef.current !== saveVersion) {
+        return
+      }
       setResponseMaxTokensEnabled(previousValue)
-      setResponseMaxTokens(normalizedResponseMaxTokens)
+      setResponseMaxTokens(previousResponseMaxTokens)
       setStorySettingsOverrides((previousOverrides) => ({
         ...previousOverrides,
         [targetGameId]: {
           ...previousOverrides[targetGameId],
           storyLlmModel: previousStoryLlmModel,
-          responseMaxTokens: normalizedResponseMaxTokens,
+          responseMaxTokens: previousResponseMaxTokens,
           responseMaxTokensEnabled: previousValue,
           responseTokenLimitEnabled,
           memoryOptimizationEnabled: previousMemoryOptimization,
@@ -13853,7 +14003,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const detail = error instanceof Error ? error.message : 'Не удалось обновить режим лимита ответа '
       setErrorMessage(detail)
     } finally {
-      setIsSavingResponseMaxTokensEnabled(false)
+      if (responseTokenSettingsSaveVersionRef.current === saveVersion) {
+        setIsSavingResponseMaxTokensEnabled(false)
+      }
     }
   }, [
     activeGameId,
@@ -14416,6 +14568,42 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isUndoingAssistantStep,
   ])
 
+  const handleSaveTurnImageToGallery = useCallback(
+    async (turnImage: StoryTurnImageEntry) => {
+      const turnImageId = turnImage.id
+      if (
+        turnImage.status !== 'ready' ||
+        !turnImage.imageUrl ||
+        !Number.isInteger(turnImageId) ||
+        turnImageId <= 0 ||
+        gallerySavingTurnImageIds.has(turnImageId) ||
+        savedGalleryTurnImageIds.has(turnImageId)
+      ) {
+        return
+      }
+
+      setGallerySavingTurnImageIds((previousIds) => new Set(previousIds).add(turnImageId))
+      setErrorMessage('')
+      try {
+        await saveStoryTurnImageToGallery({
+          token: authToken,
+          turnImageId,
+        })
+        setSavedGalleryTurnImageIds((previousIds) => new Set(previousIds).add(turnImageId))
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось сохранить картинку в галерею'
+        setErrorMessage(detail)
+      } finally {
+        setGallerySavingTurnImageIds((previousIds) => {
+          const nextIds = new Set(previousIds)
+          nextIds.delete(turnImageId)
+          return nextIds
+        })
+      }
+    },
+    [authToken, gallerySavingTurnImageIds, savedGalleryTurnImageIds],
+  )
+
   useEffect(() => {
     if (isCreatingGame || isStoryTurnBusy || isUndoingAssistantStep) {
       setIsComposerAiMenuOpen(false)
@@ -14482,6 +14670,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     async (options: {
       gameId: number
       prompt?: string
+      isContinue?: boolean
       rerollLastResponse?: boolean
       discardLastAssistantSteps?: number
       smartRegenerationMode?: SmartRegenerationMode
@@ -14494,11 +14683,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setIsGenerating(true)
       setIsFinalizingStoryTurn(false)
       setActiveAssistantMessageId(null)
-      const controller = new AbortController()
-      generationAbortRef.current = controller
-      let wasAborted = false
+      const requestState = {
+        requestId: Date.now(),
+        gameId: options.gameId,
+        controller: new AbortController(),
+        cancelledByUser: false,
+      }
+      generationRequestRef.current = requestState
       let streamStarted = false
       let generationFailed = false
+      let generationCancelledByUser = false
       let postprocessPending = false
       let startedAssistantMessageId: number | null = null
       let completedAssistantMessageId: number | null = null
@@ -14539,6 +14733,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           token: authToken,
           gameId: options.gameId,
           prompt: options.prompt,
+          isContinue: options.isContinue,
           rerollLastResponse: options.rerollLastResponse,
           discardLastAssistantSteps: options.discardLastAssistantSteps,
           smartRegeneration: options.smartRegenerationOptions?.length
@@ -14567,7 +14762,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           ambientEnabled: effectiveAmbientEnabled,
           environmentEnabled: environmentTimeEnabled || environmentWeatherEnabled,
           emotionVisualizationEnabled: effectiveEmotionVisualizationEnabled,
-          signal: controller.signal,
+          signal: requestState.controller.signal,
           onStart: (payload) => {
             streamStarted = true
             if (options.rerollLastResponse || (options.discardLastAssistantSteps ?? 0) > 0) {
@@ -14641,6 +14836,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             applyPlotCardEvents(nextPlotEvents)
           },
           onDone: (payload) => {
+            generationCancelledByUser = Boolean(payload.cancelled)
             completedPayloadRef.current = payload
             completedAssistantMessageId = payload.message.id
             if (payload.user) {
@@ -14655,6 +14851,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               )
             }
             postprocessPending = Boolean(payload.postprocess_pending)
+            if (payload.token_limit_warning) {
+              setErrorMessage(payload.token_limit_warning)
+            }
             const nextPlotEvents = payload.plot_card_events ?? []
             const nextWorldEvents = payload.world_card_events ?? []
             const nextPlotCards = payload.plot_cards ?? null
@@ -14707,25 +14906,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       } catch (error) {
         smoothStreamingControllerRef.current?.cancel()
-        if (controller.signal.aborted) {
-          wasAborted = true
+        generationCancelledByUser = requestState.cancelledByUser || isStoryGenerationAbortError(error)
+        generationFailed = !generationCancelledByUser
+        const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать ответ'
+        const generationInterrupted = isStoryGenerationInterruptionDetail(detail)
+        if (!streamStarted && options.prompt && !options.rerollLastResponse && !(options.discardLastAssistantSteps ?? 0)) {
+          setInputValue((currentValue) => currentValue || options.prompt!.slice(0, STORY_PROMPT_MAX_LENGTH))
+        }
+        if (generationCancelledByUser) {
+          setErrorMessage('')
+        } else if (/недостаточно (?:токенов|солов)/i.test(detail)) {
+          setTopUpError('')
+          setProfileDialogOpen(false)
+          setConfirmLogoutOpen(false)
+          onNavigate('/shop')
+        } else if (generationInterrupted) {
+          setErrorMessage('Генерация прервалась до завершения. Списание солов не выполнено, попробуйте повторить ход.')
         } else {
-          generationFailed = true
-          const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать ответ'
-          const generationInterrupted = isStoryGenerationInterruptionDetail(detail)
-          if (!streamStarted && options.prompt && !options.rerollLastResponse && !(options.discardLastAssistantSteps ?? 0)) {
-            setInputValue((currentValue) => currentValue || options.prompt!.slice(0, STORY_PROMPT_MAX_LENGTH))
-          }
-          if (/недостаточно (?:токенов|солов)/i.test(detail)) {
-            setTopUpError('')
-            setProfileDialogOpen(false)
-            setConfirmLogoutOpen(false)
-            onNavigate('/shop')
-          } else if (generationInterrupted) {
-            setErrorMessage('')
-          } else {
-            setErrorMessage(detail)
-          }
+          setErrorMessage(detail)
         }
       } finally {
         if ((options.rerollLastResponse || (options.discardLastAssistantSteps ?? 0) > 0) && !streamStarted) {
@@ -14734,7 +14932,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setIsFinalizingStoryTurn(true)
         setIsGenerating(false)
         setActiveAssistantMessageId(null)
-        generationAbortRef.current = null
+        if (generationRequestRef.current?.requestId === requestState.requestId) {
+          generationRequestRef.current = null
+        }
         if (!completedPayloadRef.current) {
           if (startedAssistantMessageId !== null) {
             const displayedText =
@@ -14752,23 +14952,26 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         // Running /memory/optimize here added extra hidden model calls after every answer.
         const shouldOptimizeStoryMemory = false
         const shouldReloadGameSnapshot =
+          generationCancelledByUser ||
           generationFailed ||
-          wasAborted ||
           !streamStarted ||
           completedAssistantMessageId === null
         const minimumExpectedAssistantMessageId = completedAssistantMessageId ?? startedAssistantMessageId
         const shouldRefreshGameList = true
         const shouldRetryGameSyncWithoutDoneEvent =
-          !wasAborted && streamStarted && startedAssistantMessageId !== null && completedAssistantMessageId === null
+          !generationCancelledByUser &&
+          streamStarted &&
+          startedAssistantMessageId !== null &&
+          completedAssistantMessageId === null
         const shouldReconcileSuccessfulGeneration =
+          !generationCancelledByUser &&
           !generationFailed &&
-          !wasAborted &&
           streamStarted &&
           completedAssistantMessageId !== null &&
           !postprocessPending
-        const shouldPollPostprocessInBackground = postprocessPending
+        const shouldPollPostprocessInBackground = !generationCancelledByUser && postprocessPending
         const canContinueDeferredTurnSync = () =>
-          activeGameIdRef.current === options.gameId && generationAbortRef.current === null
+          activeGameIdRef.current === options.gameId && generationRequestRef.current === null
 
         if (shouldReloadGameSnapshot) {
           try {
@@ -14880,7 +15083,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return {
         streamStarted,
         failed: generationFailed,
-        aborted: wasAborted,
+        aborted: generationCancelledByUser,
       }
     },
     [
@@ -15107,6 +15310,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return runStoryGeneration({
         gameId: targetGameId,
         prompt: normalizedPrompt,
+        isContinue: options?.hideUserMessage,
         discardLastAssistantSteps: options?.discardLastAssistantSteps,
         smartRegenerationMode: options?.smartRegenerationMode,
         smartRegenerationOptions: options?.smartRegenerationOptions,
@@ -15212,6 +15416,33 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
   }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, inputValue, instructionCards, isStoryTurnBusy, isVoiceInputActive, onNavigate, runStoryGeneration])
 
+  const handleStopStoryGeneration = useCallback(async () => {
+    const activeRequest = generationRequestRef.current
+    if (!activeRequest || activeRequest.cancelledByUser) {
+      return
+    }
+
+    activeRequest.cancelledByUser = true
+    setErrorMessage('')
+    const abortFallbackTimerId = window.setTimeout(() => {
+      activeRequest.controller.abort()
+    }, 700)
+
+    try {
+      await cancelStoryGeneration({
+        token: authToken,
+        gameId: activeRequest.gameId,
+      })
+    } catch (error) {
+      if (!isStoryGenerationAbortError(error)) {
+        console.error('Failed to request story generation cancellation', error)
+      }
+    } finally {
+      window.clearTimeout(abortFallbackTimerId)
+      activeRequest.controller.abort()
+    }
+  }, [authToken])
+
   const handleContinueStory = useCallback(
     async (assistantMessageId: number) => {
       if (isStoryTurnBusy || isCreatingGame) {
@@ -15256,7 +15487,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           environmentCurrentDatetime: activeGameSummary?.environment_current_datetime ?? null,
           environmentCurrentWeather: activeGameSummary?.environment_current_weather ?? null,
           environmentTomorrowWeather: activeGameSummary?.environment_tomorrow_weather ?? null,
-          currentLocationLabel: activeGameSummary?.current_location_label ?? null,
         })
         applyUpdatedGameSummary(updatedGame)
       } catch (error) {
@@ -15295,7 +15525,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           environmentCurrentDatetime: activeGameSummary?.environment_current_datetime ?? null,
           environmentCurrentWeather: activeGameSummary?.environment_current_weather ?? null,
           environmentTomorrowWeather: activeGameSummary?.environment_tomorrow_weather ?? null,
-          currentLocationLabel: activeGameSummary?.current_location_label ?? null,
         })
         applyUpdatedGameSummary(updatedGame)
       } catch (error) {
@@ -15385,6 +15614,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         currentLocationLabel: environmentLocationDraft.trim() || null,
       })
       applyUpdatedGameSummary(updatedGame)
+      try {
+        await refreshStoryEnvironmentMemorySnapshot(activeGameId)
+      } catch (snapshotError) {
+        console.error('Failed to refresh story environment memory after manual edit', snapshotError)
+      }
       setEnvironmentEditorOpen(false)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось сохранить время и погоду'
@@ -15406,26 +15640,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     environmentWeatherEnabled,
     isRegeneratingEnvironmentWeather,
     isSavingEnvironmentPanel,
+    refreshStoryEnvironmentMemorySnapshot,
   ])
 
   const handleVoiceActionClick = useCallback(() => {
     if (isGenerating) {
-      const targetGameId = activeGameId
-      if (targetGameId) {
-        void cancelStoryGeneration({
-          token: authToken,
-          gameId: targetGameId,
-        }).catch((error) => {
-          console.error('Story generation cancellation request failed', error)
-        })
-      }
-      const activeController = generationAbortRef.current
-      if (activeController) {
-        activeController.abort()
-        generationAbortRef.current = null
-      }
-      setIsGenerating(false)
-      setActiveAssistantMessageId(null)
+      void handleStopStoryGeneration()
       return
     }
     if (!showMicAction) {
@@ -15438,7 +15658,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     voiceSessionRequestedRef.current = true
     startVoiceInput()
-  }, [activeGameId, authToken, handleSendPrompt, isGenerating, isVoiceInputActive, showMicAction, startVoiceInput, stopVoiceInput])
+  }, [handleSendPrompt, handleStopStoryGeneration, isGenerating, isVoiceInputActive, showMicAction, startVoiceInput, stopVoiceInput])
 
   const handleUndoAssistantStep = useCallback(async () => {
     if (!activeGameId || !canUndoAssistantStep || isUndoingAssistantStep) {
@@ -15830,7 +16050,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           collapsed: 'Открыть меню страниц',
         }}
         isRightPanelOpen={isRightPanelOpen}
-        onToggleRightPanel={() => setIsRightPanelOpen((previous) => !previous)}
+        onToggleRightPanel={handleToggleRightPanel}
         rightToggleLabels={{
           expanded: 'Свернуть правую панель',
           collapsed: 'Развернуть правую панель',
@@ -19151,7 +19371,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 700 }}>
-                                Ответ ИИ в токенах
+                                Максимум токенов ответа
                               </Typography>
                               <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.responseTokens} />
                             </Stack>
@@ -19185,7 +19405,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           <Box sx={{ mt: 0.86 }}>
                             <Stack direction="row" justifyContent="space-between" alignItems="center">
                               <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>
-                                Лимит ответа
+                                ИИ может ответить короче
                               </Typography>
                               <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{responseMaxTokens}</Typography>
                             </Stack>
@@ -21560,6 +21780,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   position: 'relative',
                                   background:
                                     'linear-gradient(140deg, rgba(42, 56, 78, 0.6) 0%, rgba(22, 31, 46, 0.88) 48%, rgba(26, 40, 61, 0.84) 100%)',
+                                  '&:hover .morius-turn-image-gallery-action, &:focus-within .morius-turn-image-gallery-action': {
+                                    opacity: 1,
+                                    pointerEvents: 'auto',
+                                    transform: 'translateY(0)',
+                                  },
                                   ...(assistantTurnImage.status === 'loading'
                                     ? {
                                         '@keyframes morius-turn-image-shimmer': {
@@ -21579,25 +21804,79 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 }}
                               >
                                 {assistantTurnImage.status === 'ready' && assistantTurnImage.imageUrl ? (
-                                  <ProgressiveImage
-                                    src={assistantTurnImage.imageUrl}
-                                    alt="Scene frame"
-                                    loading="lazy"
-                                    fetchPriority="low"
-                                    objectFit="contain"
-                                    loaderSize={28}
-                                    containerSx={{
-                                      width: '100%',
-                                      minHeight: 180,
-                                      background: 'transparent',
-                                    }}
-                                    imgSx={{
-                                      position: 'relative',
-                                      width: '100%',
-                                      height: 'auto',
-                                      objectFit: 'contain',
-                                    }}
-                                  />
+                                  <Fragment>
+                                    <ProgressiveImage
+                                      src={assistantTurnImage.imageUrl}
+                                      alt="Scene frame"
+                                      loading="lazy"
+                                      fetchPriority="low"
+                                      objectFit="contain"
+                                      loaderSize={28}
+                                      containerSx={{
+                                        width: '100%',
+                                        minHeight: 180,
+                                        background: 'transparent',
+                                      }}
+                                      imgSx={{
+                                        position: 'relative',
+                                        width: '100%',
+                                        height: 'auto',
+                                        objectFit: 'contain',
+                                      }}
+                                    />
+                                    <Button
+                                      className="morius-turn-image-gallery-action"
+                                      type="button"
+                                      onClick={() => void handleSaveTurnImageToGallery(assistantTurnImage)}
+                                      disabled={
+                                        gallerySavingTurnImageIds.has(assistantTurnImage.id) ||
+                                        savedGalleryTurnImageIds.has(assistantTurnImage.id)
+                                      }
+                                      sx={{
+                                        position: 'absolute',
+                                        top: 9,
+                                        right: 9,
+                                        zIndex: 2,
+                                        minWidth: 0,
+                                        minHeight: 30,
+                                        maxWidth: 'calc(100% - 18px)',
+                                        px: 1.1,
+                                        py: 0.35,
+                                        borderRadius: '999px',
+                                        textTransform: 'none',
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        color: 'var(--morius-title-text)',
+                                        fontSize: { xs: '0.68rem', sm: '0.74rem' },
+                                        fontWeight: 850,
+                                        lineHeight: 1,
+                                        backgroundColor: 'rgba(19, 24, 32, 0.78)',
+                                        border: '1px solid rgba(196, 211, 232, 0.2)',
+                                        backdropFilter: 'blur(12px)',
+                                        boxShadow: '0 10px 22px rgba(0, 0, 0, 0.28)',
+                                        opacity: { xs: 1, md: 0 },
+                                        pointerEvents: { xs: 'auto', md: 'none' },
+                                        transform: { xs: 'translateY(0)', md: 'translateY(-4px)' },
+                                        transition: 'opacity 160ms ease, transform 160ms ease, background-color 160ms ease',
+                                        '&:hover': {
+                                          backgroundColor: 'rgba(38, 48, 65, 0.9)',
+                                        },
+                                        '&.Mui-disabled': {
+                                          color: 'rgba(223, 232, 246, 0.68)',
+                                          backgroundColor: 'rgba(19, 24, 32, 0.72)',
+                                          borderColor: 'rgba(196, 211, 232, 0.14)',
+                                          opacity: { xs: 1, md: savedGalleryTurnImageIds.has(assistantTurnImage.id) ? 1 : 0 },
+                                        },
+                                      }}
+                                    >
+                                      {gallerySavingTurnImageIds.has(assistantTurnImage.id)
+                                        ? 'Сохраняем...'
+                                        : savedGalleryTurnImageIds.has(assistantTurnImage.id)
+                                          ? 'В галерее'
+                                          : 'Сохранить в галерею'}
+                                    </Button>
+                                  </Fragment>
                                 ) : assistantTurnImage.status === 'error' ? (
                                   <Stack
                                     spacing={0.55}

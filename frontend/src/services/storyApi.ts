@@ -55,16 +55,28 @@ const STORY_CHARACTER_EMOTION_GENERATION_TIMEOUT_MS = 600_000
 const STORY_CHARACTER_EMOTION_GENERATION_POLL_INTERVAL_MS = 1_500
 const STORY_GENERATION_INTERRUPTED_MESSAGE =
   'Генерация прервалась. Зависший запрос остановлен, можно повторить ход или продолжить сцену.'
+const STORY_ROUTERAI_TEMPORARY_ERROR_MESSAGE =
+  'OpenRouter сейчас возвращает ошибку провайдера. Ход не был сгенерирован; повторите попытку позже.'
 const STORY_GENERATION_TRANSPORT_ERROR_MARKERS = [
   'network error',
   'failed to fetch',
   'failed to connect to api',
   'generation stream connection was interrupted',
   'generation stream ended unexpectedly before terminal event',
-  'failed while reading polza.ai chat stream',
-  'игровая сессия сейчас занята',
+  'failed while reading openrouter chat stream',
+  'failed while reading routerai chat stream',
   'load failed',
   'terminated',
+] as const
+const STORY_ROUTERAI_TEMPORARY_ERROR_MARKERS = [
+  'openrouter chat error (500)',
+  'openrouter chat error (502)',
+  'openrouter chat error (503)',
+  'openrouter chat error (504)',
+  'routerai chat error (500)',
+  'routerai chat error (502)',
+  'routerai chat error (503)',
+  'routerai chat error (504)',
 ] as const
 const STORY_DEFAULT_REPETITION_PENALTY = 1.05
 const DEFAULT_PUBLICATION_STATE: StoryPublicationState = {
@@ -76,6 +88,24 @@ const DEFAULT_PUBLICATION_STATE: StoryPublicationState = {
 }
 const STORY_APPEARANCE_HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
 const STORY_CHARACTER_TEXT_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
+
+function shouldLogStoryPerf(): boolean {
+  if (!import.meta.env.DEV || typeof window === 'undefined') {
+    return false
+  }
+  try {
+    return window.localStorage.getItem('morius.story.perf') === '1'
+  } catch {
+    return false
+  }
+}
+
+function logStoryPerf(eventName: string, payload: Record<string, unknown> = {}): void {
+  if (!shouldLogStoryPerf()) {
+    return
+  }
+  console.debug(`[story-perf] ${eventName}`, payload)
+}
 
 function normalizeStoryAppearanceBackgroundMode(value: unknown): StoryAppearanceBackgroundMode {
   return value === 'custom' ? 'custom' : 'default'
@@ -140,11 +170,19 @@ function normalizeStoryProviderErrorMessage(detail: string): string {
   if (STORY_GENERATION_TRANSPORT_ERROR_MARKERS.some((marker) => loweredTransportDetail.includes(marker))) {
     return STORY_GENERATION_INTERRUPTED_MESSAGE
   }
+  if (STORY_ROUTERAI_TEMPORARY_ERROR_MARKERS.some((marker) => loweredTransportDetail.includes(marker))) {
+    return STORY_ROUTERAI_TEMPORARY_ERROR_MESSAGE
+  }
 
   let cleanedDetail = normalizedDetail
   const loweredDetail = normalizedDetail.toLocaleLowerCase()
   const structuredPayloadStart = normalizedDetail.indexOf('{')
-  if (loweredDetail.startsWith('polza chat error') && structuredPayloadStart >= 0) {
+  if (
+    (loweredDetail.startsWith('polza chat error') ||
+      loweredDetail.startsWith('routerai chat error') ||
+      loweredDetail.startsWith('openrouter chat error')) &&
+    structuredPayloadStart >= 0
+  ) {
     cleanedDetail = normalizedDetail.slice(0, structuredPayloadStart).replace(/[.:,\s]+$/, '').trim()
   }
 
@@ -154,7 +192,9 @@ function normalizeStoryProviderErrorMessage(detail: string): string {
 export type StoryGenerationStreamOptions = {
   token: string
   gameId: number
+  signal?: AbortSignal
   prompt?: string
+  isContinue?: boolean
   rerollLastResponse?: boolean
   discardLastAssistantSteps?: number
   smartRegeneration?: {
@@ -175,7 +215,6 @@ export type StoryGenerationStreamOptions = {
   ambientEnabled?: boolean
   environmentEnabled?: boolean
   emotionVisualizationEnabled?: boolean
-  signal?: AbortSignal
   onStart?: (payload: StoryStreamStartPayload) => void
   onChunk?: (payload: StoryStreamChunkPayload) => void
   onPlotMemory?: (payload: StoryStreamPlotMemoryPayload) => void
@@ -448,7 +487,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     image_model:
       typeof game.image_model === 'string'
         ? (game.image_model as StoryGameSummary['image_model'])
-        : 'flux.2-pro',
+        : 'black-forest-labs/flux.2-pro',
     image_style_prompt: typeof game.image_style_prompt === 'string' ? game.image_style_prompt : '',
     memory_optimization_enabled: Boolean(game.memory_optimization_enabled),
     memory_optimization_mode:
@@ -2065,6 +2104,10 @@ export async function updateStoryGameSettings(payload: {
   if (typeof payload.currentLocationLabel === 'string' || payload.currentLocationLabel === null) {
     requestPayload.current_location_label = payload.currentLocationLabel
   }
+  logStoryPerf('story-settings-api-request', {
+    gameId: payload.gameId,
+    fields: Object.keys(requestPayload).sort(),
+  })
   return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/settings`, {
     method: 'PATCH',
     headers: {
@@ -2217,6 +2260,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   const targetUrl = buildApiUrl(`/api/story/games/${options.gameId}/generate`)
   const requestPayload: Record<string, unknown> = {
     prompt: options.prompt,
+    is_continue: Boolean(options.isContinue),
     reroll_last_response: Boolean(options.rerollLastResponse),
   }
   if (Array.isArray(options.instructions)) {
@@ -2268,16 +2312,24 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   if (typeof options.emotionVisualizationEnabled === 'boolean') {
     requestPayload.emotion_visualization_enabled = options.emotionVisualizationEnabled
   }
+  logStoryPerf('story-generate-api-request', {
+    gameId: options.gameId,
+    fields: Object.keys(requestPayload).sort(),
+    hasResponseMaxTokens: typeof options.responseMaxTokens === 'number',
+    responseMaxTokens: typeof options.responseMaxTokens === 'number' ? options.responseMaxTokens : null,
+    isContinue: Boolean(options.isContinue),
+    rerollLastResponse: Boolean(options.rerollLastResponse),
+  })
   let response: Response
   try {
     response = await fetch(targetUrl, {
       method: 'POST',
+      signal: options.signal,
       headers: {
         Authorization: `Bearer ${options.token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestPayload),
-      signal: options.signal,
     })
   } catch (error) {
     if (isAbortError(error)) {
@@ -2411,6 +2463,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       processBufferedBlocks(false)
     }
   } catch (error) {
+    if (isAbortError(error)) {
+      throw error
+    }
     if (!streamTerminalEventReceived) {
       streamError = toStreamError(error, 'Generation stream connection was interrupted')
     }

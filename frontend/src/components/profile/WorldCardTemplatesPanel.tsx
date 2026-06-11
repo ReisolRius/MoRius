@@ -38,7 +38,7 @@ import {
   STORY_WORLD_BANNER_ASPECT,
 } from '../../utils/storyWorldCards'
 import { prepareAvatarPayloadForRequest, readFileAsDataUrl } from '../../utils/avatar'
-import { useVisibilityTrigger } from '../../hooks/useVisibilityTrigger'
+import { useScrollLoadTrigger } from '../../hooks/useScrollLoadTrigger'
 
 const TEMPLATE_TITLE_MAX_LENGTH = 120
 const TEMPLATE_CONTENT_MAX_LENGTH = 8000
@@ -170,18 +170,17 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
     }
   }, [authToken, hasMoreTemplates, isLoading, isLoadingMore, searchQuery, templates.length])
 
-  const { ref: loadMoreTemplatesRef, isVisible: isLoadMoreTemplatesVisible } = useVisibilityTrigger<HTMLDivElement>({
+  const { ref: loadMoreTemplatesRef, loadMoreSignal: loadMoreTemplatesSignal } = useScrollLoadTrigger<HTMLDivElement>({
     rootMargin: '140px 0px',
-    once: false,
     disabled: isLoading || isLoadingMore || !hasMoreTemplates,
   })
 
   useEffect(() => {
-    if (!isLoadMoreTemplatesVisible) {
+    if (loadMoreTemplatesSignal <= 0) {
       return
     }
     void loadMoreTemplates()
-  }, [isLoadMoreTemplatesVisible, loadMoreTemplates])
+  }, [loadMoreTemplates, loadMoreTemplatesSignal])
 
   useEffect(() => {
     void refreshData()
@@ -190,7 +189,7 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
   useEffect(() => {
     const handleAiAssistantEntitiesChanged = (event: Event) => {
       const detail = (event as CustomEvent<AiAssistantChatResponse>).detail
-      const refs = [...(detail?.createdEntities ?? []), ...(detail?.updatedEntities ?? [])]
+      const refs = [...(detail?.createdEntities ?? []), ...(detail?.updatedEntities ?? []), ...(detail?.deletedEntities ?? [])]
       if (refs.some((ref) => ref.type === 'world_card_template')) {
         void refreshData()
       }

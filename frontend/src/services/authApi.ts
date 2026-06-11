@@ -139,6 +139,19 @@ export type ProfileSubscriptionUser = {
   avatar_frame_image_url?: string | null
 }
 
+export type ProfileGalleryImage = {
+  id: number
+  turn_image_id: number
+  source_game_id: number | null
+  assistant_message_id: number | null
+  model: string
+  prompt: string
+  image_url: string | null
+  image_data_url: string | null
+  created_at: string
+  updated_at: string
+}
+
 export type ProfileUserView = {
   id: number
   display_name: string
@@ -170,6 +183,7 @@ export type ProfileView = {
   published_characters: StoryCommunityCharacterSummary[]
   published_instruction_templates: StoryCommunityInstructionTemplateSummary[]
   unpublished_worlds: StoryGameSummary[]
+  gallery_images: ProfileGalleryImage[]
 }
 
 export type UserNotification = {
@@ -568,6 +582,36 @@ function normalizeProfileSubscriptionUsers(
     .filter((item) => item.id > 0)
 }
 
+function normalizeProfileGalleryImages(value: ProfileView['gallery_images'] | null | undefined): ProfileGalleryImage[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((item): item is ProfileGalleryImage => Boolean(item) && typeof item === 'object')
+    .map((item) => ({
+      id: typeof item.id === 'number' && Number.isFinite(item.id) ? Math.trunc(item.id) : 0,
+      turn_image_id:
+        typeof item.turn_image_id === 'number' && Number.isFinite(item.turn_image_id)
+          ? Math.trunc(item.turn_image_id)
+          : 0,
+      source_game_id:
+        typeof item.source_game_id === 'number' && Number.isFinite(item.source_game_id)
+          ? Math.trunc(item.source_game_id)
+          : null,
+      assistant_message_id:
+        typeof item.assistant_message_id === 'number' && Number.isFinite(item.assistant_message_id)
+          ? Math.trunc(item.assistant_message_id)
+          : null,
+      model: typeof item.model === 'string' ? item.model : '',
+      prompt: typeof item.prompt === 'string' ? item.prompt : '',
+      image_url: typeof item.image_url === 'string' ? item.image_url : null,
+      image_data_url: typeof item.image_data_url === 'string' ? item.image_data_url : null,
+      created_at: typeof item.created_at === 'string' ? item.created_at : new Date(0).toISOString(),
+      updated_at: typeof item.updated_at === 'string' ? item.updated_at : new Date(0).toISOString(),
+    }))
+    .filter((item) => item.id > 0 && Boolean((item.image_data_url ?? item.image_url ?? '').trim()))
+}
+
 function normalizeProfileUserView(value: ProfileView['user'] | null | undefined): ProfileView['user'] {
   if (!value) {
     return {
@@ -629,6 +673,7 @@ function normalizeProfileViewPayload(rawView: ProfileView): ProfileView {
     published_characters: Array.isArray(view.published_characters) ? view.published_characters : [],
     published_instruction_templates: Array.isArray(view.published_instruction_templates) ? view.published_instruction_templates : [],
     unpublished_worlds: Array.isArray(view.unpublished_worlds) ? view.unpublished_worlds : [],
+    gallery_images: normalizeProfileGalleryImages(view.gallery_images ?? []),
   }
 }
 
@@ -1056,6 +1101,55 @@ export async function getProfileView(payload: {
     AUTH_NETWORK_ERROR,
   )
   return normalizeProfileViewPayload(response)
+}
+
+export async function listCurrentUserGalleryImages(payload: { token: string } | string): Promise<ProfileGalleryImage[]> {
+  const token = extractCompatToken(payload)
+  const response = await requestJson<ProfileGalleryImage[]>(
+    '/api/auth/profiles/me/gallery',
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeProfileGalleryImages(response)
+}
+
+export async function saveStoryTurnImageToGallery(payload: {
+  token: string
+  turnImageId?: number
+  turn_image_id?: number
+}): Promise<ProfileGalleryImage> {
+  const turnImageId = extractCompatNumber(payload, 'turnImageId', 'turn_image_id')
+  const response = await requestJson<ProfileGalleryImage>(
+    '/api/auth/profiles/me/gallery',
+    {
+      method: 'POST',
+      headers: buildCompatAuthHeaders(payload.token),
+      body: JSON.stringify({ turn_image_id: turnImageId }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeProfileGalleryImages([response])[0] ?? response
+}
+
+export async function deleteCurrentUserGalleryImage(payload: {
+  token: string
+  galleryImageId?: number
+  gallery_image_id?: number
+  id?: number
+}): Promise<MessageResponse> {
+  const galleryImageId = extractCompatNumber(payload, 'galleryImageId', 'gallery_image_id', 'id')
+  return requestJson<MessageResponse>(
+    `/api/auth/profiles/me/gallery/${galleryImageId}`,
+    {
+      method: 'DELETE',
+      headers: buildCompatAuthHeaders(payload.token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
 }
 
 export async function updateCurrentUserProfilePrivacy(payload: {

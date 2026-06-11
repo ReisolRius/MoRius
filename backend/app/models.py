@@ -292,8 +292,8 @@ class StoryGame(Base):
     image_model: Mapped[str] = mapped_column(
         String(120),
         nullable=False,
-        default="flux.2-pro",
-        server_default="flux.2-pro",
+        default="black-forest-labs/flux.2-pro",
+        server_default="black-forest-labs/flux.2-pro",
     )
     image_style_prompt: Mapped[str] = mapped_column(
         Text,
@@ -732,6 +732,29 @@ class StoryTurnImage(Base):
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class UserGalleryImage(Base):
+    __tablename__ = "user_gallery_images"
+    __table_args__ = (
+        UniqueConstraint("user_id", "turn_image_id", name="uq_user_gallery_images_user_turn_image"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    turn_image_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    source_game_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    assistant_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    prompt: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

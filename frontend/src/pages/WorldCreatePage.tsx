@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import { Alert, Box, Button, CircularProgress, IconButton, InputAdornment, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, ButtonBase, CircularProgress, IconButton, InputAdornment, MenuItem, Stack, SvgIcon, TextField, Typography } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
@@ -117,6 +117,7 @@ type EditableWorldProfileCard = {
 type CharacterPickerSourceTab = 'my' | 'community'
 type CommunityAddedFilter = 'all' | 'added' | 'not_added'
 type CommunitySortMode = 'updated_desc' | 'rating_desc' | 'additions_desc'
+type WorldCreateSection = 'main' | 'cards' | 'additional'
 type CharacterManagerSyncTarget = {
   target: 'main_hero' | 'npc'
   localId: string
@@ -162,6 +163,13 @@ const COMMUNITY_FEED_CACHE_KEY_PREFIX = 'morius.community.feed.cache.v1'
 const PUBLICATION_RULES_ACCEPTED_STORAGE_KEY = 'morius.publication.rules.accepted.v1'
 const PLOT_GG_INLINE_TAG_PATTERN = /\[\[\s*GG(?:\s*:\s*([^\]]+?))?\s*\]\]/giu
 const CHARACTER_NOTE_MAX_LENGTH = 20
+const WORLD_DRAFT_BASE_TITLE = 'Новый мир'
+const WORLD_DRAFT_SUFFIX = ' (черновик)'
+const WORLD_CREATE_SECTIONS: Array<{ id: WorldCreateSection; label: string }> = [
+  { id: 'main', label: 'Основное' },
+  { id: 'cards', label: 'Карточки' },
+  { id: 'additional', label: 'Дополнительно' },
+]
 type StoryAgeRating = (typeof AGE_RATING_OPTIONS)[number]
 
 const dialogPaperSx = {
@@ -308,6 +316,39 @@ function normalizeCharacterIdentity(value: string): string {
     .replace(/[^0-9a-zа-яё\s-]/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function normalizeWorldDraftTitle(value: string): string {
+  const normalizedTitle = value.replace(/\s+/g, ' ').trim() || WORLD_DRAFT_BASE_TITLE
+  return normalizedTitle.endsWith(WORLD_DRAFT_SUFFIX)
+    ? normalizedTitle
+    : `${normalizedTitle}${WORLD_DRAFT_SUFFIX}`
+}
+
+function normalizeWorldTitle(value: string): string {
+  return value.replace(/\s+/g, ' ').trim() || WORLD_DRAFT_BASE_TITLE
+}
+
+function renderWorldCreateSectionIcon(sectionId: WorldCreateSection): ReactNode {
+  if (sectionId === 'main') {
+    return (
+      <SvgIcon viewBox="0 0 24 24" sx={{ width: 13, height: 13, flexShrink: 0 }}>
+        <path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm6.9 9h-3.05a15.8 15.8 0 0 0-1.2-5.02A8.03 8.03 0 0 1 18.9 11ZM12 4.05c.77 1.1 1.7 3.02 1.9 6.95h-3.8c.2-3.93 1.13-5.85 1.9-6.95ZM4.1 13h3.05c.16 2 .6 3.73 1.2 5.02A8.03 8.03 0 0 1 4.1 13Zm3.05-2H4.1a8.03 8.03 0 0 1 4.25-5.02A15.8 15.8 0 0 0 7.15 11ZM12 19.95c-.77-1.1-1.7-3.02-1.9-6.95h3.8c-.2 3.93-1.13 5.85-1.9 6.95Zm3.65-1.93c.6-1.29 1.04-3.02 1.2-5.02h3.05a8.03 8.03 0 0 1-4.25 5.02Z" />
+      </SvgIcon>
+    )
+  }
+  if (sectionId === 'cards') {
+    return (
+      <SvgIcon viewBox="0 0 24 24" sx={{ width: 13, height: 13, flexShrink: 0 }}>
+        <path fill="currentColor" d="M5 3.5h10.5a2 2 0 0 1 2 2V16a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5.5a2 2 0 0 1 2-2Zm1.4 4.2v2h8.2v-2H6.4Zm0 4v1.8h5.5v-1.8H6.4ZM8.5 20.5h11a2 2 0 0 0 2-2v-11h-2v11h-11v2Z" />
+      </SvgIcon>
+    )
+  }
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 13, height: 13, flexShrink: 0 }}>
+      <path fill="currentColor" d="M6 4h2.4v2.2H20v2H8.4V10H6V8.2H4v-2h2V4Zm5.6 5h2.4v2.2h6v2h-6V15h-2.4v-1.8H4v-2h7.6V9ZM9 14h2.4v2.2H20v2h-8.6V20H9v-1.8H4v-2h5V14Z" />
+    </SvgIcon>
+  )
 }
 
 function toEditableCharacterFromTemplate(character: StoryCharacter): EditableCharacterCard {
@@ -600,10 +641,12 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const [resolvedEditingGameId, setResolvedEditingGameId] = useState<number | null>(editingGameId)
 
   const [title, setTitle] = useState('')
+  const [isTitleInlineEditing, setIsTitleInlineEditing] = useState(false)
   const [description, setDescription] = useState('')
   const [openingScene, setOpeningScene] = useState('')
   const [openingSceneNpcName, setOpeningSceneNpcName] = useState('')
   const [visibility, setVisibility] = useState<StoryGameVisibility>('private')
+  const [activeWorldCreateSection, setActiveWorldCreateSection] = useState<WorldCreateSection>('main')
   const [isOpeningSceneExpanded, setIsOpeningSceneExpanded] = useState(false)
   const [isPublicationRulesDialogOpen, setIsPublicationRulesDialogOpen] = useState(false)
   const [ageRating, setAgeRating] = useState<StoryAgeRating>('16+')
@@ -660,7 +703,29 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
   const coverInputRef = useRef<HTMLInputElement | null>(null)
   const worldProfileBannerInputRef = useRef<HTMLInputElement | null>(null)
+  const titleInlineInputRef = useRef<HTMLInputElement | null>(null)
   const openingSceneInputRef = useRef<HTMLTextAreaElement | null>(null)
+
+  useEffect(() => {
+    if (!isTitleInlineEditing) {
+      return
+    }
+    const timerId = window.setTimeout(() => {
+      titleInlineInputRef.current?.focus()
+      titleInlineInputRef.current?.select()
+    }, 0)
+    return () => window.clearTimeout(timerId)
+  }, [isTitleInlineEditing])
+
+  const handleStartTitleInlineEdit = useCallback(() => {
+    setTitle((currentTitle) => normalizeWorldTitle(currentTitle))
+    setIsTitleInlineEditing(true)
+  }, [])
+
+  const handleCommitTitleInlineEdit = useCallback(() => {
+    setTitle((currentTitle) => normalizeWorldTitle(currentTitle))
+    setIsTitleInlineEditing(false)
+  }, [])
 
   const handleSelectVisibility = useCallback((nextVisibility: StoryGameVisibility) => {
     setVisibility(nextVisibility)
@@ -1668,15 +1733,16 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     [buildOpeningSceneTag],
   )
 
-  const handleSaveWorld = useCallback(async () => {
+  const handleSaveWorld = useCallback(async (options?: { saveAsDraft?: boolean; navigateTo?: string }) => {
+    const saveAsDraft = Boolean(options?.saveAsDraft)
     if (isSaveInFlightRef.current) return
-    if (!canSubmit) return
-    if (shouldConfirmPublishWithoutMainHero && !publishWithoutMainHeroConfirmedRef.current) {
+    if (!saveAsDraft && !canSubmit) return
+    if (!saveAsDraft && shouldConfirmPublishWithoutMainHero && !publishWithoutMainHeroConfirmedRef.current) {
       setIsPublishWithoutMainHeroDialogOpen(true)
       return
     }
     publishWithoutMainHeroConfirmedRef.current = false
-    if (!isMyGamesEdit && hasTemplateConflicts(mainHero, npcs)) {
+    if (!saveAsDraft && !isMyGamesEdit && hasTemplateConflicts(mainHero, npcs)) {
       setErrorMessage('Удалите дубли персонажей: ГГ и NPC не могут ссылаться на одного персонажа, а NPC не должны повторяться.')
       return
     }
@@ -1686,7 +1752,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     setErrorMessage('')
     try {
       let gameId = draftGameIdRef.current ?? resolvedEditingGameId
-      const normalizedTitle = title.trim()
+      const normalizedTitle = saveAsDraft ? normalizeWorldDraftTitle(title) : title.trim()
       const normalizedDescription = description.trim()
       const normalizedOpeningScene = openingScene.replace(/\r\n/g, '\n').trim()
       const preparedCoverImageUrl = coverImageUrl?.startsWith('data:image/')
@@ -2057,7 +2123,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         title: normalizedTitle,
         description: normalizedDescription,
         opening_scene: normalizedOpeningScene,
-        visibility,
+        visibility: saveAsDraft ? 'private' : visibility,
         age_rating: ageRating,
         genres,
         cover_image_url: preparedCoverImageUrl,
@@ -2080,7 +2146,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       } catch {
         // Ignore storage restrictions.
       }
-      onNavigate(isMyPublicationsEdit ? '/games/publications' : `/home/${gameId}`)
+      onNavigate(options?.navigateTo ?? (isMyPublicationsEdit ? '/games/publications' : `/home/${gameId}`))
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Не удалось сохранить мир')
     } finally {
@@ -2088,6 +2154,25 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       setIsSubmitting(false)
     }
   }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, genres, hasTemplateConflicts, instructionCards, isMyGamesEdit, isMyPublicationsEdit, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, resolvedEditingGameId, shouldConfirmPublishWithoutMainHero, title, user.id, visibility, worldProfile])
+
+  const handleCancelWorld = useCallback(() => {
+    if (isEditMode) {
+      onNavigate(isMyPublicationsEdit ? '/games/publications' : '/games')
+      return
+    }
+    void handleSaveWorld({ saveAsDraft: true, navigateTo: '/games' })
+  }, [handleSaveWorld, isEditMode, isMyPublicationsEdit, onNavigate])
+
+  const handleNavigateFromWorldCreate = useCallback(
+    (path: string) => {
+      if (isEditMode || path === '/worlds/new') {
+        onNavigate(path)
+        return
+      }
+      void handleSaveWorld({ saveAsDraft: true, navigateTo: path })
+    },
+    [handleSaveWorld, isEditMode, onNavigate],
+  )
 
   const helpEmpty = (text: string) => (
     <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'var(--morius-elevated-bg)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
@@ -2101,8 +2186,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
   const handleOpenTopUpDialog = useCallback(() => {
     setTopUpError('')
-    onNavigate('/shop')
-  }, [onNavigate])
+    handleNavigateFromWorldCreate('/shop')
+  }, [handleNavigateFromWorldCreate])
 
   const loadTopUpPlans = useCallback(async () => {
     setIsTopUpPlansLoading(true)
@@ -2157,20 +2242,20 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         onTogglePageMenu={() => setIsPageMenuOpen((p) => !p)}
         onClosePageMenu={() => setIsPageMenuOpen(false)}
         mobileActionItems={buildUnifiedMobileQuickActions({
-          onContinue: () => onNavigate('/dashboard?mobileAction=continue'),
-          onQuickStart: () => onNavigate('/dashboard?mobileAction=quick-start'),
-          onCreateWorld: () => onNavigate('/worlds/new'),
+          onContinue: () => handleNavigateFromWorldCreate('/dashboard?mobileAction=continue'),
+          onQuickStart: () => handleNavigateFromWorldCreate('/dashboard?mobileAction=quick-start'),
+          onCreateWorld: () => handleNavigateFromWorldCreate('/worlds/new'),
           onOpenShop: handleOpenTopUpDialog,
         })}
         menuItems={[
-          { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
-          { key: 'games-my', label: 'Мои игры', isActive: false, onClick: () => onNavigate('/games') },
-          { key: 'games-publications', label: 'Мои публикации', isActive: false, onClick: () => onNavigate('/games/publications') },
+          { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => handleNavigateFromWorldCreate('/dashboard') },
+          { key: 'games-my', label: 'Мои игры', isActive: false, onClick: () => handleNavigateFromWorldCreate('/games') },
+          { key: 'games-publications', label: 'Мои публикации', isActive: false, onClick: () => handleNavigateFromWorldCreate('/games/publications') },
           {
             key: isEditMode ? 'community-worlds' : 'world-create',
             label: isEditMode ? '\u0421\u043e\u043e\u0431\u0449\u0435\u0441\u0442\u0432\u043e' : '\u0421\u043e\u0437\u0434\u0430\u043d\u0438\u0435 \u043c\u0438\u0440\u0430',
             isActive: !isEditMode,
-            onClick: () => onNavigate(isEditMode ? '/games/all' : '/worlds/new'),
+            onClick: () => handleNavigateFromWorldCreate(isEditMode ? '/games/all' : '/worlds/new'),
           },
         ]}
         pageMenuLabels={{ expanded: 'Свернуть меню', collapsed: 'Открыть меню' }}
@@ -2184,15 +2269,161 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             user={user}
             authToken={authToken}
             avatarSize={HEADER_AVATAR_SIZE}
-            onOpenProfile={() => onNavigate('/profile')}
+            onOpenProfile={() => handleNavigateFromWorldCreate('/profile')}
           />
         }
       />
       <Box sx={{ pt: '86px', px: { xs: 2, md: 3 }, pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 4 } }}>
-        <Box sx={{ maxWidth: 1160, mx: 'auto', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, borderRadius: 'var(--morius-radius)', background: APP_CARD_BACKGROUND, p: { xs: 1.4, md: 1.8 } }}>
+        <Stack spacing={3.2} sx={{ maxWidth: 1160, mx: 'auto' }}>
           {errorMessage ? <Alert severity="error" onClose={() => setErrorMessage('')} sx={{ mb: 1.4, borderRadius: '12px' }}>{errorMessage}</Alert> : null}
+          <Box
+            sx={{
+              borderRadius: 'var(--morius-radius)',
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+              background: APP_CARD_BACKGROUND,
+              px: { xs: 1.3, md: 1.8 },
+              py: { xs: 1.2, md: 1.4 },
+            }}
+          >
+            <Stack spacing={1.35}>
+              <Stack direction="row" spacing={0.85} alignItems="center">
+                <Box component="span" sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.1rem', lineHeight: 1 }}>
+                  ✎
+                </Box>
+                {isTitleInlineEditing ? (
+                  <Box
+                    component="input"
+                    ref={titleInlineInputRef}
+                    value={title}
+                    maxLength={140}
+                    onChange={(event) => setTitle(event.target.value)}
+                    onBlur={handleCommitTitleInlineEdit}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        handleCommitTitleInlineEdit()
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        setIsTitleInlineEditing(false)
+                      }
+                    }}
+                    aria-label="Название мира"
+                    sx={{
+                      width: 'min(100%, 420px)',
+                      minWidth: 0,
+                      border: 'none',
+                      borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 72%, transparent)',
+                      outline: 'none',
+                      backgroundColor: 'transparent',
+                      color: APP_TEXT_PRIMARY,
+                      font: 'inherit',
+                      fontSize: '1.35rem',
+                      fontWeight: 850,
+                      lineHeight: 1.15,
+                      px: 0,
+                      py: 0.15,
+                    }}
+                  />
+                ) : (
+                  <ButtonBase
+                    onClick={handleStartTitleInlineEdit}
+                    sx={{
+                      minWidth: 0,
+                      borderRadius: '8px',
+                      px: 0.15,
+                      py: 0.1,
+                      textAlign: 'left',
+                      '&:focus-visible': { outline: '2px solid rgba(205, 223, 246, 0.56)', outlineOffset: '2px' },
+                    }}
+                    aria-label="Редактировать название мира"
+                  >
+                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.35rem', fontWeight: 850, lineHeight: 1.15, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {title.trim() || (isEditMode ? 'Редактирование мира' : WORLD_DRAFT_BASE_TITLE)}
+                    </Typography>
+                  </ButtonBase>
+                )}
+              </Stack>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.1} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between">
+                <Stack direction="row" spacing={0.7} sx={{ flexWrap: 'wrap', gap: 0.7 }}>
+                  {WORLD_CREATE_SECTIONS.map((section) => {
+                    const isActive = activeWorldCreateSection === section.id
+                    return (
+                      <Box
+                        key={section.id}
+                        component="button"
+                        type="button"
+                        aria-pressed={isActive}
+                        onClick={() => setActiveWorldCreateSection(section.id)}
+                        sx={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          height: 38,
+                          px: '16px',
+                          borderRadius: '48px',
+                          border: 'none',
+                          outline: 'none',
+                          backgroundColor: 'var(--morius-elevated-bg)',
+                          color: isActive ? 'var(--morius-title-text)' : APP_TEXT_SECONDARY,
+                          font: 'inherit',
+                          fontSize: { xs: '0.82rem', sm: '0.9rem' },
+                          fontWeight: 700,
+                          lineHeight: 1,
+                          cursor: 'pointer',
+                          userSelect: 'none',
+                          boxShadow: isActive ? '0 0 24px color-mix(in srgb, var(--morius-accent) 50%, transparent)' : 'none',
+                          transition: 'box-shadow 250ms ease, color 200ms ease',
+                          '&:hover': {
+                            color: 'var(--morius-title-text)',
+                          },
+                          '&:focus-visible': { outline: '2px solid rgba(205, 223, 246, 0.56)', outlineOffset: '2px' },
+                        }}
+                      >
+                        {renderWorldCreateSectionIcon(section.id)}
+                        {section.label}
+                      </Box>
+                    )
+                  })}
+                </Stack>
+                <Stack direction="row" spacing={0.9} justifyContent={{ xs: 'flex-end', md: 'flex-start' }}>
+                  <Button onClick={handleCancelWorld} disabled={isSubmitting} sx={{ minHeight: 38, color: APP_TEXT_SECONDARY }}>
+                    Отмена
+                  </Button>
+                  <Button
+                    data-tour-id="world-create-submit"
+                    onClick={() => void handleSaveWorld()}
+                    disabled={!canSubmit}
+                    sx={{
+                      minHeight: 42,
+                      px: 1.75,
+                      borderRadius: '12px',
+                      color: APP_TEXT_PRIMARY,
+                      backgroundColor: canSubmit ? 'var(--morius-accent)' : 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #7d8795)',
+                      boxShadow: canSubmit ? '0 10px 24px color-mix(in srgb, var(--morius-accent) 28%, transparent)' : 'none',
+                      '&:hover': {
+                        backgroundColor: canSubmit ? 'color-mix(in srgb, var(--morius-accent) 86%, #ffffff 14%)' : 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #7d8795)',
+                      },
+                      '&:disabled': {
+                        color: 'color-mix(in srgb, var(--morius-text-primary) 62%, transparent)',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #7d8795)',
+                      },
+                    }}
+                  >
+                    {isSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : isEditMode ? 'Сохранить' : 'Создать'}
+                  </Button>
+                </Stack>
+              </Stack>
+            </Stack>
+          </Box>
+
           {isLoading ? <Stack alignItems="center" sx={{ py: 8 }}><CircularProgress /></Stack> : <Stack spacing={2.2}>
+            <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: { xs: '2rem', md: '2.55rem' }, fontWeight: 900, lineHeight: 1.08 }}>
+              {WORLD_CREATE_SECTIONS.find((section) => section.id === activeWorldCreateSection)?.label}
+            </Typography>
+            {activeWorldCreateSection === 'additional' ? (
             <Stack data-tour-id="world-create-cover" spacing={0.95} sx={{ scrollMarginTop: '120px' }}>
+              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Баннер</Typography>
               <input ref={coverInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleCoverUpload} style={{ display: 'none' }} />
               <input
                 ref={worldProfileBannerInputRef}
@@ -2234,7 +2465,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                   <Box
                     sx={{
                       width: '100%',
-                      aspectRatio: '3 / 2',
+                      height: { xs: 188, sm: 230, md: 292 },
+                      maxHeight: { md: 292 },
                       position: 'relative',
                       background: coverImageUrl
                         ? 'transparent'
@@ -2282,8 +2514,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                     <Stack sx={{ position: 'absolute', inset: 0 }} alignItems="center" justifyContent="center">
                       <Box
                         sx={{
-                          width: 82,
-                          height: 82,
+                          width: { xs: 54, sm: 62 },
+                          height: { xs: 54, sm: 62 },
                           borderRadius: '50%',
                           border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-text-primary) 62%, transparent)',
                           background: 'color-mix(in srgb, var(--morius-card-bg) 60%, transparent)',
@@ -2302,11 +2534,26 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                             sx={{ width: 25, height: 25, filter: 'brightness(0) invert(1)', opacity: 0.93 }}
                           />
                         ) : (
-                          <Typography component="span" sx={{ fontSize: '2.4rem', lineHeight: 1 }}>
+                          <Typography component="span" sx={{ fontSize: { xs: '1.8rem', sm: '2rem' }, lineHeight: 1 }}>
                             +
                           </Typography>
                         )}
                       </Box>
+                      <Typography
+                        sx={{
+                          mt: 1,
+                          px: 1.4,
+                          py: 0.65,
+                          borderRadius: '999px',
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 78%, transparent)',
+                          color: APP_TEXT_PRIMARY,
+                          fontSize: '0.9rem',
+                          fontWeight: 800,
+                        }}
+                      >
+                        {coverImageUrl ? 'Изменить баннер' : 'Загрузить баннер'}
+                      </Typography>
                     </Stack>
                   </Box>
                 </Button>
@@ -2345,13 +2592,109 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 Не больше 2 МБ (изображение будет автоматически сжато для экономии)
               </Typography>
             </Stack>
+            ) : null}
 
+            {activeWorldCreateSection === 'additional' ? (
+              <Stack data-tour-id="world-create-opening-scene" spacing={0.75} sx={{ scrollMarginTop: '120px' }}>
+                <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Вступительная сцена</Typography>
+                <Button
+                  onClick={() => setIsOpeningSceneExpanded((previous) => !previous)}
+                  sx={{
+                    minHeight: 46,
+                    justifyContent: 'space-between',
+                    borderRadius: '14px',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: APP_CARD_BACKGROUND,
+                    color: APP_TEXT_PRIMARY,
+                    textTransform: 'none',
+                    px: 1.2,
+                    '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                  }}
+                >
+                  <Stack spacing={0.25} sx={{ textAlign: 'left', minWidth: 0 }}>
+                    <Typography sx={{ fontWeight: 850, lineHeight: 1.15 }}>Вступительная сцена</Typography>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', lineHeight: 1.25 }}>
+                      Необязательный текст до первого хода игрока; если заполнить, он учитывается сразу в первом ответе рассказчика.
+                    </Typography>
+                  </Stack>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.2rem', lineHeight: 1 }}>
+                    {isOpeningSceneExpanded ? '-' : '+'}
+                  </Typography>
+                </Button>
+                {isOpeningSceneExpanded ? (
+                  <>
+                    <TextField
+                      label="Вступительная сцена"
+                      value={openingScene}
+                      onChange={(e) => setOpeningScene(e.target.value)}
+                      fullWidth
+                      multiline
+                      minRows={3}
+                      maxRows={8}
+                      inputRef={openingSceneInputRef}
+                      inputProps={{ maxLength: OPENING_SCENE_MAX_LENGTH }}
+                      helperText={<TextLimitIndicator currentLength={openingScene.length} maxLength={OPENING_SCENE_MAX_LENGTH} />}
+                      FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                    />
+                    <Box
+                      sx={{
+                        borderRadius: '12px',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, transparent)',
+                        px: 1,
+                        py: 0.9,
+                      }}
+                    >
+                      <Stack spacing={0.75}>
+                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.81rem' }}>
+                          Быстрые теги: выберите тип реплики, и тег вставится в курсор.
+                        </Typography>
+                        <TextField
+                          label="Имя NPC для тегов"
+                          value={openingSceneNpcName}
+                          onChange={(event) => setOpeningSceneNpcName(event.target.value.slice(0, OPENING_SCENE_NPC_NAME_MAX_LENGTH))}
+                          placeholder={OPENING_SCENE_NPC_FALLBACK_NAME}
+                          fullWidth
+                          size="small"
+                        />
+                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 0.6 }}>
+                          <Button size="small" onClick={() => insertOpeningSceneTag('gg_name')} sx={OPENING_SCENE_TAG_BUTTON_SX}>
+                            ГГ
+                          </Button>
+                          <Button size="small" onClick={() => insertOpeningSceneTag('gg_speech')} sx={OPENING_SCENE_TAG_BUTTON_SX}>
+                            GG реплика
+                          </Button>
+                          <Button size="small" onClick={() => insertOpeningSceneTag('gg_thought')} sx={OPENING_SCENE_TAG_BUTTON_SX}>
+                            GG мысли
+                          </Button>
+                          <Button size="small" onClick={() => insertOpeningSceneTag('npc_speech')} sx={OPENING_SCENE_TAG_BUTTON_SX}>
+                            NPC реплика
+                          </Button>
+                          <Button size="small" onClick={() => insertOpeningSceneTag('npc_thought')} sx={OPENING_SCENE_TAG_BUTTON_SX}>
+                            NPC мысли
+                          </Button>
+                        </Box>
+                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.77rem' }}>
+                          Кнопка «ГГ» вставляет имя главного героя. Пока ГГ не назначен, будет отображаться «Главный Герой».
+                        </Typography>
+                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.77rem' }}>
+                          Обычный текст можно писать как есть, он автоматически пойдет в повествование.
+                        </Typography>
+                      </Stack>
+                    </Box>
+                  </>
+                ) : null}
+              </Stack>
+            ) : null}
+
+            {activeWorldCreateSection === 'main' ? (
+              <>
             <Stack data-tour-id="world-create-visibility-top" spacing={0.9} sx={{ scrollMarginTop: '120px' }}>
               <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={0.8}>
                 <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Параметры доступа</Typography>
                 {visibility === 'public' ? (
                   <Button
-                    onClick={() => onNavigate('/publication-rules')}
+                    onClick={() => handleNavigateFromWorldCreate('/publication-rules')}
                     sx={{ minHeight: 34, borderRadius: '10px', textTransform: 'none', color: 'var(--morius-accent)' }}
                   >
                     Правила публикаций
@@ -2394,7 +2737,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               </Stack>
               {visibility === 'public' ? (
                 <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', lineHeight: 1.45 }}>
-                  Публичная игра станет отдельной публикацией без истории прохождения. Главный герой не нужен и не показывается в форме.
+                  Публичный мир станет отдельной публикацией без истории прохождения.
                 </Typography>
               ) : null}
             </Stack>
@@ -2422,121 +2765,13 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 helperText={<TextLimitIndicator currentLength={description.length} maxLength={1000} />}
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
-              {
-                <Stack data-tour-id="world-create-opening-scene" spacing={0.75} sx={{ scrollMarginTop: '120px' }}>
-                  <Button
-                    onClick={() => setIsOpeningSceneExpanded((previous) => !previous)}
-                    sx={{
-                      minHeight: 46,
-                      justifyContent: 'space-between',
-                      borderRadius: '14px',
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      backgroundColor: APP_CARD_BACKGROUND,
-                      color: APP_TEXT_PRIMARY,
-                      textTransform: 'none',
-                      px: 1.2,
-                      '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-                    }}
-                  >
-                    <Stack spacing={0.25} sx={{ textAlign: 'left', minWidth: 0 }}>
-                      <Typography sx={{ fontWeight: 850, lineHeight: 1.15 }}>Вступительная сцена</Typography>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', lineHeight: 1.25 }}>
-                        Необязательный текст до первого хода игрока; если заполнить, он учитывается сразу в первом ответе рассказчика.
-                      </Typography>
-                    </Stack>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.2rem', lineHeight: 1 }}>
-                      {isOpeningSceneExpanded ? '−' : '+'}
-                    </Typography>
-                  </Button>
-                  {isOpeningSceneExpanded ? (
-                    <>
-                  <TextField
-                    label="Вступительная сцена"
-                    value={openingScene}
-                    onChange={(e) => setOpeningScene(e.target.value)}
-                    fullWidth
-                    multiline
-                    minRows={3}
-                    maxRows={8}
-                    inputRef={openingSceneInputRef}
-                    inputProps={{ maxLength: OPENING_SCENE_MAX_LENGTH }}
-                    helperText={<TextLimitIndicator currentLength={openingScene.length} maxLength={OPENING_SCENE_MAX_LENGTH} />}
-                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-                  />
-                  <Box
-                    sx={{
-                      borderRadius: '12px',
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, transparent)',
-                      px: 1,
-                      py: 0.9,
-                    }}
-                  >
-                    <Stack spacing={0.75}>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.81rem' }}>
-                        Быстрые теги: выберите тип реплики, и тег вставится в курсор.
-                      </Typography>
-                      <TextField
-                        label="Имя NPC для тегов"
-                        value={openingSceneNpcName}
-                        onChange={(event) => setOpeningSceneNpcName(event.target.value.slice(0, OPENING_SCENE_NPC_NAME_MAX_LENGTH))}
-                        placeholder={OPENING_SCENE_NPC_FALLBACK_NAME}
-                        fullWidth
-                        size="small"
-                      />
-                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 0.6 }}>
-                        <Button
-                          size="small"
-                          onClick={() => insertOpeningSceneTag('gg_name')}
-                          sx={OPENING_SCENE_TAG_BUTTON_SX}
-                        >
-                          ГГ
-                        </Button>
-                        <Button
-                          size="small"
-                          onClick={() => insertOpeningSceneTag('gg_speech')}
-                          sx={OPENING_SCENE_TAG_BUTTON_SX}
-                        >
-                          GG реплика
-                        </Button>
-                        <Button
-                          size="small"
-                          onClick={() => insertOpeningSceneTag('gg_thought')}
-                          sx={OPENING_SCENE_TAG_BUTTON_SX}
-                        >
-                          GG мысли
-                        </Button>
-                        <Button
-                          size="small"
-                          onClick={() => insertOpeningSceneTag('npc_speech')}
-                          sx={OPENING_SCENE_TAG_BUTTON_SX}
-                        >
-                          NPC реплика
-                        </Button>
-                        <Button
-                          size="small"
-                          onClick={() => insertOpeningSceneTag('npc_thought')}
-                          sx={OPENING_SCENE_TAG_BUTTON_SX}
-                        >
-                          NPC мысли
-                        </Button>
-                      </Box>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.77rem' }}>
-                        Кнопка «ГГ» вставляет имя главного героя. Пока ГГ не назначен, будет отображаться «Главный Герой».
-                      </Typography>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.77rem' }}>
-                        Обычный текст можно писать как есть, он автоматически пойдет в повествование.
-                      </Typography>
-                    </Stack>
-                  </Box>
-                    </>
-                  ) : null}
-                </Stack>
-              }
             </Stack>
+              </>
+            ) : null}
 
+            {activeWorldCreateSection === 'additional' ? (
             <Stack data-tour-id="world-create-genres" spacing={1} sx={{ scrollMarginTop: '120px' }}>
-              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Дополнительно</Typography>
+              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Теги</Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.7}>
                 <TextField
                   value={genreSearch}
@@ -2595,10 +2830,12 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 Выбрано: {genres.length}/{MAX_WORLD_GENRES}
               </Typography>
             </Stack>
+            ) : null}
 
-            <Box data-tour-id="world-create-cards" sx={{ scrollMarginTop: '120px' }}>
-              <Stack spacing={0.85}>
-                <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Инструкции</Typography>
+            {activeWorldCreateSection === 'cards' ? (
+            <Box data-tour-id="world-create-cards" sx={{ scrollMarginTop: '120px', display: 'flex', flexDirection: 'column', gap: 2.2 }}>
+              <Stack spacing={0.85} sx={{ order: 4 }}>
+                <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Правила</Typography>
                 {instructionCards.length > 0 ? (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                     {instructionCards.map((card) => (
@@ -2619,7 +2856,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 ) : null}
                 <EmptyAddCard
                   onClick={() => openCardDialog('instruction')}
-                  label="Добавить карточку инструкций"
+                  label="Добавить карточку правил"
                   actions={[
                     { label: 'Новая', onClick: () => openCardDialog('instruction') },
                     { label: 'Из шаблона', onClick: () => setInstructionTemplateDialogOpen(true) },
@@ -2627,7 +2864,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 />
               </Stack>
 
-              <Stack spacing={0.85} sx={{ mt: 2.2 }}>
+              <Stack spacing={0.85} sx={{ order: 2 }}>
                 <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Сюжет</Typography>
                 {plotCards.length === 0 ? (
                   <EmptyAddCard onClick={() => openCardDialog('plot')} label="Добавить карточку" />
@@ -2652,7 +2889,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 {plotCards.length > 0 ? <Button onClick={() => openCardDialog('plot')} sx={{ minHeight: 34, width: 'fit-content' }}>Добавить</Button> : null}
               </Stack>
 
-              <Stack spacing={0.9} sx={{ mt: 2.2 }}>
+              <Stack spacing={0.9} sx={{ order: 3 }}>
                 <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Мир</Typography>
                 {worldProfile ? (
                   <Box sx={{ width: { xs: '100%', sm: 380 }, maxWidth: '100%' }}>
@@ -2692,38 +2929,80 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 )}
               </Stack>
 
-              <Stack spacing={0.9} sx={{ mt: 2.2 }}>
+              <Stack spacing={0.9} sx={{ order: 1 }}>
                 <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Персонажи</Typography>
-                {!isMyGamesEdit && !isMyPublicationsEdit && visibility !== 'public' ? (
-                  <Stack spacing={0.7}>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>Главный герой</Typography>
+                <Stack spacing={0.7}>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>Главный герой</Typography>
+                  <Button
+                    onClick={() => setCharacterPickerTarget('main_hero')}
+                    sx={{
+                      width: '100%',
+                      minHeight: 74,
+                      justifyContent: 'space-between',
+                      borderRadius: '14px',
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: APP_CARD_BACKGROUND,
+                      color: APP_TEXT_PRIMARY,
+                      textTransform: 'none',
+                      px: 1.1,
+                      '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                    }}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, textAlign: 'left' }}>
+                      {mainHero ? (
+                        <MiniAvatar avatarUrl={mainHero.avatar_url} avatarScale={mainHero.avatar_scale} label={mainHero.name} size={44} />
+                      ) : (
+                        <Box
+                          sx={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: '50%',
+                            display: 'grid',
+                            placeItems: 'center',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 90%, #ffffff 10%)',
+                            color: APP_TEXT_SECONDARY,
+                            fontSize: '1.45rem',
+                            fontWeight: 900,
+                            flexShrink: 0,
+                          }}
+                        >
+                          ?
+                        </Box>
+                      )}
+                      <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+                        <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 850, fontSize: '1rem', lineHeight: 1.18, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {mainHero?.name || 'Главный герой'}
+                        </Typography>
+                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {mainHero ? 'Выбран главный герой' : 'Выберите главного героя'}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.25rem', lineHeight: 1 }}>⌄</Typography>
+                  </Button>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.7}>
+                    <Button onClick={() => openCharacterManagerForCreate('main_hero')} sx={{ minHeight: 34, flex: 1 }}>
+                      Новая
+                    </Button>
+                    <Button onClick={() => setCharacterPickerTarget('main_hero')} sx={{ minHeight: 34, flex: 1 }}>
+                      Из шаблона
+                    </Button>
                     {mainHero ? (
-                      <CompactCard
-                        title={mainHero.name}
-                        content={`${mainHero.description}${mainHero.triggers.trim() ? `\nТриггеры: ${mainHero.triggers.trim()}` : ''}`}
-                        badge="гг"
-                        noteBadge={mainHero.note}
-                        avatar={<MiniAvatar avatarUrl={mainHero.avatar_url} avatarScale={mainHero.avatar_scale} label={mainHero.name} size={38} />}
-                        actions={
-                          <>
-                            <Button onClick={() => void openCharacterManagerForEdit('main_hero', mainHero)} disabled={isOpeningCharacterManager} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
-                            <Button onClick={() => setMainHero(null)} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Убрать</Button>
-                          </>
-                        }
-                      />
+                      <Button onClick={() => setMainHero(null)} sx={{ minHeight: 34, flex: 1, color: APP_TEXT_SECONDARY }}>
+                        Убрать
+                      </Button>
                     ) : null}
-                    {!mainHero ? (
-                      <EmptyAddCard
-                        onClick={() => openCharacterManagerForCreate('main_hero')}
-                        label="Добавить Главного Героя"
-                        actions={[
-                          { label: 'Новая', onClick: () => openCharacterManagerForCreate('main_hero') },
-                          { label: 'Из шаблона', onClick: () => setCharacterPickerTarget('main_hero') },
-                        ]}
-                      />
+                    {mainHero ? (
+                      <Button
+                        onClick={() => void openCharacterManagerForEdit('main_hero', mainHero)}
+                        disabled={isOpeningCharacterManager}
+                        sx={{ minHeight: 34, flex: 1 }}
+                      >
+                        Изменить
+                      </Button>
                     ) : null}
                   </Stack>
-                ) : null}
+                </Stack>
 
                 <Stack spacing={0.7}>
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>NPC</Typography>
@@ -2758,61 +3037,9 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 </Stack>
               </Stack>
             </Box>
-
-            <Stack data-tour-id="world-create-visibility" spacing={0.9} sx={{ display: 'none', scrollMarginTop: '120px' }}>
-              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Параметры доступа</Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8}>
-                <Button
-                  onClick={() => handleSelectVisibility('private')}
-                  sx={{
-                    minHeight: 44,
-                    flex: 1,
-                    border: 'none',
-                    backgroundColor: 'transparent',
-                    color: visibility === 'private' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
-                    fontWeight: visibility === 'private' ? 800 : 650,
-                    textTransform: 'none',
-                    '&:hover': { backgroundColor: 'transparent' },
-                  }}
-                >
-                  Частный
-                </Button>
-                <Button
-                  onClick={() => handleSelectVisibility('public')}
-                  sx={{
-                    minHeight: 44,
-                    flex: 1,
-                    border: 'none',
-                    backgroundColor: 'transparent',
-                    color: visibility === 'public' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
-                    fontWeight: visibility === 'public' ? 800 : 650,
-                    textTransform: 'none',
-                    '&:hover': { backgroundColor: 'transparent' },
-                  }}
-                >
-                  Публичный
-                </Button>
-              </Stack>
-            </Stack>
-
-            <Stack direction="row" spacing={0.8} justifyContent="flex-end" sx={{ pt: 0.6 }}>
-              <Button onClick={() => onNavigate('/games')} sx={{ minHeight: 38, color: APP_TEXT_SECONDARY }}>Отмена</Button>
-              <Button
-                data-tour-id="world-create-submit"
-                onClick={() => void handleSaveWorld()}
-                disabled={!canSubmit}
-                sx={{
-                  minHeight: 38,
-                  color: 'var(--morius-accent)',
-                  backgroundColor: 'transparent',
-                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.04)' },
-                }}
-              >
-                {isSubmitting ? <CircularProgress size={16} sx={{ color: 'var(--morius-accent)' }} /> : isEditMode ? 'Сохранить' : visibility === 'public' ? 'Опубликовать' : 'Создать'}
-              </Button>
-            </Stack>
+            ) : null}
           </Stack>}
-        </Box>
+        </Stack>
       </Box>
 
       <BaseDialog
@@ -2830,7 +3057,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         }
         actions={
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="flex-end" sx={{ width: '100%' }}>
-            <Button onClick={() => onNavigate('/publication-rules')} sx={{ color: APP_TEXT_SECONDARY, textTransform: 'none' }}>
+            <Button onClick={() => handleNavigateFromWorldCreate('/publication-rules')} sx={{ color: APP_TEXT_SECONDARY, textTransform: 'none' }}>
               Подробнее
             </Button>
             <Button
@@ -2917,7 +3144,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         open={cardDialogOpen}
         onClose={() => setCardDialogOpen(false)}
         onSubmit={saveCardDialog}
-        title={cardDialogKind === 'instruction' ? 'Карточка инструкции' : 'Карточка сюжета'}
+        title={cardDialogKind === 'instruction' ? 'Карточка правил' : 'Карточка сюжета'}
         description="Заполните карточку. Пустые карточки не сохраняются."
         maxWidth="sm"
         paperSx={dialogPaperSx}

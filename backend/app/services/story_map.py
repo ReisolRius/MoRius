@@ -2384,11 +2384,8 @@ def generate_story_map_image_impl(
     )
 
     generation_cost = _get_story_map_image_cost_tokens(selected_model)
-    if not _spend_user_tokens_if_sufficient(db, int(user.id), generation_cost):
-        db.rollback()
+    if int(getattr(user, "coins", 0) or 0) < generation_cost:
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Not enough sols to generate map image")
-    db.commit()
-    db.refresh(user)
 
     logger.info(
         "Story map image generation started: game_id=%s scope=%s model=%s target_region_id=%s target_location_id=%s cost=%s",
@@ -2406,13 +2403,6 @@ def generate_story_map_image_impl(
             reference_image_data_url=reference_image_data_url,
         )
     except Exception as exc:
-        try:
-            _add_user_tokens(db, int(user.id), generation_cost)
-            db.commit()
-            db.refresh(user)
-        except Exception:
-            db.rollback()
-            logger.exception("Story map image token refund failed after generation error: game_id=%s", game.id)
         logger.exception("Story map image generation failed: game_id=%s scope=%s", game.id, normalized_scope)
         detail = str(exc).strip() or "Map image generation failed"
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail[:500]) from exc
@@ -2451,18 +2441,16 @@ def generate_story_map_image_impl(
         )
         db.add(persisted_image)
         touch_story_game(game)
+        if not _spend_user_tokens_if_sufficient(db, int(user.id), generation_cost):
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Not enough sols to generate map image")
         db.commit()
         db.refresh(persisted_image)
         db.refresh(user)
+    except HTTPException:
+        raise
     except Exception as exc:
         db.rollback()
-        try:
-            _add_user_tokens(db, int(user.id), generation_cost)
-            db.commit()
-            db.refresh(user)
-        except Exception:
-            db.rollback()
-            logger.exception("Story map image token refund failed after persistence error: game_id=%s", game.id)
         logger.exception("Story map image persistence failed: game_id=%s scope=%s", game.id, normalized_scope)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

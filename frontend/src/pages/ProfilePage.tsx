@@ -34,7 +34,7 @@ import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import ProgressiveImage from '../components/media/ProgressiveImage'
 import { useIncrementalList } from '../hooks/useIncrementalList'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
-import { useVisibilityTrigger } from '../hooks/useVisibilityTrigger'
+import { useScrollLoadTrigger } from '../hooks/useScrollLoadTrigger'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
@@ -52,6 +52,7 @@ import { ONBOARDING_GUIDE_COMMAND_EVENT, type OnboardingGuideCommandDetail } fro
 import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
 import {
   createCoinTopUpPayment,
+  deleteCurrentUserGalleryImage,
   deleteCurrentUserNotification,
   followUserProfile,
   getCurrentUserNotificationSummary,
@@ -69,6 +70,7 @@ import {
   type CoinTopUpPlan,
   type CosmeticItem,
   type ProfileFollowState,
+  type ProfileGalleryImage,
   type ProfileView,
   type ReferralSummary,
   type UserNotificationCounters,
@@ -123,7 +125,7 @@ type ProfilePageProps = {
   viewedUserId?: number | null
 }
 
-type TabId = 'games' | 'characters' | 'world_cards' | 'instructions' | 'favorites' | 'notifications' | 'plots' | 'subscriptions' | 'publications'
+type TabId = 'games' | 'characters' | 'world_cards' | 'instructions' | 'gallery' | 'favorites' | 'notifications' | 'plots' | 'subscriptions' | 'publications'
 type ProfileMainSection = 'library' | 'publications'
 type NotificationSortMode = 'newest' | 'oldest'
 type ProfileContentSortMode = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'popular_desc' | 'rating_desc'
@@ -170,6 +172,7 @@ const BASE_PROFILE_TABS: Array<{ id: TabId; label: string }> = [
   { id: 'world_cards', label: 'Миры' },
   { id: 'characters', label: 'Персонажи' },
   { id: 'instructions', label: 'Правила' },
+  { id: 'gallery', label: 'Галерея' },
 ]
 
 const PROFILE_PUBLICATION_TABS: Array<{ id: PublicationSection; label: string; iconTab: TabId }> = [
@@ -184,6 +187,7 @@ const PROFILE_TAB_LABELS: Record<Exclude<TabId, 'notifications'>, string> = {
   characters: 'Персонажи',
   world_cards: 'Миры',
   instructions: 'Правила',
+  gallery: 'Галерея',
   favorites: 'Любимое',
   plots: 'Сюжеты',
   subscriptions: 'Подписки',
@@ -666,6 +670,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [characterDialogMode, setCharacterDialogMode] = useState<'list' | 'create'>('list')
   const [characterEditId, setCharacterEditId] = useState<number | null>(null)
   const [characterAvatarPreview, setCharacterAvatarPreview] = useState<{ url: string; name: string } | null>(null)
+  const [galleryPreviewImage, setGalleryPreviewImage] = useState<ProfileGalleryImage | null>(null)
+  const [deletingGalleryImageIds, setDeletingGalleryImageIds] = useState<Set<number>>(() => new Set())
   const [instructionDialogOpen, setInstructionDialogOpen] = useState(false)
   const [instructionDialogMode, setInstructionDialogMode] = useState<'list' | 'create'>('list')
   const [instructionEditId, setInstructionEditId] = useState<number | null>(null)
@@ -700,7 +706,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const lastContentTabRef = useRef<TabId>('characters')
-  const notificationsLoadMoreTriggeredRef = useRef(false)
+  const notificationsLoadMoreTriggeredRef = useRef(0)
 
   const profileName = user.display_name?.trim() || 'Игрок'
   const profileDescription = user.profile_description || ''
@@ -796,6 +802,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     }
   }, [authToken, shouldLoadPaidProfileBannerCatalog])
   const visibleSubscriptions = profileView?.subscriptions ?? []
+  const profileGalleryImages = profileView?.gallery_images ?? []
   const referralLink = useMemo(
     () => buildReferralLink(referralSummary?.referral_code ?? user.referral_code ?? ''),
     [referralSummary?.referral_code, user.referral_code],
@@ -811,7 +818,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const isCurrentTabWaitingForProfileView =
     isProfileBootstrapLoading &&
     !profileView &&
-    (!isOwnProfile || tab === 'publications' || tab === 'subscriptions')
+    (!isOwnProfile || tab === 'publications' || tab === 'subscriptions' || tab === 'gallery')
   const tabs = useMemo(() => {
     if (isOwnProfile) {
       return BASE_PROFILE_TABS
@@ -962,6 +969,18 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         subscriptionSortMode as Extract<ProfileContentSortMode, 'name_asc' | 'name_desc'>,
       ),
     [normalizedContentSearchQuery, subscriptionSortMode, visibleSubscriptions],
+  )
+  const filteredGalleryImages = useMemo(
+    () =>
+      profileGalleryImages.filter((item) =>
+        matchesProfileSearch(normalizedContentSearchQuery, [
+          item.prompt,
+          item.model,
+          item.created_at,
+          item.updated_at,
+        ]),
+      ),
+    [normalizedContentSearchQuery, profileGalleryImages],
   )
   const filteredNotifications = useMemo(
     () =>
@@ -1263,11 +1282,19 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     resetKey: `${normalizedContentSearchQuery}|subscriptions|${filteredSubscriptions.length}`,
   })
   const {
+    visibleItems: visibleGalleryImages,
+    hasMore: hasMoreGalleryImages,
+    loadMoreRef: loadMoreGalleryImagesRef,
+  } = useIncrementalList(filteredGalleryImages, {
+    initialCount: PROFILE_CARD_BATCH_SIZE,
+    step: PROFILE_CARD_BATCH_SIZE,
+    resetKey: `${normalizedContentSearchQuery}|gallery|${filteredGalleryImages.length}`,
+  })
+  const {
     ref: loadMoreNotificationsRef,
-    isVisible: isLoadMoreNotificationsVisible,
-  } = useVisibilityTrigger<HTMLDivElement>({
+    loadMoreSignal: loadMoreNotificationsSignal,
+  } = useScrollLoadTrigger<HTMLDivElement>({
     rootMargin: '140px 0px',
-    once: false,
     disabled:
       tab !== 'notifications' ||
       !hasMoreNotificationsServer ||
@@ -1370,6 +1397,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       items.push(
         { id: 'characters', label: PROFILE_TAB_LABELS.characters, count: managedCharacters.length },
         { id: 'instructions', label: PROFILE_TAB_LABELS.instructions, count: sortedTemplates.length },
+        { id: 'gallery', label: PROFILE_TAB_LABELS.gallery, count: profileGalleryImages.length },
       )
     }
     return items
@@ -1378,6 +1406,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     isOwnProfile,
     managedCharacters.length,
     ownGames.length,
+    profileGalleryImages.length,
     sortedTemplates.length,
     visiblePublicationCharacters.length,
     visiblePublicationTemplates.length,
@@ -1391,6 +1420,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       { id: 'publications' as TabId, label: 'Миры' },
       { id: 'characters' as TabId, label: 'Персонажи' },
       { id: 'instructions' as TabId, label: 'Правила' },
+      { id: 'gallery' as TabId, label: 'Галерея' },
     ].filter((item) => tabs.some((tabItem) => tabItem.id === item.id)),
     [tabs],
   )
@@ -1898,7 +1928,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setHasLoadedNotifications(false)
     setHasMoreNotificationsServer(false)
     setIsNotificationsLoadingMore(false)
-    notificationsLoadMoreTriggeredRef.current = false
+    setGalleryPreviewImage(null)
+    setDeletingGalleryImageIds(new Set())
+    notificationsLoadMoreTriggeredRef.current = 0
   }, [normalizedViewedUserId])
 
   useEffect(() => {
@@ -1965,16 +1997,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setNotifications([])
     setHasLoadedNotifications(false)
     setHasMoreNotificationsServer(false)
-    notificationsLoadMoreTriggeredRef.current = false
+    notificationsLoadMoreTriggeredRef.current = 0
   }, [isOwnProfile, notificationSortMode])
 
   useEffect(() => {
-    if (!isLoadMoreNotificationsVisible) {
-      notificationsLoadMoreTriggeredRef.current = false
+    if (loadMoreNotificationsSignal <= 0) {
       return
     }
     if (
-      notificationsLoadMoreTriggeredRef.current ||
+      notificationsLoadMoreTriggeredRef.current === loadMoreNotificationsSignal ||
       !hasLoadedNotifications ||
       !hasMoreNotificationsServer ||
       isNotificationsLoading ||
@@ -1983,14 +2014,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     ) {
       return
     }
-    notificationsLoadMoreTriggeredRef.current = true
+    notificationsLoadMoreTriggeredRef.current = loadMoreNotificationsSignal
     void loadNotifications({ append: true })
   }, [
     hasLoadedNotifications,
     hasMoreNotificationsServer,
-    isLoadMoreNotificationsVisible,
     isNotificationsLoading,
     isNotificationsLoadingMore,
+    loadMoreNotificationsSignal,
     loadNotifications,
     tab,
   ])
@@ -2493,7 +2524,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       if (!detail) {
         return
       }
-      const refs = [...(detail.createdEntities ?? []), ...(detail.updatedEntities ?? [])]
+      const refs = [...(detail.createdEntities ?? []), ...(detail.updatedEntities ?? []), ...(detail.deletedEntities ?? [])]
+      if (refs.some((ref) => ref.type === 'world' || ref.type === 'world_game')) {
+        void loadProfileView()
+      }
       if (refs.some((ref) => ref.type === 'profile_character')) {
         setTab('characters')
         void loadCharactersOnly()
@@ -2511,11 +2545,55 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     return () => {
       window.removeEventListener(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, handleAiAssistantEntitiesChanged as EventListener)
     }
-  }, [isOwnProfile, loadCharactersOnly, loadTemplatesOnly])
+  }, [isOwnProfile, loadCharactersOnly, loadProfileView, loadTemplatesOnly])
 
   const handleCloseCharacterAvatarPreview = useCallback(() => {
     setCharacterAvatarPreview(null)
   }, [])
+
+  const handleCloseGalleryPreview = useCallback(() => {
+    setGalleryPreviewImage(null)
+  }, [])
+
+  const handleDeleteGalleryImage = useCallback(
+    async (imageId: number, event?: ReactMouseEvent<HTMLElement>) => {
+      if (event) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+      if (!isOwnProfile || deletingGalleryImageIds.has(imageId)) {
+        return
+      }
+
+      setDeletingGalleryImageIds((previousIds) => new Set(previousIds).add(imageId))
+      setError('')
+      try {
+        await deleteCurrentUserGalleryImage({
+          token: authToken,
+          galleryImageId: imageId,
+        })
+        setProfileView((currentView) =>
+          currentView
+            ? {
+                ...currentView,
+                gallery_images: currentView.gallery_images.filter((item) => item.id !== imageId),
+              }
+            : currentView,
+        )
+        setGalleryPreviewImage((currentImage) => (currentImage?.id === imageId ? null : currentImage))
+      } catch (requestError) {
+        const detail = requestError instanceof Error ? requestError.message : 'Не удалось удалить картинку из галереи'
+        setError(detail)
+      } finally {
+        setDeletingGalleryImageIds((previousIds) => {
+          const nextIds = new Set(previousIds)
+          nextIds.delete(imageId)
+          return nextIds
+        })
+      }
+    },
+    [authToken, deletingGalleryImageIds, isOwnProfile],
+  )
 
   const openInstructionCreate = useCallback(() => {
     setInstructionDialogMode('create')
@@ -2904,6 +2982,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       return (
         <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
           <path fill="currentColor" d="M12 12a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Zm0 2c-4.45 0-8 2.2-8 4.9V21h16v-2.1c0-2.7-3.55-4.9-8-4.9Z" />
+        </SvgIcon>
+      )
+    }
+    if (tabId === 'gallery') {
+      return (
+        <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+          <path fill="currentColor" d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 13.2 4.2-4.2 2.6 2.6 3.8-4.8L19 15.1V6H5v11.2ZM8.5 10a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4Z" />
         </SvgIcon>
       )
     }
@@ -3433,6 +3518,129 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     )
   }
 
+  const renderGallery = () => {
+    if (!isOwnProfile) {
+      return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Галерея доступна только владельцу профиля.</Typography>
+    }
+    if (!profileView) {
+      return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Не удалось загрузить галерею.</Typography>
+    }
+    if (!filteredGalleryImages.length) {
+      return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>В галерее пока нет картинок.</Typography>
+    }
+
+    return (
+      <>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: { xs: 0.75, sm: 1 },
+            gridTemplateColumns: {
+              xs: 'repeat(2, minmax(0, 1fr))',
+              sm: 'repeat(3, minmax(0, 1fr))',
+              lg: 'repeat(4, minmax(0, 1fr))',
+              xl: 'repeat(5, minmax(0, 1fr))',
+            },
+            width: '100%',
+            minWidth: 0,
+          }}
+        >
+          {visibleGalleryImages.map((item) => {
+            const rawImageUrl = (item.image_data_url ?? item.image_url ?? '').trim()
+            const imageUrl = resolveApiResourceUrl(rawImageUrl) ?? rawImageUrl
+            const isDeleting = deletingGalleryImageIds.has(item.id)
+
+            return (
+              <ButtonBase
+                key={item.id}
+                onClick={() => setGalleryPreviewImage(item)}
+                sx={{
+                  position: 'relative',
+                  display: 'block',
+                  width: '100%',
+                  aspectRatio: '1 / 1',
+                  borderRadius: { xs: '10px', md: '12px' },
+                  overflow: 'hidden',
+                  border: 'var(--morius-border-width) solid rgba(220, 232, 246, 0.12)',
+                  backgroundColor: 'rgba(18, 24, 32, 0.7)',
+                  boxShadow: '0 16px 38px rgba(0, 0, 0, 0.22)',
+                  '&:hover .profile-gallery-delete-button, &:focus-within .profile-gallery-delete-button': {
+                    opacity: 1,
+                    pointerEvents: 'auto',
+                    transform: 'translateY(0)',
+                  },
+                  '&:hover img': {
+                    transform: 'scale(1.025)',
+                  },
+                }}
+              >
+                <ProgressiveImage
+                  src={imageUrl}
+                  alt="Gallery image"
+                  loading="lazy"
+                  objectFit="cover"
+                  loaderSize={24}
+                  containerSx={{
+                    width: '100%',
+                    height: '100%',
+                    minHeight: 0,
+                    borderRadius: 0,
+                    backgroundColor: 'rgba(12, 17, 24, 0.72)',
+                  }}
+                  imgSx={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    transition: 'transform 220ms ease',
+                  }}
+                />
+                <IconButton
+                  className="profile-gallery-delete-button"
+                  aria-label="Удалить из галереи"
+                  onClick={(event) => void handleDeleteGalleryImage(item.id, event)}
+                  disabled={isDeleting}
+                  sx={{
+                    position: 'absolute',
+                    top: { xs: 7, md: 8 },
+                    right: { xs: 7, md: 8 },
+                    zIndex: 2,
+                    width: { xs: 32, md: 34 },
+                    height: { xs: 32, md: 34 },
+                    borderRadius: '999px',
+                    border: 'var(--morius-border-width) solid rgba(235, 242, 251, 0.16)',
+                    backgroundColor: 'rgba(8, 12, 18, 0.76)',
+                    color: 'rgba(248, 176, 176, 0.96)',
+                    opacity: { xs: 1, md: 0 },
+                    pointerEvents: { xs: 'auto', md: 'none' },
+                    transform: { xs: 'translateY(0)', md: 'translateY(-4px)' },
+                    transition: 'opacity 180ms ease, transform 180ms ease, background-color 180ms ease',
+                    backdropFilter: 'blur(10px)',
+                    '&:hover': {
+                      backgroundColor: 'rgba(55, 20, 26, 0.86)',
+                    },
+                    '&.Mui-disabled': {
+                      color: 'rgba(248, 176, 176, 0.54)',
+                      backgroundColor: 'rgba(8, 12, 18, 0.62)',
+                    },
+                  }}
+                >
+                  {isDeleting ? (
+                    <CircularProgress size={16} sx={{ color: 'currentColor' }} />
+                  ) : (
+                    <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+                      <path fill="currentColor" d="M8 4h8l1 2h4v2H3V6h4l1-2Zm1 6h2v9H9v-9Zm4 0h2v9h-2v-9Zm-5 11a2 2 0 0 1-2-2V9h12v10a2 2 0 0 1-2 2H8Z" />
+                    </SvgIcon>
+                  )}
+                </IconButton>
+              </ButtonBase>
+            )
+          })}
+        </Box>
+        {hasMoreGalleryImages ? <Box ref={loadMoreGalleryImagesRef} sx={{ height: 1, width: '100%' }} /> : null}
+      </>
+    )
+  }
+
   const renderPublications = () => {
     const filteredPublicationWorlds = filteredVisiblePublicationWorlds
 
@@ -3892,6 +4100,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Раздел доступен только владельцу профиля.</Typography>
       }
       return renderFavorites()
+    }
+    if (tab === 'gallery') {
+      return renderGallery()
     }
     if (tab === 'notifications') {
       return renderNotifications()
@@ -6205,6 +6416,86 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         </DialogContent>
         <DialogActions sx={{ px: 1.2, pb: 1.2 }}>
           <Button onClick={handleCloseCharacterAvatarPreview} sx={{ color: 'text.secondary' }}>
+            Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(galleryPreviewImage)}
+        onClose={handleCloseGalleryPreview}
+        fullWidth={false}
+        maxWidth={false}
+        PaperProps={{
+          sx: {
+            width: 'auto',
+            maxWidth: '96vw',
+            maxHeight: '96vh',
+            borderRadius: 'var(--morius-radius)',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+            overflow: 'hidden',
+          },
+        }}
+      >
+        <DialogContent
+          sx={{
+            px: 1,
+            pt: 0.8,
+            pb: 0.5,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'flex-start',
+            overflow: 'auto',
+          }}
+        >
+          {galleryPreviewImage
+            ? (() => {
+                const rawImageUrl = (galleryPreviewImage.image_data_url ?? galleryPreviewImage.image_url ?? '').trim()
+                const imageUrl = resolveApiResourceUrl(rawImageUrl) ?? rawImageUrl
+                return (
+                  <ProgressiveImage
+                    src={imageUrl}
+                    alt="Gallery image"
+                    loading="eager"
+                    fetchPriority="high"
+                    objectFit="contain"
+                    loaderSize={32}
+                    containerSx={{
+                      width: 'fit-content',
+                      maxWidth: '100%',
+                      minHeight: 240,
+                      borderRadius: '10px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-elevated-bg)',
+                    }}
+                    imgSx={{
+                      position: 'relative',
+                      width: 'auto',
+                      height: 'auto',
+                      maxWidth: 'min(92vw, 1500px)',
+                      maxHeight: '82vh',
+                      objectFit: 'contain',
+                    }}
+                  />
+                )
+              })()
+            : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 1.2, pb: 1.2, gap: 0.8 }}>
+          {galleryPreviewImage && isOwnProfile ? (
+            <Button
+              onClick={(event) => void handleDeleteGalleryImage(galleryPreviewImage.id, event)}
+              disabled={deletingGalleryImageIds.has(galleryPreviewImage.id)}
+              sx={{
+                color: 'rgba(248, 176, 176, 0.96)',
+                '&.Mui-disabled': { color: 'rgba(248, 176, 176, 0.46)' },
+              }}
+            >
+              {deletingGalleryImageIds.has(galleryPreviewImage.id) ? 'Удаляем...' : 'Удалить'}
+            </Button>
+          ) : null}
+          <Button onClick={handleCloseGalleryPreview} sx={{ color: 'text.secondary' }}>
             Закрыть
           </Button>
         </DialogActions>

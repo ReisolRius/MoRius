@@ -197,13 +197,16 @@ STORY_TURN_COST_STANDARD_LLM_MODELS = {
     STORY_LLM_MODEL_DEEPSEEK_V3,
     STORY_LLM_MODEL_MISTRAL_NEMO,
 }
-STORY_IMAGE_MODEL_FLUX = "flux.2-pro"
-STORY_IMAGE_MODEL_FLUX_LEGACY = "black-forest-labs/flux.2-pro"
-STORY_IMAGE_MODEL_FLUX_KLEIN_4B = "flux.2-klein-4b"
-STORY_IMAGE_MODEL_SEEDREAM = "seedream-4.5"
+STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
+STORY_IMAGE_MODEL_FLUX_LEGACY = "flux.2-pro"
+STORY_IMAGE_MODEL_FLUX_KLEIN_4B = "black-forest-labs/flux.2-klein-4b"
+STORY_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY = "flux.2-klein-4b"
+STORY_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
+STORY_IMAGE_MODEL_SEEDREAM_SHORT_LEGACY = "seedream-4.5"
 STORY_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY = "bytedance/seedream-4.5"
 STORY_IMAGE_MODEL_SEEDREAM_LEGACY = "bytedance-seed/seedream-4.5"
 STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT = "qwen-image-edit"
+STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY = "qwen/qwen-image-edit"
 STORY_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
 STORY_DEFAULT_IMAGE_MODEL = STORY_IMAGE_MODEL_FLUX
@@ -211,14 +214,17 @@ STORY_SUPPORTED_IMAGE_MODELS = {
     STORY_IMAGE_MODEL_FLUX_KLEIN_4B,
     STORY_IMAGE_MODEL_FLUX,
     STORY_IMAGE_MODEL_SEEDREAM,
-    STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT,
     STORY_IMAGE_MODEL_NANO_BANANO,
     STORY_IMAGE_MODEL_NANO_BANANO_2,
 }
 STORY_IMAGE_MODEL_LEGACY_ALIASES = {
     STORY_IMAGE_MODEL_FLUX_LEGACY: STORY_IMAGE_MODEL_FLUX,
+    STORY_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY: STORY_IMAGE_MODEL_FLUX_KLEIN_4B,
+    STORY_IMAGE_MODEL_SEEDREAM_SHORT_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
     STORY_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
     STORY_IMAGE_MODEL_SEEDREAM_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
+    STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT: STORY_IMAGE_MODEL_FLUX,
+    STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY: STORY_IMAGE_MODEL_FLUX,
 }
 STORY_TOP_K_MIN = 0
 STORY_TOP_K_MAX = 200
@@ -525,6 +531,7 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
 
 def get_story_turn_cost_tokens(context_usage_tokens: int | None, model_name: str | None = None) -> int:
     normalized_usage = max(int(context_usage_tokens or 0), 0)
+    normalized_usage = min(normalized_usage, get_story_context_limit_max_tokens(model_name))
     tier_1_cost, tier_2_cost, tier_3_cost, tier_4_cost, tier_5_cost = get_story_model_turn_cost_tiers(model_name)
     if normalized_usage <= STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX:
         return tier_1_cost
@@ -579,7 +586,8 @@ def normalize_story_image_model(value: str | None) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported image model. "
-                "Use one of: flux.2-klein-4b, flux.2-pro, seedream-4.5, qwen-image-edit, "
+                "Use one of: black-forest-labs/flux.2-klein-4b, black-forest-labs/flux.2-pro, "
+                "bytedance-seed/seedream-4.5, "
                 "google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview"
             ),
         )

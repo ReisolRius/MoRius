@@ -306,8 +306,7 @@ select {
   height: var(--morius-daily-rewards-icon-size, var(--morius-action-icon-size)) !important;
 }
 
-.morius-app-shell .MuiIconButton-root.morius-header-ai-button,
-.morius-app-shell .MuiIconButton-root.morius-header-play-button {
+.morius-app-shell .MuiIconButton-root.morius-header-ai-button {
   width: var(--morius-action-size) !important;
   height: var(--morius-action-size) !important;
   min-width: var(--morius-action-size) !important;
@@ -321,16 +320,44 @@ select {
   overflow: visible !important;
 }
 
-.morius-app-shell .MuiIconButton-root.morius-header-ai-button:hover,
-.morius-app-shell .MuiIconButton-root.morius-header-play-button:hover {
+.morius-app-shell .MuiIconButton-root.morius-header-ai-button:hover {
   background: color-mix(in srgb, var(--morius-elevated-bg) 82%, black 18%) !important;
   color: var(--morius-title-text) !important;
   box-shadow: 0 10px 24px rgba(0,0,0,0.22) !important;
 }
 
-.morius-app-shell .MuiIconButton-root.morius-header-ai-button:active,
-.morius-app-shell .MuiIconButton-root.morius-header-play-button:active {
+.morius-app-shell .MuiIconButton-root.morius-header-ai-button:active {
   background: color-mix(in srgb, var(--morius-elevated-bg) 74%, black 26%) !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-header-play-button {
+  width: var(--morius-header-play-width, 72px) !important;
+  height: var(--morius-header-play-height, 40px) !important;
+  min-width: var(--morius-header-play-width, 72px) !important;
+  min-height: var(--morius-header-play-height, 40px) !important;
+  max-width: var(--morius-header-play-width, 72px) !important;
+  max-height: var(--morius-header-play-height, 40px) !important;
+  border-radius: var(--morius-header-play-radius, 14px) !important;
+  background: var(--morius-header-play-bg, #5A91EC) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 20px rgba(67, 126, 229, 0.24) !important;
+  overflow: hidden !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-header-play-button:hover {
+  background: #659DF4 !important;
+  color: #fff !important;
+  box-shadow: 0 10px 24px rgba(67, 126, 229, 0.3) !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-header-play-button:active {
+  background: #4F86E4 !important;
+  box-shadow: 0 6px 16px rgba(67, 126, 229, 0.22) !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-header-play-button svg {
+  width: var(--morius-header-play-icon-size, 20px) !important;
+  height: var(--morius-header-play-icon-size, 20px) !important;
 }
 
 .morius-app-shell h1,

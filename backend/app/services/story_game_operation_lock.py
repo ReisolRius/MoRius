@@ -16,7 +16,7 @@ _LOCK_WAIT_LOG_THRESHOLD_SECONDS = 0.25
 _LOCK_HOLD_LOG_THRESHOLD_SECONDS = 2.0
 _POSTGRES_LOCK_NAMESPACE = 41027
 _POSTGRES_LOCK_POLL_INTERVAL_SECONDS = 0.05
-STORY_GAME_OPERATION_BUSY_DETAIL = "Игровая сессия сейчас занята другой операцией. Попробуйте ещё раз через пару секунд."
+STORY_GAME_OPERATION_BUSY_DETAIL = "Story operation is still finalizing. Please retry the action."
 
 
 class StoryGameOperationBusyError(RuntimeError):
@@ -149,9 +149,18 @@ def _acquire_postgresql_story_game_lock(
 
                 remaining_seconds = deadline - time.monotonic()
                 if remaining_seconds <= 0:
-                    raise StoryGameOperationBusyError(
-                        f"PostgreSQL advisory lock wait timed out: game_id={game_id} operation={operation}"
+                    logger.warning(
+                        "PostgreSQL advisory lock wait timed out; waiting without user-visible busy error: game_id=%s operation=%s waited_for=%.3fs",
+                        game_id,
+                        operation,
+                        max(time.monotonic() - wait_started_at, 0.0),
                     )
+                    connection.execute(
+                        text("SELECT pg_advisory_lock(:namespace, :game_id)"),
+                        parameters,
+                    )
+                    connection.commit()
+                    break
                 time.sleep(min(_POSTGRES_LOCK_POLL_INTERVAL_SECONDS, remaining_seconds))
     except Exception:
         try:
@@ -204,15 +213,13 @@ def acquire_story_game_operation_lock(
     else:
         acquired = entry.lock.acquire(timeout=max(float(wait_timeout_seconds), 0.0))
     if not acquired:
-        with _LOCK_REGISTRY_GUARD:
-            current_entry = _LOCK_REGISTRY.get(normalized_game_id)
-            if current_entry is entry:
-                current_entry.ref_count = max(current_entry.ref_count - 1, 0)
-                if current_entry.ref_count == 0:
-                    _LOCK_REGISTRY.pop(normalized_game_id, None)
-        raise StoryGameOperationBusyError(
-            f"Story game operation lock wait timed out: game_id={normalized_game_id} operation={normalized_operation}"
+        logger.warning(
+            "Story game operation lock wait timed out; waiting without user-visible busy error: game_id=%s operation=%s waited_for=%.3fs",
+            normalized_game_id,
+            normalized_operation,
+            max(time.monotonic() - wait_started_at, 0.0),
         )
+        entry.lock.acquire()
     waited_for_seconds = max(time.monotonic() - wait_started_at, 0.0)
     if waited_for_seconds >= _LOCK_WAIT_LOG_THRESHOLD_SECONDS:
         logger.info(

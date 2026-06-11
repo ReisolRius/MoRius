@@ -223,7 +223,17 @@ def _load_media_storage_source_value(db: Any, payload: dict[str, Any]) -> Any | 
     except (TypeError, ValueError):
         return None
 
-    from app.models import CosmeticItem, DashboardNewsCard, StoryCharacter, StoryGame, StoryTurnImage, StoryWorldCard, StoryWorldCardTemplate, User
+    from app.models import (
+        CosmeticItem,
+        DashboardNewsCard,
+        StoryCharacter,
+        StoryGame,
+        StoryTurnImage,
+        StoryWorldCard,
+        StoryWorldCardTemplate,
+        User,
+        UserGalleryImage,
+    )
     from app.services.story_emotions import deserialize_story_character_emotion_assets
 
     media_kind_specs: dict[str, tuple[type[Any], Any]] = {
@@ -252,6 +262,8 @@ def _load_media_storage_source_value(db: Any, payload: dict[str, Any]) -> Any | 
         ),
         "story-turn-image-url": (StoryTurnImage, lambda record, _: getattr(record, "image_url", None)),
         "story-turn-image-data": (StoryTurnImage, lambda record, _: getattr(record, "image_data_url", None)),
+        "profile-gallery-image-url": (UserGalleryImage, lambda record, _: getattr(record, "image_url", None)),
+        "profile-gallery-image-data": (UserGalleryImage, lambda record, _: getattr(record, "image_data_url", None)),
         "dashboard-news-image": (DashboardNewsCard, lambda record, _: getattr(record, "image_url", None)),
         "cosmetic-item-image": (CosmeticItem, lambda record, _: getattr(record, "image_url", None)),
     }

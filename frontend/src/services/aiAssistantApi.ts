@@ -55,6 +55,7 @@ export type AiAssistantChatResponse = {
   steps: Array<Record<string, unknown>>
   createdEntities: AiAssistantEntityRef[]
   updatedEntities: AiAssistantEntityRef[]
+  deletedEntities?: AiAssistantEntityRef[]
   redirectUrl?: string | null
   chargedSols: number
   usage: AiAssistantUsage
@@ -186,4 +187,3 @@ export async function undoLastAiAssistantBatch(payload: {
     AI_ASSISTANT_NETWORK_ERROR,
   )
 }
-

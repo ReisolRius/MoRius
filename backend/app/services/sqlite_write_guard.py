@@ -81,7 +81,7 @@ def is_database_busy_session_error(exc: BaseException | None) -> bool:
 def commit_with_retry(
     db: Session,
     *,
-    max_attempts: int = 3,
+    max_attempts: int = 6,
     initial_retry_delay_seconds: float = 0.2,
     retry_backoff_multiplier: float = 2.0,
 ) -> int:
@@ -98,7 +98,7 @@ def commit_with_retry(
                 db.rollback()
             except Exception:
                 pass
-            if not is_sqlite_locked_error(exc) or attempt >= attempts:
+            if not is_database_busy_error(exc) or attempt >= attempts:
                 raise
             if retry_delay_seconds > 0:
                 time.sleep(retry_delay_seconds)
@@ -114,7 +114,7 @@ def is_sqlite_busy_session_error(exc: BaseException | None) -> bool:
 def commit_with_sqlite_retry(
     db: Session,
     *,
-    max_attempts: int = 3,
+    max_attempts: int = 6,
     initial_retry_delay_seconds: float = 0.2,
     retry_backoff_multiplier: float = 2.0,
 ) -> int:

@@ -15,12 +15,12 @@ export function useVisibilityTrigger<T extends HTMLElement = HTMLElement>({
 }: UseVisibilityTriggerOptions = {}) {
   const ref = useRef<T | null>(null)
   const [isVisible, setIsVisible] = useState(
-    disabled || typeof window === 'undefined' || typeof window.IntersectionObserver === 'undefined',
+    !disabled && (typeof window === 'undefined' || typeof window.IntersectionObserver === 'undefined'),
   )
 
   useEffect(() => {
     if (disabled) {
-      setIsVisible(true)
+      setIsVisible(false)
       return
     }
 

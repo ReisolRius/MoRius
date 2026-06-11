@@ -499,13 +499,16 @@ STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_CHARACTER_CARDS = 8
 STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_CARD_CONTENT_CHARS = 1_500
 STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_USER_CHARS = 3_000
 STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_ASSISTANT_CHARS = 8_000
-STORY_TURN_IMAGE_MODEL_FLUX = "flux.2-pro"
-STORY_TURN_IMAGE_MODEL_FLUX_LEGACY = "black-forest-labs/flux.2-pro"
-STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B = "flux.2-klein-4b"
-STORY_TURN_IMAGE_MODEL_SEEDREAM = "seedream-4.5"
+STORY_TURN_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
+STORY_TURN_IMAGE_MODEL_FLUX_LEGACY = "flux.2-pro"
+STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B = "black-forest-labs/flux.2-klein-4b"
+STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY = "flux.2-klein-4b"
+STORY_TURN_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
+STORY_TURN_IMAGE_MODEL_SEEDREAM_SHORT_LEGACY = "seedream-4.5"
 STORY_TURN_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY = "bytedance/seedream-4.5"
 STORY_TURN_IMAGE_MODEL_SEEDREAM_LEGACY = "bytedance-seed/seedream-4.5"
 STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT = "qwen-image-edit"
+STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY = "qwen/qwen-image-edit"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
 STORY_TURN_IMAGE_COST_BY_MODEL = {
@@ -514,17 +517,9 @@ STORY_TURN_IMAGE_COST_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 13,
     STORY_TURN_IMAGE_MODEL_FLUX: 18,
     STORY_TURN_IMAGE_MODEL_SEEDREAM: 20,
-    STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT: 24,
 }
-STORY_AITUNNEL_IMAGE_MODELS = {
-    STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B,
-    STORY_TURN_IMAGE_MODEL_FLUX,
-    STORY_TURN_IMAGE_MODEL_SEEDREAM,
-    STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT,
-}
-STORY_AITUNNEL_IMAGE_EDIT_MODELS = {
-    STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT,
-}
+STORY_AITUNNEL_IMAGE_MODELS: set[str] = set()
+STORY_AITUNNEL_IMAGE_EDIT_MODELS: set[str] = set()
 STORY_AITUNNEL_BLANK_EDIT_CANVAS_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
 )
@@ -6150,7 +6145,7 @@ def _validate_story_provider_config() -> None:
     if provider == "mock":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Story provider is not configured: set STORY_LLM_PROVIDER=polza and POLZA_API_KEY",
+            detail="Story provider is not configured: set STORY_LLM_PROVIDER=openrouter and POLZA_API_KEY",
         )
 
     if provider == "gigachat":
@@ -6165,12 +6160,12 @@ def _validate_story_provider_config() -> None:
         if not settings.polza_api_key:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Polza.ai provider is not configured: set POLZA_API_KEY",
+                detail="OpenRouter provider is not configured: set POLZA_API_KEY",
             )
         if not settings.polza_chat_url:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Polza.ai provider is not configured: set POLZA_CHAT_URL",
+                detail="OpenRouter provider is not configured: set POLZA_CHAT_URL",
             )
         return
 
@@ -6288,8 +6283,19 @@ def _normalize_story_model_id(value: str | None) -> str:
     normalized = (value or "").strip().lower()
     if normalized == STORY_TURN_IMAGE_MODEL_FLUX_LEGACY:
         return STORY_TURN_IMAGE_MODEL_FLUX
-    if normalized in {STORY_TURN_IMAGE_MODEL_SEEDREAM_LEGACY, STORY_TURN_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY}:
+    if normalized == STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY:
+        return STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B
+    if normalized in {
+        STORY_TURN_IMAGE_MODEL_SEEDREAM_SHORT_LEGACY,
+        STORY_TURN_IMAGE_MODEL_SEEDREAM_LEGACY,
+        STORY_TURN_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY,
+    }:
         return STORY_TURN_IMAGE_MODEL_SEEDREAM
+    if normalized in {
+        STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT,
+        STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY,
+    }:
+        return STORY_TURN_IMAGE_MODEL_FLUX
     return STORY_LEGACY_MODEL_ALIASES.get(normalized, normalized)
 
 
@@ -6311,33 +6317,13 @@ def _should_force_polza_story_output_translation(model_name: str | None) -> bool
 
 
 def _build_polza_provider_payload(model_name: str | None) -> dict[str, Any] | None:
-    normalized_model = _normalize_story_model_id(model_name)
-    if not normalized_model:
-        return None
-
-    pinned_provider = STORY_POLZA_PROVIDER_PINNED_BY_MODEL.get(normalized_model)
-    if not pinned_provider:
-        return None
-
-    return {
-        "order": [pinned_provider],
-        "allow_fallbacks": True,
-    }
+    _ = model_name
+    return None
 
 
 def _build_polza_image_provider_payload(model_name: str | None) -> dict[str, Any]:
-    normalized_model = _normalize_story_model_id(model_name)
-    if not normalized_model:
-        return {}
-
-    pinned_provider = STORY_POLZA_IMAGE_PROVIDER_PINNED_BY_MODEL.get(normalized_model)
-    if not pinned_provider:
-        return {}
-
-    return {
-        "order": [pinned_provider],
-        "allow_fallbacks": True,
-    }
+    _ = model_name
+    return {}
 
 
 def _apply_polza_story_reasoning_preferences(
@@ -11520,28 +11506,21 @@ def _request_polza_story_text(
 
 def _validate_story_turn_image_provider_config(model_name: str | None = None) -> None:
     normalized_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_FLUX
-    if normalized_model in STORY_AITUNNEL_IMAGE_MODELS:
-        if not settings.aitunnel_api_key:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="AITunnel image provider is not configured: set AITUNNEL_API_KEY",
-            )
-        if not settings.aitunnel_image_generation_url and not settings.aitunnel_base_url:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="AITunnel image endpoint is not configured: set AITUNNEL_BASE_URL",
-            )
-        return
-
     if not settings.polza_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Polza.ai provider is not configured: set POLZA_API_KEY",
+            detail="OpenRouter provider is not configured: set POLZA_API_KEY",
         )
-    if not settings.polza_chat_url and not settings.polza_image_url:
+    endpoint_url = str(settings.polza_image_url or settings.polza_chat_url or "").strip()
+    if not endpoint_url:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Polza.ai image endpoint is not configured: set POLZA_IMAGE_URL or POLZA_CHAT_URL",
+            detail="OpenRouter image endpoint is not configured: set POLZA_IMAGE_URL or POLZA_CHAT_URL",
+        )
+    if not _is_story_turn_image_chat_endpoint(endpoint_url):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OpenRouter image endpoint must be /chat/completions",
         )
 
 
@@ -13038,7 +13017,7 @@ def _build_story_turn_image_polza_payload(
         payload: dict[str, Any] = {
             "model": selected_model,
             "messages": [{"role": "user", "content": message_content}],
-            "modalities": ["image"],
+            "modalities": ["image", "text"] if selected_model.startswith("google/") else ["image"],
             "stream": False,
         }
         provider_payload = _build_polza_image_provider_payload(selected_model)
@@ -13521,7 +13500,6 @@ def _request_polza_story_turn_image(
     if not selected_model:
         raise RuntimeError("Polza.ai image model is not configured")
 
-    endpoint_candidates: list[tuple[str, str, bool]] = []
     chat_url = str(settings.polza_chat_url or "").strip()
     image_url = str(settings.polza_image_url or "").strip()
     normalized_reference_image_url = str(reference_image_url or "").strip()
@@ -13531,110 +13509,86 @@ def _request_polza_story_turn_image(
         if normalized_reference_image_url.startswith(("https://", "http://"))
         else normalized_reference_image_data_url
     )
-    if image_url:
-        if _is_story_turn_image_chat_endpoint(image_url):
-            endpoint_candidates.append(("chat", image_url, True))
-        elif _is_story_turn_image_media_endpoint(image_url):
-            endpoint_candidates.append(("media", image_url, False))
-        elif not normalized_reference_image_input:
-            endpoint_candidates.append(("images", image_url, False))
-    if chat_url and chat_url not in {endpoint_url for _, endpoint_url, _ in endpoint_candidates}:
-        endpoint_candidates.append(("chat", chat_url, True))
+    endpoint_url = image_url or chat_url
+    if not endpoint_url or not _is_story_turn_image_chat_endpoint(endpoint_url):
+        raise RuntimeError("OpenRouter image endpoint must be /chat/completions")
 
-    if not endpoint_candidates:
-        raise RuntimeError("Polza.ai image endpoint is not configured")
-
-    last_error: RuntimeError | None = None
-    for index, (endpoint_kind, endpoint_url, use_chat_completions) in enumerate(endpoint_candidates):
-        read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
-        request_payload = _build_story_turn_image_polza_payload(
-            prompt=prompt,
-            selected_model=selected_model,
-            endpoint_kind=endpoint_kind,
-            use_chat_completions=use_chat_completions,
-            reference_image_input=normalized_reference_image_input,
+    read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
+    request_payload = _build_story_turn_image_polza_payload(
+        prompt=prompt,
+        selected_model=selected_model,
+        endpoint_kind="chat",
+        use_chat_completions=True,
+        reference_image_input=normalized_reference_image_input,
+    )
+    try:
+        response = HTTP_SESSION.post(
+            endpoint_url,
+            headers=headers,
+            json=request_payload,
+            timeout=(
+                STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                read_timeout_seconds,
+            ),
         )
-        try:
-            response = HTTP_SESSION.post(
-                endpoint_url,
-                headers=headers,
-                json=request_payload,
-                timeout=(
-                    STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
-                    read_timeout_seconds,
-                ),
-            )
-        except requests.RequestException as exc:
-            last_error = RuntimeError("Failed to reach Polza.ai image endpoint")
-            if index < len(endpoint_candidates) - 1:
-                logger.warning(
-                    "Polza.ai image request transport failed, trying fallback endpoint: model=%s endpoint=%s",
-                    selected_model,
-                    endpoint_kind,
-                )
-                continue
-            raise last_error from exc
+    except requests.RequestException as exc:
+        raise RuntimeError("Failed to reach OpenRouter image endpoint") from exc
 
-        if response.status_code >= 400:
-            detail = _extract_polza_error_detail(response)
-            error_text = f"Polza.ai image error ({response.status_code})"
-            if detail:
-                error_text = f"{error_text}: {detail}"
-            last_error = RuntimeError(error_text)
+    if response.status_code >= 400:
+        detail = _extract_polza_error_detail(response)
+        error_text = f"OpenRouter image error ({response.status_code})"
+        if detail:
+            error_text = f"{error_text}: {detail}"
+        raise RuntimeError(error_text)
 
-            can_fallback = index < len(endpoint_candidates) - 1 and response.status_code in {404, 405, 415, 422}
-            if can_fallback:
-                logger.warning(
-                    "Polza.ai image request returned %s via %s, trying fallback endpoint for model=%s",
-                    response.status_code,
-                    endpoint_kind,
-                    selected_model,
-                )
-                continue
-            raise last_error
+    try:
+        payload_value = response.json()
+    except ValueError as exc:
+        raise RuntimeError("OpenRouter image endpoint returned invalid payload") from exc
 
-        try:
-            payload_value = response.json()
-        except ValueError as exc:
-            last_error = RuntimeError("Polza.ai image endpoint returned invalid payload")
-            if index < len(endpoint_candidates) - 1:
-                logger.warning(
-                    "Polza.ai image payload parsing failed via %s, trying fallback endpoint for model=%s",
-                    endpoint_kind,
-                    selected_model,
-                )
-                continue
-            raise last_error from exc
+    return _parse_polza_story_turn_image_payload(
+        payload_value,
+        selected_model=selected_model,
+    )
 
-        if endpoint_kind == "media":
-            payload_value = _poll_story_turn_image_media_generation(
-                endpoint_url=endpoint_url,
-                headers=headers,
-                initial_payload=payload_value,
-                selected_model=selected_model,
-                read_timeout_seconds=read_timeout_seconds,
-            )
 
-        try:
-            return _parse_polza_story_turn_image_payload(
-                payload_value,
-                selected_model=selected_model,
-            )
-        except RuntimeError as exc:
-            last_error = exc
-            if index < len(endpoint_candidates) - 1:
-                logger.warning(
-                    "Polza.ai image payload shape mismatch via %s, trying fallback endpoint for model=%s: %s",
-                    endpoint_kind,
-                    selected_model,
-                    exc,
-                )
-                continue
-            raise
+def _story_turn_image_payload_has_image(payload: dict[str, str | None]) -> bool:
+    return bool(
+        str(payload.get("image_url") or "").strip()
+        or str(payload.get("image_data_url") or "").strip()
+    )
 
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("Polza.ai image endpoint is unavailable")
+
+def _request_proxyapi_story_turn_image_fallback(
+    *,
+    prompt: str,
+    model_name: str | None,
+    reference_image_url: str | None,
+    reference_image_data_url: str | None,
+) -> dict[str, str | None]:
+    from app.services.proxyapi_fallback import request_image as _request_proxyapi_image
+
+    selected_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_FLUX
+    payload = _request_proxyapi_image(
+        prompt=prompt,
+        model_name=selected_model,
+        reference_image_url=reference_image_url,
+        reference_image_data_url=reference_image_data_url,
+        image_size=settings.polza_image_size,
+        http_session=HTTP_SESSION,
+        timeout=(
+            STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
+            _get_story_turn_image_read_timeout_seconds(selected_model),
+        ),
+    )
+    if not _story_turn_image_payload_has_image(payload):
+        raise RuntimeError("ProxyAPI image fallback returned empty image")
+    logger.warning(
+        "ProxyAPI/OpenRouter image fallback produced image: requested_model=%s upstream_model=%s",
+        selected_model,
+        payload.get("model"),
+    )
+    return payload
 
 
 def _request_story_turn_image(
@@ -13645,19 +13599,15 @@ def _request_story_turn_image(
     reference_image_data_url: str | None = None,
 ) -> dict[str, str | None]:
     selected_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_FLUX
-    if selected_model in STORY_AITUNNEL_IMAGE_MODELS:
-        return _request_aitunnel_story_turn_image(
-            prompt=prompt,
-            model_name=selected_model,
-            reference_image_url=reference_image_url,
-            reference_image_data_url=reference_image_data_url,
-        )
-    return _request_polza_story_turn_image(
+    payload = _request_polza_story_turn_image(
         prompt=prompt,
         model_name=selected_model,
         reference_image_url=reference_image_url,
         reference_image_data_url=reference_image_data_url,
     )
+    if _story_turn_image_payload_has_image(payload):
+        return payload
+    raise RuntimeError("OpenRouter image provider returned empty image")
 
 
 def _compact_story_character_avatar_prompt_text(value: str | None, *, max_chars: int) -> str:
@@ -14511,6 +14461,139 @@ def _remove_story_sprite_background_data_url(data_url: str | None) -> str | None
     return _serialize_story_sprite_image(processed_image) or data_url
 
 
+def _request_proxyapi_story_fallback_text(
+    messages_payload: list[dict[str, str]],
+    *,
+    model_name: str | None,
+    temperature: float | None,
+    top_k: int | None,
+    top_p: float | None,
+    max_tokens: int | None,
+) -> str:
+    from app.services.proxyapi_fallback import request_text as _request_proxyapi_text
+
+    result = _request_proxyapi_text(
+        messages=messages_payload,
+        model_name=model_name,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        max_tokens=max_tokens,
+        http_session=HTTP_SESSION,
+    )
+    text_value = str(result.get("text") or "").strip()
+    if not text_value:
+        raise RuntimeError("ProxyAPI fallback returned empty text")
+    logger.warning(
+        "ProxyAPI/OpenRouter story fallback produced text: requested_model=%s upstream_model=%s chars=%s",
+        model_name,
+        result.get("model"),
+        len(text_value),
+    )
+    return text_value
+
+
+def _iter_proxyapi_story_fallback_chunks(
+    messages_payload: list[dict[str, str]],
+    *,
+    model_name: str | None,
+    temperature: float | None,
+    top_k: int | None,
+    top_p: float | None,
+    max_tokens: int | None,
+):
+    fallback_text = _request_proxyapi_story_fallback_text(
+        messages_payload,
+        model_name=model_name,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        max_tokens=max_tokens,
+    )
+    for chunk in _yield_story_stream_chunks_with_pacing(fallback_text):
+        yield chunk
+
+
+def _iter_polza_story_stream_chunks_with_proxyapi_fallback(
+    context_messages: list[StoryMessage],
+    instruction_cards: list[dict[str, str]],
+    plot_cards: list[dict[str, str]],
+    world_cards: list[dict[str, Any]],
+    *,
+    use_plot_memory: bool,
+    context_limit_chars: int,
+    model_name: str | None,
+    temperature: float | None,
+    top_k: int | None,
+    top_p: float | None,
+    max_tokens: int | None,
+    translate_for_model: bool,
+    reroll_discarded_assistant_text: str | None,
+    show_gg_thoughts: bool,
+    show_npc_thoughts: bool,
+):
+    emitted_text = False
+    try:
+        for chunk in _iter_polza_story_stream_chunks(
+            context_messages,
+            instruction_cards,
+            plot_cards,
+            world_cards,
+            use_plot_memory=use_plot_memory,
+            context_limit_chars=context_limit_chars,
+            model_name=model_name,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            translate_for_model=translate_for_model,
+            reroll_discarded_assistant_text=reroll_discarded_assistant_text,
+            show_gg_thoughts=show_gg_thoughts,
+            show_npc_thoughts=show_npc_thoughts,
+        ):
+            if str(chunk or "").strip():
+                emitted_text = True
+            yield chunk
+    except Exception as exc:
+        if emitted_text:
+            raise
+        logger.warning(
+            "Polza.ai story stream failed before text; falling back to ProxyAPI/OpenRouter: model=%s error=%s",
+            model_name,
+            exc,
+        )
+    else:
+        if emitted_text:
+            return
+        logger.warning(
+            "Polza.ai story stream produced no text; falling back to ProxyAPI/OpenRouter: model=%s",
+            model_name,
+        )
+
+    messages_payload = _build_story_provider_messages(
+        context_messages,
+        instruction_cards,
+        plot_cards,
+        world_cards,
+        use_plot_memory=use_plot_memory,
+        context_limit_tokens=context_limit_chars,
+        response_max_tokens=max_tokens,
+        translate_for_model=translate_for_model,
+        model_name=model_name,
+        reroll_discarded_assistant_text=reroll_discarded_assistant_text,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
+    )
+    yield from _iter_proxyapi_story_fallback_chunks(
+        messages_payload,
+        model_name=model_name,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        max_tokens=max_tokens,
+    )
+
+
 def _iter_story_provider_stream_chunks(
     *,
     prompt: str,
@@ -14600,7 +14683,7 @@ def _iter_story_provider_stream_chunks(
         input_translation_enabled = _is_story_input_translation_enabled()
         output_translation_enabled = _is_story_output_translation_enabled()
         if output_translation_enabled:
-            raw_chunk_stream = _iter_polza_story_stream_chunks(
+            raw_chunk_stream = _iter_polza_story_stream_chunks_with_proxyapi_fallback(
                 context_messages,
                 instruction_cards,
                 plot_cards,
@@ -14628,7 +14711,7 @@ def _iter_story_provider_stream_chunks(
         # Important: do not force-translate each stream chunk for force models.
         # We stream raw chunks and run one final language enforcement pass on the full text.
         raw_chunks: list[str] = []
-        for chunk in _iter_polza_story_stream_chunks(
+        for chunk in _iter_polza_story_stream_chunks_with_proxyapi_fallback(
             context_messages,
             instruction_cards,
             plot_cards,
@@ -14774,14 +14857,11 @@ def generate_story_character_avatar_impl(
         )
 
     image_generation_cost = _get_story_turn_image_cost_tokens(selected_image_model)
-    if not _spend_user_tokens_if_sufficient(db, int(user.id), image_generation_cost):
-        db.rollback()
+    if int(getattr(user, "coins", 0) or 0) < image_generation_cost:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Not enough sols to generate image",
         )
-    db.commit()
-    db.refresh(user)
 
     try:
         generation_payload = _request_story_turn_image(
@@ -14789,13 +14869,6 @@ def generate_story_character_avatar_impl(
             model_name=selected_image_model,
         )
     except Exception as exc:
-        try:
-            _add_user_tokens(db, int(user.id), image_generation_cost)
-            db.commit()
-            db.refresh(user)
-        except Exception:
-            db.rollback()
-            logger.exception("Story character avatar token refund failed after generation error: user_id=%s", user.id)
         detail = str(exc).strip() or "Image generation failed"
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail[:500]) from exc
 
@@ -14807,20 +14880,19 @@ def generate_story_character_avatar_impl(
         resolved_image_data_url = _try_fetch_story_character_avatar_data_url(resolved_image_url)
 
     if resolved_image_url is None and resolved_image_data_url is None:
-        try:
-            _add_user_tokens(db, int(user.id), image_generation_cost)
-            db.commit()
-            db.refresh(user)
-        except Exception:
-            db.rollback()
-            logger.exception(
-                "Story character avatar token refund failed after empty payload: user_id=%s",
-                user.id,
-            )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Image generation returned no image payload",
         )
+
+    if not _spend_user_tokens_if_sufficient(db, int(user.id), image_generation_cost):
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Not enough sols to generate image",
+        )
+    db.commit()
+    db.refresh(user)
 
     return StoryCharacterAvatarGenerateOut(
         model=resolved_model,
@@ -14982,15 +15054,11 @@ def _run_story_character_emotion_pack_generation(
     image_generation_cost = max(int(plan.get("image_generation_cost") or 0), 0)
     total_variants = max(int(plan.get("total_variants") or len(selected_emotion_ids)), 1)
 
-    if charge_tokens and not _spend_user_tokens_if_sufficient(db, int(user.id), image_generation_cost):
-        db.rollback()
+    if charge_tokens and int(getattr(user, "coins", 0) or 0) < image_generation_cost:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Not enough sols to generate image",
         )
-    if charge_tokens:
-        db.commit()
-        db.refresh(user)
 
     try:
         if reference_image_data_url is None:
@@ -15044,16 +15112,19 @@ def _run_story_character_emotion_pack_generation(
                 progress_callback(next_emotion_id, completed_variants, total_variants)
     except Exception as exc:
         if charge_tokens:
-            try:
-                _add_user_tokens(db, int(user.id), image_generation_cost)
-                db.commit()
-                db.refresh(user)
-            except Exception:
-                db.rollback()
-                logger.exception("Story character emotion token refund failed after generation error: user_id=%s", user.id)
             detail = str(exc).strip() or "Emotion generation failed"
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail[:500]) from exc
         raise
+
+    if charge_tokens and not _spend_user_tokens_if_sufficient(db, int(user.id), image_generation_cost):
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Not enough sols to generate image",
+        )
+    if charge_tokens:
+        db.commit()
+        db.refresh(user)
 
     return StoryCharacterEmotionGenerateOut(
         model=selected_image_model,
@@ -15153,7 +15224,7 @@ def _process_story_character_emotion_generation_job(job_id: int) -> None:
             plan=plan,
             user=user,
             db=db,
-            charge_tokens=False,
+            charge_tokens=True,
             progress_callback=lambda current_emotion_id, completed_variants, total_variants: _set_story_character_emotion_job_progress(
                 db,
                 job,
@@ -15255,8 +15326,7 @@ def queue_story_character_emotion_generation_job_impl(
 
     plan = _build_story_character_emotion_generation_plan(payload)
     image_generation_cost = max(int(plan.get("image_generation_cost") or 0), 0)
-    if not _spend_user_tokens_if_sufficient(db, int(user.id), image_generation_cost):
-        db.rollback()
+    if int(getattr(user, "coins", 0) or 0) < image_generation_cost:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Not enough sols to generate image",
@@ -15272,7 +15342,7 @@ def queue_story_character_emotion_generation_job_impl(
         current_emotion_id="",
         completed_variants=0,
         total_variants=max(int(plan.get("total_variants") or 0), 0),
-        reserved_tokens=image_generation_cost,
+        reserved_tokens=0,
         started_at=None,
         completed_at=None,
     )
@@ -15457,14 +15527,11 @@ def generate_story_turn_image_impl(
         )
 
     image_generation_cost = _get_story_turn_image_cost_tokens(selected_image_model)
-    if not _spend_user_tokens_if_sufficient(db, int(user.id), image_generation_cost):
-        db.rollback()
+    if int(getattr(user, "coins", 0) or 0) < image_generation_cost:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Not enough sols to generate image",
         )
-    db.commit()
-    db.refresh(user)
 
     logger.info(
         "Story turn image generation started: game_id=%s assistant_message_id=%s model=%s cost=%s",
@@ -15479,17 +15546,6 @@ def generate_story_turn_image_impl(
             model_name=selected_image_model,
         )
     except Exception as exc:
-        try:
-            _add_user_tokens(db, int(user.id), image_generation_cost)
-            db.commit()
-            db.refresh(user)
-        except Exception:
-            db.rollback()
-            logger.exception(
-                "Story turn image token refund failed after generation error: game_id=%s assistant_message_id=%s",
-                game.id,
-                assistant_message.id,
-            )
         logger.exception(
             "Story turn image generation failed: game_id=%s assistant_message_id=%s",
             game.id,
@@ -15507,6 +15563,11 @@ def generate_story_turn_image_impl(
     resolved_revised_prompt = str(generation_payload.get("revised_prompt") or "").strip() or None
     resolved_image_url = str(generation_payload.get("image_url") or "").strip() or None
     resolved_image_data_url = str(generation_payload.get("image_data_url") or "").strip() or None
+    if resolved_image_url is None and resolved_image_data_url is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Image generation returned no image payload",
+        )
 
     try:
         active_turn_images = db.scalars(
@@ -15531,22 +15592,19 @@ def generate_story_turn_image_impl(
             image_data_url=resolved_image_data_url,
         )
         db.add(persisted_turn_image)
+        if not _spend_user_tokens_if_sufficient(db, int(user.id), image_generation_cost):
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Not enough sols to generate image",
+            )
         db.commit()
         db.refresh(persisted_turn_image)
         db.refresh(user)
+    except HTTPException:
+        raise
     except Exception as exc:
         db.rollback()
-        try:
-            _add_user_tokens(db, int(user.id), image_generation_cost)
-            db.commit()
-            db.refresh(user)
-        except Exception:
-            db.rollback()
-            logger.exception(
-                "Story turn image token refund failed after persistence error: game_id=%s assistant_message_id=%s",
-                game.id,
-                assistant_message.id,
-            )
         logger.exception(
             "Story turn image generated but persistence failed: game_id=%s assistant_message_id=%s",
             game.id,

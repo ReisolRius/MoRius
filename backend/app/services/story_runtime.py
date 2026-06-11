@@ -61,9 +61,45 @@ from app.services.story_generation_cancel import (
 
 logger = logging.getLogger(__name__)
 STORY_MEMORY_SOURCE_EN_MODEL_IDS: set[str] = set()
-STORY_SQLITE_BUSY_DETAIL = "Игровая сессия сейчас занята другой операцией. Попробуйте ещё раз через пару секунд."
+STORY_SQLITE_BUSY_DETAIL = "Story storage is still finalizing. Please retry the request."
 STORY_GENERATE_LOCK_WAIT_SECONDS = 2.0
 STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 8.0
+STORY_CONTINUE_MODEL_PROMPT = (
+    "Continue the current scene from exactly where the latest assistant response ended. "
+    "Do not repeat or paraphrase the previous response. Advance events with a new action, reaction, consequence, "
+    "detail, choice, or complication while preserving continuity, tone, and cause-and-effect logic."
+)
+STORY_CONTINUE_INSTRUCTION_CARD = {
+    "title": "Continue command",
+    "content": STORY_CONTINUE_MODEL_PROMPT,
+    "source_kind": "system",
+}
+STORY_BILLING_KEY_MEMORY_BUDGET_SHARE = 0.10
+STORY_BILLING_KEY_MEMORY_MIN_BUDGET_TOKENS = 500
+STORY_BILLING_PLOT_CONTEXT_MAX_SHARE = 0.35
+STORY_BILLING_RAW_MEMORY_BUDGET_SHARE = 0.50
+STORY_BILLING_COMPRESSED_MEMORY_BUDGET_SHARE = 0.30
+
+
+@dataclass
+class _StoryMessagePromptOverride:
+    source: StoryMessage
+    content: str
+
+    @property
+    def id(self) -> Any:
+        return getattr(self.source, "id", None)
+
+    @property
+    def game_id(self) -> Any:
+        return getattr(self.source, "game_id", None)
+
+    @property
+    def role(self) -> str:
+        return str(getattr(self.source, "role", "") or "")
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.source, name)
 
 
 def _is_sqlite_database_url(database_url: str | None) -> bool:
@@ -164,7 +200,11 @@ def _public_story_error_detail(exc: Exception) -> str:
         return "Text generation failed"
     if is_database_busy_session_error(exc):
         return STORY_SQLITE_BUSY_DETAIL
-    if detail.casefold().startswith("polza chat error") and "{" in detail:
+    lowered_detail = detail.casefold()
+    if (
+        lowered_detail.startswith("openrouter chat error")
+        or lowered_detail.startswith("polza chat error")
+    ) and "{" in detail:
         detail = detail.split("{", 1)[0].rstrip(" .:,")
     return detail[:500]
 
@@ -191,6 +231,23 @@ def _should_use_english_memory_source(model_name: str | None) -> bool:
     return _normalize_story_model_id(model_name) in STORY_MEMORY_SOURCE_EN_MODEL_IDS
 
 
+def _with_latest_user_prompt_override(
+    context_messages: list[StoryMessage],
+    replacement_content: str,
+) -> list[StoryMessage]:
+    replacement = _normalize_story_message_content(replacement_content)
+    if not replacement:
+        return context_messages
+    result: list[Any] = list(context_messages)
+    for index in range(len(result) - 1, -1, -1):
+        message = result[index]
+        if str(getattr(message, "role", "") or "") != "user":
+            continue
+        result[index] = _StoryMessagePromptOverride(source=message, content=replacement)
+        return result
+    return context_messages
+
+
 def _estimate_story_context_usage_tokens(
     *,
     context_messages: list[StoryMessage],
@@ -198,32 +255,73 @@ def _estimate_story_context_usage_tokens(
     plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     memory_optimization_enabled: bool,
+    context_limit_tokens: int,
 ) -> int:
+    context_limit = max(int(context_limit_tokens or 0), 0)
+
+    def _estimate_cards_payload_tokens(cards: list[dict[str, str]]) -> int:
+        if not cards:
+            return 0
+        payload = "\n".join(
+            f"{index}. {card['title']}: {card['content']}"
+            for index, card in enumerate(cards, start=1)
+            if card.get("title", "").strip() and card.get("content", "").strip()
+        )
+        return _estimate_story_tokens(payload)
+
+    def _estimate_cards_tokens_within_budget(cards: list[dict[str, str]], token_budget: int) -> int:
+        budget = max(int(token_budget), 0)
+        if not cards or budget <= 0:
+            return 0
+
+        selected_reversed: list[dict[str, str]] = []
+        consumed_tokens = 0
+        for card in reversed(cards):
+            title = " ".join(str(card.get("title", "")).replace("\r\n", " ").split()).strip()
+            content = str(card.get("content", "")).replace("\r\n", "\n").strip()
+            if not title or not content:
+                continue
+            card_cost = _estimate_story_tokens(title) + _estimate_story_tokens(content) + 6
+            if consumed_tokens + card_cost <= budget:
+                selected_reversed.append({"title": title, "content": content})
+                consumed_tokens += card_cost
+                continue
+            if not selected_reversed:
+                return budget
+            break
+
+        selected_reversed.reverse()
+        return min(_estimate_cards_payload_tokens(selected_reversed), budget)
+
+    def _estimate_history_tokens_within_budget(token_budget: int) -> int:
+        budget = max(int(token_budget), 0)
+        if not context_messages or budget <= 0:
+            return 0
+
+        consumed_tokens = 0
+        selected_any = False
+        for message in reversed(context_messages):
+            if message.role not in {"user", "assistant"}:
+                continue
+            content = _normalize_story_message_content(getattr(message, "content", None))
+            if not content:
+                continue
+            message_cost = _estimate_story_tokens(content) + 4
+            if consumed_tokens + message_cost <= budget:
+                consumed_tokens += message_cost
+                selected_any = True
+                continue
+            if not selected_any:
+                return budget
+            break
+        return min(consumed_tokens, budget)
+
     instruction_payload = "\n".join(
         f"{index}. {card['title']}: {card['content']}"
         for index, card in enumerate(instruction_cards, start=1)
         if card.get("title", "").strip() and card.get("content", "").strip()
     )
     instruction_tokens_used = _estimate_story_tokens(instruction_payload)
-
-    plot_payload = "\n".join(
-        f"{index}. {card['title']}: {card['content']}"
-        for index, card in enumerate(plot_cards, start=1)
-        if card.get("title", "").strip() and card.get("content", "").strip()
-    )
-    plot_tokens_used = _estimate_story_tokens(plot_payload)
-
-    history_lines: list[str] = []
-    for message in context_messages:
-        if message.role not in {"user", "assistant"}:
-            continue
-        normalized_content = _normalize_story_message_content(getattr(message, "content", None))
-        if not normalized_content:
-            continue
-        speaker_label = "Игрок" if message.role == "user" else "ИИ"
-        history_lines.append(f"{speaker_label}: {normalized_content}")
-    history_payload = "\n".join(history_lines)
-    history_tokens_used = _estimate_story_tokens(history_payload)
 
     world_lines: list[str] = []
     for index, card in enumerate(world_cards, start=1):
@@ -237,22 +335,88 @@ def _estimate_story_context_usage_tokens(
         world_lines.append(f"Триггеры: {', '.join(normalized_triggers) if normalized_triggers else 'нет'}")
     world_tokens_used = _estimate_story_tokens("\n".join(world_lines))
 
-    latest_user_tokens_used = 0
-    for message in reversed(context_messages):
-        if message.role != "user":
-            continue
-        normalized_content = _normalize_story_message_content(getattr(message, "content", None))
-        if not normalized_content:
-            continue
-        latest_user_tokens_used = _estimate_story_tokens(normalized_content) + 4
-        break
+    fixed_cards_budget_tokens = max(context_limit - instruction_tokens_used - world_tokens_used, 0)
+    if not memory_optimization_enabled:
+        history_tokens_used = _estimate_history_tokens_within_budget(fixed_cards_budget_tokens)
+        return max(instruction_tokens_used + history_tokens_used + world_tokens_used, 0)
 
-    story_memory_tokens_used = plot_tokens_used + (
-        latest_user_tokens_used
-        if memory_optimization_enabled
-        else history_tokens_used
+    key_memory_cards: list[dict[str, str]] = []
+    raw_memory_cards: list[dict[str, str]] = []
+    compressed_memory_cards: list[dict[str, str]] = []
+    super_memory_cards: list[dict[str, str]] = []
+    plot_memory_cards: list[dict[str, str]] = []
+    for card in plot_cards:
+        source_kind = str(card.get("source_kind", "") or "").strip().lower()
+        memory_layer = str(card.get("memory_layer", "") or "").strip().lower()
+        if memory_layer == "key":
+            key_memory_cards.append(card)
+        elif memory_layer == "raw":
+            raw_memory_cards.append(card)
+        elif memory_layer == "compressed":
+            compressed_memory_cards.append(card)
+        elif memory_layer == "super":
+            super_memory_cards.append(card)
+        elif source_kind == "plot":
+            plot_memory_cards.append(card)
+
+    key_memory_budget_tokens = min(
+        context_limit,
+        max(int(context_limit * STORY_BILLING_KEY_MEMORY_BUDGET_SHARE), STORY_BILLING_KEY_MEMORY_MIN_BUDGET_TOKENS),
     )
-    return max(instruction_tokens_used + story_memory_tokens_used + world_tokens_used, 0)
+    key_memory_tokens_used = _estimate_cards_tokens_within_budget(
+        key_memory_cards,
+        min(key_memory_budget_tokens, fixed_cards_budget_tokens),
+    )
+    available_after_key_tokens = max(fixed_cards_budget_tokens - key_memory_tokens_used, 0)
+    plot_budget_tokens = min(
+        int(context_limit * STORY_BILLING_PLOT_CONTEXT_MAX_SHARE),
+        available_after_key_tokens,
+    )
+    plot_tokens_used = _estimate_cards_tokens_within_budget(plot_memory_cards, plot_budget_tokens)
+    dev_memory_budget_tokens = max(fixed_cards_budget_tokens - key_memory_tokens_used - plot_tokens_used, 0)
+    raw_memory_budget_tokens = max(int(dev_memory_budget_tokens * STORY_BILLING_RAW_MEMORY_BUDGET_SHARE), 0)
+    compressed_memory_budget_tokens = max(
+        int(dev_memory_budget_tokens * STORY_BILLING_COMPRESSED_MEMORY_BUDGET_SHARE),
+        0,
+    )
+    super_memory_budget_tokens = max(
+        dev_memory_budget_tokens - raw_memory_budget_tokens - compressed_memory_budget_tokens,
+        0,
+    )
+    memory_tokens_used = (
+        key_memory_tokens_used
+        + plot_tokens_used
+        + _estimate_cards_tokens_within_budget(raw_memory_cards, raw_memory_budget_tokens)
+        + _estimate_cards_tokens_within_budget(compressed_memory_cards, compressed_memory_budget_tokens)
+        + _estimate_cards_tokens_within_budget(super_memory_cards, super_memory_budget_tokens)
+    )
+    return max(instruction_tokens_used + memory_tokens_used + world_tokens_used, 0)
+
+
+def _calculate_story_turn_cost_tokens(
+    *,
+    get_story_turn_cost_tokens: Callable[[int | None, str | None], int],
+    context_limit_tokens: int,
+    model_name: str | None,
+    context_messages: list[StoryMessage],
+    instruction_cards: list[dict[str, str]],
+    plot_cards: list[dict[str, str]],
+    world_cards: list[dict[str, Any]],
+    memory_optimization_enabled: bool,
+) -> int:
+    context_usage_tokens = _estimate_story_context_usage_tokens(
+        context_messages=context_messages,
+        instruction_cards=instruction_cards,
+        plot_cards=plot_cards,
+        world_cards=world_cards,
+        memory_optimization_enabled=memory_optimization_enabled,
+        context_limit_tokens=context_limit_tokens,
+    )
+    billable_context_usage_tokens = min(
+        max(context_usage_tokens, 0),
+        max(int(context_limit_tokens or 0), 0),
+    )
+    return max(int(get_story_turn_cost_tokens(billable_context_usage_tokens, model_name)), 0)
 
 
 def _merge_story_active_world_cards(
@@ -703,8 +867,6 @@ def _stream_story_response(
         try:
             if assistant_message is not None:
                 db.delete(assistant_message)
-            if turn_cost_tokens > 0:
-                deps.add_user_tokens(db, int(user.id), turn_cost_tokens)
             deps.touch_story_game(game)
             commit_with_retry(db)
             try:
@@ -722,11 +884,12 @@ def _stream_story_response(
         return
 
     if aborted:
+        partial_output = str(produced or "").replace("\r\n", "\n").strip()
         try:
-            if assistant_message is not None:
+            if assistant_message is not None and partial_output:
+                assistant_message.content = partial_output
+            elif assistant_message is not None:
                 db.delete(assistant_message)
-            if turn_cost_tokens > 0:
-                deps.add_user_tokens(db, int(user.id), turn_cost_tokens)
             deps.touch_story_game(game)
             commit_with_retry(db)
             try:
@@ -763,23 +926,44 @@ def _stream_story_response(
         return
 
     response_has_content = bool(normalized_output.strip() or produced.strip())
-    if turn_cost_tokens > 0 and not response_has_content and not aborted:
+    if not response_has_content:
         try:
-            deps.add_user_tokens(
-                db,
-                int(user.id),
-                turn_cost_tokens,
-            )
-            db.commit()
-            db.refresh(user)
+            if assistant_message is not None:
+                db.delete(assistant_message)
+            deps.touch_story_game(game)
+            commit_with_retry(db)
         except Exception:
             logger.exception(
-                "Failed to refund story turn tokens: game_id=%s user_id=%s tokens=%s",
+                "Failed to clean up empty story stream: game_id=%s assistant_message_id=%s",
+                game.id,
+                getattr(assistant_message, "id", None),
+            )
+            db.rollback()
+        yield _sse_event("error", {"detail": "OpenRouter returned an empty story response"})
+        return
+
+    if turn_cost_tokens > 0:
+        try:
+            if not deps.spend_user_tokens_if_sufficient(db, int(user.id), turn_cost_tokens):
+                db.rollback()
+                if assistant_message is not None:
+                    db.delete(assistant_message)
+                deps.touch_story_game(game)
+                commit_with_retry(db)
+                yield _sse_event("error", {"detail": "Недостаточно солов для хода"})
+                return
+            commit_with_retry(db)
+            db.refresh(user)
+        except Exception as exc:
+            logger.exception(
+                "Failed to charge successful story turn: game_id=%s user_id=%s tokens=%s",
                 game.id,
                 user.id,
                 turn_cost_tokens,
             )
             db.rollback()
+            yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
+            return
 
     assistant_text_for_postprocess = _normalize_story_message_content(getattr(assistant_message, "content", None))
     if not assistant_text_for_postprocess:
@@ -1362,35 +1546,20 @@ def _generate_story_response_locked(
             ) from exc
         return deps.list_story_messages(db, game.id)
 
-    def _calculate_turn_cost_tokens(context_messages_for_cost: list[StoryMessage]) -> int:
-        world_cards_for_cost = _order_story_world_cards_for_active_main_hero(
-            game,
-            deps.list_story_world_cards(db, game.id),
+    def _ensure_user_can_afford_turn(turn_cost: int) -> None:
+        if turn_cost <= 0:
+            return
+        try:
+            db.refresh(user)
+        except Exception:
+            pass
+        if int(getattr(user, "coins", 0) or 0) >= int(turn_cost):
+            return
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Недостаточно солов для хода",
         )
-        active_world_cards_for_cost = deps.select_story_world_cards_for_prompt(
-            context_messages_for_cost,
-            world_cards_for_cost,
-        )
-        active_plot_cards_for_cost = deps.list_story_prompt_memory_cards(
-            db,
-            game,
-            memory_optimization_enabled,
-            context_messages_for_cost,
-        )
-        context_usage_tokens = _estimate_story_context_usage_tokens(
-            context_messages=context_messages_for_cost,
-            instruction_cards=instruction_cards,
-            plot_cards=active_plot_cards_for_cost,
-            world_cards=active_world_cards_for_cost,
-            memory_optimization_enabled=memory_optimization_enabled,
-        )
-        base_turn_cost_tokens = max(int(deps.get_story_turn_cost_tokens(context_usage_tokens, story_model_name)), 0)
-        extra_turn_cost_tokens = 0
-        if ambient_enabled:
-            extra_turn_cost_tokens += 1
-        if emotion_visualization_enabled:
-            extra_turn_cost_tokens += 1
-        return base_turn_cost_tokens + extra_turn_cost_tokens
 
     def _drop_last_assistant_steps(
         *,
@@ -1596,15 +1765,6 @@ def _generate_story_response_locked(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user prompt found for reroll")
 
         prompt_text = _normalize_story_message_content(getattr(source_user_message, "content", None))
-        turn_cost_tokens = _calculate_turn_cost_tokens(messages)
-        if not deps.spend_user_tokens_if_sufficient(db, int(user.id), turn_cost_tokens):
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Недостаточно солов для хода",
-            )
-        db.commit()
-        db.refresh(user)
     else:
         if discard_last_assistant_steps > 0:
             messages = _drop_last_assistant_steps(
@@ -1624,13 +1784,6 @@ def _generate_story_response_locked(
             ),
             None,
         )
-        turn_cost_tokens = _calculate_turn_cost_tokens(messages)
-        if not deps.spend_user_tokens_if_sufficient(db, int(user.id), turn_cost_tokens):
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Недостаточно солов для хода",
-            )
         if source_user_message is None:
             source_user_message = StoryMessage(
                 game_id=game.id,
@@ -1638,12 +1791,12 @@ def _generate_story_response_locked(
                 content=prompt_text,
             )
             db.add(source_user_message)
+            db.flush()
         if game.title == deps.story_default_title:
             game.title = deps.derive_story_title(prompt_text)
         deps.touch_story_game(game)
-        db.commit()
-        db.refresh(source_user_message)
-        db.refresh(user)
+
+    billing_instruction_cards = list(instruction_cards)
 
     try:
         smart_instruction_card = build_smart_regeneration_instruction_card(
@@ -1692,17 +1845,26 @@ def _generate_story_response_locked(
         memory_optimization_enabled,
         context_messages,
     )
+    is_continue_turn = bool(getattr(payload, "is_continue", False))
+    model_prompt_text = STORY_CONTINUE_MODEL_PROMPT if is_continue_turn else prompt_text
+    provider_context_messages = (
+        _with_latest_user_prompt_override(context_messages, STORY_CONTINUE_MODEL_PROMPT)
+        if is_continue_turn
+        else context_messages
+    )
     effective_instruction_cards = instruction_cards
+    if is_continue_turn:
+        effective_instruction_cards = [dict(STORY_CONTINUE_INSTRUCTION_CARD), *effective_instruction_cards]
     canonical_pipeline_enabled = bool(settings.enable_canonical_state_pipeline) and bool(
         getattr(game, "canonical_state_pipeline_enabled", True)
     )
     if canonical_pipeline_enabled:
         try:
             canonical_prompt = build_canonical_generation_prompt(
-                player_text=prompt_text,
+                player_text=model_prompt_text,
                 game=game,
                 world_cards=active_world_cards,
-                context_messages=context_messages,
+                context_messages=provider_context_messages,
             )
             if canonical_prompt:
                 effective_instruction_cards = [
@@ -1715,6 +1877,21 @@ def _generate_story_response_locked(
                 ]
         except Exception:
             logger.exception("Canonical state prompt card failed; continuing with legacy instruction cards")
+    turn_cost_tokens = _calculate_story_turn_cost_tokens(
+        get_story_turn_cost_tokens=deps.get_story_turn_cost_tokens,
+        context_limit_tokens=context_limit_chars,
+        model_name=story_model_name,
+        context_messages=provider_context_messages,
+        instruction_cards=billing_instruction_cards,
+        plot_cards=active_plot_cards,
+        world_cards=active_world_cards,
+        memory_optimization_enabled=memory_optimization_enabled,
+    )
+    _ensure_user_can_afford_turn(turn_cost_tokens)
+    db.commit()
+    if source_user_message is not None:
+        db.refresh(source_user_message)
+    db.refresh(user)
     assistant_turn_index = (
         len([message for message in context_messages if message.role == deps.story_assistant_role]) + 1
     )
@@ -1727,9 +1904,9 @@ def _generate_story_response_locked(
         user=user,
         turn_cost_tokens=turn_cost_tokens,
         source_user_message=source_user_message,
-        prompt=prompt_text,
+        prompt=model_prompt_text,
         turn_index=assistant_turn_index,
-        context_messages=context_messages,
+        context_messages=provider_context_messages,
         instruction_cards=effective_instruction_cards,
         plot_cards=active_plot_cards,
         world_cards=active_world_cards,
@@ -1804,14 +1981,19 @@ def generate_story_response(
             operation_lease = acquire_story_game_operation_lock(
                 game.id,
                 operation="story_generate",
-                wait_timeout_seconds=STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS,
+                wait_timeout_seconds=None,
             )
         except StoryGameOperationBusyError as exc:
-            logger.warning("Story generate lock timed out after cancellation wait: game_id=%s error=%s", game.id, exc)
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=STORY_SQLITE_BUSY_DETAIL,
-            ) from exc
+            logger.warning(
+                "Story generate lock unexpectedly failed while waiting without timeout: game_id=%s error=%s",
+                game.id,
+                exc,
+            )
+            operation_lease = acquire_story_game_operation_lock(
+                game.id,
+                operation="story_generate",
+                wait_timeout_seconds=None,
+            )
 
     def _release_operation_lease() -> None:
         try:

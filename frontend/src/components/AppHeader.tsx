@@ -108,7 +108,10 @@ const MOBILE_SHEET_TOP_OFFSET = 'calc(var(--morius-header-menu-top) + 8px)'
 const MOBILE_ACTION_CARD_HEIGHT = 118
 const HEADER_NAV_KEYS = new Set(['dashboard', 'games-all', 'community-worlds'])
 const HEADER_NAV_ACTIVE_COLOR = '#4F8DFF'
-const HEADER_PLAY_ICON_COLOR = '#D88C36'
+const HEADER_PLAY_ICON_COLOR = '#FFFFFF'
+const HEADER_PLAY_BUTTON_WIDTH = 72
+const HEADER_PLAY_BUTTON_HEIGHT = HEADER_BUTTON_SIZE
+const HEADER_PLAY_ICON_SIZE = 20
 const HEADER_CONTENT_MAX_WIDTH = 1120
 
 const headerBackdropSx = {
@@ -171,6 +174,43 @@ const headerRoundActionButtonSx = {
   },
   '&:active': {
     backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 44%, #000 56%) !important',
+  },
+} as const
+
+const headerPlayActionButtonSx = {
+  '--morius-header-play-width': `${HEADER_PLAY_BUTTON_WIDTH}px`,
+  '--morius-header-play-height': `${HEADER_PLAY_BUTTON_HEIGHT}px`,
+  '--morius-header-play-radius': '14px',
+  '--morius-header-play-icon-size': `${HEADER_PLAY_ICON_SIZE}px`,
+  '--morius-header-play-bg': '#5A91EC',
+  minWidth: HEADER_PLAY_BUTTON_WIDTH,
+  width: HEADER_PLAY_BUTTON_WIDTH,
+  height: HEADER_PLAY_BUTTON_HEIGHT,
+  minHeight: HEADER_PLAY_BUTTON_HEIGHT,
+  maxWidth: HEADER_PLAY_BUTTON_WIDTH,
+  maxHeight: HEADER_PLAY_BUTTON_HEIGHT,
+  flex: `0 0 ${HEADER_PLAY_BUTTON_WIDTH}px`,
+  mr: 1,
+  p: 0,
+  borderRadius: '14px !important',
+  color: '#FFFFFF !important',
+  backgroundColor: '#5A91EC !important',
+  border: 'none',
+  boxShadow: '0 8px 20px rgba(67, 126, 229, 0.24) !important',
+  opacity: '1 !important',
+  transition: 'background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
+  position: 'relative',
+  overflow: 'hidden',
+  '&:hover': {
+    color: '#FFFFFF !important',
+    backgroundColor: '#659DF4 !important',
+    boxShadow: '0 10px 24px rgba(67, 126, 229, 0.3) !important',
+    opacity: '1 !important',
+  },
+  '&:active': {
+    backgroundColor: '#4F86E4 !important',
+    boxShadow: '0 6px 16px rgba(67, 126, 229, 0.22) !important',
+    transform: 'translateY(1px)',
   },
 } as const
 
@@ -762,11 +802,12 @@ function AppHeader({
         aria-expanded={isHeaderQuickActionsOpen ? 'true' : undefined}
         onClick={handleToggleHeaderQuickActions}
         sx={{
-          ...headerRoundActionButtonSx,
-          color: `${isHeaderQuickActionsOpen ? 'var(--morius-title-text)' : 'color-mix(in srgb, var(--morius-title-text) 72%, transparent)'} !important`,
+          ...headerPlayActionButtonSx,
+          '--morius-header-play-bg': isHeaderQuickActionsOpen ? '#659DF4' : '#5A91EC',
+          backgroundColor: `${isHeaderQuickActionsOpen ? '#659DF4' : '#5A91EC'} !important`,
         }}
       >
-        <ThemedSvgIcon markup={mobilePlayIconMarkup} size={16} sx={{ color: HEADER_PLAY_ICON_COLOR }} />
+        <ThemedSvgIcon markup={mobilePlayIconMarkup} size={HEADER_PLAY_ICON_SIZE} sx={{ color: HEADER_PLAY_ICON_COLOR }} />
       </IconButton>
 
       <Popover

@@ -55,7 +55,7 @@ function AiAssistantButton({ user, authToken, size }: AiAssistantButtonProps) {
     checking: 'AI-помощник',
     ready: 'AI-помощник',
     disabled: 'AI-помощник выключен на backend',
-    unconfigured: 'AI-помощнику нужен POLZA_API_KEY',
+    unconfigured: 'AI-помощнику нужен OpenRouter ключ',
     offline: 'Backend AI-помощника недоступен',
   }
   const statusColor = availability === 'ready' ? '#6ee7b7' : availability === 'checking' ? 'var(--morius-accent)' : '#ffb86b'

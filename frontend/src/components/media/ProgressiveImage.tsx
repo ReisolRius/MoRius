@@ -5,6 +5,13 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { resolveApiResourceUrl } from '../../services/httpClient'
 
 type ImageLoadStatus = 'idle' | 'loading' | 'loaded' | 'failed'
+type ProgressiveImageState = {
+  src: string | null
+  retryNonce: number
+  loadStatus: ImageLoadStatus
+}
+
+const PROGRESSIVE_IMAGE_LOAD_TIMEOUT_MS = 10_000
 
 type ProgressiveImageProps = {
   src?: string | null
@@ -40,23 +47,40 @@ export default function ProgressiveImage({
   fallback = null,
 }: ProgressiveImageProps) {
   const resolvedSrc = resolveApiResourceUrl(src)
-  const [retryNonce, setRetryNonce] = useState(0)
-  const [loadStatus, setLoadStatus] = useState<ImageLoadStatus>(resolvedSrc ? 'loading' : 'idle')
+  const [imageState, setImageState] = useState<ProgressiveImageState>({
+    src: resolvedSrc,
+    retryNonce: 0,
+    loadStatus: resolvedSrc ? 'loading' : 'idle',
+  })
+  const isCurrentImageState = imageState.src === resolvedSrc
+  const retryNonce = isCurrentImageState ? imageState.retryNonce : 0
+  const loadStatus: ImageLoadStatus = isCurrentImageState
+    ? imageState.loadStatus
+    : resolvedSrc
+      ? 'loading'
+      : 'idle'
   const requestSrc = buildImageRequestSrc(resolvedSrc, retryNonce)
   const shouldRevealImage = loadStatus === 'loaded' || loadStatus === 'idle'
   const isImageLoading = loadStatus === 'loading'
   const hasFailed = loadStatus === 'failed'
 
   useEffect(() => {
-    if (!resolvedSrc) {
-      setRetryNonce(0)
-      setLoadStatus('idle')
+    if (!resolvedSrc || loadStatus !== 'loading') {
       return
     }
 
-    setRetryNonce(0)
-    setLoadStatus('loading')
-  }, [resolvedSrc])
+    const timeoutId = window.setTimeout(() => {
+      setImageState((currentState) => {
+        const currentRetryNonce = currentState.src === resolvedSrc ? currentState.retryNonce : retryNonce
+        if (currentRetryNonce < 2) {
+          return { src: resolvedSrc, retryNonce: currentRetryNonce + 1, loadStatus: 'loading' }
+        }
+        return { src: resolvedSrc, retryNonce: currentRetryNonce, loadStatus: 'failed' }
+      })
+    }, PROGRESSIVE_IMAGE_LOAD_TIMEOUT_MS)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [loadStatus, resolvedSrc, retryNonce])
 
   return (
     <Box
@@ -82,14 +106,15 @@ export default function ProgressiveImage({
             fetchPriority={fetchPriority}
             decoding="async"
             referrerPolicy="no-referrer"
-            onLoad={() => setLoadStatus('loaded')}
+            onLoad={() => setImageState({ src: resolvedSrc, retryNonce, loadStatus: 'loaded' })}
             onError={() => {
-              if (retryNonce < 2) {
-                setLoadStatus('loading')
-                setRetryNonce((current) => current + 1)
-              } else {
-                setLoadStatus('failed')
-              }
+              setImageState((currentState) => {
+                const currentRetryNonce = currentState.src === resolvedSrc ? currentState.retryNonce : retryNonce
+                if (currentRetryNonce < 2) {
+                  return { src: resolvedSrc, retryNonce: currentRetryNonce + 1, loadStatus: 'loading' }
+                }
+                return { src: resolvedSrc, retryNonce: currentRetryNonce, loadStatus: 'failed' }
+              })
             }}
             sx={[
               {

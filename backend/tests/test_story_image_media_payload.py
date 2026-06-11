@@ -25,24 +25,24 @@ class StoryImageMediaPayloadTests(unittest.TestCase):
 
             self.assertNotIn("provider", payload)
 
-    def test_text_model_provider_pinning_still_uses_shared_routing(self) -> None:
+    def test_text_model_provider_pinning_is_disabled_for_openrouter(self) -> None:
         payload = monolith_main._build_polza_provider_payload("anthropic/claude-sonnet-4.6")
 
-        self.assertEqual(payload, {"order": [monolith_main.STORY_POLZA_PROVIDER_MIE], "allow_fallbacks": True})
+        self.assertIsNone(payload)
 
     def test_seedream_prompt_limit_matches_media_api_cap(self) -> None:
         self.assertEqual(
             monolith_main._get_story_turn_image_request_prompt_max_chars(
                 monolith_main.STORY_TURN_IMAGE_MODEL_SEEDREAM,
             ),
-            3_000,
+            20_000,
         )
         limited_prompt = monolith_main._limit_story_turn_image_request_prompt(
-            "x" * 3_500,
+            "x" * 20_500,
             model_name=monolith_main.STORY_TURN_IMAGE_MODEL_SEEDREAM,
         )
 
-        self.assertEqual(len(limited_prompt), 3_000)
+        self.assertEqual(len(limited_prompt), 20_000)
 
     def test_media_parser_accepts_output_url_payload(self) -> None:
         parsed = monolith_main._parse_polza_story_turn_image_payload(

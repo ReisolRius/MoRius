@@ -68,6 +68,7 @@ from app.services.story_characters import (
 from app.services.story_games import (
     STORY_GAME_VISIBILITY_PRIVATE,
     STORY_GAME_VISIBILITY_PUBLIC,
+    delete_story_game_with_relations,
     normalize_story_game_description,
 )
 from app.services.story_queries import touch_story_game
@@ -176,6 +177,7 @@ class AiAssistantChatResponse(BaseModel):
     steps: list[dict[str, Any]] = Field(default_factory=list)
     createdEntities: list[dict[str, Any]] = Field(default_factory=list)
     updatedEntities: list[dict[str, Any]] = Field(default_factory=list)
+    deletedEntities: list[dict[str, Any]] = Field(default_factory=list)
     redirectUrl: str | None = None
     chargedSols: int = 0
     usage: AiAssistantUsageOut
@@ -286,14 +288,14 @@ def _check_rate_limit(user_id: int) -> None:
 
 
 def _assistant_chat_url() -> str:
-    base_url = settings.ai_assistant_base_url or "https://polza.ai/api/v1"
+    base_url = settings.ai_assistant_base_url or "https://openrouter.ai/api/v1"
     normalized = base_url.rstrip("/")
     if normalized.endswith(ASSISTANT_CHAT_URL_SUFFIX):
         return normalized
     return f"{normalized}{ASSISTANT_CHAT_URL_SUFFIX}"
 
 
-def _extract_polza_error_detail(response: requests.Response) -> str:
+def _extract_openrouter_error_detail(response: requests.Response) -> str:
     try:
         payload = response.json()
     except ValueError:
@@ -308,11 +310,11 @@ def _extract_polza_error_detail(response: requests.Response) -> str:
     return ""
 
 
-def _post_polza_chat(payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+def _post_openrouter_chat(payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
     if not settings.polza_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="POLZA_API_KEY is not configured",
+            detail="OpenRouter API key is not configured: set POLZA_API_KEY",
         )
     headers = {
         "Authorization": f"Bearer {settings.polza_api_key}",
@@ -340,33 +342,33 @@ def _post_polza_chat(payload: dict[str, Any]) -> tuple[dict[str, Any], str | Non
                 continue
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Failed to reach Polza.ai",
+                detail="Failed to reach OpenRouter",
             ) from exc
 
         if response.status_code >= 500 and attempt_index == 0:
             continue
         if response.status_code >= 400:
-            detail = _extract_polza_error_detail(response)
+            detail = _extract_openrouter_error_detail(response)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Polza.ai chat error ({response.status_code}){': ' + detail if detail else ''}",
+                detail=f"OpenRouter chat error ({response.status_code}){': ' + detail if detail else ''}",
             )
         try:
             response_payload = response.json()
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Polza.ai returned invalid JSON",
+                detail="OpenRouter returned invalid JSON",
             ) from exc
         if not isinstance(response_payload, dict):
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Polza.ai returned invalid payload",
+                detail="OpenRouter returned invalid payload",
             )
         request_id = response.headers.get("x-request-id") or response.headers.get("X-Request-Id")
         return response_payload, request_id
 
-    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to reach Polza.ai") from last_transport_error
+    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to reach OpenRouter") from last_transport_error
 
 
 def _extract_message_content(content: Any) -> str:
@@ -397,7 +399,7 @@ def _usage_number(usage: dict[str, Any], *keys: str) -> int:
 
 def _usage_cost_rub(usage: Any) -> tuple[float, str | None]:
     if not isinstance(usage, dict):
-        return 0.0, "Polza usage did not include cost; charged minimum sols."
+        return 0.0, "OpenRouter usage did not include cost; charged minimum sols."
     for key in ("cost_rub", "costRub", "cost"):
         value = usage.get(key)
         if isinstance(value, (int, float)) and math.isfinite(float(value)):
@@ -410,7 +412,7 @@ def _usage_cost_rub(usage: Any) -> tuple[float, str | None]:
     nested = usage.get("billing")
     if isinstance(nested, dict):
         return _usage_cost_rub(nested)
-    return 0.0, "Polza usage did not include cost; charged minimum sols."
+    return 0.0, "OpenRouter usage did not include cost; charged minimum sols."
 
 
 def _calculate_charge_sols(cost_rub: float) -> int:
@@ -421,7 +423,7 @@ def _calculate_charge_sols(cost_rub: float) -> int:
 def _append_usage_totals(total: dict[str, Any], payload: dict[str, Any], request_id: str | None) -> None:
     usage = payload.get("usage")
     if not isinstance(usage, dict):
-        total["warning"] = total.get("warning") or "Polza usage did not include cost; charged minimum sols."
+        total["warning"] = total.get("warning") or "OpenRouter usage did not include cost; charged minimum sols."
         return
     total["prompt_tokens"] = int(total.get("prompt_tokens", 0)) + _usage_number(usage, "prompt_tokens", "promptTokens")
     total["completion_tokens"] = int(total.get("completion_tokens", 0)) + _usage_number(
@@ -767,11 +769,17 @@ def _search_templates(db: Session, *, user: User, kind: str, query: str, limit: 
 def _normalize_existing_entity_type(value: Any) -> str:
     normalized = str(value or "any").strip().lower().replace("-", "_")
     aliases = {
+        "game": "world_game",
+        "games": "world_game",
+        "story_game": "world_game",
+        "world_game": "world_game",
         "rule": "instruction_card",
         "rules": "instruction_card",
         "instruction": "instruction_card",
         "instructions": "instruction_card",
-        "world": "world_card",
+        "world": "world_game",
+        "worlds": "world_game",
+        "lore": "world_card",
         "card": "world_card",
         "character": "profile_character",
         "profile_instruction": "instruction_template",
@@ -825,6 +833,23 @@ def _search_existing_cards(
                 StoryGame.user_id == int(user.id),
             )
         )
+
+    if normalized_type in {"any", "world_game"}:
+        rows = db.scalars(
+            select(StoryGame)
+            .where(StoryGame.user_id == int(user.id))
+            .order_by(StoryGame.updated_at.desc(), StoryGame.id.desc())
+            .limit(120)
+        ).all()
+        for game in rows:
+            add_candidate(
+                "world_game",
+                int(game.id),
+                str(game.title or ""),
+                str(getattr(game, "description", "") or ""),
+                _story_game_url(int(game.id)),
+                "profile",
+            )
 
     if world is not None and normalized_type in {"any", "world_card"}:
         rows = db.scalars(
@@ -1233,6 +1258,13 @@ def _create_profile_world_card_template(
 
 
 def _snapshot_existing_entity(entity_type: str, entity: Any) -> dict[str, Any]:
+    if entity_type == "world_game":
+        return {
+            "title": entity.title,
+            "description": entity.description,
+            "opening_scene": entity.opening_scene,
+            "visibility": entity.visibility,
+        }
     if entity_type == "world_card":
         return {
             "title": entity.title,
@@ -1295,6 +1327,17 @@ def _load_existing_entity_for_update(
 ) -> Any:
     normalized_type = _normalize_existing_entity_type(entity_type)
     page_context = page_context or {}
+    if normalized_type == "world_game":
+        entity = db.scalar(
+            select(StoryGame).where(
+                StoryGame.id == int(entity_id),
+                StoryGame.user_id == int(user.id),
+            )
+        )
+        if entity is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World/game not found")
+        return entity
+
     if normalized_type in {"world_card", "instruction_card", "plot_card"}:
         normalized_world_id = _normalize_world_id(world_id or page_context.get("worldId"))
         if normalized_world_id is None:
@@ -1326,6 +1369,8 @@ def _load_existing_entity_for_update(
 
 
 def _entity_ref_for_existing(entity_type: str, entity: Any) -> dict[str, Any]:
+    if entity_type == "world_game":
+        return _entity_ref("world_game", int(entity.id), entity.title, _story_game_url(int(entity.id)))
     if entity_type == "world_card":
         return _entity_ref("world_card", int(entity.id), entity.title, f"{_story_game_url(int(entity.game_id))}?card={int(entity.id)}")
     if entity_type == "instruction_card":
@@ -1382,6 +1427,21 @@ def _update_existing_entity_from_args(
         if getattr(entity, name) != value:
             setattr(entity, name, value)
             changed = True
+
+    if entity_type == "world_game":
+        if _arg_present(args, "title", "name"):
+            assign("title", _compact_text(_arg_value(args, "title", "name"), max_length=160) or str(entity.title or ""))
+        if _arg_present(args, "description", "content"):
+            assign("description", normalize_story_game_description(str(_arg_value(args, "description", "content") or "")))
+        if _arg_present(args, "openingScene", "opening_scene"):
+            assign("opening_scene", _compact_text(_arg_value(args, "openingScene", "opening_scene"), max_length=12_000))
+        if _arg_present(args, "visibility"):
+            visibility = str(args.get("visibility") or "").strip().lower()
+            if visibility in {STORY_GAME_VISIBILITY_PRIVATE, STORY_GAME_VISIBILITY_PUBLIC}:
+                assign("visibility", visibility)
+        if changed:
+            touch_story_game(entity)
+        return changed
 
     if entity_type == "world_card":
         if _arg_present(args, "title", "name"):
@@ -1719,6 +1779,34 @@ def _tool_update_existing_card(args: dict[str, Any], *, db: Session, user: User,
     return {"ok": True, "updatedEntityRefs": [ref], "redirectUrl": ref.get("url")}
 
 
+def _tool_delete_existing_card(args: dict[str, Any], *, db: Session, user: User, page_context: dict[str, Any]) -> dict[str, Any]:
+    entity_type, entity_id = _resolve_update_target(args, db=db, user=user, page_context=page_context)
+    entity = _load_existing_entity_for_update(
+        db,
+        user=user,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        world_id=args.get("worldId"),
+        page_context=page_context,
+    )
+    ref = _entity_ref_for_existing(entity_type, entity)
+    if entity_type == "world_game":
+        delete_story_game_with_relations(db, game_id=int(entity.id))
+    else:
+        db.delete(entity)
+        if entity_type in {"world_card", "instruction_card", "plot_card"}:
+            world = db.scalar(
+                select(StoryGame).where(
+                    StoryGame.id == int(getattr(entity, "game_id", 0) or 0),
+                    StoryGame.user_id == int(user.id),
+                )
+            )
+            if world is not None:
+                touch_story_game(world)
+    db.flush()
+    return {"ok": True, "deletedEntityRefs": [ref], "redirectUrl": "/profile" if entity_type == "world_game" else ref.get("url")}
+
+
 def _tool_create_world(args: dict[str, Any], *, db: Session, user: User, page_context: dict[str, Any]) -> dict[str, Any]:
     _ = page_context
     world, ref = _create_world_from_args(
@@ -2036,6 +2124,7 @@ TOOL_HANDLERS = {
     "search_templates": _tool_search_templates,
     "search_existing_cards": _tool_search_existing_cards,
     "update_existing_card": _tool_update_existing_card,
+    "delete_existing_card": _tool_delete_existing_card,
     "create_world": _tool_create_world,
     "add_character_from_template_to_world": _tool_add_character_from_template,
     "create_character_in_world": _tool_create_character_in_world,
@@ -2055,6 +2144,7 @@ TOOL_STEP_LABELS = {
     "search_templates": "Ищу подходящие шаблоны",
     "search_existing_cards": "Ищу существующие карточки",
     "update_existing_card": "Редактирую существующую карточку",
+    "delete_existing_card": "Удаляю существующую карточку",
     "create_world": "Создаю приватный мир",
     "add_character_from_template_to_world": "Добавляю персонажа из профиля в мир",
     "create_character_in_world": "Создаю персонажа в текущем мире",
@@ -2118,6 +2208,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                         "type": "string",
                         "enum": [
                             "any",
+                            "world_game",
                             "world_card",
                             "instruction_card",
                             "plot_card",
@@ -2148,6 +2239,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "entityType": {
                         "type": "string",
                         "enum": [
+                            "world_game",
                             "world_card",
                             "instruction_card",
                             "plot_card",
@@ -2162,6 +2254,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "name": {"type": "string"},
                     "content": {"type": "string"},
                     "description": {"type": "string"},
+                    "openingScene": {"type": "string"},
+                    "opening_scene": {"type": "string"},
+                    "visibility": {"type": "string", "enum": ["private", "public"]},
                     "race": {"type": "string"},
                     "clothing": {"type": "string"},
                     "inventory": {"type": "string"},
@@ -2174,6 +2269,38 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "isActive": {"type": "boolean"},
                     "isEnabled": {"type": "boolean"},
                     "aiEditEnabled": {"type": "boolean"},
+                },
+                "required": ["entityType"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_existing_card",
+            "description": (
+                "Удалить существующую пользовательскую сущность: мир/игру, карточку мира, инструкцию, сюжетную карточку, "
+                "профильного персонажа, шаблон инструкции или шаблон карточки мира. "
+                "Используй только при явной просьбе удалить; если цель названа словами, сначала используй search_existing_cards."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "worldId": {"type": "string"},
+                    "entityType": {
+                        "type": "string",
+                        "enum": [
+                            "world_game",
+                            "world_card",
+                            "instruction_card",
+                            "plot_card",
+                            "profile_character",
+                            "instruction_template",
+                            "world_card_template",
+                        ],
+                    },
+                    "entityId": {"type": "integer"},
+                    "query": {"type": "string"},
                 },
                 "required": ["entityType"],
             },
@@ -2481,7 +2608,7 @@ def _polza_chat_once(messages: list[dict[str, Any]]) -> tuple[dict[str, Any], di
         "max_tokens": settings.ai_assistant_max_completion_tokens,
         "stream": False,
     }
-    response_payload, request_id = _post_polza_chat(payload)
+    response_payload, request_id = _post_openrouter_chat(payload)
     choices = response_payload.get("choices")
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         return {}, response_payload, request_id
@@ -2499,7 +2626,7 @@ def _run_ai_assistant(
     batch: AiAssistantActionBatch,
     payload: AiAssistantChatRequest,
     page_context: dict[str, Any],
-) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], str | None, dict[str, Any]]:
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], str | None, dict[str, Any]]:
     voice_meta = payload.voiceMeta.model_dump(exclude_none=True) if payload.voiceMeta is not None else {}
     messages = _build_initial_messages(
         db=db,
@@ -2510,6 +2637,7 @@ def _run_ai_assistant(
     steps: list[dict[str, Any]] = [{"label": "Понимаю запрос", "status": "running"}]
     created_refs: list[dict[str, Any]] = []
     updated_refs: list[dict[str, Any]] = []
+    deleted_refs: list[dict[str, Any]] = []
     redirect_url: str | None = None
     assistant_text = ""
     usage_total: dict[str, Any] = {
@@ -2565,6 +2693,7 @@ def _run_ai_assistant(
             }
             created_refs.extend([ref for ref in result.get("createdEntityRefs") or [] if isinstance(ref, dict)])
             updated_refs.extend([ref for ref in result.get("updatedEntityRefs") or [] if isinstance(ref, dict)])
+            deleted_refs.extend([ref for ref in result.get("deletedEntityRefs") or [] if isinstance(ref, dict)])
             if isinstance(result.get("redirectUrl"), str):
                 redirect_url = str(result["redirectUrl"])
             _add_message(
@@ -2587,13 +2716,15 @@ def _run_ai_assistant(
         if round_index == MAX_TOOL_ROUNDS - 1:
             assistant_text = content or "Выполнил доступные действия. Проверьте итог ниже."
 
+    if not assistant_text and not (created_refs or updated_refs or deleted_refs):
+        raise RuntimeError("OpenRouter returned an empty AI assistant response")
     if not assistant_text:
         assistant_text = "Готово. Я обработал запрос, но модель не вернула текстовый итог."
-    status_value = "success" if created_refs or updated_refs else "success"
+    status_value = "success"
     if any(step.get("status") == "error" for step in steps):
-        status_value = "partially_success" if created_refs or updated_refs else "failed"
+        status_value = "partially_success" if created_refs or updated_refs or deleted_refs else "failed"
     _set_batch_refs(batch, created_refs=created_refs, updated_refs=updated_refs, status_value=status_value)
-    return assistant_text, steps, created_refs, updated_refs, redirect_url, usage_total
+    return assistant_text, steps, created_refs, updated_refs, deleted_refs, redirect_url, usage_total
 
 
 @router.get("/api/admin/ai-assistant/settings", response_model=AiAssistantSettingsOut)
@@ -2626,7 +2757,7 @@ def chat_with_ai_assistant(
 ) -> AiAssistantChatResponse:
     user = _require_assistant_user(db, authorization)
     if not settings.polza_api_key:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="POLZA_API_KEY is not configured")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="OpenRouter API key is not configured")
     if int(user.coins or 0) < settings.ai_assistant_min_sols:
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Not enough sols for AI assistant")
     _check_rate_limit(int(user.id))
@@ -2659,7 +2790,7 @@ def chat_with_ai_assistant(
     charged_sols = 0
     usage_total: dict[str, Any] = {"warning": None, "cost_rub": 0.0}
     try:
-        assistant_text, steps, created_refs, updated_refs, redirect_url, usage_total = _run_ai_assistant(
+        assistant_text, steps, created_refs, updated_refs, deleted_refs, redirect_url, usage_total = _run_ai_assistant(
             db=db,
             user=user,
             conversation=conversation,
@@ -2685,6 +2816,7 @@ def chat_with_ai_assistant(
                 "steps": steps,
                 "createdEntities": created_refs,
                 "updatedEntities": updated_refs,
+                "deletedEntities": deleted_refs,
                 "redirectUrl": redirect_url,
                 "batchId": batch.id,
             },
@@ -2724,6 +2856,7 @@ def chat_with_ai_assistant(
         steps=steps,
         createdEntities=created_refs,
         updatedEntities=updated_refs,
+        deletedEntities=deleted_refs,
         redirectUrl=redirect_url,
         chargedSols=charged_sols,
         usage=AiAssistantUsageOut(
@@ -2832,6 +2965,7 @@ def _delete_created_entity(db: Session, ref: dict[str, Any]) -> bool:
         "world_card": StoryWorldCard,
         "world_card_template": StoryWorldCardTemplate,
         "world": StoryGame,
+        "world_game": StoryGame,
     }
     model = model_by_type.get(entity_type)
     if model is None:
@@ -2851,6 +2985,15 @@ def _restore_updated_entity(db: Session, *, user: User, ref: dict[str, Any]) -> 
         return False
 
     try:
+        if entity_type == "world_game":
+            entity = db.scalar(select(StoryGame).where(StoryGame.id == entity_id, StoryGame.user_id == int(user.id)))
+            if entity is None:
+                return False
+            for field in ("title", "description", "opening_scene", "visibility"):
+                if field in previous:
+                    setattr(entity, field, previous[field])
+            touch_story_game(entity)
+            return True
         if entity_type == "world_card":
             entity = db.scalar(select(StoryWorldCard).where(StoryWorldCard.id == entity_id))
             if entity is None:

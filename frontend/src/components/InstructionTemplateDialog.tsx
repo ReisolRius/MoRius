@@ -193,7 +193,7 @@ function InstructionTemplateDialog({
     }
     const handleAiAssistantEntitiesChanged = (event: Event) => {
       const detail = (event as CustomEvent<AiAssistantChatResponse>).detail
-      const refs = [...(detail?.createdEntities ?? []), ...(detail?.updatedEntities ?? [])]
+      const refs = [...(detail?.createdEntities ?? []), ...(detail?.updatedEntities ?? []), ...(detail?.deletedEntities ?? [])]
       if (refs.some((ref) => ref.type === 'instruction_template')) {
         void loadTemplates()
       }

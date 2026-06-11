@@ -8,6 +8,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.schemas import StoryGameSettingsUpdateRequest  # noqa: E402
+from app.models import StoryMessage  # noqa: E402
 from app.services.story_games import (  # noqa: E402
     get_story_turn_cost_tokens,
     coerce_story_image_model,
@@ -18,6 +19,7 @@ from app.services.story_games import (  # noqa: E402
     normalize_story_appearance_ui_style,
     normalize_story_context_limit_chars,
 )
+from app.services.story_runtime import _calculate_story_turn_cost_tokens  # noqa: E402
 
 
 class StoryGameSettingsSchemaTests(unittest.TestCase):
@@ -77,6 +79,48 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_turn_cost_tokens(32_001, "google/gemini-3.1-pro-preview"), 65)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-4.7"), 25)
 
+    def test_runtime_turn_cost_uses_visible_context_usage_not_selected_limit(self) -> None:
+        cost = _calculate_story_turn_cost_tokens(
+            get_story_turn_cost_tokens=get_story_turn_cost_tokens,
+            context_limit_tokens=32_000,
+            model_name="anthropic/claude-sonnet-4.6",
+            context_messages=[StoryMessage(game_id=1, role="user", content="look around")],
+            instruction_cards=[{"title": "Style", "content": "word " * 1_000}],
+            plot_cards=[],
+            world_cards=[],
+            memory_optimization_enabled=True,
+        )
+
+        self.assertEqual(cost, 10)
+
+    def test_runtime_turn_cost_is_capped_by_selected_context_limit(self) -> None:
+        cost = _calculate_story_turn_cost_tokens(
+            get_story_turn_cost_tokens=get_story_turn_cost_tokens,
+            context_limit_tokens=32_000,
+            model_name="anthropic/claude-sonnet-4.6",
+            context_messages=[StoryMessage(game_id=1, role="user", content="look around")],
+            instruction_cards=[{"title": "Style", "content": "word " * 40_000}],
+            plot_cards=[],
+            world_cards=[],
+            memory_optimization_enabled=True,
+        )
+
+        self.assertEqual(cost, 45)
+
+    def test_runtime_turn_cost_ignores_hidden_service_context_cards(self) -> None:
+        cost = _calculate_story_turn_cost_tokens(
+            get_story_turn_cost_tokens=get_story_turn_cost_tokens,
+            context_limit_tokens=32_000,
+            model_name="anthropic/claude-sonnet-4.6",
+            context_messages=[StoryMessage(game_id=1, role="user", content="look around")],
+            instruction_cards=[],
+            plot_cards=[{"title": "Hidden", "content": "word " * 40_000, "source_kind": "context"}],
+            world_cards=[],
+            memory_optimization_enabled=True,
+        )
+
+        self.assertEqual(cost, 10)
+
     def test_standard_models_have_eighteen_sol_64k_tier(self) -> None:
         self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-chat-v3-0324"), 18)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v3.2"), 18)
@@ -85,7 +129,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
     def test_seedream_image_model_legacy_id_maps_to_current_id(self) -> None:
         self.assertEqual(
             coerce_story_image_model("bytedance-seed/seedream-4.5"),
-            "seedream-4.5",
+            "bytedance-seed/seedream-4.5",
         )
 
     def test_appearance_fields_are_tracked_when_sent(self) -> None:

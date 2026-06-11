@@ -1316,34 +1316,9 @@ def generate_story_response_route(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    try:
-        from app.services.story_generation_entry import (
-            generate_story_response_impl as primary_generate_story_response_impl,
-        )
-    except Exception:
-        logger.exception("Primary story runtime import failed before generate route dispatch: game_id=%s", game_id)
-        return _generate_story_response_fallback_impl(
-            game_id=game_id,
-            payload=payload,
-            authorization=authorization,
-            db=db,
-        )
+    from app.services.story_generation_entry import generate_story_response_impl
 
-    try:
-        return primary_generate_story_response_impl(
-            game_id=game_id,
-            payload=payload,
-            authorization=authorization,
-            db=db,
-        )
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception(
-            "Primary story generate crashed before stream start, falling back: game_id=%s",
-            game_id,
-        )
-    return _generate_story_response_fallback_impl(
+    return generate_story_response_impl(
         game_id=game_id,
         payload=payload,
         authorization=authorization,

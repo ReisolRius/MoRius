@@ -17,12 +17,17 @@ from app.models import (
     StoryCommunityWorldReport,
     StoryGame,
     StoryInstructionTemplate,
+    StoryTurnImage,
     StoryWorldCardTemplate,
     User,
     UserFollow,
+    UserGalleryImage,
 )
 from app.schemas import (
+    MessageResponse,
     ProfileFollowStateOut,
+    ProfileGalleryImageCreateRequest,
+    ProfileGalleryImageOut,
     ProfilePrivacyOut,
     ProfilePrivacyUpdateRequest,
     ProfileSubscriptionUserOut,
@@ -508,6 +513,20 @@ def _list_unpublished_worlds(db: Session, *, owner_user_id: int) -> list:
     return [story_game_summary_to_out(world) for world in worlds]
 
 
+def _serialize_gallery_image(image: UserGalleryImage) -> ProfileGalleryImageOut:
+    return ProfileGalleryImageOut.model_validate(image)
+
+
+def _list_profile_gallery_images(db: Session, *, user_id: int) -> list[ProfileGalleryImageOut]:
+    rows = db.scalars(
+        select(UserGalleryImage)
+        .where(UserGalleryImage.user_id == int(user_id))
+        .order_by(UserGalleryImage.created_at.desc(), UserGalleryImage.id.desc())
+        .limit(240)
+    ).all()
+    return [_serialize_gallery_image(row) for row in rows]
+
+
 def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) -> ProfileViewOut:
     is_self = viewer_user.id == target_user.id
     privacy = _serialize_privacy(target_user)
@@ -563,6 +582,7 @@ def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) ->
         published_characters=published_characters,
         published_instruction_templates=published_instruction_templates,
         unpublished_worlds=unpublished_worlds,
+        gallery_images=_list_profile_gallery_images(db, user_id=target_user.id),
     )
 
 
@@ -592,6 +612,94 @@ def get_my_profile(
 ) -> ProfileViewOut:
     viewer_user = get_current_user(db, authorization)
     return _build_profile_view(db, viewer_user=viewer_user, target_user=viewer_user)
+
+
+@router.get("/api/auth/profiles/me/gallery", response_model=list[ProfileGalleryImageOut])
+def list_my_profile_gallery(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[ProfileGalleryImageOut]:
+    user = get_current_user(db, authorization)
+    return _list_profile_gallery_images(db, user_id=int(user.id))
+
+
+@router.post("/api/auth/profiles/me/gallery", response_model=ProfileGalleryImageOut)
+def save_story_turn_image_to_gallery(
+    payload: ProfileGalleryImageCreateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> ProfileGalleryImageOut:
+    user = get_current_user(db, authorization)
+    source_row = db.execute(
+        select(StoryTurnImage, StoryGame)
+        .join(StoryGame, StoryGame.id == StoryTurnImage.game_id)
+        .where(
+            StoryTurnImage.id == int(payload.turn_image_id),
+            StoryGame.user_id == int(user.id),
+        )
+    ).first()
+    if source_row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Story turn image not found")
+
+    source_image, source_game = source_row
+    existing_image = db.scalar(
+        select(UserGalleryImage).where(
+            UserGalleryImage.user_id == int(user.id),
+            UserGalleryImage.turn_image_id == int(source_image.id),
+        )
+    )
+    if existing_image is not None:
+        return _serialize_gallery_image(existing_image)
+
+    gallery_image = UserGalleryImage(
+        user_id=int(user.id),
+        turn_image_id=int(source_image.id),
+        source_game_id=int(source_game.id),
+        assistant_message_id=int(source_image.assistant_message_id),
+        model=str(source_image.model or ""),
+        prompt=str(source_image.prompt or ""),
+        image_url=str(source_image.image_url or "").strip() or None,
+        image_data_url=str(source_image.image_data_url or "").strip() or None,
+    )
+    if gallery_image.image_url is None and gallery_image.image_data_url is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Story turn image is empty")
+
+    db.add(gallery_image)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing_image = db.scalar(
+            select(UserGalleryImage).where(
+                UserGalleryImage.user_id == int(user.id),
+                UserGalleryImage.turn_image_id == int(source_image.id),
+            )
+        )
+        if existing_image is not None:
+            return _serialize_gallery_image(existing_image)
+        raise
+    db.refresh(gallery_image)
+    return _serialize_gallery_image(gallery_image)
+
+
+@router.delete("/api/auth/profiles/me/gallery/{gallery_image_id}", response_model=MessageResponse)
+def delete_my_profile_gallery_image(
+    gallery_image_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = get_current_user(db, authorization)
+    gallery_image = db.scalar(
+        select(UserGalleryImage).where(
+            UserGalleryImage.id == int(gallery_image_id),
+            UserGalleryImage.user_id == int(user.id),
+        )
+    )
+    if gallery_image is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gallery image not found")
+    db.delete(gallery_image)
+    db.commit()
+    return MessageResponse(message="Gallery image deleted")
 
 
 @router.get("/api/auth/profiles/{user_id}", response_model=ProfileViewOut)

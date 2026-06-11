@@ -94,10 +94,9 @@ const DEFAULT_CHARACTER_RACE_VALUES = [
 const CHARACTER_EDITOR_AVATAR_SIZE = 248
 const CHARACTER_AI_AVATAR_OUTPUT_SIZE = 640
 const CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH = 320
-const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'flux.2-pro'
-const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_KLEIN_4B_ID: StoryImageModelId = 'flux.2-klein-4b'
-const CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'seedream-4.5'
-const CHARACTER_AI_AVATAR_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID: StoryImageModelId = 'qwen-image-edit'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_KLEIN_4B_ID: StoryImageModelId = 'black-forest-labs/flux.2-klein-4b'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
@@ -109,7 +108,7 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
     title: 'Flux.2 Klein 4B',
-    description: 'AITunnel. Fast economical image generation.',
+    description: 'OpenRouter. Fast economical image generation.',
     cost: 6,
   },
   {
@@ -135,12 +134,6 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
     title: 'Seedream 4.5',
     description: 'Более художественная и мягкая подача.',
     cost: 20,
-  },
-  {
-    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID,
-    title: 'Qwen Image Edit',
-    description: 'AITunnel-редактор для аккуратных правок и стилизации персонажа.',
-    cost: 24,
   },
 ]
 const CHARACTER_EMOTION_IDS: StoryCharacterEmotionId[] = [
@@ -908,7 +901,7 @@ function CharacterManagerDialog({
     }
     const handleAiAssistantEntitiesChanged = (event: Event) => {
       const detail = (event as CustomEvent<AiAssistantChatResponse>).detail
-      const refs = [...(detail?.createdEntities ?? []), ...(detail?.updatedEntities ?? [])]
+      const refs = [...(detail?.createdEntities ?? []), ...(detail?.updatedEntities ?? []), ...(detail?.deletedEntities ?? [])]
       if (refs.some((ref) => ref.type === 'profile_character')) {
         void loadCharacters()
       }

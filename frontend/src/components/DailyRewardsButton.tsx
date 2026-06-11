@@ -100,7 +100,7 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
     const isDisabled = !isClaimable || isClaiming
 
     const coinIcon = isBoosted ? icons.coin : icons.dailyRewardsCoin
-    const coinSize = isBoosted ? { width: 13, height: 20 } : { width: 12, height: 18 }
+    const coinSize = isBoosted ? { width: 15, height: 22 } : { width: 14, height: 21 }
     const coinOpacity = isClaimed ? 0.45 : 0.95
     const textColor = isClaimed ? 'var(--morius-text-secondary)' : 'var(--morius-title-text)'
 
@@ -139,7 +139,7 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: '5px',
+          gap: '4px',
           cursor: isClaimable ? 'pointer' : 'default',
           transition: 'transform 150ms ease, box-shadow 150ms ease',
           '&:hover': isClaimable
@@ -173,13 +173,22 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
           <CircularProgress size={16} sx={{ color: 'var(--morius-title-text)' }} />
         ) : (
           <>
-            <Box component="img" src={coinIcon} alt="" sx={{ ...coinSize, opacity: coinOpacity, flexShrink: 0 }} />
+            <Box
+              component="img"
+              src={coinIcon}
+              alt=""
+              sx={{ ...coinSize, opacity: coinOpacity, flexShrink: 0, display: 'block' }}
+            />
             <Typography
               sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                height: `${coinSize.height}px`,
                 fontSize: '13px',
                 fontWeight: 900,
                 lineHeight: 1,
                 color: textColor,
+                transform: 'translateY(1px)',
               }}
             >
               {reward.amount}

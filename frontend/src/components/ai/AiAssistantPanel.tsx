@@ -711,7 +711,7 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
       return 'AI-помощник выключен на backend. Добавьте AI_ASSISTANT_ENABLED=true в backend/.env и перезапустите backend.'
     }
     if (!assistantSettings.configured) {
-      return 'AI-помощнику нужен POLZA_API_KEY в backend/.env.'
+      return 'AI-помощнику нужен OpenRouter API key в POLZA_API_KEY в backend/.env.'
     }
     if (!assistantSettings.visible) {
       return 'Показ AI-помощника выключен в настройках профиля.'
@@ -801,7 +801,7 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
   const applyResponse = (response: AiAssistantChatResponse) => {
     setConversationId(response.conversationId)
     setSteps(response.steps ?? [])
-    setCreatedEntities(response.createdEntities ?? [])
+    setCreatedEntities([...(response.createdEntities ?? []), ...(response.updatedEntities ?? []), ...(response.deletedEntities ?? [])])
     setRedirectUrl(response.redirectUrl ?? null)
     setMessages((previous) => [
       ...previous.filter((message) => !message.pending),
@@ -816,7 +816,12 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
     if (response.user && typeof response.user.coins === 'number') {
       onUserUpdate({ ...user, coins: response.user.coins })
     }
-    if ((response.createdEntities?.length ?? 0) > 0 || (response.updatedEntities?.length ?? 0) > 0 || response.redirectUrl) {
+    if (
+      (response.createdEntities?.length ?? 0) > 0
+      || (response.updatedEntities?.length ?? 0) > 0
+      || (response.deletedEntities?.length ?? 0) > 0
+      || response.redirectUrl
+    ) {
       window.dispatchEvent(new CustomEvent(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, { detail: response }))
     }
   }

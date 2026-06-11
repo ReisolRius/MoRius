@@ -31,7 +31,7 @@ import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
 import searchIconRaw from '../assets/icons/search.svg?raw'
 import searchCloseIconRaw from '../assets/icons/search-close.svg?raw'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
-import { useVisibilityTrigger } from '../hooks/useVisibilityTrigger'
+import { useScrollLoadTrigger } from '../hooks/useScrollLoadTrigger'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
@@ -260,7 +260,6 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [isLoadingGames, setIsLoadingGames] = useState(true)
   const [isLoadingMoreGames, setIsLoadingMoreGames] = useState(false)
   const [hasMoreGamesServer, setHasMoreGamesServer] = useState(false)
-  const [hasUserScrolledGames, setHasUserScrolledGames] = useState(false)
   const [communityWorldById, setCommunityWorldById] = useState<Record<number, StoryCommunityWorldSummary>>({})
   const [ratingDialogGame, setRatingDialogGame] = useState<StoryGameSummary | null>(null)
   const [ratingDraft, setRatingDraft] = useState(0)
@@ -302,11 +301,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const gamesVisibilityFilter = useMemo(() => resolveGamesVisibilityFilter(mode), [mode])
   const {
     ref: loadMoreGamesRef,
-    isVisible: isLoadMoreGamesVisible,
-  } = useVisibilityTrigger<HTMLDivElement>({
+    loadMoreSignal: loadMoreGamesSignal,
+  } = useScrollLoadTrigger<HTMLDivElement>({
     rootMargin: '180px 0px',
-    once: false,
-    disabled: !hasUserScrolledGames || !hasMoreGamesServer || isLoadingGames || isLoadingMoreGames,
+    disabled: !hasMoreGamesServer || isLoadingGames || isLoadingMoreGames,
   })
 
   useEffect(() => {
@@ -395,28 +393,15 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     setGames([])
     setGamePreviews({})
     setHasMoreGamesServer(false)
-    setHasUserScrolledGames(false)
     void loadGames({ offset: 0 })
   }, [loadGames])
 
   useEffect(() => {
-    const handleScroll = () => {
-      if (window.scrollY > 24) {
-        setHasUserScrolledGames(true)
-      }
-    }
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => {
-      window.removeEventListener('scroll', handleScroll)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!isLoadMoreGamesVisible || !hasMoreGamesServer || isLoadingGames || isLoadingMoreGames) {
+    if (loadMoreGamesSignal <= 0 || !hasMoreGamesServer || isLoadingGames || isLoadingMoreGames) {
       return
     }
     void loadGames({ append: true, offset: games.length })
-  }, [games.length, hasMoreGamesServer, isLoadMoreGamesVisible, isLoadingGames, isLoadingMoreGames, loadGames])
+  }, [games.length, hasMoreGamesServer, isLoadingGames, isLoadingMoreGames, loadGames, loadMoreGamesSignal])
 
   useEffect(() => {
     const missingSourceWorldIds = Array.from(

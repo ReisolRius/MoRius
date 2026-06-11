@@ -11,6 +11,15 @@ type AvatarFrameProps = {
   size: number
 }
 
+type AvatarFrameImageState = {
+  imageSrc: string | null
+  retryNonce: number
+  isLoaded: boolean
+  hasError: boolean
+}
+
+const AVATAR_FRAME_LOAD_TIMEOUT_MS = 10_000
+
 function resolveFrameImage(frameId: string, frameImageUrl?: string | null): string | null {
   const resolvedDynamicImage = resolveApiResourceUrl(resolveAvatarFrameImageUrl(frameId, frameImageUrl))
   if (resolvedDynamicImage) {
@@ -32,18 +41,37 @@ function AvatarFrame({ children, frameId, frameImageUrl, size }: AvatarFrameProp
   const normalizedFrameId = normalizeAvatarFrameId(frameId)
   const preset = getAvatarFramePreset(normalizedFrameId)
   const imageSrc = resolveFrameImage(normalizedFrameId, frameImageUrl)
-  const [frameRetryNonce, setFrameRetryNonce] = useState(0)
-  const [isFrameLoaded, setIsFrameLoaded] = useState(false)
-  const [hasFrameLoadError, setHasFrameLoadError] = useState(false)
+  const [frameImageState, setFrameImageState] = useState<AvatarFrameImageState>({
+    imageSrc,
+    retryNonce: 0,
+    isLoaded: false,
+    hasError: false,
+  })
+  const isCurrentFrameImageState = frameImageState.imageSrc === imageSrc
+  const frameRetryNonce = isCurrentFrameImageState ? frameImageState.retryNonce : 0
+  const isFrameLoaded = isCurrentFrameImageState ? frameImageState.isLoaded : false
+  const hasFrameLoadError = isCurrentFrameImageState ? frameImageState.hasError : false
   const frameImageRequestSrc = buildFrameImageRequestSrc(imageSrc, frameRetryNonce)
   const shouldRenderFrameImage = normalizedFrameId !== 'none' && Boolean(imageSrc) && !hasFrameLoadError
   const hasFrame = normalizedFrameId !== 'none' && (shouldRenderFrameImage || Boolean(preset.ring))
 
   useEffect(() => {
-    setFrameRetryNonce(0)
-    setIsFrameLoaded(false)
-    setHasFrameLoadError(false)
-  }, [imageSrc])
+    if (!shouldRenderFrameImage || isFrameLoaded) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setFrameImageState((currentState) => {
+        const currentRetryNonce = currentState.imageSrc === imageSrc ? currentState.retryNonce : frameRetryNonce
+        if (currentRetryNonce < 2) {
+          return { imageSrc, retryNonce: currentRetryNonce + 1, isLoaded: false, hasError: false }
+        }
+        return { imageSrc, retryNonce: currentRetryNonce, isLoaded: false, hasError: true }
+      })
+    }, AVATAR_FRAME_LOAD_TIMEOUT_MS)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [frameRetryNonce, imageSrc, isFrameLoaded, shouldRenderFrameImage])
 
   return (
     <Box
@@ -95,14 +123,15 @@ function AvatarFrame({ children, frameId, frameImageUrl, size }: AvatarFrameProp
           fetchPriority="low"
           decoding="async"
           draggable={false}
-          onLoad={() => setIsFrameLoaded(true)}
+          onLoad={() => setFrameImageState({ imageSrc, retryNonce: frameRetryNonce, isLoaded: true, hasError: false })}
           onError={() => {
-            setIsFrameLoaded(false)
-            if (frameRetryNonce < 2) {
-              setFrameRetryNonce((current) => current + 1)
-            } else {
-              setHasFrameLoadError(true)
-            }
+            setFrameImageState((currentState) => {
+              const currentRetryNonce = currentState.imageSrc === imageSrc ? currentState.retryNonce : frameRetryNonce
+              if (currentRetryNonce < 2) {
+                return { imageSrc, retryNonce: currentRetryNonce + 1, isLoaded: false, hasError: false }
+              }
+              return { imageSrc, retryNonce: currentRetryNonce, isLoaded: false, hasError: true }
+            })
           }}
           sx={{
             position: 'absolute',

@@ -35,7 +35,7 @@ import HeaderAccountActions from '../components/HeaderAccountActions'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
-import { useVisibilityTrigger } from '../hooks/useVisibilityTrigger'
+import { useScrollLoadTrigger } from '../hooks/useScrollLoadTrigger'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
@@ -553,7 +553,6 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [worldGenreFilter, setWorldGenreFilter] = useState<CommunityWorldGenreFilter>('all')
   const [characterAddedFilter, setCharacterAddedFilter] = useState<CommunityAddedFilter>('all')
   const [instructionAddedFilter, setInstructionAddedFilter] = useState<CommunityAddedFilter>('all')
-  const [hasPageScrollInteraction, setHasPageScrollInteraction] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const genreScrollRef = useRef<HTMLDivElement | null>(null)
   const genreDragRef = useRef<{
@@ -565,9 +564,9 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   } | null>(null)
   const shouldSuppressGenreClickRef = useRef(false)
   const hasLoadedCommunityWorldGameIdsRef = useRef(false)
-  const communityWorldsLoadMoreTriggeredRef = useRef(false)
-  const communityCharactersLoadMoreTriggeredRef = useRef(false)
-  const communityInstructionTemplatesLoadMoreTriggeredRef = useRef(false)
+  const communityWorldsLoadMoreTriggeredRef = useRef(0)
+  const communityCharactersLoadMoreTriggeredRef = useRef(0)
+  const communityInstructionTemplatesLoadMoreTriggeredRef = useRef(0)
   const communityWorldsRequestVersionRef = useRef(0)
   const communityCharactersRequestVersionRef = useRef(0)
   const communityInstructionTemplatesRequestVersionRef = useRef(0)
@@ -724,35 +723,6 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const normalizedSearchQuery = useMemo(() => normalizeSearchValue(deferredSearchQuery), [deferredSearchQuery])
   const canModerateCommunityCards = canModerateCommunityContent(user.role)
 
-  useEffect(() => {
-    setHasPageScrollInteraction(false)
-  }, [
-    activeSection,
-    characterAddedFilter,
-    characterSortMode,
-    instructionAddedFilter,
-    instructionSortMode,
-    normalizedSearchQuery,
-    worldAgeFilter,
-    worldGenreFilter,
-    worldSortMode,
-  ])
-
-  useEffect(() => {
-    if (hasPageScrollInteraction || typeof window === 'undefined') {
-      return
-    }
-
-    const handleScroll = () => {
-      setHasPageScrollInteraction(true)
-    }
-
-    window.addEventListener('scroll', handleScroll, { passive: true, once: true })
-    return () => {
-      window.removeEventListener('scroll', handleScroll)
-    }
-  }, [hasPageScrollInteraction])
-
   const filteredCommunityWorlds = useMemo(() => {
     let filtered = communityWorlds
 
@@ -867,10 +837,9 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const hasMoreCommunityInstructionTemplates = hasMoreCommunityInstructionTemplatesServer
   const {
     ref: loadMoreCommunityWorldsRef,
-    isVisible: isLoadMoreCommunityWorldsVisible,
-  } = useVisibilityTrigger<HTMLDivElement>({
+    loadMoreSignal: loadMoreCommunityWorldsSignal,
+  } = useScrollLoadTrigger<HTMLDivElement>({
     rootMargin: '160px 0px',
-    once: false,
     disabled:
       activeSection !== 'worlds' ||
       !hasMoreCommunityWorldsServer ||
@@ -879,10 +848,9 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   })
   const {
     ref: loadMoreCommunityCharactersRef,
-    isVisible: isLoadMoreCommunityCharactersVisible,
-  } = useVisibilityTrigger<HTMLDivElement>({
+    loadMoreSignal: loadMoreCommunityCharactersSignal,
+  } = useScrollLoadTrigger<HTMLDivElement>({
     rootMargin: '160px 0px',
-    once: false,
     disabled:
       activeSection !== 'characters' ||
       !hasMoreCommunityCharactersServer ||
@@ -891,10 +859,9 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   })
   const {
     ref: loadMoreCommunityInstructionTemplatesRef,
-    isVisible: isLoadMoreCommunityInstructionTemplatesVisible,
-  } = useVisibilityTrigger<HTMLDivElement>({
+    loadMoreSignal: loadMoreCommunityInstructionTemplatesSignal,
+  } = useScrollLoadTrigger<HTMLDivElement>({
     rootMargin: '160px 0px',
-    once: false,
     disabled:
       activeSection !== 'rules' ||
       !hasMoreCommunityInstructionTemplatesServer ||
@@ -1076,7 +1043,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     }
     communityWorldsRequestVersionRef.current += 1
     communityWorldsRequestInFlightRef.current = false
-    communityWorldsLoadMoreTriggeredRef.current = false
+    communityWorldsLoadMoreTriggeredRef.current = 0
     setCommunityWorlds([])
     setHasMoreCommunityWorldsServer(false)
     void loadCommunityWorlds({ offset: 0 })
@@ -1088,7 +1055,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     }
     communityCharactersRequestVersionRef.current += 1
     communityCharactersRequestInFlightRef.current = false
-    communityCharactersLoadMoreTriggeredRef.current = false
+    communityCharactersLoadMoreTriggeredRef.current = 0
     setCommunityCharacters([])
     setHasMoreCommunityCharactersServer(false)
     void loadCommunityCharacters({ offset: 0 })
@@ -1100,82 +1067,73 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     }
     communityInstructionTemplatesRequestVersionRef.current += 1
     communityInstructionTemplatesRequestInFlightRef.current = false
-    communityInstructionTemplatesLoadMoreTriggeredRef.current = false
+    communityInstructionTemplatesLoadMoreTriggeredRef.current = 0
     setCommunityInstructionTemplates([])
     setHasMoreCommunityInstructionTemplatesServer(false)
     void loadCommunityInstructionTemplates({ offset: 0 })
   }, [activeSection, loadCommunityInstructionTemplates])
 
   useEffect(() => {
-    if (!isLoadMoreCommunityWorldsVisible) {
-      communityWorldsLoadMoreTriggeredRef.current = false
+    if (loadMoreCommunityWorldsSignal <= 0) {
       return
     }
     if (
       activeSection !== 'worlds' ||
-      !hasPageScrollInteraction ||
       !hasMoreCommunityWorldsServer ||
-      communityWorldsLoadMoreTriggeredRef.current
+      communityWorldsLoadMoreTriggeredRef.current === loadMoreCommunityWorldsSignal
     ) {
       return
     }
-    communityWorldsLoadMoreTriggeredRef.current = true
+    communityWorldsLoadMoreTriggeredRef.current = loadMoreCommunityWorldsSignal
     void loadCommunityWorlds({ append: true, offset: communityWorlds.length })
   }, [
     activeSection,
     communityWorlds.length,
     hasMoreCommunityWorldsServer,
-    hasPageScrollInteraction,
-    isLoadMoreCommunityWorldsVisible,
     loadCommunityWorlds,
+    loadMoreCommunityWorldsSignal,
   ])
 
   useEffect(() => {
-    if (!isLoadMoreCommunityCharactersVisible) {
-      communityCharactersLoadMoreTriggeredRef.current = false
+    if (loadMoreCommunityCharactersSignal <= 0) {
       return
     }
     if (
       activeSection !== 'characters' ||
-      !hasPageScrollInteraction ||
       !hasMoreCommunityCharactersServer ||
-      communityCharactersLoadMoreTriggeredRef.current
+      communityCharactersLoadMoreTriggeredRef.current === loadMoreCommunityCharactersSignal
     ) {
       return
     }
-    communityCharactersLoadMoreTriggeredRef.current = true
+    communityCharactersLoadMoreTriggeredRef.current = loadMoreCommunityCharactersSignal
     void loadCommunityCharacters({ append: true, offset: communityCharacters.length })
   }, [
     activeSection,
     communityCharacters.length,
     hasMoreCommunityCharactersServer,
-    hasPageScrollInteraction,
-    isLoadMoreCommunityCharactersVisible,
     loadCommunityCharacters,
+    loadMoreCommunityCharactersSignal,
   ])
 
   useEffect(() => {
-    if (!isLoadMoreCommunityInstructionTemplatesVisible) {
-      communityInstructionTemplatesLoadMoreTriggeredRef.current = false
+    if (loadMoreCommunityInstructionTemplatesSignal <= 0) {
       return
     }
     if (
       activeSection !== 'rules' ||
-      !hasPageScrollInteraction ||
       !hasMoreCommunityInstructionTemplatesServer ||
-      communityInstructionTemplatesLoadMoreTriggeredRef.current
+      communityInstructionTemplatesLoadMoreTriggeredRef.current === loadMoreCommunityInstructionTemplatesSignal
     ) {
       return
     }
-    communityInstructionTemplatesLoadMoreTriggeredRef.current = true
+    communityInstructionTemplatesLoadMoreTriggeredRef.current = loadMoreCommunityInstructionTemplatesSignal
     void loadCommunityInstructionTemplates({ append: true, offset: communityInstructionTemplates.length })
   }, [
     activeSection,
     communityInstructionTemplates.length,
     hasMoreCommunityInstructionTemplatesServer,
-    hasPageScrollInteraction,
-    isLoadMoreCommunityInstructionTemplatesVisible,
     loadCommunityInstructionTemplates,
+    loadMoreCommunityInstructionTemplatesSignal,
   ])
 
   useEffect(() => {

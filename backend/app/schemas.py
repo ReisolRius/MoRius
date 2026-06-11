@@ -160,6 +160,91 @@ class ProfileUserOut(BaseModel):
     created_at: datetime
 
 
+class ProfileGalleryImageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    turn_image_id: int | None = None
+    source_game_id: int | None = None
+    assistant_message_id: int | None = None
+    model: str
+    prompt: str
+    image_url: str | None
+    image_data_url: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_gallery_image_payload(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, dict):
+            payload = dict(value)
+            image_id = payload.get("id")
+            version = payload.get("updated_at") or payload.get("created_at")
+            has_image_data_url = payload.get("_morius_has_image_data_url")
+        else:
+            source_dict = getattr(value, "__dict__", {})
+            payload = {
+                "id": getattr(value, "id", None),
+                "turn_image_id": getattr(value, "turn_image_id", None),
+                "source_game_id": getattr(value, "source_game_id", None),
+                "assistant_message_id": getattr(value, "assistant_message_id", None),
+                "model": getattr(value, "model", None),
+                "prompt": getattr(value, "prompt", None),
+                "image_url": getattr(value, "image_url", None),
+                "image_data_url": source_dict.get("image_data_url"),
+                "created_at": getattr(value, "created_at", None),
+                "updated_at": getattr(value, "updated_at", None),
+            }
+            image_id = getattr(value, "id", None)
+            version = getattr(value, "updated_at", None) or getattr(value, "created_at", None)
+            has_image_data_url = getattr(value, "_morius_has_image_data_url", None)
+
+        if image_id is None:
+            return payload
+
+        try:
+            entity_id = int(image_id)
+        except (TypeError, ValueError):
+            return payload
+
+        raw_image_data_url = payload.get("image_data_url")
+        resolved_data_url = resolve_media_display_url(
+            raw_image_data_url,
+            kind="profile-gallery-image-data",
+            entity_id=entity_id,
+            version=version,
+        )
+        if resolved_data_url and str(raw_image_data_url or "").strip().startswith("data:"):
+            payload["image_url"] = resolved_data_url
+            payload["image_data_url"] = None
+            return payload
+        if bool(has_image_data_url):
+            payload["image_url"] = build_media_display_url(
+                kind="profile-gallery-image-data",
+                entity_id=entity_id,
+                version=version,
+            )
+            payload["image_data_url"] = None
+            return payload
+
+        raw_image_url = payload.get("image_url")
+        payload["image_url"] = resolve_media_display_url(
+            raw_image_url,
+            kind="profile-gallery-image-url",
+            entity_id=entity_id,
+            version=version,
+        )
+        payload["image_data_url"] = None
+        return payload
+
+
+class ProfileGalleryImageCreateRequest(BaseModel):
+    turn_image_id: int = Field(ge=1)
+
+
 class ProfileViewOut(BaseModel):
     user: ProfileUserOut
     is_self: bool
@@ -178,6 +263,7 @@ class ProfileViewOut(BaseModel):
     published_characters: list["StoryCommunityCharacterSummaryOut"] = Field(default_factory=list)
     published_instruction_templates: list["StoryCommunityInstructionTemplateSummaryOut"] = Field(default_factory=list)
     unpublished_worlds: list["StoryGameSummaryOut"] = Field(default_factory=list)
+    gallery_images: list[ProfileGalleryImageOut] = Field(default_factory=list)
 
 
 class ProfileFollowStateOut(BaseModel):
@@ -712,6 +798,7 @@ class StorySmartRegenerationRequest(BaseModel):
 
 class StoryGenerateRequest(BaseModel):
     prompt: str | None = Field(default=None, min_length=1, max_length=4_000)
+    is_continue: bool = False
     reroll_last_response: bool = False
     discard_last_assistant_steps: int = Field(default=0, ge=0, le=50)
     instructions: list[StoryInstructionCardInput] = Field(default_factory=list, max_length=40)

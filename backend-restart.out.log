@@ -1,0 +1,2 @@
+[run.py] APP_MODE=gateway TARGET=app.microservices.gateway_main:app HOST=0.0.0.0 PORT=8000
+INFO:     127.0.0.1:56707 - "GET /api/health HTTP/1.1" 200 OK

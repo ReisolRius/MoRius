@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useVisibilityTrigger } from './useVisibilityTrigger'
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useScrollLoadTrigger } from './useScrollLoadTrigger'
 
 type UseIncrementalListOptions = {
   initialCount?: number
@@ -15,8 +16,8 @@ type UseIncrementalListOptions = {
 export function useIncrementalList<T>(
   items: T[],
   {
-    initialCount = 10,
-    step = 10,
+    initialCount = 12,
+    step = 12,
     enabled = true,
     resetKey,
     rootMargin = '120px 0px',
@@ -26,10 +27,29 @@ export function useIncrementalList<T>(
   }: UseIncrementalListOptions = {},
 ) {
   const [visibleCount, setVisibleCount] = useState(enabled ? initialCount : items.length)
+  const lastHandledLoadMoreSignalRef = useRef(0)
+  const resetStateRef = useRef({ enabled, initialCount, resetKey })
+
+  const hasMoreLocal = enabled && visibleCount < items.length
+  const hasMore = hasMoreLocal || (enabled && hasMoreRemote)
+  const { ref: loadMoreRef, loadMoreSignal } = useScrollLoadTrigger<HTMLDivElement>({
+    rootMargin,
+    disabled: !hasMore || isLoadingMore,
+  })
 
   useEffect(() => {
-    setVisibleCount(enabled ? initialCount : items.length)
-  }, [enabled, initialCount, resetKey])
+    const previousResetState = resetStateRef.current
+    const hasResetChanged =
+      previousResetState.enabled !== enabled ||
+      previousResetState.initialCount !== initialCount ||
+      !Object.is(previousResetState.resetKey, resetKey)
+    if (!hasResetChanged) {
+      return
+    }
+    resetStateRef.current = { enabled, initialCount, resetKey }
+    lastHandledLoadMoreSignalRef.current = loadMoreSignal
+    setVisibleCount((currentCount) => (enabled ? initialCount : currentCount))
+  }, [enabled, initialCount, loadMoreSignal, resetKey])
 
   useEffect(() => {
     if (!enabled) {
@@ -39,18 +59,15 @@ export function useIncrementalList<T>(
     setVisibleCount((currentCount) => Math.min(currentCount, Math.max(items.length, initialCount)))
   }, [enabled, initialCount, items.length])
 
-  const hasMoreLocal = enabled && visibleCount < items.length
-  const hasMore = hasMoreLocal || (enabled && hasMoreRemote)
-  const { ref: loadMoreRef, isVisible: isLoadMoreVisible } = useVisibilityTrigger<HTMLDivElement>({
-    rootMargin,
-    once: false,
-    disabled: !hasMore || isLoadingMore,
-  })
-
   useEffect(() => {
-    if (!enabled || !isLoadMoreVisible || !hasMore) {
+    if (!enabled || loadMoreSignal <= 0 || !hasMore || isLoadingMore) {
       return
     }
+
+    if (lastHandledLoadMoreSignalRef.current === loadMoreSignal) {
+      return
+    }
+    lastHandledLoadMoreSignalRef.current = loadMoreSignal
 
     if (hasMoreLocal) {
       setVisibleCount((currentCount) => Math.min(items.length, currentCount + step))
@@ -60,7 +77,7 @@ export function useIncrementalList<T>(
     if (hasMoreRemote && !isLoadingMore) {
       onLoadMore?.()
     }
-  }, [enabled, hasMore, hasMoreLocal, hasMoreRemote, isLoadMoreVisible, isLoadingMore, items.length, onLoadMore, step])
+  }, [enabled, hasMore, hasMoreLocal, hasMoreRemote, isLoadingMore, items.length, loadMoreSignal, onLoadMore, step])
 
   const visibleItems = useMemo(
     () => (enabled ? items.slice(0, visibleCount) : items),
