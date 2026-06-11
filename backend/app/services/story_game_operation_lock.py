@@ -77,12 +77,7 @@ class StoryGameOperationLease:
 
             entry.lock.release()
         finally:
-            with _LOCK_REGISTRY_GUARD:
-                current_entry = _LOCK_REGISTRY.get(self.game_id)
-                if current_entry is entry:
-                    current_entry.ref_count = max(current_entry.ref_count - 1, 0)
-                    if current_entry.ref_count == 0:
-                        _LOCK_REGISTRY.pop(self.game_id, None)
+            _release_lock_registry_reference(self.game_id, entry)
 
             if held_for_seconds >= _LOCK_HOLD_LOG_THRESHOLD_SECONDS:
                 logger.info(
@@ -106,6 +101,15 @@ class StoryGameOperationLease:
 
 _LOCK_REGISTRY_GUARD = Lock()
 _LOCK_REGISTRY: dict[int, _StoryGameLockEntry] = {}
+
+
+def _release_lock_registry_reference(game_id: int, entry: _StoryGameLockEntry) -> None:
+    with _LOCK_REGISTRY_GUARD:
+        current_entry = _LOCK_REGISTRY.get(game_id)
+        if current_entry is entry:
+            current_entry.ref_count = max(current_entry.ref_count - 1, 0)
+            if current_entry.ref_count == 0:
+                _LOCK_REGISTRY.pop(game_id, None)
 
 
 def _should_use_postgresql_advisory_locks() -> bool:
@@ -150,17 +154,12 @@ def _acquire_postgresql_story_game_lock(
                 remaining_seconds = deadline - time.monotonic()
                 if remaining_seconds <= 0:
                     logger.warning(
-                        "PostgreSQL advisory lock wait timed out; waiting without user-visible busy error: game_id=%s operation=%s waited_for=%.3fs",
+                        "PostgreSQL advisory lock wait timed out: game_id=%s operation=%s waited_for=%.3fs",
                         game_id,
                         operation,
                         max(time.monotonic() - wait_started_at, 0.0),
                     )
-                    connection.execute(
-                        text("SELECT pg_advisory_lock(:namespace, :game_id)"),
-                        parameters,
-                    )
-                    connection.commit()
-                    break
+                    raise StoryGameOperationBusyError(STORY_GAME_OPERATION_BUSY_DETAIL)
                 time.sleep(min(_POSTGRES_LOCK_POLL_INTERVAL_SECONDS, remaining_seconds))
     except Exception:
         try:
@@ -214,12 +213,13 @@ def acquire_story_game_operation_lock(
         acquired = entry.lock.acquire(timeout=max(float(wait_timeout_seconds), 0.0))
     if not acquired:
         logger.warning(
-            "Story game operation lock wait timed out; waiting without user-visible busy error: game_id=%s operation=%s waited_for=%.3fs",
+            "Story game operation lock wait timed out: game_id=%s operation=%s waited_for=%.3fs",
             normalized_game_id,
             normalized_operation,
             max(time.monotonic() - wait_started_at, 0.0),
         )
-        entry.lock.acquire()
+        _release_lock_registry_reference(normalized_game_id, entry)
+        raise StoryGameOperationBusyError(STORY_GAME_OPERATION_BUSY_DETAIL)
     waited_for_seconds = max(time.monotonic() - wait_started_at, 0.0)
     if waited_for_seconds >= _LOCK_WAIT_LOG_THRESHOLD_SECONDS:
         logger.info(
@@ -240,12 +240,7 @@ def acquire_story_game_operation_lock(
         try:
             entry.lock.release()
         finally:
-            with _LOCK_REGISTRY_GUARD:
-                current_entry = _LOCK_REGISTRY.get(normalized_game_id)
-                if current_entry is entry:
-                    current_entry.ref_count = max(current_entry.ref_count - 1, 0)
-                    if current_entry.ref_count == 0:
-                        _LOCK_REGISTRY.pop(normalized_game_id, None)
+            _release_lock_registry_reference(normalized_game_id, entry)
         raise
 
     return StoryGameOperationLease(

@@ -39,7 +39,11 @@ from app.services.story_games import (
     normalize_story_top_k,
     normalize_story_top_r,
 )
-from app.services.story_game_operation_lock import StoryGameOperationBusyError, acquire_story_game_operation_lock
+from app.services.story_game_operation_lock import (
+    STORY_GAME_OPERATION_BUSY_DETAIL,
+    StoryGameOperationBusyError,
+    acquire_story_game_operation_lock,
+)
 from app.services.story_canonical_pipeline import (
     build_canonical_generation_prompt,
     clear_canonical_state_payload,
@@ -1963,37 +1967,45 @@ def generate_story_response(
     deps.validate_provider_config()
     user = deps.get_current_user(db, authorization)
     game = deps.get_user_story_game_or_404(db, user.id, game_id)
+    locked_game_id = int(game.id)
+    try:
+        db.rollback()
+    except Exception:
+        logger.exception(
+            "Failed to release DB transaction before story generate lock wait: game_id=%s",
+            locked_game_id,
+        )
     try:
         operation_lease = acquire_story_game_operation_lock(
-            game.id,
+            locked_game_id,
             operation="story_generate",
             wait_timeout_seconds=STORY_GENERATE_LOCK_WAIT_SECONDS,
         )
     except StoryGameOperationBusyError as initial_exc:
-        cancelled_previous_generation = cancel_story_generation(game.id)
+        cancelled_previous_generation = cancel_story_generation(locked_game_id)
         logger.warning(
             "Story generate lock timed out; requested active generation cancellation: game_id=%s cancelled=%s error=%s",
-            game.id,
+            locked_game_id,
             cancelled_previous_generation,
             initial_exc,
         )
         try:
             operation_lease = acquire_story_game_operation_lock(
-                game.id,
+                locked_game_id,
                 operation="story_generate",
-                wait_timeout_seconds=None,
+                wait_timeout_seconds=STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS,
             )
         except StoryGameOperationBusyError as exc:
             logger.warning(
-                "Story generate lock unexpectedly failed while waiting without timeout: game_id=%s error=%s",
-                game.id,
+                "Story generate lock stayed busy after cancellation grace period: game_id=%s wait_seconds=%.3fs error=%s",
+                locked_game_id,
+                STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS,
                 exc,
             )
-            operation_lease = acquire_story_game_operation_lock(
-                game.id,
-                operation="story_generate",
-                wait_timeout_seconds=None,
-            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=STORY_GAME_OPERATION_BUSY_DETAIL,
+            ) from exc
 
     def _release_operation_lease() -> None:
         try:

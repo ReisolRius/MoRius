@@ -138,6 +138,9 @@ POLZA_FALLBACK_STATUS_CODES = {404, 429, *POLZA_TRANSIENT_STATUS_CODES}
 POLZA_STORY_STREAM_CONNECT_TIMEOUT_SECONDS = 20
 POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS = 90
 POLZA_GEMINI_PRO_STREAM_READ_TIMEOUT_SECONDS = 300
+STORY_STREAM_FIRST_TOKEN_TIMEOUT_FLOOR_SECONDS = 120.0
+STORY_STREAM_TOTAL_TIMEOUT_FLOOR_SECONDS = 300.0
+STORY_STREAM_TOTAL_TIMEOUT_READ_MULTIPLIER = 3.0
 POLZA_PROVIDER_TEMPORARY_ERROR_MARKERS = (
     "provider returned error",
     "internal server error",
@@ -267,6 +270,40 @@ def _polza_story_stream_read_timeout_seconds(model_name: str | None) -> int:
     if _is_polza_gemini_pro_model(model_name):
         return POLZA_GEMINI_PRO_STREAM_READ_TIMEOUT_SECONDS
     return POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS
+
+
+def _story_stream_first_token_timeout_seconds(read_timeout_seconds: int | float) -> float:
+    return max(float(read_timeout_seconds or 0), STORY_STREAM_FIRST_TOKEN_TIMEOUT_FLOOR_SECONDS)
+
+
+def _story_stream_total_timeout_seconds(read_timeout_seconds: int | float) -> float:
+    return max(
+        float(read_timeout_seconds or 0) * STORY_STREAM_TOTAL_TIMEOUT_READ_MULTIPLIER,
+        STORY_STREAM_TOTAL_TIMEOUT_FLOOR_SECONDS,
+    )
+
+
+def _ensure_story_stream_within_time_budget(
+    *,
+    provider_label: str,
+    started_at: float,
+    current_time: float,
+    emitted_delta: bool,
+    first_token_timeout_seconds: float,
+    total_timeout_seconds: float,
+    story_generation_game_id: int | None,
+    story_generation_id: str | None,
+) -> None:
+    if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
+        raise StoryGenerationCancelled("Story generation cancelled")
+
+    elapsed_seconds = max(float(current_time) - float(started_at), 0.0)
+    if not emitted_delta and elapsed_seconds >= float(first_token_timeout_seconds):
+        raise RuntimeError(
+            f"{provider_label} stream did not produce content within {int(first_token_timeout_seconds)}s"
+        )
+    if elapsed_seconds >= float(total_timeout_seconds):
+        raise RuntimeError(f"{provider_label} stream exceeded {int(total_timeout_seconds)}s")
 
 
 def _should_retry_polza_gemini_pro_turn_failure(
@@ -462,6 +499,11 @@ def _iter_gigachat_story_stream_chunks(
             stream=True,
             verify=settings.gigachat_verify_ssl,
         )
+        register_story_generation_response(
+            story_generation_game_id,
+            story_generation_id,
+            response,
+        )
     except requests.RequestException as exc:
         raise RuntimeError("Failed to reach GigaChat chat endpoint") from exc
 
@@ -484,10 +526,24 @@ def _iter_gigachat_story_stream_chunks(
         response.encoding = "utf-8"
         emitted_delta = False
         first_content_emitted_at: float | None = None
+        read_timeout_seconds = 120
+        first_token_timeout_seconds = _story_stream_first_token_timeout_seconds(read_timeout_seconds)
+        total_timeout_seconds = _story_stream_total_timeout_seconds(read_timeout_seconds)
         for raw_line in response.iter_lines(
             chunk_size=STORY_STREAM_HTTP_CHUNK_SIZE_BYTES,
             decode_unicode=True,
         ):
+            current_time = time.monotonic()
+            _ensure_story_stream_within_time_budget(
+                provider_label="GigaChat",
+                started_at=request_started_at,
+                current_time=current_time,
+                emitted_delta=emitted_delta,
+                first_token_timeout_seconds=first_token_timeout_seconds,
+                total_timeout_seconds=total_timeout_seconds,
+                story_generation_game_id=story_generation_game_id,
+                story_generation_id=story_generation_id,
+            )
             if raw_line is None:
                 continue
             line = raw_line.strip()
@@ -540,6 +596,11 @@ def _iter_gigachat_story_stream_chunks(
                         yield chunk
                     break
     finally:
+        unregister_story_generation_response(
+            story_generation_game_id,
+            story_generation_id,
+            response,
+        )
         response.close()
 
 def _iter_polza_story_stream_chunks(
@@ -661,6 +722,7 @@ def _iter_polza_story_stream_chunks(
                 provider_label,
                 attempt_index + 1,
             )
+            read_timeout_seconds = _polza_story_stream_read_timeout_seconds(model_name)
             try:
                 response = HTTP_SESSION.post(
                     settings.polza_chat_url,
@@ -668,7 +730,7 @@ def _iter_polza_story_stream_chunks(
                     json=payload,
                     timeout=(
                         POLZA_STORY_STREAM_CONNECT_TIMEOUT_SECONDS,
-                        _polza_story_stream_read_timeout_seconds(model_name),
+                        read_timeout_seconds,
                     ),
                     stream=True,
                 )
@@ -751,6 +813,8 @@ def _iter_polza_story_stream_chunks(
                 emitted_text_parts: list[str] = []
                 first_content_emitted_at: float | None = None
                 last_keepalive_at = time.monotonic()
+                first_token_timeout_seconds = _story_stream_first_token_timeout_seconds(read_timeout_seconds)
+                total_timeout_seconds = _story_stream_total_timeout_seconds(read_timeout_seconds)
                 finish_reason: str | None = None
                 usage_payload: Any = None
                 saw_done_marker = False
@@ -760,6 +824,16 @@ def _iter_polza_story_stream_chunks(
                         decode_unicode=True,
                     ):
                         current_time = time.monotonic()
+                        _ensure_story_stream_within_time_budget(
+                            provider_label="OpenRouter",
+                            started_at=request_started_at_attempt,
+                            current_time=current_time,
+                            emitted_delta=emitted_delta,
+                            first_token_timeout_seconds=first_token_timeout_seconds,
+                            total_timeout_seconds=total_timeout_seconds,
+                            story_generation_game_id=story_generation_game_id,
+                            story_generation_id=story_generation_id,
+                        )
                         if raw_line is None:
                             continue
                         line = raw_line.strip()
@@ -1325,6 +1399,8 @@ def _iter_story_provider_stream_chunks(
             reroll_discarded_assistant_text=reroll_discarded_assistant_text,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
+            story_generation_game_id=story_generation_game_id,
+            story_generation_id=story_generation_id,
         )
         if output_translation_enabled:
             yield from _yield_story_translated_stream_chunks(
