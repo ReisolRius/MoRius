@@ -19,6 +19,7 @@
   StoryGamePayload,
   StoryGameSummary,
   StoryGameVisibility,
+  StoryDisplayMode,
   StoryImageModelId,
   StoryMemoryOptimizationMode,
   StoryNarratorModelId,
@@ -33,6 +34,7 @@
   StoryStreamPlotMemoryPayload,
   StoryStreamStartPayload,
   StoryTurnImageGenerationPayload,
+  StoryVNBeat,
   StoryWorldCard,
   StoryWorldCardTemplate,
   StoryWorldDetailType,
@@ -123,6 +125,10 @@ function normalizeStoryAppearanceTextStyle(value: unknown): StoryAppearanceTextS
     return value
   }
   return 'default'
+}
+
+function normalizeStoryDisplayMode(value: unknown): StoryDisplayMode {
+  return value === 'visual_novel' ? 'visual_novel' : 'text'
 }
 
 function normalizeStoryAppearanceColor(value: unknown, fallback: string): string {
@@ -510,6 +516,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
         : null,
     auto_npc_cards_enabled: Boolean(game.auto_npc_cards_enabled),
     ambient_enabled: Boolean(game.ambient_enabled),
+    display_mode: normalizeStoryDisplayMode(game.display_mode),
     character_state_enabled: Boolean(game.character_state_enabled),
     appearance_background_mode: normalizeStoryAppearanceBackgroundMode(game.appearance_background_mode),
     appearance_gradient_enabled: Boolean(game.appearance_gradient_enabled),
@@ -542,6 +549,44 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     last_activity_at: typeof game.last_activity_at === 'string' ? game.last_activity_at : new Date(0).toISOString(),
     created_at: typeof game.created_at === 'string' ? game.created_at : new Date(0).toISOString(),
     updated_at: typeof game.updated_at === 'string' ? game.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStoryVNBeatPayload(rawBeat: StoryVNBeat): StoryVNBeat {
+  const beat = rawBeat as Partial<StoryVNBeat>
+  const normalizedBeatType =
+    beat.beat_type === 'dialogue' || beat.beat_type === 'thought' || beat.beat_type === 'system'
+      ? beat.beat_type
+      : 'narration'
+  const rawEmotion = typeof beat.emotion === 'string' ? beat.emotion : null
+  return {
+    ...rawBeat,
+    id: typeof beat.id === 'number' && Number.isFinite(beat.id) ? Math.trunc(beat.id) : 0,
+    game_id: typeof beat.game_id === 'number' && Number.isFinite(beat.game_id) ? Math.trunc(beat.game_id) : 0,
+    message_id: typeof beat.message_id === 'number' && Number.isFinite(beat.message_id) ? Math.trunc(beat.message_id) : 0,
+    order_index:
+      typeof beat.order_index === 'number' && Number.isFinite(beat.order_index)
+        ? Math.max(0, Math.trunc(beat.order_index))
+        : 0,
+    beat_type: normalizedBeatType,
+    speaker_character_id:
+      typeof beat.speaker_character_id === 'number' && Number.isFinite(beat.speaker_character_id)
+        ? Math.trunc(beat.speaker_character_id)
+        : null,
+    speaker_name: typeof beat.speaker_name === 'string' && beat.speaker_name.trim() ? beat.speaker_name.trim() : null,
+    emotion:
+      rawEmotion && STORY_CHARACTER_EMOTION_IDS.includes(rawEmotion as StoryCharacterEmotionId)
+        ? (rawEmotion as StoryCharacterEmotionId)
+        : null,
+    text: typeof beat.text === 'string' ? beat.text : '',
+    sprite_asset_id:
+      typeof beat.sprite_asset_id === 'number' && Number.isFinite(beat.sprite_asset_id)
+        ? Math.trunc(beat.sprite_asset_id)
+        : null,
+    background_image_url: typeof beat.background_image_url === 'string' ? beat.background_image_url : null,
+    metadata: beat.metadata && typeof beat.metadata === 'object' ? (beat.metadata as Record<string, unknown>) : {},
+    created_at: typeof beat.created_at === 'string' ? beat.created_at : new Date(0).toISOString(),
+    updated_at: typeof beat.updated_at === 'string' ? beat.updated_at : new Date(0).toISOString(),
   }
 }
 
@@ -655,6 +700,12 @@ function normalizeStoryGamePayload(rawPayload: StoryGamePayload): StoryGamePaylo
     game: normalizeStoryGameSummaryPayload((payload.game ?? {}) as StoryGameSummary),
     messages: Array.isArray(payload.messages) ? payload.messages.filter((item) => Boolean(item) && typeof item === 'object') : [],
     has_older_messages: Boolean(payload.has_older_messages),
+    vn_beats: Array.isArray(payload.vn_beats)
+      ? payload.vn_beats
+          .filter((item): item is StoryVNBeat => Boolean(item) && typeof item === 'object')
+          .map((item) => normalizeStoryVNBeatPayload(item))
+          .filter((item) => item.id > 0 && item.message_id > 0 && item.text.trim().length > 0)
+      : [],
     turn_images: Array.isArray(payload.turn_images) ? payload.turn_images.filter((item) => Boolean(item) && typeof item === 'object') : [],
     instruction_cards: Array.isArray(payload.instruction_cards)
       ? payload.instruction_cards
@@ -678,6 +729,20 @@ function normalizeStoryGamePayload(rawPayload: StoryGamePayload): StoryGamePaylo
       : [],
     world_card_events: [],
     can_redo_assistant_step: Boolean(payload.can_redo_assistant_step),
+  }
+}
+
+function normalizeStoryStreamDonePayload(rawPayload: StoryStreamDonePayload): StoryStreamDonePayload {
+  const payload = rawPayload as Partial<StoryStreamDonePayload>
+  return {
+    ...rawPayload,
+    game: payload.game ? normalizeStoryGameSummaryPayload(payload.game) : undefined,
+    vn_beats: Array.isArray(payload.vn_beats)
+      ? payload.vn_beats
+          .filter((item): item is StoryVNBeat => Boolean(item) && typeof item === 'object')
+          .map((item) => normalizeStoryVNBeatPayload(item))
+          .filter((item) => item.id > 0 && item.message_id > 0 && item.text.trim().length > 0)
+      : [],
   }
 }
 
@@ -1843,6 +1908,7 @@ export async function createStoryGame(payload: {
   show_gg_thoughts?: boolean
   show_npc_thoughts?: boolean
   ambient_enabled?: boolean
+  displayMode?: StoryDisplayMode
 }): Promise<StoryGameSummary> {
   return request<StoryGameSummary>('/api/story/games', {
     method: 'POST',
@@ -1863,6 +1929,7 @@ export async function createStoryGame(payload: {
       show_gg_thoughts: payload.show_gg_thoughts ?? null,
       show_npc_thoughts: payload.show_npc_thoughts ?? null,
       ambient_enabled: payload.ambient_enabled ?? null,
+      display_mode: payload.displayMode ?? null,
     }),
   })
 }
@@ -1976,6 +2043,7 @@ export async function updateStoryGameSettings(payload: {
   activeMainHeroCardId?: number | null
   autoNpcCardsEnabled?: boolean
   ambientEnabled?: boolean
+  displayMode?: StoryDisplayMode
   characterStateEnabled?: boolean
   appearanceBackgroundMode?: StoryAppearanceBackgroundMode
   appearanceGradientEnabled?: boolean
@@ -2050,6 +2118,9 @@ export async function updateStoryGameSettings(payload: {
   if (typeof payload.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = payload.ambientEnabled
   }
+  if (typeof payload.displayMode === 'string') {
+    requestPayload.display_mode = normalizeStoryDisplayMode(payload.displayMode)
+  }
   if (typeof payload.characterStateEnabled === 'boolean') {
     requestPayload.character_state_enabled = payload.characterStateEnabled
   }
@@ -2108,13 +2179,14 @@ export async function updateStoryGameSettings(payload: {
     gameId: payload.gameId,
     fields: Object.keys(requestPayload).sort(),
   })
-  return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/settings`, {
+  const updatedGame = await request<StoryGameSummary>(`/api/story/games/${payload.gameId}/settings`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
     body: JSON.stringify(requestPayload),
   })
+  return normalizeStoryGameSummaryPayload(updatedGame)
 }
 
 export async function regenerateStoryEnvironmentWeather(payload: {
@@ -2413,7 +2485,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
 
     if (parsed.event === 'done') {
       try {
-        const payload = JSON.parse(parsed.data) as StoryStreamDonePayload
+        const payload = normalizeStoryStreamDonePayload(JSON.parse(parsed.data) as StoryStreamDonePayload)
         options.onDone?.(payload)
       } catch (error) {
         streamError = toStreamError(error, 'Failed to process generation done event')

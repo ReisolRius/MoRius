@@ -3,11 +3,11 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import StoryMemoryBlock, StoryMessage, StoryWorldCard
+from app.models import StoryMemoryBlock, StoryMessage, StoryMessageSegment, StoryWorldCard
 from app.schemas import StoryMessageOut, StoryMessageUpdateRequest
 from app.services.auth_identity import get_current_user
 from app.services.story_memory import (
@@ -324,6 +324,8 @@ def update_story_message(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Story text cannot be empty")
         if message.role == "assistant":
             message.scene_emotion_payload = ""
+            message.vn_raw_response = ""
+            db.execute(sa_delete(StoryMessageSegment).where(StoryMessageSegment.message_id == message.id))
 
         _sync_turn_raw_memory_after_message_update(db=db, game=game, message=message)
         touch_story_game(game)

@@ -42,6 +42,8 @@ from app.models import (
     StoryInstructionTemplate,
     StoryMemoryBlock,
     StoryMessage,
+    StoryMessageSegment,
+    StoryCharacterSpriteAsset,
     StoryTurnImage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
@@ -489,6 +491,11 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN emotion_visualization_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+    if "display_mode" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN display_mode VARCHAR(24) NOT NULL DEFAULT 'text'"
         )
     if "environment_time_enabled" not in existing_columns:
         alter_statements.append(
@@ -1277,6 +1284,11 @@ def _ensure_story_soft_undo_columns_exist() -> None:
                 f"ALTER TABLE {StoryMessage.__tablename__} "
                 "ADD COLUMN scene_emotion_payload TEXT NOT NULL DEFAULT ''"
             )
+        if "vn_raw_response" not in message_columns:
+            alter_statements.append(
+                f"ALTER TABLE {StoryMessage.__tablename__} "
+                "ADD COLUMN vn_raw_response TEXT NOT NULL DEFAULT ''"
+            )
 
     if inspector.has_table(StoryTurnImage.__tablename__):
         image_columns = {column["name"] for column in inspector.get_columns(StoryTurnImage.__tablename__)}
@@ -1373,6 +1385,14 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryMessage.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_messages_game_undone_id "
         f"ON {StoryMessage.__tablename__} (game_id, undone_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_message_segments_game_message_order "
+        f"ON {StoryMessageSegment.__tablename__} (game_id, message_id, order_index)",
+        "CREATE INDEX IF NOT EXISTS ix_story_message_segments_message_order "
+        f"ON {StoryMessageSegment.__tablename__} (message_id, order_index)",
+        "CREATE INDEX IF NOT EXISTS ix_story_character_sprite_assets_character_emotion "
+        f"ON {StoryCharacterSpriteAsset.__tablename__} (character_id, emotion, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_character_sprite_assets_user_status "
+        f"ON {StoryCharacterSpriteAsset.__tablename__} (user_id, processing_status, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_turn_images_game_assistant_id "
         f"ON {StoryTurnImage.__tablename__} (game_id, assistant_message_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_turn_images_game_undone_id "

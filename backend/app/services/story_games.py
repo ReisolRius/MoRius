@@ -21,6 +21,7 @@ from app.models import (
     StoryMapImage,
     StoryMemoryBlock,
     StoryMessage,
+    StoryMessageSegment,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
     StoryTurnImage,
@@ -77,6 +78,7 @@ from app.services.story_world_cards import (
     story_world_card_to_out,
 )
 from app.services.text_encoding import repair_likely_utf8_mojibake_deep, sanitize_likely_utf8_mojibake
+from app.services.story_display_modes import STORY_DISPLAY_MODE_TEXT, normalize_story_display_mode
 try:
     from app.services.story_publication_moderation import coerce_story_publication_status
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
@@ -1074,6 +1076,7 @@ def count_story_completed_turns(messages: list[StoryMessage]) -> int:
 def delete_story_game_with_relations(db: Session, *, game_id: int) -> StoryGame | None:
     db.execute(sa_delete(StoryWorldCardChangeEvent).where(StoryWorldCardChangeEvent.game_id == game_id))
     db.execute(sa_delete(StoryPlotCardChangeEvent).where(StoryPlotCardChangeEvent.game_id == game_id))
+    db.execute(sa_delete(StoryMessageSegment).where(StoryMessageSegment.game_id == game_id))
     db.execute(sa_delete(StoryTurnImage).where(StoryTurnImage.game_id == game_id))
     db.execute(sa_delete(StoryMapImage).where(StoryMapImage.game_id == game_id))
     db.execute(sa_delete(StoryMemoryBlock).where(StoryMemoryBlock.game_id == game_id))
@@ -1174,6 +1177,7 @@ def story_game_summary_to_out(
         ),
         auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
+        display_mode=normalize_story_display_mode(getattr(game, "display_mode", None)),
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)
         ),
@@ -1238,6 +1242,7 @@ def mask_story_game_admin_only_state(
         updates["character_state_enabled"] = False
     if not include_story_map:
         updates["current_location_label"] = None
+    updates["display_mode"] = STORY_DISPLAY_MODE_TEXT
     if not updates:
         return summary
     return summary.model_copy(update=updates)
@@ -1322,6 +1327,7 @@ def story_game_summary_to_compact_out(
         ),
         auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
+        display_mode=normalize_story_display_mode(getattr(game, "display_mode", None)),
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)
         ),

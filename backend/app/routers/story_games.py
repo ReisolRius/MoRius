@@ -130,6 +130,12 @@ from app.services.story_games import (
     STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
     STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
 )
+from app.services.story_display_modes import (
+    STORY_DISPLAY_MODE_TEXT,
+    STORY_DISPLAY_MODE_VISUAL_NOVEL,
+    can_user_use_visual_novel_mode,
+    normalize_story_display_mode,
+)
 from app.services.story_cards import story_plot_card_to_out
 from app.services.story_character_state_fields import (
     apply_story_character_state_payload_to_world_cards,
@@ -1745,6 +1751,7 @@ def _create_story_game_publication_copy_from_source(
         environment_time_mode=coerce_story_environment_time_mode(None),
         environment_turn_step_minutes=normalize_story_environment_turn_step_minutes(None),
         emotion_visualization_enabled=source_game.emotion_visualization_enabled,
+        display_mode=STORY_DISPLAY_MODE_TEXT,
         ambient_profile=source_game.ambient_profile,
         environment_current_datetime=str(getattr(source_game, "environment_current_datetime", "") or ""),
         environment_current_weather=str(getattr(source_game, "environment_current_weather", "") or ""),
@@ -1850,6 +1857,7 @@ def list_story_games(
                 StoryGame.show_gg_thoughts,
                 StoryGame.show_npc_thoughts,
                 StoryGame.ambient_enabled,
+                StoryGame.display_mode,
                 StoryGame.last_activity_at,
                 StoryGame.created_at,
                 StoryGame.updated_at,
@@ -1864,11 +1872,19 @@ def list_story_games(
         db,
         game_ids=[game.id for game in games],
     )
+    is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+    def _mask_story_display_mode(summary: StoryGameSummaryOut) -> StoryGameSummaryOut:
+        if is_administrator:
+            return summary
+        return summary.model_copy(update={"display_mode": STORY_DISPLAY_MODE_TEXT})
+
     if not compact:
         return [
-            story_game_summary_to_out(
-                game,
-                turn_count=turn_count_by_game_id.get(game.id, 0),
+            _mask_story_display_mode(
+                story_game_summary_to_out(
+                    game,
+                    turn_count=turn_count_by_game_id.get(game.id, 0),
+                )
             )
             for game in games
         ]
@@ -1878,10 +1894,12 @@ def list_story_games(
         game_ids=[game.id for game in games],
     )
     return [
-        story_game_summary_to_compact_out(
-            game,
-            latest_message_preview=preview_by_game_id.get(game.id),
-            turn_count=turn_count_by_game_id.get(game.id, 0),
+        _mask_story_display_mode(
+            story_game_summary_to_compact_out(
+                game,
+                latest_message_preview=preview_by_game_id.get(game.id),
+                turn_count=turn_count_by_game_id.get(game.id, 0),
+            )
         )
         for game in games
     ]
@@ -2225,6 +2243,7 @@ def launch_story_community_world(
         emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
             getattr(world, "emotion_visualization_enabled", None)
         ),
+        display_mode=STORY_DISPLAY_MODE_TEXT,
         ambient_profile=str(getattr(world, "ambient_profile", "") or ""),
         environment_current_datetime=str(getattr(world, "environment_current_datetime", "") or ""),
         environment_current_weather=str(getattr(world, "environment_current_weather", "") or ""),
@@ -2639,11 +2658,17 @@ def create_story_game(
         legacy_environment_enabled=payload.environment_enabled,
     )
     environment_enabled = environment_time_enabled or environment_weather_enabled
+    can_use_visual_novel_mode = can_user_use_visual_novel_mode(user)
     emotion_visualization_enabled = (
         normalize_story_emotion_visualization_enabled(payload.emotion_visualization_enabled)
-        if user.role == "administrator"
+        if can_use_visual_novel_mode
         else False
     )
+    display_mode = normalize_story_display_mode(payload.display_mode)
+    if display_mode == STORY_DISPLAY_MODE_VISUAL_NOVEL and not can_use_visual_novel_mode:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    if not can_use_visual_novel_mode:
+        display_mode = STORY_DISPLAY_MODE_TEXT
 
     game = StoryGame(
         user_id=user.id,
@@ -2691,6 +2716,7 @@ def create_story_game(
         environment_time_mode=coerce_story_environment_time_mode(None),
         environment_turn_step_minutes=normalize_story_environment_turn_step_minutes(None),
         emotion_visualization_enabled=emotion_visualization_enabled,
+        display_mode=display_mode,
         ambient_profile="",
         environment_current_datetime="",
         environment_current_weather="",
@@ -2806,6 +2832,7 @@ def create_story_quick_start_game(
         environment_time_mode=coerce_story_environment_time_mode(None),
         environment_turn_step_minutes=normalize_story_environment_turn_step_minutes(None),
         emotion_visualization_enabled=False,
+        display_mode=STORY_DISPLAY_MODE_TEXT,
         ambient_profile="",
         environment_current_datetime="",
         environment_current_weather="",
@@ -2967,6 +2994,11 @@ def clone_story_game(
         emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
             getattr(source_game, "emotion_visualization_enabled", None)
         ),
+        display_mode=(
+            normalize_story_display_mode(getattr(source_game, "display_mode", None))
+            if str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+            else STORY_DISPLAY_MODE_TEXT
+        ),
         ambient_profile=str(getattr(source_game, "ambient_profile", "") or ""),
         canonical_state_payload=str(getattr(source_game, "canonical_state_payload", "") or ""),
         canonical_state_pipeline_enabled=normalize_story_canonical_state_pipeline_enabled(
@@ -3087,6 +3119,7 @@ def update_story_game_settings(
 ) -> StoryGameSummaryOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
+    can_use_visual_novel_mode = can_user_use_visual_novel_mode(user)
     current_environment_enabled = normalize_story_environment_enabled(getattr(game, "environment_enabled", None))
     next_environment_time_enabled = normalize_story_environment_time_enabled(
         getattr(game, "environment_time_enabled", None),
@@ -3176,7 +3209,7 @@ def update_story_game_settings(
             game.active_main_hero_card_id = int(active_main_hero_card.id)
     if payload.auto_npc_cards_enabled is not None:
         game.auto_npc_cards_enabled = bool(payload.auto_npc_cards_enabled)
-    if payload.ambient_enabled is not None and user.role == "administrator":
+    if payload.ambient_enabled is not None and can_use_visual_novel_mode:
         game.ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
     if "appearance_background_mode" in payload.model_fields_set:
         game.appearance_background_mode = normalize_story_appearance_background_mode(payload.appearance_background_mode)
@@ -3259,15 +3292,20 @@ def update_story_game_settings(
         game.environment_tomorrow_weather = serialize_story_environment_weather(payload.environment_tomorrow_weather)
     if "current_location_label" in payload.model_fields_set:
         game.current_location_label = _normalize_story_environment_location_label(payload.current_location_label)
-    if payload.emotion_visualization_enabled is not None and user.role == "administrator":
+    if payload.emotion_visualization_enabled is not None and can_use_visual_novel_mode:
         game.emotion_visualization_enabled = normalize_story_emotion_visualization_enabled(
             payload.emotion_visualization_enabled
         )
-    if payload.canonical_state_pipeline_enabled is not None and user.role == "administrator":
+    if "display_mode" in payload.model_fields_set:
+        next_display_mode = normalize_story_display_mode(payload.display_mode)
+        if not can_use_visual_novel_mode and next_display_mode != STORY_DISPLAY_MODE_TEXT:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        game.display_mode = next_display_mode if can_use_visual_novel_mode else STORY_DISPLAY_MODE_TEXT
+    if payload.canonical_state_pipeline_enabled is not None and can_use_visual_novel_mode:
         game.canonical_state_pipeline_enabled = normalize_story_canonical_state_pipeline_enabled(
             payload.canonical_state_pipeline_enabled
         )
-    if payload.canonical_state_safe_fallback_enabled is not None and user.role == "administrator":
+    if payload.canonical_state_safe_fallback_enabled is not None and can_use_visual_novel_mode:
         game.canonical_state_safe_fallback_enabled = normalize_story_canonical_state_safe_fallback_enabled(
             payload.canonical_state_safe_fallback_enabled
         )

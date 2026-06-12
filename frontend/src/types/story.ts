@@ -2,6 +2,7 @@ import type { AuthUser } from './auth'
 
 export type StoryRole = 'user' | 'assistant'
 export type StoryGameVisibility = 'private' | 'public'
+export type StoryDisplayMode = 'text' | 'visual_novel'
 export type StoryPublicationStatus = 'none' | 'pending' | 'approved' | 'rejected'
 export type SmartRegenerationOption =
   | 'fix_language'
@@ -110,6 +111,7 @@ export type StoryGameSummary = {
   active_main_hero_card_id?: number | null
   auto_npc_cards_enabled?: boolean
   ambient_enabled: boolean
+  display_mode: StoryDisplayMode
   character_state_enabled: boolean
   appearance_background_mode: StoryAppearanceBackgroundMode
   appearance_gradient_enabled: boolean
@@ -140,6 +142,23 @@ export type StoryMessage = {
   role: StoryRole
   content: string
   scene_emotion_payload?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type StoryVNBeat = {
+  id: number
+  game_id: number
+  message_id: number
+  order_index: number
+  beat_type: 'narration' | 'dialogue' | 'thought' | 'system'
+  speaker_character_id?: number | null
+  speaker_name?: string | null
+  emotion?: StoryCharacterEmotionId | null
+  text: string
+  sprite_asset_id?: number | null
+  background_image_url?: string | null
+  metadata: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -414,6 +433,7 @@ export type StoryGamePayload = {
   game: StoryGameSummary
   messages: StoryMessage[]
   has_older_messages?: boolean
+  vn_beats?: StoryVNBeat[]
   turn_images: StoryTurnImage[]
   instruction_cards: StoryInstructionCard[]
   plot_cards: StoryPlotCard[]
@@ -498,6 +518,7 @@ export type StoryAmbientProfile = {
 export type StoryStreamDonePayload = {
   message: StoryMessage
   game?: StoryGameSummary
+  vn_beats?: StoryVNBeat[]
   user?: AuthUser
   turn_cost_tokens?: number
   world_card_events?: StoryWorldCardEvent[]

@@ -165,6 +165,7 @@ import type {
   StorySceneEmotionCue,
   StorySceneEmotionCueParticipant,
   StoryCommunityCharacterSummary,
+  StoryDisplayMode,
   StoryGameSummary,
   StoryInstructionCard,
   StoryInstructionTemplate,
@@ -176,6 +177,7 @@ import type {
   StoryPlotCard,
   StoryPlotCardEvent,
   StoryStreamDonePayload,
+  StoryVNBeat,
   StoryWorldCard,
   StoryWorldCardKind,
   StoryWorldDetailType,
@@ -239,6 +241,7 @@ type StorySettingsOverride = {
   ambientEnabled: boolean
   characterStateEnabled?: boolean
   emotionVisualizationEnabled?: boolean
+  displayMode?: StoryDisplayMode
   canonicalStatePipelineEnabled?: boolean
   canonicalStateSafeFallbackEnabled?: boolean
 }
@@ -1460,6 +1463,308 @@ function AssetMaskIcon({
   )
 }
 
+function VisualNovelStage({
+  beats,
+  beatIndex,
+  currentBeat,
+  turnImageEntries,
+  onPrevious,
+  onNext,
+  onJumpToEnd,
+  onGenerateImage,
+  canGenerateImage,
+  isGeneratingImage,
+}: {
+  beats: StoryVNBeat[]
+  beatIndex: number
+  currentBeat: StoryVNBeat | null
+  turnImageEntries: StoryTurnImageEntry[]
+  onPrevious: () => void
+  onNext: () => void
+  onJumpToEnd: () => void
+  onGenerateImage: () => void
+  canGenerateImage: boolean
+  isGeneratingImage: boolean
+}) {
+  const readyTurnImage = [...turnImageEntries].reverse().find((entry) => entry.status === 'ready' && entry.imageUrl)
+  const rawBackgroundUrl = readyTurnImage?.imageUrl ?? currentBeat?.background_image_url ?? null
+  const backgroundUrl = resolveApiResourceUrl(rawBackgroundUrl)
+  const metadata = currentBeat?.metadata ?? {}
+  const rawSpriteUrl = typeof metadata.sprite_url === 'string' ? metadata.sprite_url : null
+  const spriteUrl = resolveApiResourceUrl(rawSpriteUrl)
+  const speakerName = currentBeat?.speaker_name?.trim() || ''
+  const speakerLabel = speakerName || (currentBeat?.beat_type === 'system' ? 'Система' : 'Рассказчик')
+  const speakerInitial = speakerLabel.trim().charAt(0).toUpperCase() || '?'
+  const emotionLabel =
+    currentBeat?.emotion && STORY_CHARACTER_EMOTION_LABELS[currentBeat.emotion]
+      ? STORY_CHARACTER_EMOTION_LABELS[currentBeat.emotion]
+      : null
+  const beatCount = beats.length
+  const isFirstBeat = beatIndex <= 0
+  const isLastBeat = beatIndex >= beatCount - 1
+
+  return (
+    <Box
+      sx={{
+        position: 'relative',
+        minHeight: { xs: 'calc(100vh - 238px)', md: 'min(680px, calc(100vh - 214px))' },
+        height: { xs: 'calc(100vh - 238px)', md: 'min(680px, calc(100vh - 214px))' },
+        overflow: 'hidden',
+        borderRadius: '8px',
+        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+        background:
+          'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 86%, #050506 14%) 0%, color-mix(in srgb, var(--morius-app-bg) 94%, #000 6%) 100%)',
+      }}
+    >
+      {backgroundUrl ? (
+        <ProgressiveImage
+          src={backgroundUrl}
+          alt=""
+          loading="eager"
+          fetchPriority="high"
+          objectFit="cover"
+          loaderSize={30}
+          containerSx={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+          }}
+          imgSx={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            filter: 'saturate(0.94) contrast(1.02)',
+          }}
+        />
+      ) : (
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'linear-gradient(135deg, color-mix(in srgb, var(--morius-elevated-bg) 94%, #000 6%) 0%, color-mix(in srgb, var(--morius-card-bg) 78%, #000 22%) 50%, color-mix(in srgb, var(--morius-accent) 22%, #07080b 78%) 100%)',
+          }}
+        />
+      )}
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          background:
+            'linear-gradient(180deg, rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.08) 46%, rgba(0,0,0,0.66) 100%)',
+        }}
+      />
+
+      <Box
+        sx={{
+          position: 'absolute',
+          left: { xs: '50%', md: '56%' },
+          bottom: { xs: 118, md: 126 },
+          width: { xs: '72%', sm: '58%', md: '46%' },
+          height: { xs: '58%', md: '66%' },
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'center',
+          pointerEvents: 'none',
+        }}
+      >
+        {spriteUrl ? (
+          <ProgressiveImage
+            src={spriteUrl}
+            alt={speakerLabel}
+            loading="eager"
+            fetchPriority="high"
+            objectFit="contain"
+            objectPosition="center bottom"
+            loaderSize={28}
+            containerSx={{ width: '100%', height: '100%' }}
+            imgSx={{
+              transform: { xs: 'translateY(6%) scale(1.12)', md: 'translateY(7%) scale(1.2)' },
+              userSelect: 'none',
+            }}
+          />
+        ) : speakerName ? (
+          <Box
+            sx={{
+              width: { xs: 168, md: 230 },
+              height: { xs: 270, md: 370 },
+              borderRadius: '48% 48% 18% 18%',
+              background:
+                'linear-gradient(180deg, color-mix(in srgb, var(--morius-text-secondary) 54%, transparent) 0%, color-mix(in srgb, var(--morius-card-bg) 92%, #000 8%) 100%)',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 68%, transparent)',
+              display: 'grid',
+              placeItems: 'center',
+              color: 'var(--morius-title-text)',
+              fontSize: { xs: '3rem', md: '4.4rem' },
+              fontWeight: 900,
+              opacity: 0.82,
+            }}
+          >
+            {speakerInitial}
+          </Box>
+        ) : null}
+      </Box>
+
+      <Stack
+        direction="row"
+        spacing={0.65}
+        sx={{
+          position: 'absolute',
+          top: 12,
+          right: 12,
+          zIndex: 3,
+        }}
+      >
+        <Tooltip arrow disableInteractive placement="bottom" title="Картинка сцены">
+          <span>
+            <IconButton
+              aria-label="Картинка сцены"
+              onClick={onGenerateImage}
+              disabled={!canGenerateImage}
+              sx={{
+                width: 38,
+                height: 38,
+                borderRadius: '999px',
+                color: 'var(--morius-title-text)',
+                backgroundColor: 'rgba(0,0,0,0.32)',
+                border: 'var(--morius-border-width) solid rgba(255,255,255,0.18)',
+                backdropFilter: 'blur(10px)',
+              }}
+            >
+              {isGeneratingImage ? (
+                <CircularProgress size={17} sx={{ color: 'var(--morius-accent)' }} />
+              ) : (
+                <AssetMaskIcon src={readyTurnImage ? composerRegenerateImageIcon : composerGenerateImageIcon} size={19} />
+              )}
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Stack>
+
+      <Box
+        sx={{
+          position: 'absolute',
+          left: { xs: 10, md: 18 },
+          right: { xs: 10, md: 18 },
+          bottom: { xs: 10, md: 14 },
+          zIndex: 4,
+          borderRadius: '8px',
+          border: 'var(--morius-border-width) solid rgba(255,255,255,0.16)',
+          background: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)',
+          backdropFilter: 'blur(18px)',
+          p: { xs: 1.15, md: 1.35 },
+        }}
+      >
+        <Stack spacing={0.85}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+            <Stack direction="row" alignItems="center" spacing={0.7} sx={{ minWidth: 0 }}>
+              <Typography
+                sx={{
+                  minWidth: 0,
+                  color: 'var(--morius-title-text)',
+                  fontSize: { xs: '0.92rem', md: '1rem' },
+                  lineHeight: 1.15,
+                  fontWeight: 900,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {speakerLabel}
+              </Typography>
+              {emotionLabel ? (
+                <Typography
+                  sx={{
+                    color: 'var(--morius-text-secondary)',
+                    fontSize: '0.78rem',
+                    lineHeight: 1,
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {emotionLabel}
+                </Typography>
+              ) : null}
+            </Stack>
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', fontWeight: 800, flexShrink: 0 }}>
+              {beatCount > 0 ? `${beatIndex + 1}/${beatCount}` : '0/0'}
+            </Typography>
+          </Stack>
+          <Typography
+            sx={{
+              color: 'var(--morius-text-primary)',
+              fontSize: { xs: '1rem', md: '1.1rem' },
+              lineHeight: 1.48,
+              whiteSpace: 'pre-wrap',
+              minHeight: { xs: 72, md: 84 },
+              maxHeight: { xs: 132, md: 150 },
+              overflowY: 'auto',
+            }}
+          >
+            {currentBeat?.text ?? ''}
+          </Typography>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+            <Stack direction="row" spacing={0.65}>
+              <Tooltip arrow disableInteractive placement="top" title="Назад">
+                <span>
+                  <IconButton
+                    aria-label="Назад"
+                    onClick={onPrevious}
+                    disabled={isFirstBeat}
+                    sx={{
+                      width: 36,
+                      height: 36,
+                      color: 'var(--morius-title-text)',
+                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
+                    }}
+                  >
+                    {'‹'}
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip arrow disableInteractive placement="top" title="Вперед">
+                <span>
+                  <IconButton
+                    aria-label="Вперед"
+                    onClick={onNext}
+                    disabled={isLastBeat}
+                    sx={{
+                      width: 36,
+                      height: 36,
+                      color: 'var(--morius-title-text)',
+                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
+                    }}
+                  >
+                    {'›'}
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
+            {!isLastBeat ? (
+              <Button
+                onClick={onJumpToEnd}
+                sx={{
+                  minHeight: 34,
+                  borderRadius: '8px',
+                  px: 1.1,
+                  textTransform: 'none',
+                  color: 'var(--morius-title-text)',
+                  border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+                }}
+              >
+                Конец
+              </Button>
+            ) : null}
+          </Stack>
+        </Stack>
+      </Box>
+    </Box>
+  )
+}
+
 function ViewToggleButton({
   cardsViewMode,
   setCardsViewMode,
@@ -1911,6 +2216,64 @@ function normalizeStoryMessageItem(message: StoryMessage): StoryMessage {
           ? null
           : null,
   }
+}
+
+function normalizeStoryVNBeatItem(beat: StoryVNBeat): StoryVNBeat {
+  const rawEmotion = typeof beat.emotion === 'string' ? beat.emotion : null
+  return {
+    ...beat,
+    id: Number.isFinite(beat.id) ? Math.trunc(beat.id) : 0,
+    game_id: Number.isFinite(beat.game_id) ? Math.trunc(beat.game_id) : 0,
+    message_id: Number.isFinite(beat.message_id) ? Math.trunc(beat.message_id) : 0,
+    order_index: Number.isFinite(beat.order_index) ? Math.max(0, Math.trunc(beat.order_index)) : 0,
+    beat_type:
+      beat.beat_type === 'dialogue' || beat.beat_type === 'thought' || beat.beat_type === 'system'
+        ? beat.beat_type
+        : 'narration',
+    speaker_character_id:
+      typeof beat.speaker_character_id === 'number' && Number.isFinite(beat.speaker_character_id)
+        ? Math.trunc(beat.speaker_character_id)
+        : null,
+    speaker_name: typeof beat.speaker_name === 'string' && beat.speaker_name.trim() ? beat.speaker_name.trim() : null,
+    emotion:
+      rawEmotion && STORY_CHARACTER_EMOTION_IDS.includes(rawEmotion as StoryCharacterEmotionId)
+        ? (rawEmotion as StoryCharacterEmotionId)
+        : null,
+    text: toStoryText(beat.text),
+    sprite_asset_id:
+      typeof beat.sprite_asset_id === 'number' && Number.isFinite(beat.sprite_asset_id)
+        ? Math.trunc(beat.sprite_asset_id)
+        : null,
+    background_image_url:
+      typeof beat.background_image_url === 'string' && beat.background_image_url.trim()
+        ? beat.background_image_url.trim()
+        : null,
+    metadata: beat.metadata && typeof beat.metadata === 'object' ? beat.metadata : {},
+    created_at: typeof beat.created_at === 'string' ? beat.created_at : new Date(0).toISOString(),
+    updated_at: typeof beat.updated_at === 'string' ? beat.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStoryVNBeats(items: StoryVNBeat[] | null | undefined): StoryVNBeat[] {
+  return Array.isArray(items)
+    ? items
+        .map((item) => normalizeStoryVNBeatItem(item))
+        .filter((item) => item.id > 0 && item.message_id > 0 && item.text.trim().length > 0)
+        .sort((left, right) => left.message_id - right.message_id || left.order_index - right.order_index || left.id - right.id)
+    : []
+}
+
+function mergeStoryVNBeatsById(existingBeats: StoryVNBeat[], incomingBeats: StoryVNBeat[]): StoryVNBeat[] {
+  const nextMap = new Map<number, StoryVNBeat>()
+  existingBeats.forEach((beat) => {
+    nextMap.set(beat.id, beat)
+  })
+  incomingBeats.forEach((beat) => {
+    nextMap.set(beat.id, beat)
+  })
+  return [...nextMap.values()].sort(
+    (left, right) => left.message_id - right.message_id || left.order_index - right.order_index || left.id - right.id,
+  )
 }
 
 function normalizeStoryInstructionCardItem(card: StoryInstructionCard): StoryInstructionCard {
@@ -5578,6 +5941,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     STORY_APPEARANCE_DEFAULT_TEXT_STYLE,
   )
   const [emotionVisualizationEnabled, setEmotionVisualizationEnabled] = useState(false)
+  const [storyDisplayMode, setStoryDisplayMode] = useState<StoryDisplayMode>('text')
+  const [vnBeats, setVnBeats] = useState<StoryVNBeat[]>([])
+  const [vnBeatIndex, setVnBeatIndex] = useState(0)
+  const [pendingVnFocusMessageId, setPendingVnFocusMessageId] = useState<number | null>(null)
   const [canonicalStatePipelineEnabled, setCanonicalStatePipelineEnabled] = useState(true)
   const [canonicalStateSafeFallbackEnabled, setCanonicalStateSafeFallbackEnabled] = useState(false)
   const [persistedAmbientProfile, setPersistedAmbientProfile] = useState<StoryAmbientProfile | null>(null)
@@ -5642,6 +6009,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSavingCharacterStateEnabled, setIsSavingCharacterStateEnabled] = useState(false)
   const [isSavingStoryAppearance, setIsSavingStoryAppearance] = useState(false)
   const [isSavingEmotionVisualizationEnabled, setIsSavingEmotionVisualizationEnabled] = useState(false)
+  const [isSavingStoryDisplayMode, setIsSavingStoryDisplayMode] = useState(false)
   const [isSavingCanonicalStatePipeline, setIsSavingCanonicalStatePipeline] = useState(false)
   const [isSavingCanonicalStateSafeFallback, setIsSavingCanonicalStateSafeFallback] = useState(false)
   const [cardMenuAnchorEl, setCardMenuAnchorEl] = useState<HTMLElement | null>(null)
@@ -5896,6 +6264,39 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => messages.slice(messagesWindowStartIndex),
     [messages, messagesWindowStartIndex],
   )
+  useEffect(() => {
+    const assistantMessageIds = new Set(
+      messages
+        .filter((message) => message.role === 'assistant' && message.id > 0)
+        .map((message) => message.id),
+    )
+    setVnBeats((previousBeats) => {
+      const nextBeats = previousBeats.filter((beat) => assistantMessageIds.has(beat.message_id))
+      return nextBeats.length === previousBeats.length ? previousBeats : nextBeats
+    })
+  }, [messages])
+
+  useEffect(() => {
+    if (pendingVnFocusMessageId === null) {
+      return
+    }
+    const targetIndex = vnBeats.findIndex((beat) => beat.message_id === pendingVnFocusMessageId)
+    if (targetIndex < 0) {
+      return
+    }
+    setVnBeatIndex(targetIndex)
+    setPendingVnFocusMessageId(null)
+  }, [pendingVnFocusMessageId, vnBeats])
+
+  useEffect(() => {
+    setVnBeatIndex((previousIndex) => {
+      if (vnBeats.length <= 0) {
+        return 0
+      }
+      return Math.min(Math.max(previousIndex, 0), vnBeats.length - 1)
+    })
+  }, [vnBeats.length])
+
   const activeAmbientProfile = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index]
@@ -5947,7 +6348,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [getEmotionStageHeightBounds],
   )
   const composerAmbientVisual = useMemo(() => {
-    if (!ambientEnabled || user.role !== 'administrator') {
+    if (!ambientEnabled || user.role.trim().toLowerCase() !== 'administrator') {
       return null
     }
 
@@ -6202,6 +6603,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       } else {
         setEmotionVisualizationEnabled(false)
       }
+      setStoryDisplayMode(override.displayMode ?? (runtimeGame.display_mode === 'visual_novel' ? 'visual_novel' : 'text'))
       setCanonicalStatePipelineEnabled(
         typeof override.canonicalStatePipelineEnabled === 'boolean'
           ? override.canonicalStatePipelineEnabled
@@ -6268,6 +6670,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     } else {
       setEmotionVisualizationEnabled(false)
     }
+    setStoryDisplayMode(runtimeGame.display_mode === 'visual_novel' ? 'visual_novel' : 'text')
     setCanonicalStatePipelineEnabled(normalizedRuntimeCanonicalStatePipelineEnabled)
     setCanonicalStateSafeFallbackEnabled(normalizedRuntimeCanonicalStateSafeFallbackEnabled)
   }, [])
@@ -6330,6 +6733,32 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     (entry) => entry.status === 'ready' && Boolean(entry.imageUrl),
   )
   const isStoryTurnBusy = isGenerating || isFinalizingStoryTurn
+  const isAdministrator = user.role.trim().toLowerCase() === 'administrator'
+  const effectiveAmbientEnabled = isAdministrator && ambientEnabled
+  const effectiveEmotionVisualizationEnabled = isAdministrator && emotionVisualizationEnabled
+  const effectiveStoryDisplayMode: StoryDisplayMode = isAdministrator ? storyDisplayMode : 'text'
+  const isVisualNovelMode = effectiveStoryDisplayMode === 'visual_novel'
+  const visualNovelBeats = useMemo(() => (isVisualNovelMode ? vnBeats : []), [isVisualNovelMode, vnBeats])
+  const currentVnBeatIndex = visualNovelBeats.length > 0
+    ? Math.min(Math.max(vnBeatIndex, 0), visualNovelBeats.length - 1)
+    : 0
+  const currentVnBeat = visualNovelBeats[currentVnBeatIndex] ?? null
+  const currentVnTurnImageEntries = currentVnBeat
+    ? (turnImageByAssistantMessageId[currentVnBeat.message_id] ?? [])
+    : latestTurnImageEntries
+  const isCurrentVnTurnImageLoading = currentVnTurnImageEntries.some((entry) => entry.status === 'loading')
+  const isVisualNovelInputLocked =
+    isVisualNovelMode && visualNovelBeats.length > 0 && currentVnBeatIndex < visualNovelBeats.length - 1
+  const shouldShowVisualNovelStage = isVisualNovelMode && visualNovelBeats.length > 0
+  const goToPreviousVnBeat = useCallback(() => {
+    setVnBeatIndex((previousIndex) => Math.max(0, previousIndex - 1))
+  }, [])
+  const goToNextVnBeat = useCallback(() => {
+    setVnBeatIndex((previousIndex) => Math.min(Math.max(visualNovelBeats.length - 1, 0), previousIndex + 1))
+  }, [visualNovelBeats.length])
+  const jumpToLatestVnBeat = useCallback(() => {
+    setVnBeatIndex(Math.max(0, visualNovelBeats.length - 1))
+  }, [visualNovelBeats.length])
   const canUndoAssistantStep =
     !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
@@ -6352,15 +6781,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     Boolean(activeGameId) &&
     currentRerollAssistantMessage !== null &&
     !isLatestTurnImageLoading
+  const canGenerateCurrentVnTurnImage =
+    !isStoryTurnBusy &&
+    !isUndoingAssistantStep &&
+    !isCreatingGame &&
+    Boolean(activeGameId) &&
+    currentVnBeat !== null &&
+    !isCurrentVnTurnImageLoading
   const canContinueLatestTurn =
     !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
     !isCreatingGame &&
     currentRerollAssistantMessage !== null &&
     continueHiddenForMessageId !== currentRerollAssistantMessage.id
-  const isAdministrator = user.role === 'administrator'
-  const effectiveAmbientEnabled = isAdministrator && ambientEnabled
-  const effectiveEmotionVisualizationEnabled = isAdministrator && emotionVisualizationEnabled
   const canEditStoryAppearance = Boolean(user)
   const canViewDevMemoryTab = isAdministrator
   const isRightPanelSecondTabVisible = rightPanelMode === 'memory' && canViewDevMemoryTab
@@ -6857,9 +7290,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const speechRecognitionCtor = useMemo(() => resolveSpeechRecognitionCtor(), [])
   const voiceInputSupported = speechRecognitionCtor !== null
   const hasPromptText = inputValue.trim().length > 0
-  const showMicAction = voiceInputEnabled && !isStoryTurnBusy && (!hasPromptText || isVoiceInputActive)
+  const showMicAction = voiceInputEnabled && !isVisualNovelInputLocked && !isStoryTurnBusy && (!hasPromptText || isVoiceInputActive)
   const canUseVoiceInput =
     voiceInputEnabled &&
+    !isVisualNovelInputLocked &&
     !isStoryTurnBusy &&
     !isCreatingGame &&
     !hasInsufficientTokensForTurn &&
@@ -6879,6 +7313,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingCharacterStateEnabled ||
     isSavingStoryAppearance ||
     isSavingEmotionVisualizationEnabled ||
+    isSavingStoryDisplayMode ||
     isSavingCanonicalStatePipeline ||
     isSavingCanonicalStateSafeFallback
   const isInstructionCardActionLocked =
@@ -8093,6 +8528,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const shouldShowEmotionStagePanel =
     isAdministrator &&
     emotionVisualizationEnabled &&
+    !isVisualNovelMode &&
     !shouldShowStoryMessagesLoadingSkeleton &&
     !isLoadingGameMessages
   const shouldShowEmotionStage =
@@ -9709,6 +10145,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setActiveGameSummary(null)
     setQuickStartIntro('')
     setMessages([])
+    setVnBeats([])
+    setVnBeatIndex(0)
+    setPendingVnFocusMessageId(null)
     setHasOlderStoryMessages(false)
     setTurnImageByAssistantMessageId({})
     setAmbientByAssistantMessageId({})
@@ -9759,6 +10198,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           beforeMessageId: beforeMessageId > 0 ? beforeMessageId : null,
         })
         const normalizedMessages = normalizeStoryMessages(payload.messages)
+        const normalizedVnBeats = normalizeStoryVNBeats(payload.vn_beats)
         const normalizedInstructionCards = normalizeStoryInstructionCards(payload.instruction_cards)
         const normalizedPlotCards = normalizeStoryPlotCards(payload.plot_cards)
         const normalizedMemoryBlocks = normalizeStoryMemoryBlocks(payload.memory_blocks)
@@ -9781,6 +10221,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             ? mergeStoryMessagesById(previousMessages, normalizedMessages)
             : normalizedMessages
         ))
+        setVnBeats((previousBeats) => (
+          appendOlderMessages
+            ? mergeStoryVNBeatsById(previousBeats, normalizedVnBeats)
+            : normalizedVnBeats
+        ))
+        if (!appendOlderMessages) {
+          setVnBeatIndex(Math.max(0, normalizedVnBeats.length - 1))
+        }
         if (appendOlderMessages && normalizedMessages.length > 0) {
           setVisibleAssistantTurns((previousTurns) => previousTurns + assistantTurnsLimit)
         }
@@ -13613,6 +14061,107 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     storyLlmModel,
   ])
 
+  const toggleStoryDisplayMode = useCallback(async (checked?: boolean) => {
+    const targetGameId = activeGameId
+    if (!isAdministrator || !targetGameId || isSavingStorySettings || isGenerating) {
+      return
+    }
+
+    const previousMode = storyDisplayMode
+    const nextMode: StoryDisplayMode =
+      typeof checked === 'boolean'
+        ? checked
+          ? 'visual_novel'
+          : 'text'
+        : previousMode === 'visual_novel'
+          ? 'text'
+          : 'visual_novel'
+    const previousStoryLlmModel = storyLlmModel
+    const previousMemoryOptimization = memoryOptimizationEnabled
+    const previousStoryTopK = storyTopK
+    const previousStoryTopR = storyTopR
+    const previousShowGgThoughts = showGgThoughts
+    const previousShowNpcThoughts = showNpcThoughts
+    const previousAmbientEnabled = ambientEnabled
+    const previousResponseMaxTokens = responseMaxTokens
+    const previousResponseMaxTokensEnabled = responseMaxTokensEnabled
+    const applyDisplayModeOverride = (displayMode: StoryDisplayMode) => {
+      const nextOverrides: Record<number, StorySettingsOverride> = {
+        ...storySettingsOverridesRef.current,
+        [targetGameId]: {
+          ...storySettingsOverridesRef.current[targetGameId],
+          storyLlmModel: previousStoryLlmModel,
+          responseMaxTokens: previousResponseMaxTokens,
+          responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+          memoryOptimizationEnabled: previousMemoryOptimization,
+          memoryOptimizationMode,
+          storyTopK: previousStoryTopK,
+          storyTopR: previousStoryTopR,
+          showGgThoughts: previousShowGgThoughts,
+          showNpcThoughts: previousShowNpcThoughts,
+          ambientEnabled: previousAmbientEnabled,
+          characterStateEnabled,
+          emotionVisualizationEnabled,
+          displayMode,
+        },
+      }
+      storySettingsOverridesRef.current = nextOverrides
+      setStorySettingsOverrides(nextOverrides)
+    }
+
+    setStoryDisplayMode(nextMode)
+    if (nextMode === 'text') {
+      setPendingVnFocusMessageId(null)
+    } else {
+      setVnBeatIndex((previousIndex) => (vnBeats.length > 0 ? Math.min(previousIndex, vnBeats.length - 1) : 0))
+    }
+    applyDisplayModeOverride(nextMode)
+    setErrorMessage('')
+    setIsSavingStoryDisplayMode(true)
+    try {
+      const updatedGame = await updateStoryGameSettings({
+        token: authToken,
+        gameId: targetGameId,
+        displayMode: nextMode,
+      })
+      const normalizedMode: StoryDisplayMode = updatedGame.display_mode === 'visual_novel' ? 'visual_novel' : 'text'
+      setStoryDisplayMode(normalizedMode)
+      applyDisplayModeOverride(normalizedMode)
+      applyUpdatedGameSummary({
+        ...updatedGame,
+        display_mode: normalizedMode,
+      })
+    } catch (error) {
+      setStoryDisplayMode(previousMode)
+      applyDisplayModeOverride(previousMode)
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить режим игры'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingStoryDisplayMode(false)
+    }
+  }, [
+    activeGameId,
+    ambientEnabled,
+    applyUpdatedGameSummary,
+    authToken,
+    characterStateEnabled,
+    emotionVisualizationEnabled,
+    isAdministrator,
+    isGenerating,
+    isSavingStorySettings,
+    memoryOptimizationEnabled,
+    memoryOptimizationMode,
+    responseMaxTokens,
+    responseMaxTokensEnabled,
+    showGgThoughts,
+    showNpcThoughts,
+    storyDisplayMode,
+    storyLlmModel,
+    storyTopK,
+    storyTopR,
+    vnBeats.length,
+  ])
+
   const toggleCanonicalStatePipelineEnabled = useCallback(async () => {
     const targetGameId = activeGameId
     if (
@@ -14568,6 +15117,26 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isUndoingAssistantStep,
   ])
 
+  const handleGenerateCurrentVnTurnImage = useCallback(() => {
+    if (!activeGameId || !currentVnBeat || isStoryTurnBusy || isCreatingGame || isUndoingAssistantStep) {
+      return
+    }
+    setErrorMessage('')
+    void generateTurnImageAfterAssistantMessage({
+      gameId: activeGameId,
+      assistantMessageId: currentVnBeat.message_id,
+    }).catch((error) => {
+      console.error('VN turn image generation start failed', error)
+    })
+  }, [
+    activeGameId,
+    currentVnBeat,
+    generateTurnImageAfterAssistantMessage,
+    isCreatingGame,
+    isStoryTurnBusy,
+    isUndoingAssistantStep,
+  ])
+
   const handleSaveTurnImageToGallery = useCallback(
     async (turnImage: StoryTurnImageEntry) => {
       const turnImageId = turnImage.id
@@ -14870,6 +15439,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             }
             applyPlotCardEvents(nextPlotEvents)
             applyWorldCardEvents(nextWorldEvents)
+            const nextVnBeats = normalizeStoryVNBeats(payload.vn_beats)
+            if (nextVnBeats.length > 0) {
+              setVnBeats((previousBeats) => mergeStoryVNBeatsById(previousBeats, nextVnBeats))
+              setPendingVnFocusMessageId(payload.message.id)
+            } else {
+              setVnBeats((previousBeats) => previousBeats.filter((beat) => beat.message_id !== payload.message.id))
+            }
             if (payload.ambient) {
               const normalizedAmbient = normalizeStoryAmbientProfile(payload.ambient)
               setPersistedAmbientProfile(normalizedAmbient)
@@ -15233,7 +15809,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         smartRegenerationOptions?: SmartRegenerationOption[]
       },
     ) => {
-      if (isStoryTurnBusy) {
+      if (isStoryTurnBusy || isVisualNovelInputLocked) {
         return null
       }
 
@@ -15326,6 +15902,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       currentTurnCostTokens,
       hasInsufficientTokensForTurn,
       instructionCards,
+      isVisualNovelInputLocked,
       isStoryTurnBusy,
       onNavigate,
       runStoryGeneration,
@@ -15346,7 +15923,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setIsVoiceInputActive(false)
     }
 
-    if (isStoryTurnBusy) {
+    if (isStoryTurnBusy || isVisualNovelInputLocked) {
       return
     }
 
@@ -15414,7 +15991,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       prompt: normalizedPrompt,
       instructionCards,
     })
-  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, inputValue, instructionCards, isStoryTurnBusy, isVoiceInputActive, onNavigate, runStoryGeneration])
+  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, inputValue, instructionCards, isStoryTurnBusy, isVisualNovelInputLocked, isVoiceInputActive, onNavigate, runStoryGeneration])
 
   const handleStopStoryGeneration = useCallback(async () => {
     const activeRequest = generationRequestRef.current
@@ -15648,6 +16225,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       void handleStopStoryGeneration()
       return
     }
+    if (isVisualNovelInputLocked) {
+      return
+    }
     if (!showMicAction) {
       void handleSendPrompt()
       return
@@ -15658,7 +16238,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     voiceSessionRequestedRef.current = true
     startVoiceInput()
-  }, [handleSendPrompt, handleStopStoryGeneration, isGenerating, isVoiceInputActive, showMicAction, startVoiceInput, stopVoiceInput])
+  }, [handleSendPrompt, handleStopStoryGeneration, isGenerating, isVisualNovelInputLocked, isVoiceInputActive, showMicAction, startVoiceInput, stopVoiceInput])
 
   const handleUndoAssistantStep = useCallback(async () => {
     if (!activeGameId || !canUndoAssistantStep || isUndoingAssistantStep) {
@@ -19036,9 +19616,38 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
                               <Stack direction="row" spacing={0.45} alignItems="center">
                                 <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                                  Режим новеллы
+                                  Режим игры
                                 </Typography>
-                                <SettingsInfoTooltipIcon text="Показывает сцену в формате визуальной новеллы только в тех ходах, где есть взаимодействие и для героев уже подготовлены эмоции." />
+                                <SettingsInfoTooltipIcon text="Админский режим визуальной новеллы: ответы режутся на биты, экран показывает фон, спрайт, имя и реплику." />
+                              </Stack>
+                              <Switch
+                                checked={storyDisplayMode === 'visual_novel'}
+                                onChange={(_, checked) => {
+                                  void toggleStoryDisplayMode(checked)
+                                }}
+                                disabled={isSavingStorySettings || isGenerating}
+                                sx={{
+                                  '& .MuiSwitch-switchBase.Mui-checked': {
+                                    color: 'var(--morius-accent)',
+                                  },
+                                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                    backgroundColor: switchCheckedTrackColor,
+                                    opacity: 1,
+                                  },
+                                  '& .MuiSwitch-track': {
+                                    backgroundColor: switchTrackColor,
+                                    opacity: 1,
+                                  },
+                                }}
+                              />
+                            </Stack>
+
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                              <Stack direction="row" spacing={0.45} alignItems="center">
+                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                                  Спрайты эмоций
+                                </Typography>
+                                <SettingsInfoTooltipIcon text="Показывает сцену с подготовленными эмоциями персонажей в обычном текстовом режиме." />
                               </Stack>
                               <Switch
                                 checked={emotionVisualizationEnabled}
@@ -19097,6 +19706,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         isSavingAmbientEnabled ||
                         isSavingCharacterStateEnabled ||
                         isSavingEmotionVisualizationEnabled ||
+                        isSavingStoryDisplayMode ||
                         isSavingCanonicalStatePipeline ||
                         isSavingCanonicalStateSafeFallback ? (
                           <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} />
@@ -21024,7 +21634,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               </Stack>
             ) : null}
 
-            {!shouldShowStoryMessagesLoadingSkeleton && !isLoadingGameMessages ? (
+            {!shouldShowStoryMessagesLoadingSkeleton && !isLoadingGameMessages && shouldShowVisualNovelStage ? (
+              <Box sx={{ mb: 'var(--morius-story-message-gap)' }}>
+                <VisualNovelStage
+                  beats={visualNovelBeats}
+                  beatIndex={currentVnBeatIndex}
+                  currentBeat={currentVnBeat}
+                  turnImageEntries={currentVnTurnImageEntries}
+                  onPrevious={goToPreviousVnBeat}
+                  onNext={goToNextVnBeat}
+                  onJumpToEnd={jumpToLatestVnBeat}
+                  onGenerateImage={handleGenerateCurrentVnTurnImage}
+                  canGenerateImage={canGenerateCurrentVnTurnImage}
+                  isGeneratingImage={isCurrentVnTurnImageLoading}
+                />
+              </Box>
+            ) : null}
+
+            {!shouldShowStoryMessagesLoadingSkeleton && !isLoadingGameMessages && !shouldShowVisualNovelStage ? (
               quickStartIntroBlocks.length > 0 && shouldRenderStandaloneQuickStartIntro ? (
                 <Box
                   sx={{
@@ -21142,7 +21769,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               ) : null
             ) : null}
 
-            {!shouldShowStoryMessagesLoadingSkeleton && !isLoadingGameMessages
+            {!shouldShowStoryMessagesLoadingSkeleton && !isLoadingGameMessages && !shouldShowVisualNovelStage
               ? renderedMessages.map((message) => {
                   if (message.role === 'user') {
                     const normalizedUserMessageContent = toStoryText(message.content).replace(/\r\n/g, '\n').trim()
@@ -22022,6 +22649,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           width: 'calc(100% - var(--morius-interface-gap) - var(--morius-interface-gap))',
           maxWidth: STORY_STAGE_MAX_WIDTH,
           zIndex: 20,
+          visibility: isVisualNovelInputLocked ? 'hidden' : 'visible',
+          opacity: isVisualNovelInputLocked ? 0 : 1,
+          pointerEvents: isVisualNovelInputLocked ? 'none' : 'auto',
+          transition: 'opacity 160ms ease, visibility 160ms ease',
           ...(composerAmbientVisual
             ? {
                 isolation: 'isolate',
@@ -22455,7 +23086,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               value={inputValue}
               placeholder={inputPlaceholder}
               maxLength={STORY_PROMPT_MAX_LENGTH}
-              disabled={isStoryTurnBusy || hasInsufficientTokensForTurn}
+              disabled={isVisualNovelInputLocked || isStoryTurnBusy || hasInsufficientTokensForTurn}
               onChange={(event) => setInputValue(event.target.value.slice(0, STORY_PROMPT_MAX_LENGTH))}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') {
@@ -22497,7 +23128,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               className="morius-composer-send-button"
               aria-label={isGenerating ? 'Остановить генерацию' : isFinalizingStoryTurn ? 'Синхронизируем ход' : 'Отправить'}
               onClick={handleVoiceActionClick}
-              disabled={isGenerating ? false : (isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
+              disabled={isGenerating ? false : (isVisualNovelInputLocked || isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
               sx={{
                 '@keyframes morius-voice-pulse': {
                   '0%, 100%': {

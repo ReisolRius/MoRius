@@ -45,6 +45,7 @@ from app.services.story_games import (
     serialize_story_game_genres,
     story_game_summary_to_out,
 )
+from app.services.story_display_modes import STORY_DISPLAY_MODE_TEXT
 from app.services.story_publication_moderation import mark_story_publication_approved
 
 
@@ -285,6 +286,7 @@ def upsert_story_game_publication_copy_from_source(
                 normalized_source.environment_tomorrow_weather
             ),
             emotion_visualization_enabled=normalized_source.emotion_visualization_enabled,
+            display_mode=STORY_DISPLAY_MODE_TEXT,
             ambient_profile=serialize_story_ambient_profile(normalized_source.ambient_profile),
             last_activity_at=normalized_source.last_activity_at,
         )
@@ -360,6 +362,7 @@ def upsert_story_game_publication_copy_from_source(
         normalized_source.environment_tomorrow_weather
     )
     publication.emotion_visualization_enabled = normalized_source.emotion_visualization_enabled
+    publication.display_mode = STORY_DISPLAY_MODE_TEXT
     publication.ambient_profile = serialize_story_ambient_profile(normalized_source.ambient_profile)
     publication.last_activity_at = normalized_source.last_activity_at
     mark_story_publication_approved(publication, reviewer_user_id=reviewer_user_id)

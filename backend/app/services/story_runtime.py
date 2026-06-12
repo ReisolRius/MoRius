@@ -23,8 +23,10 @@ from app.models import (
     StoryInstructionCard,
     StoryMemoryBlock,
     StoryMessage,
+    StoryMessageSegment,
     StoryPlotCardChangeEvent,
     StoryTurnImage,
+    StoryWorldCard,
     StoryWorldCardChangeEvent,
 )
 from app.schemas import StoryGenerateRequest, StoryInstructionCardInput, UserOut
@@ -61,6 +63,12 @@ from app.services.story_generation_cancel import (
     cancel_story_generation,
     mark_story_generation_finished,
     mark_story_generation_started,
+)
+from app.services.story_visual_novel import (
+    build_visual_novel_instruction_card,
+    is_story_visual_novel_enabled_for_user,
+    persist_visual_novel_beats_for_message,
+    serialize_story_vn_beats_for_stream,
 )
 
 logger = logging.getLogger(__name__)
@@ -776,6 +784,7 @@ def _stream_story_response(
     reroll_discarded_assistant_text: str | None,
     ambient_enabled: bool,
     emotion_visualization_enabled: bool,
+    visual_novel_enabled: bool,
     show_gg_thoughts: bool,
     show_npc_thoughts: bool,
     story_generation_id: str,
@@ -945,6 +954,35 @@ def _stream_story_response(
             db.rollback()
         yield _sse_event("error", {"detail": "OpenRouter returned an empty story response"})
         return
+
+    vn_beats_payload: list[dict[str, Any]] = []
+    if visual_novel_enabled and not aborted and response_has_content:
+        yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "visual_novel"})
+        try:
+            vn_segments = persist_visual_novel_beats_for_message(
+                db=db,
+                game=game,
+                assistant_message=assistant_message,
+                raw_response=normalized_output,
+                world_cards=[card for card in all_world_cards if isinstance(card, StoryWorldCard)],
+            )
+            deps.touch_story_game(game)
+            commit_with_retry(db)
+            db.refresh(assistant_message)
+            for segment in vn_segments:
+                try:
+                    db.refresh(segment)
+                except Exception:
+                    pass
+            vn_beats_payload = serialize_story_vn_beats_for_stream(vn_segments)
+            normalized_output = str(getattr(assistant_message, "content", "") or "").replace("\r\n", "\n").strip()
+        except Exception:
+            logger.exception(
+                "Failed to persist visual novel beats: game_id=%s assistant_message_id=%s",
+                game.id,
+                assistant_message.id,
+            )
+            db.rollback()
 
     if turn_cost_tokens > 0:
         try:
@@ -1230,6 +1268,8 @@ def _stream_story_response(
                 if isinstance(card, dict) and isinstance(card.get("id"), int)
             ],
         }
+        if visual_novel_enabled:
+            done_payload["vn_beats"] = vn_beats_payload
         game_payload = _safe_dump_stream_item(deps.story_game_summary_to_out(game))
         if game_payload is not None:
             resolved_current_location_label = resolve_story_current_location_label(
@@ -1280,6 +1320,8 @@ def _stream_story_response(
             if isinstance(card, dict) and isinstance(card.get("id"), int)
         ],
     }
+    if visual_novel_enabled:
+        done_payload["vn_beats"] = vn_beats_payload
     game_payload = _safe_dump_stream_item(deps.story_game_summary_to_out(game))
     if game_payload is not None:
         resolved_current_location_label = resolve_story_current_location_label(
@@ -1370,6 +1412,7 @@ def _generate_story_response_locked(
     if not is_administrator:
         ambient_enabled = False
         emotion_visualization_enabled = False
+    visual_novel_enabled = is_story_visual_novel_enabled_for_user(game, user)
     logger.info(
         "Story generate settings: game_id=%s memory_optimization_enabled=%s payload_override=%s game_value=%s environment_enabled=%s environment_payload_override=%s environment_game_value=%s ambient_enabled=%s ambient_payload_override=%s ambient_game_value=%s emotion_visualization_enabled=%s emotion_payload_override=%s emotion_game_value=%s",
         game.id,
@@ -1601,6 +1644,11 @@ def _generate_story_response_locked(
                 )
                 # Extra safety for legacy rows: ensure no event still references removed assistant message.
                 db.execute(
+                    sa_delete(StoryMessageSegment).where(
+                        StoryMessageSegment.message_id == last_message.id,
+                    )
+                )
+                db.execute(
                     sa_delete(StoryWorldCardChangeEvent).where(
                         StoryWorldCardChangeEvent.assistant_message_id == last_message.id,
                     )
@@ -1664,6 +1712,11 @@ def _generate_story_response_locked(
             ).all()
 
             if undone_message_ids:
+                db.execute(
+                    sa_delete(StoryMessageSegment).where(
+                        StoryMessageSegment.message_id.in_(undone_message_ids),
+                    )
+                )
                 db.execute(
                     sa_delete(StoryTurnImage).where(
                         StoryTurnImage.assistant_message_id.in_(undone_message_ids),
@@ -1881,6 +1934,10 @@ def _generate_story_response_locked(
                 ]
         except Exception:
             logger.exception("Canonical state prompt card failed; continuing with legacy instruction cards")
+    if visual_novel_enabled:
+        visual_novel_instruction_card = build_visual_novel_instruction_card()
+        effective_instruction_cards = [*effective_instruction_cards, visual_novel_instruction_card]
+        billing_instruction_cards = [*billing_instruction_cards, visual_novel_instruction_card]
     turn_cost_tokens = _calculate_story_turn_cost_tokens(
         get_story_turn_cost_tokens=deps.get_story_turn_cost_tokens,
         context_limit_tokens=context_limit_chars,
@@ -1926,6 +1983,7 @@ def _generate_story_response_locked(
         reroll_discarded_assistant_text=reroll_discarded_assistant_text,
         ambient_enabled=ambient_enabled,
         emotion_visualization_enabled=emotion_visualization_enabled,
+        visual_novel_enabled=visual_novel_enabled,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
         story_generation_id=story_generation_id,

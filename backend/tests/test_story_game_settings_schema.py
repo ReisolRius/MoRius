@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.schemas import StoryGameSettingsUpdateRequest  # noqa: E402
+from app.schemas import StoryGameCreateRequest, StoryGameSettingsUpdateRequest  # noqa: E402
 from app.models import StoryMessage  # noqa: E402
 from app.services.story_games import (  # noqa: E402
     get_story_turn_cost_tokens,
@@ -39,6 +39,17 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertTrue(payload.canonical_state_safe_fallback_enabled)
         self.assertIn("canonical_state_pipeline_enabled", payload.model_fields_set)
         self.assertIn("canonical_state_safe_fallback_enabled", payload.model_fields_set)
+
+    def test_display_mode_is_tracked_when_sent(self) -> None:
+        payload = StoryGameSettingsUpdateRequest(display_mode="visual_novel")
+
+        self.assertEqual(payload.display_mode, "visual_novel")
+        self.assertIn("display_mode", payload.model_fields_set)
+
+    def test_create_request_accepts_display_mode(self) -> None:
+        payload = StoryGameCreateRequest(title="VN", display_mode="visual_novel")
+
+        self.assertEqual(payload.display_mode, "visual_novel")
 
     def test_response_token_limit_allows_new_ceiling(self) -> None:
         payload = StoryGameSettingsUpdateRequest(response_max_tokens=4_500)

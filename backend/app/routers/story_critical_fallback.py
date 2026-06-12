@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import StoryGame, StoryMessage
 from app.schemas import StoryGameOut, StoryGameSummaryOut, StoryInstructionCardOut, StoryMemoryBlockOut, StoryTurnImageOut
+from app.services.story_display_modes import STORY_DISPLAY_MODE_TEXT, STORY_DISPLAY_MODE_VISUAL_NOVEL
 from app.services.auth_identity import get_current_user
 from app.services.story_cards import story_plot_card_to_out
 from app.services.story_games import count_story_completed_turns, story_game_summary_to_compact_out, story_game_summary_to_out
@@ -20,10 +21,12 @@ from app.services.story_queries import (
     list_story_instruction_cards,
     list_story_memory_blocks,
     list_story_messages,
+    list_story_message_segments,
     list_story_plot_cards,
     list_story_turn_images,
     list_story_world_cards,
 )
+from app.services.story_visual_novel import story_vn_beat_to_out
 from app.services.story_world_cards import story_world_card_to_out
 
 games_router = APIRouter()
@@ -346,6 +349,9 @@ def get_story_game_fallback_router(
     world_cards = list_story_world_cards(db, game.id)
     can_redo_assistant_step = has_story_assistant_redo_step(db, game.id)
     game_summary = story_game_summary_to_out(game, turn_count=count_story_completed_turns(messages))
+    is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+    if not is_administrator:
+        game_summary = game_summary.model_copy(update={"display_mode": STORY_DISPLAY_MODE_TEXT})
     resolved_current_location_label = resolve_story_current_location_label(
         getattr(game_summary, "current_location_label", None),
         memory_blocks,
@@ -362,6 +368,11 @@ def get_story_game_fallback_router(
     return StoryGameOut(
         game=game_summary,
         messages=[story_message_to_out(message) for message in messages],
+        vn_beats=(
+            [story_vn_beat_to_out(segment) for segment in list_story_message_segments(db, game.id)]
+            if is_administrator and getattr(game_summary, "display_mode", STORY_DISPLAY_MODE_TEXT) == STORY_DISPLAY_MODE_VISUAL_NOVEL
+            else []
+        ),
         turn_images=[StoryTurnImageOut.model_validate(item) for item in turn_images],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[story_plot_card_to_out(card) for card in plot_cards],

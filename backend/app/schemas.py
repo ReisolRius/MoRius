@@ -703,6 +703,7 @@ class StoryGameCreateRequest(BaseModel):
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
+    display_mode: Literal["text", "visual_novel"] | None = None
     appearance_background_mode: str | None = Field(default=None, max_length=32)
     appearance_gradient_enabled: bool | None = None
     appearance_gradient_from: str | None = Field(default=None, max_length=16)
@@ -752,6 +753,7 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     auto_npc_cards_enabled: bool | None = None
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
+    display_mode: Literal["text", "visual_novel"] | None = None
     appearance_background_mode: str | None = Field(default=None, max_length=32)
     appearance_gradient_enabled: bool | None = None
     appearance_gradient_from: str | None = Field(default=None, max_length=16)
@@ -1284,6 +1286,25 @@ class StoryMessageOut(BaseModel):
     updated_at: datetime
 
 
+class StoryVNBeatOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    game_id: int
+    message_id: int
+    order_index: int
+    beat_type: Literal["narration", "dialogue", "thought", "system"]
+    speaker_character_id: int | None = None
+    speaker_name: str | None = None
+    emotion: str | None = None
+    text: str
+    sprite_asset_id: int | None = None
+    background_image_url: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
 class StoryTurnImageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1583,6 +1604,7 @@ class StoryGameSummaryOut(BaseModel):
     active_main_hero_card_id: int | None = None
     auto_npc_cards_enabled: bool = False
     ambient_enabled: bool
+    display_mode: Literal["text", "visual_novel"] = "text"
     character_state_enabled: bool = False
     appearance_background_mode: str = "custom"
     appearance_gradient_enabled: bool = True
@@ -1714,6 +1736,7 @@ class StoryGameOut(BaseModel):
     game: StoryGameSummaryOut
     messages: list[StoryMessageOut]
     has_older_messages: bool = False
+    vn_beats: list[StoryVNBeatOut] = Field(default_factory=list)
     turn_images: list[StoryTurnImageOut]
     instruction_cards: list[StoryInstructionCardOut]
     plot_cards: list[StoryPlotCardOut]

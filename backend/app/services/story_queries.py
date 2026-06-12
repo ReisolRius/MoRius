@@ -13,6 +13,7 @@ from app.models import (
     StoryInstructionTemplate,
     StoryMemoryBlock,
     StoryMessage,
+    StoryMessageSegment,
     StoryTurnImage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
@@ -212,6 +213,31 @@ def list_story_turn_images(db: Session, game_id: int) -> list[StoryTurnImage]:
         setattr(image, "_morius_has_image_data_url", bool(has_image_data_url))
         images.append(image)
     return images
+
+
+def list_story_message_segments(
+    db: Session,
+    game_id: int,
+    *,
+    message_ids: list[int] | None = None,
+) -> list[StoryMessageSegment]:
+    query = (
+        select(StoryMessageSegment)
+        .join(StoryMessage, StoryMessage.id == StoryMessageSegment.message_id)
+        .where(
+            StoryMessageSegment.game_id == game_id,
+            StoryMessage.undone_at.is_(None),
+        )
+        .order_by(StoryMessageSegment.message_id.asc(), StoryMessageSegment.order_index.asc())
+    )
+    normalized_message_ids = [
+        int(message_id)
+        for message_id in (message_ids or [])
+        if isinstance(message_id, int) and int(message_id) > 0
+    ]
+    if normalized_message_ids:
+        query = query.where(StoryMessageSegment.message_id.in_(normalized_message_ids))
+    return db.scalars(query).all()
 
 
 def has_story_assistant_redo_step(db: Session, game_id: int) -> bool:

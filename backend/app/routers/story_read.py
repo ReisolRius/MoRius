@@ -39,6 +39,7 @@ from app.services.story_games import (
     story_game_summary_to_compact_out,
     story_game_summary_to_out,
 )
+from app.services.story_display_modes import STORY_DISPLAY_MODE_TEXT, STORY_DISPLAY_MODE_VISUAL_NOVEL
 from app.services.story_memory import story_memory_block_to_out
 from app.services.story_memory import resolve_story_current_location_label
 from app.services.story_messages import story_message_to_out
@@ -49,6 +50,7 @@ from app.services.story_queries import (
     list_story_instruction_cards,
     list_story_memory_blocks,
     list_story_messages,
+    list_story_message_segments,
     list_story_messages_window,
     list_story_turn_images,
     list_story_plot_cards,
@@ -56,6 +58,7 @@ from app.services.story_queries import (
 )
 from app.services.story_world_comments import list_story_community_world_comments_out
 from app.services.story_world_cards import story_world_card_to_out
+from app.services.story_visual_novel import story_vn_beat_to_out
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -245,6 +248,7 @@ def _build_story_game_out_resilient(
     *,
     db: Session,
     game: object,
+    user: object,
     requested_game_id: int,
     messages: list[object],
     has_older_messages: bool,
@@ -394,6 +398,26 @@ def _build_story_game_out_resilient(
         resolved_current_location_label = getattr(game_summary, "current_location_label", None)
     if resolved_current_location_label != getattr(game_summary, "current_location_label", None):
         game_summary = game_summary.model_copy(update={"current_location_label": resolved_current_location_label})
+    is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+    if not is_administrator:
+        game_summary = game_summary.model_copy(update={"display_mode": STORY_DISPLAY_MODE_TEXT})
+
+    vn_beats = []
+    if (
+        is_administrator
+        and getattr(game_summary, "display_mode", STORY_DISPLAY_MODE_TEXT) == STORY_DISPLAY_MODE_VISUAL_NOVEL
+    ):
+        message_ids = [
+            int(getattr(message, "id", 0) or 0)
+            for message in messages
+            if int(getattr(message, "id", 0) or 0) > 0
+        ]
+        vn_beats = _safe_story_read_map(
+            section_name="vn_beats",
+            game_id=int(getattr(game, "id", 0) or 0),
+            items=list_story_message_segments(db, int(getattr(game, "id", 0) or 0), message_ids=message_ids),
+            serializer=story_vn_beat_to_out,
+        )
 
     logger.info(
         "Story read route response: requested_game_id=%s returned_game_id=%s messages=%s memory_blocks=%s has_older_messages=%s",
@@ -412,6 +436,7 @@ def _build_story_game_out_resilient(
             serializer=story_message_to_out,
         ),
         has_older_messages=has_older_messages,
+        vn_beats=vn_beats,
         turn_images=_safe_story_read_map(
             section_name="turn_images",
             game_id=int(getattr(game, "id", 0) or 0),
@@ -545,6 +570,7 @@ def get_story_game(
         return _build_story_game_out_resilient(
             db=db,
             game=game,
+            user=user,
             requested_game_id=game_id,
             messages=list(messages),
             has_older_messages=has_older_messages,

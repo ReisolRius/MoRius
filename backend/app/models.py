@@ -362,6 +362,12 @@ class StoryGame(Base):
         default=False,
         server_default="0",
     )
+    display_mode: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+        default="text",
+        server_default="text",
+    )
     environment_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -711,7 +717,71 @@ class StoryMessage(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     scene_emotion_payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    vn_raw_response: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryMessageSegment(Base):
+    __tablename__ = "story_message_segments"
+    __table_args__ = (
+        UniqueConstraint("message_id", "order_index", name="uq_story_message_segments_message_order"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("story_messages.id"), nullable=False, index=True)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    beat_type: Mapped[str] = mapped_column(String(16), nullable=False, default="narration", server_default="narration")
+    speaker_character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    speaker_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    emotion: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    sprite_asset_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    background_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[str] = mapped_column("metadata", Text, nullable=False, default="{}", server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryCharacterSpriteAsset(Base):
+    __tablename__ = "story_character_sprite_assets"
+    __table_args__ = (
+        UniqueConstraint("character_id", "emotion", "processed_image_url", name="uq_story_character_sprite_asset"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    character_id: Mapped[int | None] = mapped_column(ForeignKey("story_characters.id"), nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    npc_archetype: Mapped[str] = mapped_column(String(80), nullable=False, default="", server_default="")
+    emotion: Mapped[str] = mapped_column(String(32), nullable=False, default="calm", server_default="calm")
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="emotion_asset", server_default="emotion_asset")
+    original_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processed_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    thumbnail_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mobile_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    desktop_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mime_type: Mapped[str] = mapped_column(String(80), nullable=False, default="", server_default="")
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    has_alpha: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    processing_status: Mapped[str] = mapped_column(String(32), nullable=False, default="ready", server_default="ready")
+    error_detail: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    prompt_used: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    reference_asset_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    model_used: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    request_metadata_json: Mapped[str] = mapped_column("request_metadata", Text, nullable=False, default="{}", server_default="{}")
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

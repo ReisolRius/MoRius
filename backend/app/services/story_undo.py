@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import delete as sa_delete, select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -13,6 +13,7 @@ from app.models import (
     StoryGame,
     StoryMemoryBlock,
     StoryMessage,
+    StoryMessageSegment,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
     StoryTurnImage,
@@ -691,6 +692,7 @@ def rollback_story_card_events_for_assistant_message(
             snapshot.undone_at = now
 
     if purge_events:
+        db.execute(sa_delete(StoryMessageSegment).where(StoryMessageSegment.message_id == assistant_message_id))
         for event in list_story_world_card_events(
             db,
             game.id,
