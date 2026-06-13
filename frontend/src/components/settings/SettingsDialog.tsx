@@ -83,7 +83,6 @@ const COLOR_SWATCHES = ['#FFFFFF', '#000000', '#4D4D4D', '#D0D0D0', '#D9C4A0', '
 const trashIconMarkup = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 3.75h6a1.25 1.25 0 0 1 1.25 1.25V6H19a.75.75 0 0 1 0 1.5h-.83l-.64 9.01A2.25 2.25 0 0 1 15.28 18.75H8.72a2.25 2.25 0 0 1-2.25-2.24L5.83 7.5H5a.75.75 0 0 1 0-1.5h2.75V5A1.25 1.25 0 0 1 9 3.75Zm5.75 2.25V5.25h-5.5V6h5.5ZM7.98 7.5l.62 8.9a.75.75 0 0 0 .75.7h6.3a.75.75 0 0 0 .75-.7l.62-8.9H7.98ZM10 9.25a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0V10a.75.75 0 0 1 .75-.75Zm4 0a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0V10a.75.75 0 0 1 .75-.75Z" fill="currentColor"/></svg>`
 const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
   { id: 'profile', label: 'Профиль' },
-  { id: 'themes', label: 'Темы' },
 ]
 const PALETTE_FIELDS: Array<{ key: PaletteFieldKey; label: string }> = [
   { key: 'title_text', label: 'Заголовок' },
@@ -282,6 +281,7 @@ function SettingsDialog({
     if (!open) {
       return
     }
+    setActiveTab('profile')
     setDisplayName(user.display_name ?? '')
     setProfileDescription(user.profile_description ?? '')
     setProfileBannerId(normalizeProfileBannerId(user.profile_banner_id))
@@ -737,12 +737,72 @@ function SettingsDialog({
         },
       }}
     >
-      <DialogContent sx={{ p: 0, minHeight: 0, backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 38%, #020304 62%)' }}>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateRows: 'auto minmax(0, 1fr) auto',
+          height: '100%',
+          minHeight: 0,
+          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 38%, #020304 62%)',
+        }}
+      >
+        <Box
+          sx={{
+            px: mobileSheet.isMobileSheet ? 1.3 : 2.2,
+            py: mobileSheet.isMobileSheet ? 1.1 : 1.45,
+            borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)',
+            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 72%, #020304 28%)',
+            boxShadow: '0 10px 24px rgba(0, 0, 0, 0.18)',
+            zIndex: 2,
+          }}
+        >
+          <Stack direction="row" spacing={1.2} alignItems="center" justifyContent="space-between">
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ minWidth: 0, flex: 1 }}>
+              <Typography
+                sx={{
+                  color: 'var(--morius-title-text)',
+                  fontSize: mobileSheet.isMobileSheet ? '1.45rem' : '1.8rem',
+                  fontWeight: 900,
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+              >
+                Настройки
+              </Typography>
+            </Stack>
+            <Button
+              onClick={requestDialogClose}
+              disableRipple
+              sx={{
+                minWidth: 42,
+                width: 42,
+                height: 42,
+                p: 0,
+                borderRadius: 0,
+                color: 'color-mix(in srgb, var(--morius-title-text) 76%, black 24%)',
+                backgroundColor: 'transparent',
+                fontSize: '1.8rem',
+                fontWeight: 700,
+                lineHeight: 1,
+                flexShrink: 0,
+                '&:hover': {
+                  backgroundColor: 'transparent',
+                  color: 'var(--morius-title-text)',
+                },
+              }}
+            >
+              ×
+            </Button>
+          </Stack>
+        </Box>
+
+        <DialogContent sx={{ p: 0, minHeight: 0, overflow: 'hidden', backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 38%, #020304 62%)' }}>
         <Box
           sx={{
             display: 'grid',
             gridTemplateColumns: '1fr',
-            minHeight: mobileSheet.isMobileSheet ? 'auto' : 'min(920px, calc(100vh - 24px))',
+            height: '100%',
+            minHeight: 0,
           }}
         >
           <Box
@@ -834,7 +894,7 @@ function SettingsDialog({
                     onClick={requestDialogClose}
                     disableRipple
                     sx={{
-                      display: mobileSheet.isMobileSheet ? 'none' : 'inline-flex',
+                      display: 'none',
                       minWidth: 44,
                       width: 44,
                       height: 44,
@@ -1204,15 +1264,6 @@ function SettingsDialog({
                     </Stack>
                   </Box>
                 </Box>
-
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="flex-end">
-                  <Button onClick={onLogout} fullWidth={mobileSheet.isMobileSheet} sx={{ minHeight: 46, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)' }}>
-                    Выйти
-                  </Button>
-                  <Button onClick={() => void handleSaveProfile()} fullWidth={mobileSheet.isMobileSheet} disabled={isSavingProfile} sx={{ minHeight: 46, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))' }}>
-                    {isSavingProfile ? 'Сохраняем...' : 'Сохранить'}
-                  </Button>
-                </Stack>
               </Stack>
             ) : (
               <Stack spacing={1.6}>
@@ -1222,7 +1273,7 @@ function SettingsDialog({
                     onClick={requestDialogClose}
                     disableRipple
                     sx={{
-                      display: mobileSheet.isMobileSheet ? 'none' : 'inline-flex',
+                      display: 'none',
                       minWidth: 44,
                       width: 44,
                       height: 44,
@@ -1489,13 +1540,6 @@ function SettingsDialog({
                           </Box>
                         )
                       })}
-
-                      <Stack direction="row" spacing={0.8} justifyContent="flex-end" sx={{ pt: 0.4 }}>
-                        <Button onClick={handleResetDraft} sx={{ minHeight: 42, px: 1.8, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, var(--morius-card-bg) 18%)' }}>Сбросить</Button>
-                        <Button onClick={() => void handleSaveTheme()} disabled={isSavingTheme} sx={{ minHeight: 42, px: 1.8, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg) 82%)' }}>
-                          {isSavingTheme ? 'Сохраняем...' : 'Сохранить'}
-                        </Button>
-                      </Stack>
                     </Stack>
                   </Box>
                 </Box>
@@ -1503,7 +1547,39 @@ function SettingsDialog({
             )}
           </Box>
         </Box>
-      </DialogContent>
+        </DialogContent>
+
+        <Box
+          sx={{
+            px: mobileSheet.isMobileSheet ? 1.25 : 2.2,
+            py: mobileSheet.isMobileSheet ? 1 : 1.2,
+            borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 78%, #020304 22%)',
+            boxShadow: '0 -10px 24px rgba(0, 0, 0, 0.18)',
+            zIndex: 2,
+          }}
+        >
+          {activeTab === 'profile' ? (
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="flex-end">
+              <Button onClick={onLogout} fullWidth={mobileSheet.isMobileSheet} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)' }}>
+                Выйти
+              </Button>
+              <Button onClick={() => void handleSaveProfile()} fullWidth={mobileSheet.isMobileSheet} disabled={isSavingProfile} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))' }}>
+                {isSavingProfile ? 'Сохраняем...' : 'Сохранить'}
+              </Button>
+            </Stack>
+          ) : (
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="flex-end">
+              <Button onClick={handleResetDraft} fullWidth={mobileSheet.isMobileSheet} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)' }}>
+                Сбросить
+              </Button>
+              <Button onClick={() => void handleSaveTheme()} fullWidth={mobileSheet.isMobileSheet} disabled={isSavingTheme} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))' }}>
+                {isSavingTheme ? 'Сохраняем...' : 'Сохранить'}
+              </Button>
+            </Stack>
+          )}
+        </Box>
+      </Box>
 
       <Popover
         open={Boolean(colorPickerAnchorEl && editingColorField)}

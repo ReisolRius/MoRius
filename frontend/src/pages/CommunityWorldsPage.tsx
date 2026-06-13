@@ -726,18 +726,6 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const filteredCommunityWorlds = useMemo(() => {
     let filtered = communityWorlds
 
-    if (normalizedSearchQuery) {
-      filtered = filtered.filter((world) => {
-        const haystack = [
-          world.title,
-          world.description,
-        ]
-          .join(' ')
-          .toLowerCase()
-        return haystack.includes(normalizedSearchQuery)
-      })
-    }
-
     if (worldAgeFilter !== 'all') {
       filtered = filtered.filter((world) => world.age_rating === worldAgeFilter)
     }
@@ -765,21 +753,10 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       return compareCommunityDateDesc(left, right)
     })
     return sorted
-  }, [communityWorlds, normalizedSearchQuery, worldAgeFilter, worldGenreFilter, worldSortMode])
+  }, [communityWorlds, worldAgeFilter, worldGenreFilter, worldSortMode])
 
   const filteredCommunityCharacters = useMemo(() => {
     let filtered = communityCharacters
-
-    if (normalizedSearchQuery) {
-      filtered = filtered.filter((item) => {
-        const haystack = [
-          item.name,
-          item.description,
-          item.note,
-        ].join(' ').toLowerCase()
-        return haystack.includes(normalizedSearchQuery)
-      })
-    }
 
     if (characterAddedFilter === 'added') {
       filtered = filtered.filter((item) => item.is_added_by_user)
@@ -798,17 +775,10 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       return compareCommunityDateDesc(left, right)
     })
     return sorted
-  }, [characterAddedFilter, characterSortMode, communityCharacters, normalizedSearchQuery])
+  }, [characterAddedFilter, characterSortMode, communityCharacters])
 
   const filteredCommunityInstructionTemplates = useMemo(() => {
     let filtered = communityInstructionTemplates
-
-    if (normalizedSearchQuery) {
-      filtered = filtered.filter((item) => {
-        const haystack = [item.title, item.content].join(' ').toLowerCase()
-        return haystack.includes(normalizedSearchQuery)
-      })
-    }
 
     if (instructionAddedFilter === 'added') {
       filtered = filtered.filter((item) => item.is_added_by_user)
@@ -827,7 +797,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       return compareCommunityDateDesc(left, right)
     })
     return sorted
-  }, [communityInstructionTemplates, instructionAddedFilter, instructionSortMode, normalizedSearchQuery])
+  }, [communityInstructionTemplates, instructionAddedFilter, instructionSortMode])
 
   const visibleCommunityWorlds = filteredCommunityWorlds
   const visibleCommunityCharacters = filteredCommunityCharacters

@@ -43,9 +43,9 @@ def _bind_monolith_names() -> None:
 _bind_monolith_names()
 
 if "STORY_SERVICE_TEXT_MODEL" not in globals():
-    STORY_SERVICE_TEXT_MODEL = getattr(monolith_main, "STORY_SERVICE_TEXT_MODEL", "google/gemini-2.5-flash-lite")
+    STORY_SERVICE_TEXT_MODEL = getattr(monolith_main, "STORY_SERVICE_TEXT_MODEL", "qwen/qwen3-next-80b-a3b-instruct:free")
 if "POLZA_GEMINI_25_FLASH_MODEL" not in globals():
-    POLZA_GEMINI_25_FLASH_MODEL = getattr(monolith_main, "POLZA_GEMINI_25_FLASH_MODEL", "google/gemini-2.5-flash")
+    POLZA_GEMINI_25_FLASH_MODEL = getattr(monolith_main, "POLZA_GEMINI_25_FLASH_MODEL", "qwen/qwen3-next-80b-a3b-instruct:free")
 if "STORY_ENVIRONMENT_ANALYSIS_MODEL" not in globals():
     STORY_ENVIRONMENT_ANALYSIS_MODEL = POLZA_GEMINI_25_FLASH_MODEL
 if "STORY_CHARACTER_STATE_GENERATION_MODEL" not in globals():
@@ -6308,7 +6308,7 @@ def _build_story_character_state_recent_context(
 
             role_value = str(getattr(message, "role", "") or "").strip()
 
-            role_label = "грок" if role_value == STORY_USER_ROLE else "Мастер" if role_value == STORY_ASSISTANT_ROLE else "Система"
+            role_label = "Игрок" if role_value == STORY_USER_ROLE else "Мастер" if role_value == STORY_ASSISTANT_ROLE else "Система"
 
             rendered_messages.append(f"{role_label}:\n{normalized_content}")
 
@@ -9955,25 +9955,77 @@ def _build_story_raw_memory_block_content(
     preserve_user_text: bool = False,
     preserve_assistant_text: bool = False,
 ) -> str:
-    def _build_detailed_turn_summary(text_value: str, *, preserve_full_text: bool = False) -> tuple[str, str]:
+    def _normalize_turn_source_text(text_value: str, *, is_assistant: bool) -> str:
         normalized_value = str(text_value or "").replace("\r\n", "\n").strip()
         if not normalized_value:
+            return ""
+        if is_assistant:
+            normalized_memory_text = _normalize_story_assistant_text_for_memory(normalized_value)
+        else:
+            normalized_memory_text = _normalize_story_message_content(
+                _strip_story_markup_for_memory_text(normalized_value)
+            )
+        return (normalized_memory_text or normalized_value).strip()
+
+    def _trim_detailed_turn_summary(text_value: str, *, source_text: str, max_chars: int) -> str:
+        normalized_value = " ".join(str(text_value or "").replace("\r\n", " ").split()).strip()
+        if not normalized_value:
+            return ""
+        normalized_max_chars = max(int(max_chars or 0), 1)
+        if len(source_text) > 260:
+            target_chars = max(160, min(normalized_max_chars, int(len(source_text) * 0.86)))
+            if len(normalized_value) > target_chars:
+                return _normalize_story_prompt_text(normalized_value, max_chars=target_chars)
+        if len(normalized_value) > normalized_max_chars:
+            return _normalize_story_prompt_text(normalized_value, max_chars=normalized_max_chars)
+        return normalized_value
+
+    def _build_detailed_turn_summary(
+        text_value: str,
+        *,
+        is_assistant: bool,
+        max_lines: int,
+        max_chars: int,
+    ) -> tuple[str, str]:
+        normalized_value = _normalize_turn_source_text(text_value, is_assistant=is_assistant)
+        if not normalized_value:
             return ("", "")
-        if preserve_full_text:
-            return ("полный текст", normalized_value)
         summarized_value = _build_story_memory_summary_without_truncation(
             normalized_value,
             super_mode=False,
             player_name=normalized_player_turn_label,
             known_character_names=known_character_names,
+            max_lines=max_lines,
+            max_chars=max_chars,
         ).strip()
         if not summarized_value:
-            summarized_value = normalized_value
+            fallback_sentences = _extract_story_memory_sentences(normalized_value)
+            if fallback_sentences:
+                summarized_value = _join_story_memory_sentences_as_prose(
+                    fallback_sentences[: max(max_lines, 1)],
+                    max_chars=max(max_chars, 1),
+                ).strip()
+            else:
+                summarized_value = normalized_value
+        summarized_value = _trim_detailed_turn_summary(
+            summarized_value,
+            source_text=normalized_value,
+            max_chars=max_chars,
+        )
         return ("подробный пересказ", summarized_value)
 
     def _normalize_story_memory_turn_actor_label(value: str | None, *, fallback: str) -> str:
         normalized = " ".join(str(value or "").split()).strip()
         return normalized[:120].rstrip() if normalized else fallback
+
+    def _prefix_player_memory_turn(body: str, *, actor_label: str) -> str:
+        normalized_body = str(body or "").replace("\r\n", "\n").strip()
+        normalized_actor = _normalize_story_memory_turn_actor_label(actor_label, fallback="игрок")
+        if not normalized_body:
+            return ""
+        if re.search(rf"(?im)^\s*{re.escape(normalized_actor)}\s*:", normalized_body):
+            return normalized_body
+        return f"{normalized_actor}: {normalized_body}"
 
     normalized_prompt = str(latest_user_prompt or "").replace("\r\n", "\n").strip()
     normalized_assistant = str(latest_assistant_text or "").replace("\r\n", "\n").strip()
@@ -9982,18 +10034,26 @@ def _build_story_raw_memory_block_content(
 
     normalized_player_turn_label = _normalize_story_memory_turn_actor_label(
         player_turn_label,
-        fallback="грок",
+        fallback="игрок",
     )
     prompt_label, prompt_body = _build_detailed_turn_summary(
         normalized_prompt,
-        preserve_full_text=bool(preserve_user_text),
+        is_assistant=False,
+        max_lines=STORY_MEMORY_RAW_USER_MAX_LINES if preserve_user_text else STORY_MEMORY_COMPRESSED_MAX_LINES,
+        max_chars=STORY_MEMORY_RAW_USER_MAX_CHARS if preserve_user_text else STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS,
     )
     assistant_label, assistant_body = _build_detailed_turn_summary(
         normalized_assistant,
-        preserve_full_text=bool(preserve_assistant_text),
+        is_assistant=True,
+        max_lines=STORY_MEMORY_RAW_ASSISTANT_MAX_LINES if preserve_assistant_text else STORY_MEMORY_COMPRESSED_MAX_LINES,
+        max_chars=STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS if preserve_assistant_text else STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS,
     )
     parts: list[str] = []
     if prompt_body:
+        prompt_body = _prefix_player_memory_turn(
+            prompt_body,
+            actor_label=normalized_player_turn_label,
+        )
         parts.append(
             f"Ход игрока: {normalized_player_turn_label} ({prompt_label}):\n"
             f"{prompt_body}"
@@ -11393,8 +11453,8 @@ def _extract_story_memory_capitalized_name_candidates(sentence: str) -> list[str
 
     stopwords = {
         "Ход",
-        "грок",
-        "грока",
+        "Игрок",
+        "Игрока",
         "Ответ",
         "Рассказчик",
         "Рассказчика",
@@ -11780,6 +11840,8 @@ def _build_story_memory_summary_without_truncation(
     super_mode: bool,
     player_name: str | None = None,
     known_character_names: list[str] | None = None,
+    max_lines: int | None = None,
+    max_chars: int | None = None,
 
 ) -> str:
 
@@ -11845,7 +11907,11 @@ def _build_story_memory_summary_without_truncation(
 
 
 
-    max_lines = STORY_MEMORY_SUPER_MAX_LINES if super_mode else STORY_MEMORY_COMPRESSED_MAX_LINES
+    effective_max_lines = (
+        max(int(max_lines), 1)
+        if isinstance(max_lines, int) and max_lines > 0
+        else STORY_MEMORY_SUPER_MAX_LINES if super_mode else STORY_MEMORY_COMPRESSED_MAX_LINES
+    )
 
     candidate_entries = unique_entries
 
@@ -11882,7 +11948,7 @@ def _build_story_memory_summary_without_truncation(
 
         candidate_entries,
 
-        limit=max(max_lines, 1),
+        limit=max(effective_max_lines, 1),
 
         preserve_opening=not super_mode,
 
@@ -11952,11 +12018,15 @@ def _build_story_memory_summary_without_truncation(
         known_character_names=known_character_names,
     )
 
-    max_chars = STORY_MEMORY_SUPER_MAX_CHARS if super_mode else STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS
+    effective_max_chars = (
+        max(int(max_chars), 1)
+        if isinstance(max_chars, int) and max_chars > 0
+        else STORY_MEMORY_SUPER_MAX_CHARS if super_mode else STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS
+    )
 
-    summary_text = _join_story_memory_sentences_as_prose(ordered_sentences, max_chars=max_chars)
+    summary_text = _join_story_memory_sentences_as_prose(ordered_sentences, max_chars=effective_max_chars)
     if required_explicit_names and not _story_memory_text_covers_names(summary_text, required_explicit_names):
-        relaxed_max_chars = max(max_chars, len(" ".join(ordered_sentences)) + 8)
+        relaxed_max_chars = max(effective_max_chars, len(" ".join(ordered_sentences)) + 8)
         summary_text = _join_story_memory_sentences_as_prose(ordered_sentences, max_chars=relaxed_max_chars)
     return summary_text
 
@@ -12725,6 +12795,18 @@ def _compress_story_memory_block_with_model(
         if source_required_names and not _story_memory_text_covers_names(compressed_text, source_required_names):
             return False
 
+        normalized_source_for_compare = re.sub(r"\s+", " ", source_text).strip().casefold()
+        normalized_output_for_compare = re.sub(r"\s+", " ", compressed_text).strip().casefold()
+        if "полный текст" in normalized_output_for_compare or "full text" in normalized_output_for_compare:
+            return False
+        if len(normalized_source_for_compare) > 260 and normalized_output_for_compare == normalized_source_for_compare:
+            return False
+        if (
+            len(normalized_source_for_compare) > 520
+            and len(normalized_output_for_compare) >= int(len(normalized_source_for_compare) * 0.94)
+        ):
+            return False
+
         source_tokens = {
             token
             for token in re.findall(
@@ -12794,6 +12876,8 @@ def _compress_story_memory_block_with_model(
 
                 + "КРИТИЧЕСКОЕ ПРАВИЛО: в сжатой памяти всегда должно быть ясно, кто именно что сделал или сказал. "
 
+                "Если в источнике есть прямая речь, каждая сохраненная реплика в памяти должна быть строго в виде 'Имя: реплика'; не оставляй реплики без говорящего. "
+                "Если говорящий известен из маркера, заголовка хода или строки перед репликой, перенеси это имя в формат 'Имя: реплика'. "
                 "Если из исходника субъект назван явно, сохраняй именно это имя, роль или сущность. "
                 "Если местоимение он, она, его, ее, ему, ей или они однозначно указывает на уже названного персонажа или героя игрока, замени местоимение на точное имя из исходника. "
 

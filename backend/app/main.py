@@ -491,7 +491,7 @@ STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_MAX_TOKENS = 3_000
 STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_SCOPE = {"main_hero", "npc"}
 STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_REQUIRED = True
 STORY_TURN_IMAGE_STYLE_PROMPT_MAX_CHARS = 320
-STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL = "google/gemini-2.5-flash"
+STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL = "qwen/qwen3-next-80b-a3b-instruct:free"
 STORY_TURN_IMAGE_PROMPT_COMPOSER_CONTEXT_MAX_CHARS = 20_000
 STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_TOKENS = 2_400
 STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_WORLD_CARDS = 12
@@ -9384,6 +9384,14 @@ def _is_story_memory_line_russian(value: str) -> bool:
         return False
     if latin_letters == 0:
         return True
+    latin_speaker_match = re.match(
+        r"^\s*[A-Za-z][A-Za-z0-9_' -]{1,80}\s*:\s*(?P<body>.+)$",
+        stripped,
+    )
+    if latin_speaker_match:
+        body_text = str(latin_speaker_match.group("body") or "")
+        if len(STORY_CYRILLIC_LETTER_PATTERN.findall(body_text)) >= STORY_MEMORY_RUSSIAN_MIN_CYRILLIC_LETTERS:
+            return True
     if latin_words > STORY_MEMORY_MAX_LATIN_WORDS:
         return False
     return latin_letters <= max(int(cyrillic_letters * STORY_MEMORY_MAX_LATIN_RATIO), 1)
@@ -9420,8 +9428,6 @@ def _normalize_story_memory_sentence_candidate(raw_value: str) -> str:
     if any(compact_lower.startswith(prefix) for prefix in STORY_MEMORY_NOISE_PREFIXES):
         return ""
 
-    compact = re.sub(r"\b[A-Za-z][A-Za-z'-]{1,32}\b", " ", compact)
-    compact = re.sub(r"[A-Za-z]{2,}", " ", compact)
     compact = re.sub(r"\s+", " ", compact).strip(" ,;:-")
     if not compact:
         return ""
@@ -9545,6 +9551,8 @@ def _build_story_memory_summary_without_truncation(
     super_mode: bool,
     player_name: str | None = None,
     known_character_names: list[str] | None = None,
+    max_lines: int | None = None,
+    max_chars: int | None = None,
 ) -> str:
     from app.services import story_memory_pipeline as _story_memory_pipeline
 
@@ -9553,6 +9561,8 @@ def _build_story_memory_summary_without_truncation(
         super_mode=super_mode,
         player_name=player_name,
         known_character_names=known_character_names,
+        max_lines=max_lines,
+        max_chars=max_chars,
     )
 
 

@@ -912,45 +912,26 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const filteredOwnGames = useMemo(
     () =>
       sortProfileGames(
-        ownGames.filter((item) =>
-          matchesProfileSearch(normalizedContentSearchQuery, [
-            item.title,
-            item.description,
-            item.opening_scene,
-            item.latest_message_preview,
-            item.genres.join(' '),
-          ]),
-        ),
+        ownGames,
         gameSortMode,
       ),
-    [gameSortMode, normalizedContentSearchQuery, ownGames],
+    [gameSortMode, ownGames],
   )
   const filteredCharacters = useMemo(
     () =>
       sortProfileCharacters(
-        sortedCharacters.filter((item) =>
-          matchesProfileSearch(normalizedContentSearchQuery, [
-            item.name,
-            item.race,
-            item.description,
-            item.clothing,
-            item.inventory,
-            item.health_status,
-            item.note,
-            item.triggers.join(' '),
-          ]),
-        ),
+        sortedCharacters,
         characterSortMode,
       ),
-    [characterSortMode, normalizedContentSearchQuery, sortedCharacters],
+    [characterSortMode, sortedCharacters],
   )
   const filteredTemplates = useMemo(
     () =>
       sortProfileTemplates(
-        sortedTemplates.filter((item) => matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.content])),
+        sortedTemplates,
         instructionSortMode,
       ),
-    [instructionSortMode, normalizedContentSearchQuery, sortedTemplates],
+    [instructionSortMode, sortedTemplates],
   )
   const filteredFavoriteWorlds = useMemo(
     () =>
@@ -1065,41 +1046,26 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const filteredProfilePublicationGames = useMemo(
     () =>
       sortProfileGames(
-        profilePublicationGames.filter((item) =>
-          matchesProfileSearch(normalizedContentSearchQuery, [
-            item.title,
-            item.description,
-            item.opening_scene,
-            item.genres.join(' '),
-          ]),
-        ),
+        profilePublicationGames,
         'updated_desc',
       ),
-    [normalizedContentSearchQuery, profilePublicationGames],
+    [profilePublicationGames],
   )
   const filteredProfilePublicationCharacters = useMemo(
     () =>
       sortProfileCharacters(
-        profilePublicationCharacters.filter((item) =>
-          matchesProfileSearch(normalizedContentSearchQuery, [
-            item.name,
-            item.race,
-            item.description,
-            item.note,
-            item.triggers.join(' '),
-          ]),
-        ),
+        profilePublicationCharacters,
         'updated_desc',
       ),
-    [normalizedContentSearchQuery, profilePublicationCharacters],
+    [profilePublicationCharacters],
   )
   const filteredProfilePublicationTemplates = useMemo(
     () =>
       sortProfileTemplates(
-        profilePublicationTemplates.filter((item) => matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.content])),
+        profilePublicationTemplates,
         'updated_desc',
       ),
-    [normalizedContentSearchQuery, profilePublicationTemplates],
+    [profilePublicationTemplates],
   )
   const loadMoreOwnGames = useCallback(async () => {
     if (!isOwnProfile || isOwnGamesLoading || isOwnGamesLoadingMore || !hasMoreOwnGamesServer) {
@@ -1543,6 +1509,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setIsCharactersLoadingMore(false)
     setIsTemplatesLoadingMore(false)
     setIsFavoriteWorldsLoadingMore(false)
+    setOwnGames([])
+    setCharacters([])
+    setTemplates([])
+    setHasMoreOwnGamesServer(false)
+    setHasMoreCharactersServer(false)
+    setHasMoreTemplatesServer(false)
 
     const [gamesResult, charactersResult, templatesResult, favoritesResult] = await Promise.allSettled([
       listStoryGames(authToken, {

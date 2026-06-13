@@ -204,42 +204,21 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
     onTemplatesCountChange?.(templates.length)
   }, [onTemplatesCountChange, templates.length])
 
-  const normalizedSearchQuery = useMemo(
-    () => searchQuery.replace(/\s+/g, ' ').trim().toLocaleLowerCase(),
-    [searchQuery],
-  )
-
   const worldProfileTemplates = useMemo(
     () =>
       [...templates
-        .filter((item) => item.kind === 'world_profile')
-        .filter((item) =>
-          !normalizedSearchQuery
-            ? true
-            : [item.title, item.content, item.detail_type, item.triggers.join(' ')]
-                .join(' ')
-                .toLocaleLowerCase()
-                .includes(normalizedSearchQuery),
-        )].sort(
+        .filter((item) => item.kind === 'world_profile')].sort(
         (left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at) || right.id - left.id,
       ),
-    [normalizedSearchQuery, templates],
+    [templates],
   )
   const worldDetailTemplates = useMemo(
     () =>
       [...templates
-        .filter((item) => item.kind === 'world')
-        .filter((item) =>
-          !normalizedSearchQuery
-            ? true
-            : [item.title, item.content, item.detail_type, item.triggers.join(' ')]
-                .join(' ')
-                .toLocaleLowerCase()
-                .includes(normalizedSearchQuery),
-        )].sort(
+        .filter((item) => item.kind === 'world')].sort(
         (left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at) || right.id - left.id,
       ),
-    [normalizedSearchQuery, templates],
+    [templates],
   )
 
   const detailTypeSuggestionLabels = useMemo(

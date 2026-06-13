@@ -966,6 +966,15 @@ def _iter_polza_story_stream_chunks(
                     saw_done_marker,
                 )
                 last_error = RuntimeError("OpenRouter stream completed without textual content")
+                if attempt_index < len(POLZA_RETRY_DELAYS_SECONDS):
+                    logger.warning(
+                        "OpenRouter empty stream/text response; retrying same turn: model=%s provider=%s next_attempt=%s",
+                        model_name,
+                        provider_label,
+                        attempt_index + 2,
+                    )
+                    _sleep_polza_retry(attempt_index)
+                    continue
                 if model_name != candidate_models[-1]:
                     logger.warning(
                         "OpenRouter empty stream/text response for model=%s; trying next configured model.",

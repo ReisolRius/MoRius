@@ -246,19 +246,7 @@ def normalize_story_npc_profile_content(name: str, content: str) -> str:
     normalized_content = normalize_story_world_card_content(content)
     if not normalized_content:
         return normalized_content
-
-    lowered_content = normalized_content.casefold()
-    has_appearance = any(fragment in lowered_content for fragment in ("внешност", "appearance", "облик", "выгляд"))
-    has_character = any(fragment in lowered_content for fragment in ("характер", "personality", "манер", "повед"))
-    has_important = any(fragment in lowered_content for fragment in ("важн", "important", "мотив", "цель", "роль"))
-    if has_important and (has_appearance or has_character):
-        return normalized_content
-
-    compact_content = " ".join(normalized_content.split())
-    return normalize_story_world_card_content(
-        f"Внешность и характер: {compact_content}\n"
-        f"Важное: роль {name} в истории, цели и риски для игрока."
-    )
+    return normalized_content
 
 
 def story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
