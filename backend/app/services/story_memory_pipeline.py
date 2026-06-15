@@ -9109,6 +9109,108 @@ def _extract_story_postprocess_memory_payload(
         )
 
 
+    example_payload: dict[str, Any] = {}
+    if "raw_memory" in requested_sections:
+        example_payload["raw_memory"] = {
+            "player_turn": "...",
+            "assistant_reply": "...",
+        }
+    if "location" in requested_sections:
+        example_payload["location"] = {
+            "action": "update",
+            "content": "Действие происходит ...",
+            "label": "...",
+        }
+    if "environment" in requested_sections:
+        example_payload["environment"] = {
+            "action": "update",
+            "current_datetime": "YYYY-MM-DDTHH:MM",
+            "current_weather": {
+                "summary": "...",
+                "temperature_c": 12,
+                "fog": "...",
+                "humidity": "...",
+                "wind": "...",
+                "day_date": "YYYY-MM-DD",
+                "timeline": [
+                    {
+                        "start_time": "06:00",
+                        "end_time": "10:00",
+                        "summary": "...",
+                        "temperature_c": 12,
+                        "fog": "...",
+                        "humidity": "...",
+                        "wind": "...",
+                    }
+                ],
+            },
+            "tomorrow_weather": {
+                "summary": "...",
+                "temperature_c": 10,
+                "fog": "...",
+                "humidity": "...",
+                "wind": "...",
+                "day_date": "YYYY-MM-DD",
+            },
+        }
+    if "character_state" in requested_sections:
+        example_payload["character_state"] = {
+            "cards": [
+                {
+                    "world_card_id": 123,
+                    "name": "...",
+                    "kind": "main_hero",
+                    "is_active": True,
+                    "status": "...",
+                    "clothing": "...",
+                    "location": "...",
+                    "equipment": "...",
+                    "mood": "...",
+                    "attitude_to_hero": "...",
+                    "personality": "...",
+                }
+            ]
+        }
+    if "important_event" in requested_sections:
+        example_payload["important_event"] = {
+            "is_important": True,
+            "importance_score": 88,
+            "title": "...",
+            "content": "...",
+        }
+    if "ambient" in requested_sections:
+        example_payload["ambient"] = {
+            "scene": "...",
+            "lighting": "...",
+            "primary_color": "#112233",
+            "secondary_color": "#223344",
+            "highlight_color": "#445566",
+            "glow_strength": 0.2,
+            "background_mix": 0.2,
+            "vignette_strength": 0.4,
+        }
+    if "scene_emotion" in requested_sections:
+        example_payload["scene_emotion"] = {
+            "show_visualization": True,
+            "reason": "interaction",
+            "participants": [
+                {"name": "...", "emotion": "calm", "importance": "primary"}
+            ],
+        }
+    if "auto_npcs" in requested_sections:
+        example_payload["auto_npcs"] = [
+            {
+                "name": "...",
+                "race": "...",
+                "description": "...",
+                "clothing": "...",
+                "inventory": "...",
+                "health_status": "...",
+                "triggers": ["..."],
+                "significance_score": 80,
+                "reason": "...",
+            }
+        ]
 
     messages_payload = [
 
@@ -9118,27 +9220,9 @@ def _extract_story_postprocess_memory_payload(
 
             "content": " ".join(part.strip() for part in system_parts if part.strip())
 
-            + " JSON shape: "
-
-            + "{\"raw_memory\":{\"player_turn\":\"...\",\"assistant_reply\":\"...\"},"
-
-            + "\"location\":{\"action\":\"keep\"}|{\"action\":\"update\",\"content\":\"Действие происходит ...\"},"
-
-            + "\"environment\":{\"action\":\"keep\"}|{\"action\":\"update\",\"current_datetime\":\"YYYY-MM-DDTHH:MM\","
-
-            + "\"current_weather\":{\"summary\":\"...\",\"temperature_c\":12,\"fog\":\"...\",\"humidity\":\"...\",\"wind\":\"...\",\"day_date\":\"YYYY-MM-DD\",\"timeline\":[{\"start_time\":\"06:00\",\"end_time\":\"10:00\",\"summary\":\"...\",\"temperature_c\":12,\"fog\":\"...\",\"humidity\":\"...\",\"wind\":\"...\"}]},"
-
-            + "\"tomorrow_weather\":{\"summary\":\"...\",\"temperature_c\":10,\"fog\":\"...\",\"humidity\":\"...\",\"wind\":\"...\",\"day_date\":\"YYYY-MM-DD\"}},"
-
-            + "\"character_state\":{\"cards\":[{\"world_card_id\":123,\"name\":\"...\",\"kind\":\"main_hero\"|\"npc\",\"is_active\":true,\"status\":\"...\",\"clothing\":\"...\",\"location\":\"...\",\"equipment\":\"...\",\"mood\":\"...\",\"attitude_to_hero\":\"...\",\"personality\":\"...\"}]},"
-
-            + "\"important_event\":{\"is_important\":true,\"importance_score\":88,\"title\":\"...\",\"content\":\"...\"},"
-
-            + "\"ambient\":{\"scene\":\"...\",\"lighting\":\"...\",\"primary_color\":\"#112233\",\"secondary_color\":\"#223344\",\"highlight_color\":\"#445566\",\"glow_strength\":0.2,\"background_mix\":0.2,\"vignette_strength\":0.4},"
-
-            + "\"scene_emotion\":{\"show_visualization\":true,\"reason\":\"interaction\",\"participants\":[{\"name\":\"...\",\"emotion\":\"calm\",\"importance\":\"primary\"}]},"
-
-            + "\"auto_npcs\":[{\"name\":\"...\",\"race\":\"...\",\"description\":\"...\",\"clothing\":\"...\",\"inventory\":\"...\",\"health_status\":\"...\",\"triggers\":[\"...\"],\"significance_score\":80,\"reason\":\"...\"}]}."
+            + " Return exactly one JSON object matching this enabled-section example: "
+            + json.dumps(example_payload, ensure_ascii=False)
+            + ". Use {\"action\":\"keep\"} for location or environment only when nothing should change."
         },
 
         {

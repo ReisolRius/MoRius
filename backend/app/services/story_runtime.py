@@ -1092,7 +1092,9 @@ def _stream_story_response(
             )
 
     unified_postprocess_payload: dict[str, Any] | None = None
-    service_request_budget = StoryServiceHttpRequestBudget(max_requests=3)
+    # Hard cap for post-generation service calls. Together with the main story
+    # stream this keeps a normal turn within 2-3 OpenRouter requests total.
+    service_request_budget = StoryServiceHttpRequestBudget(max_requests=2)
     if not aborted and response_has_content:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "postprocess"})
         try:
@@ -1230,7 +1232,7 @@ def _stream_story_response(
                     latest_assistant_text_override=assistant_text_for_memory,
                     resolved_postprocess_payload_override=unified_postprocess_payload,
                     memory_optimization_enabled=memory_optimization_enabled,
-                    allow_model_postprocess_request=False,
+                    allow_model_postprocess_request=True,
                 )
             db.commit()
             try:

@@ -935,6 +935,7 @@ def _fallback_sync_story_memory_and_environment(
     latest_assistant_text_override: str | None = None,
     resolved_postprocess_payload_override: dict[str, Any] | None = None,
     memory_optimization_enabled: bool = True,
+    allow_model_postprocess_request: bool = False,
 ) -> bool:
     try:
         from app.services import story_memory_pipeline
@@ -1009,8 +1010,10 @@ def _fallback_sync_story_memory_and_environment(
     location_payload_for_sync = (
         postprocess_payload.get("location")
         if isinstance(postprocess_payload, dict) and isinstance(postprocess_payload.get("location"), dict)
-        else {"action": "keep"}
+        else None
     )
+    if location_payload_for_sync is None:
+        location_payload_for_sync = {"action": "keep"}
     environment_payload_for_sync = (
         postprocess_payload.get("environment")
         if environment_enabled
@@ -1180,6 +1183,7 @@ def _fallback_upsert_story_plot_memory_card(
         latest_assistant_text_override=latest_assistant_text_override,
         resolved_postprocess_payload_override=resolved_postprocess_payload_override,
         memory_optimization_enabled=memory_optimization_enabled,
+        allow_model_postprocess_request=allow_model_postprocess_request,
     )
     return (False, [])
 

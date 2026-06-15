@@ -9820,6 +9820,20 @@ _STORY_LOCATION_SCENE_CONTEXT_PATTERNS = (
     (re.compile(r"\b(?:в|во)\s+замк[еуа]?\b", re.IGNORECASE), lambda _match: "Замок"),
     (re.compile(r"\b(?:в|во)\s+лесу\b", re.IGNORECASE), lambda _match: "Лес"),
     (re.compile(r"\b(?:на|у)\s+берегу\b", re.IGNORECASE), lambda _match: "Берег"),
+    (re.compile(r"\b(?:в|во|внутри|у|к|перед)\s+гильди[июе]\b", re.IGNORECASE), lambda _match: "Гильдия"),
+    (re.compile(r"\b(?:в|во|внутри)\s+зал[еау]?\s+гильди[июе]\b", re.IGNORECASE), lambda _match: "Зал гильдии"),
+    (re.compile(r"\b(?:в|во|внутри)\s+здани[ие]\s+гильди[июе]\b", re.IGNORECASE), lambda _match: "Здание гильдии"),
+    (re.compile(r"\b(?:у|около|возле)\s+вход[а]?\s+в\s+гильди[иююе]\b", re.IGNORECASE), lambda _match: "У входа в гильдию"),
+    (re.compile(r"\b(?:в|во|внутри)\s+зал[еау]?\b", re.IGNORECASE), lambda _match: "Зал"),
+    (re.compile(r"\b(?:в|во|внутри)\s+комнат[еуы]\b", re.IGNORECASE), lambda _match: "Комната"),
+    (re.compile(r"\b(?:в|во|внутри|по)\s+коридор[еу]?\b", re.IGNORECASE), lambda _match: "Коридор"),
+    (re.compile(r"\b(?:у|к|за)\s+стойк[еи]\b", re.IGNORECASE), lambda _match: "У стойки"),
+    (re.compile(r"\b(?:у|за)\s+стол(?:ом|а|иком|ика)?\b", re.IGNORECASE), lambda _match: "У стола"),
+    (re.compile(r"\b(?:в|во|внутри)\s+храм[еау]?\b", re.IGNORECASE), lambda _match: "Храм"),
+    (re.compile(r"\b(?:в|во|внутри)\s+школ[еуы]\b", re.IGNORECASE), lambda _match: "Школа"),
+    (re.compile(r"\b(?:в|во|внутри)\s+библиотек[еуы]\b", re.IGNORECASE), lambda _match: "Библиотека"),
+    (re.compile(r"\b(?:в|во|внутри)\s+лавк[еуы]\b", re.IGNORECASE), lambda _match: "Лавка"),
+    (re.compile(r"\b(?:в|во|внутри)\s+магазин[еау]?\b", re.IGNORECASE), lambda _match: "Магазин"),
 )
 
 
@@ -10085,6 +10099,8 @@ def _build_story_location_fallback_payload_from_scene_text(
     previous_assistant_text: str,
     opening_scene_text: str,
 ) -> dict[str, str] | None:
+    from app.services import story_memory_pipeline
+
     source_parts = [
         part
         for part in (
@@ -10652,13 +10668,29 @@ def _upsert_story_plot_memory_card(
         location_payload_for_sync = None
         if isinstance(postprocess_payload, dict) and isinstance(postprocess_payload.get("location"), dict):
             location_payload_for_sync = postprocess_payload.get("location")
-        elif has_postprocess_payload_override or not allow_model_postprocess_request:
+        elif not has_postprocess_payload_override or allow_model_postprocess_request:
+            try:
+                location_payload_for_sync = _legacy_build_story_location_fallback_payload_from_scene_text(
+                    story_memory_pipeline=story_memory_pipeline,
+                    latest_user_prompt=latest_user_prompt,
+                    latest_assistant_text=latest_assistant_text,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Story local location fallback failed: game_id=%s assistant_message_id=%s error=%s",
+                    game.id,
+                    assistant_message.id,
+                    exc,
+                )
+            if location_payload_for_sync is None:
+                location_payload_for_sync = {"action": "keep"}
+        elif not allow_model_postprocess_request:
             location_payload_for_sync = {"action": "keep"}
 
         environment_payload_for_sync = None
         if isinstance(postprocess_payload, dict) and isinstance(postprocess_payload.get("environment"), dict):
             environment_payload_for_sync = postprocess_payload.get("environment")
-        elif has_postprocess_payload_override or not allow_model_postprocess_request:
+        elif not allow_model_postprocess_request and not has_postprocess_payload_override:
             environment_payload_for_sync = {"action": "keep"}
         character_state_payload_for_sync = (
             postprocess_payload.get("character_state")
@@ -10759,7 +10791,7 @@ def _upsert_story_plot_memory_card(
                         postprocess_payload.get("auto_npcs")
                         if isinstance(postprocess_payload, dict)
                         and isinstance(postprocess_payload.get("auto_npcs"), list)
-                        else []
+                        else None
                     ),
                     allow_model_request=False,
                 )
