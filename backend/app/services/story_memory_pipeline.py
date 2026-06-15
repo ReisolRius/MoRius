@@ -43,9 +43,9 @@ def _bind_monolith_names() -> None:
 _bind_monolith_names()
 
 if "STORY_SERVICE_TEXT_MODEL" not in globals():
-    STORY_SERVICE_TEXT_MODEL = getattr(monolith_main, "STORY_SERVICE_TEXT_MODEL", "qwen/qwen3-next-80b-a3b-instruct:free")
+    STORY_SERVICE_TEXT_MODEL = getattr(monolith_main, "STORY_SERVICE_TEXT_MODEL", "google/gemma-4-31b-it:free")
 if "POLZA_GEMINI_25_FLASH_MODEL" not in globals():
-    POLZA_GEMINI_25_FLASH_MODEL = getattr(monolith_main, "POLZA_GEMINI_25_FLASH_MODEL", "qwen/qwen3-next-80b-a3b-instruct:free")
+    POLZA_GEMINI_25_FLASH_MODEL = getattr(monolith_main, "POLZA_GEMINI_25_FLASH_MODEL", "google/gemma-4-31b-it:free")
 if "STORY_ENVIRONMENT_ANALYSIS_MODEL" not in globals():
     STORY_ENVIRONMENT_ANALYSIS_MODEL = POLZA_GEMINI_25_FLASH_MODEL
 if "STORY_CHARACTER_STATE_GENERATION_MODEL" not in globals():
@@ -56,7 +56,49 @@ if "STORY_TURN_POSTPROCESS_MODEL" not in globals():
 
 def _request_polza_story_text(messages_payload: list[dict[str, str]], *args: Any, **kwargs: Any) -> str:
     repaired_messages = repair_likely_utf8_mojibake_deep(messages_payload)
+    include_configured_service_fallback = bool(
+        kwargs.pop("include_configured_service_fallback", True)
+    )
+    service_game = kwargs.pop("service_game", None)
+    if service_game is not None:
+        primary_model, fallback_models = monolith_main._resolve_story_service_model_pair(service_game)
+        kwargs["model_name"] = primary_model
+        kwargs["fallback_model_names"] = fallback_models
+    requested_model = str(kwargs.get("model_name") or "").strip()
+    service_models = {
+        str(STORY_SERVICE_TEXT_MODEL or "").strip(),
+        str(STORY_TURN_POSTPROCESS_MODEL or "").strip(),
+        str(POLZA_GEMINI_25_FLASH_MODEL or "").strip(),
+    }
+    if (
+        include_configured_service_fallback
+        and requested_model
+        and requested_model in service_models
+    ):
+        fallback_models = [
+            str(value or "").strip()
+            for value in list(kwargs.get("fallback_model_names") or [])
+            if str(value or "").strip()
+        ]
+        configured_fallback = str(
+            getattr(monolith_main.settings, "polza_service_fallback_model", "") or ""
+        ).strip()
+        if (
+            configured_fallback
+            and configured_fallback != requested_model
+            and configured_fallback not in fallback_models
+        ):
+            fallback_models.append(configured_fallback)
+        kwargs["fallback_model_names"] = fallback_models
     return monolith_main._request_polza_story_text(repaired_messages, *args, **kwargs)
+
+
+STORY_SERVICE_JSON_CONTRACT_DIRECTIVE = (
+    "For OpenRouter service calls: return only the final JSON object. "
+    "Do not include reasoning, <think> tags, markdown fences, comments, explanations, or prose. "
+    "The first non-whitespace character must be { and the last non-whitespace character must be }."
+)
+STORY_QWEN_JSON_CONTRACT_DIRECTIVE = STORY_SERVICE_JSON_CONTRACT_DIRECTIVE
 
 STORY_CHARACTER_STATE_KIND_MAIN_HERO = getattr(monolith_main, "STORY_CHARACTER_STATE_KIND_MAIN_HERO", "main_hero")
 STORY_CHARACTER_STATE_KIND_NPC = getattr(monolith_main, "STORY_CHARACTER_STATE_KIND_NPC", "npc")
@@ -1453,6 +1495,7 @@ def _legacy__extract_story_location_memory_payload_v1(
     previous_assistant_text: str,
 
     latest_assistant_text: str,
+    game: StoryGame | None = None,
 
 ) -> dict[str, str] | None:
 
@@ -1513,6 +1556,7 @@ def _legacy__extract_story_location_memory_payload_v1(
                 "If the newest narrator reply suddenly conflicts with the saved location but there is no explicit transition, travel, arrival, exit, or sustained scene change across the last two narrator replies, return keep. "
 
                 "Return strict JSON only without markdown. "
+                f"{STORY_QWEN_JSON_CONTRACT_DIRECTIVE} "
 
                 "Valid outputs are exactly: "
 
@@ -1563,6 +1607,7 @@ def _legacy__extract_story_location_memory_payload_v1(
             raw_response = _request_polza_story_text(
 
                 messages_payload,
+                service_game=game,
 
                 model_name=STORY_SERVICE_TEXT_MODEL,
                 allow_service_fallback=False,
@@ -1699,6 +1744,7 @@ def _extract_story_location_memory_payload(
     latest_user_prompt: str,
     previous_assistant_text: str,
     latest_assistant_text: str,
+    game: StoryGame | None = None,
 ) -> dict[str, str] | None:
 
     normalized_current_location = _normalize_story_location_memory_content(current_location_content)
@@ -1738,6 +1784,7 @@ def _extract_story_location_memory_payload(
                 "Do not widen a precise scene into a broader area. If the text gives 'у входа в здание гильдии авантюристов', do not reduce it to 'на улицах города', 'у гильдии', or another broader outdoor label. "
                 "Remove time-of-day wording from the location itself. Keep the place, but drop suffixes like 'ночью', 'вечером', 'утром', 'в 16:00', or similar time markers. "
                 "Return strict JSON only without markdown. "
+                f"{STORY_QWEN_JSON_CONTRACT_DIRECTIVE} "
                 "Valid outputs are exactly: "
                 "{\"action\":\"keep\"} "
                 "or "
@@ -1765,6 +1812,7 @@ def _extract_story_location_memory_payload(
         try:
             raw_response = _request_polza_story_text(
                 messages_payload,
+                service_game=game,
                 model_name=STORY_SERVICE_TEXT_MODEL,
                 allow_service_fallback=False,
                 translate_input=False,
@@ -2381,6 +2429,7 @@ def _upsert_story_location_memory_block(
             latest_user_prompt=resolved_latest_user_prompt,
             previous_assistant_text=resolved_previous_assistant_text,
             latest_assistant_text=resolved_latest_assistant_text,
+            game=game,
         )
     )
 
@@ -6426,6 +6475,7 @@ def _request_story_character_state_seed_cards(
                 "Create persistent RPG character-state cards for an admin continuity panel. "
 
                 "Return strict JSON only without markdown in this shape: "
+                f"{STORY_QWEN_JSON_CONTRACT_DIRECTIVE} "
 
                 "{\"cards\":[{\"world_card_id\":123,\"name\":\"...\",\"kind\":\"main_hero\"|\"npc\",\"is_active\":true,"
 
@@ -6532,6 +6582,7 @@ def _request_story_character_state_seed_cards(
             raw_response = _request_polza_story_text(
 
                 messages_payload,
+                service_game=game,
 
                 model_name=STORY_CHARACTER_STATE_GENERATION_MODEL,
 
@@ -6758,6 +6809,7 @@ def _request_story_character_state_missing_location_cards(
                 "Fill only missing RPG character-state locations for an admin continuity panel. "
 
                 "Return strict JSON only without markdown in this shape: "
+                f"{STORY_QWEN_JSON_CONTRACT_DIRECTIVE} "
 
                 "{\"cards\":[{\"world_card_id\":123,\"name\":\"...\",\"kind\":\"npc\",\"is_active\":false,\"location\":\"...\"}]}. "
 
@@ -6814,6 +6866,7 @@ def _request_story_character_state_missing_location_cards(
             raw_response = _request_polza_story_text(
 
                 messages_payload,
+                service_game=game,
 
                 model_name=STORY_CHARACTER_STATE_GENERATION_MODEL,
 
@@ -7004,6 +7057,7 @@ def _request_story_character_state_missing_body_field_cards(
             "content": (
                 "Fill only missing status and clothing fields for the provided RPG character-state target cards. "
                 "Return strict JSON only without markdown in this shape: "
+                f"{STORY_QWEN_JSON_CONTRACT_DIRECTIVE} "
                 "{\"cards\":[{\"world_card_id\":123,\"name\":\"...\",\"kind\":\"main_hero\"|\"npc\",\"is_active\":true,"
                 "\"status\":\"...\",\"clothing\":\"...\"}]}. "
                 "Use only the provided target cards. Do not invent or return any other cards. "
@@ -7041,6 +7095,7 @@ def _request_story_character_state_missing_body_field_cards(
         try:
             raw_response = _request_polza_story_text(
                 messages_payload,
+                service_game=game,
                 model_name=STORY_SERVICE_TEXT_MODEL,
                 allow_service_fallback=False,
                 translate_input=False,
@@ -8056,10 +8111,10 @@ def _sync_story_auto_npc_cards_for_assistant_message(
     assistant_message: StoryMessage,
     latest_user_prompt: str,
     latest_assistant_text: str,
+    resolved_payload_override: list[Any] | None = None,
+    allow_model_request: bool = True,
 ) -> list[Any]:
     if not bool(getattr(game, "auto_npc_cards_enabled", False)):
-        return []
-    if not settings.polza_api_key:
         return []
 
     normalized_prompt = _normalize_story_prompt_text(latest_user_prompt, max_chars=1_600)
@@ -8109,59 +8164,73 @@ def _sync_story_auto_npc_cards_for_assistant_message(
         except Exception:
             pass
 
-    messages_payload = [
-        {
-            "role": "system",
-            "content": (
-                "You extract only NEW significant named NPCs from one RPG narrator reply. "
-                "Return strict JSON only: {\"npcs\":[{\"name\":\"...\",\"race\":\"...\","
-                "\"description\":\"...\",\"clothing\":\"...\",\"inventory\":\"...\","
-                "\"health_status\":\"...\",\"triggers\":[\"...\"],\"significance_score\":0,"
-                "\"reason\":\"...\"}]}. "
-                "Create an NPC only if the reply introduces a stable named person who is likely to matter later: "
-                "a named ally, commander, mentor, antagonist, quest giver, authority, recurring companion, rival, "
-                "witness with important information, or named character with a clear role/goal/relationship. "
-                "A unique proper name is strong evidence, but still exclude disposable guards, random bandits, crowds, "
-                "monsters, animals, merchants, servants, or unnamed roles unless the text makes them important. "
-                "Never add the player's main hero, existing known characters, generic titles, groups, locations, items, or organizations. "
-                "description must be useful for a character card in Russian: identity, role, personality, current relation to the hero, and scene facts. "
-                "Do not invent beyond the reply; if race/clothing/inventory/health are unknown, use a short conservative Russian value or an empty string. "
-                "Use significance_score >= 70 only for NPCs that should become cards. Return an empty array when there is no such NPC."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Existing character names:\n{json.dumps(known_character_names, ensure_ascii=False)}\n\n"
-                f"Latest player turn:\n{normalized_prompt or 'none'}\n\n"
-                f"Narrator reply:\n{normalized_assistant}"
-            ),
-        },
-    ]
+    raw_npcs = resolved_payload_override if isinstance(resolved_payload_override, list) else None
+    if raw_npcs is None and allow_model_request and settings.polza_api_key:
+        messages_payload = [
+            {
+                "role": "system",
+                "content": (
+                    "You extract only NEW significant named NPCs from one RPG narrator reply. "
+                    "Return strict JSON only: "
+                    f"{STORY_QWEN_JSON_CONTRACT_DIRECTIVE} "
+                    "{\"npcs\":[{\"name\":\"...\",\"race\":\"...\","
+                    "\"description\":\"...\",\"clothing\":\"...\",\"inventory\":\"...\","
+                    "\"health_status\":\"...\",\"triggers\":[\"...\"],\"significance_score\":0,"
+                    "\"reason\":\"...\"}]}. "
+                    "Create an NPC only if the reply introduces a stable named person who is likely to matter later. "
+                    "Never add the player's main hero, existing known characters, generic titles, groups, locations, items, or organizations. "
+                    "Use significance_score >= 70 only for NPCs that should become cards. Return an empty array when there is no such NPC."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Existing character names:\n{json.dumps(known_character_names, ensure_ascii=False)}\n\n"
+                    f"Latest player turn:\n{normalized_prompt or 'none'}\n\n"
+                    f"Narrator reply:\n{normalized_assistant}"
+                ),
+            },
+        ]
+        try:
+            raw_response = _request_polza_story_text(
+                messages_payload,
+                service_game=game,
+                model_name=STORY_TURN_POSTPROCESS_MODEL,
+                allow_service_fallback=False,
+                translate_input=False,
+                fallback_model_names=[],
+                temperature=0.0,
+                max_tokens=900,
+                request_timeout=(
+                    STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                    STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+                ),
+                retry_on_rate_limit=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Story auto-NPC extraction failed: game_id=%s error=%s",
+                game.id,
+                exc,
+            )
+            return []
 
-    try:
-        raw_response = _request_polza_story_text(
-            messages_payload,
-            model_name=STORY_TURN_POSTPROCESS_MODEL,
-            allow_service_fallback=False,
-            translate_input=False,
-            fallback_model_names=[],
-            temperature=0.0,
-            max_tokens=900,
-            request_timeout=(
-                STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
-                STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
-            ),
-        )
-    except Exception as exc:
-        logger.warning("Story auto-NPC extraction failed: game_id=%s error=%s", game.id, exc)
-        return []
+        normalized_response = _normalize_story_message_content(raw_response)
+        parsed_payload = _extract_json_object_from_text(normalized_response)
+        if isinstance(parsed_payload, dict):
+            candidate_npcs = parsed_payload.get("npcs")
+        else:
+            candidate_npcs = _extract_json_array_from_text(normalized_response)
 
-    parsed_payload = _extract_json_object_from_text(_normalize_story_message_content(raw_response))
-    if not isinstance(parsed_payload, dict):
-        return []
-    raw_npcs = parsed_payload.get("npcs")
-    if not isinstance(raw_npcs, list):
+        if isinstance(candidate_npcs, list):
+            raw_npcs = candidate_npcs
+        else:
+            logger.warning(
+                "Story auto-NPC extraction returned malformed payload: game_id=%s",
+                game.id,
+            )
+
+    if raw_npcs is None:
         return []
 
     created_cards: list[Any] = []
@@ -8277,7 +8346,16 @@ def _resolve_story_postprocess_section_payload(
 
     top_level_keys = set(parsed_payload.keys())
 
-    section_keys = {"location", "environment", "character_state", "important_event", "raw_memory"}
+    section_keys = {
+        "location",
+        "environment",
+        "character_state",
+        "important_event",
+        "raw_memory",
+        "ambient",
+        "scene_emotion",
+        "auto_npcs",
+    }
 
 
 
@@ -8528,6 +8606,7 @@ def _extract_story_postprocess_memory_payload(
     important_event_enabled: bool,
     ambient_enabled: bool = False,
     scene_emotion_enabled: bool = False,
+    auto_npc_cards_enabled: bool = False,
     scene_emotion_active_cast_entries: list[dict[str, Any]] | None = None,
     scene_emotion_allowed_emotions: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any] | None:
@@ -8545,6 +8624,7 @@ def _extract_story_postprocess_memory_payload(
             important_event_enabled,
             ambient_enabled,
             scene_emotion_enabled,
+            auto_npc_cards_enabled,
         )
     ):
         return None
@@ -8676,6 +8756,10 @@ def _extract_story_postprocess_memory_payload(
 
         requested_sections.append("scene_emotion")
 
+    if auto_npc_cards_enabled:
+
+        requested_sections.append("auto_npcs")
+
     ambient_system_parts = (
         [
             "For ambient: extract a UI ambient palette from the described environment only.",
@@ -8712,6 +8796,18 @@ def _extract_story_postprocess_memory_payload(
         if scene_emotion_enabled
         else []
     )
+    auto_npc_system_parts = (
+        [
+            "For auto_npcs: extract only NEW significant named NPCs introduced in the newest narrator reply.",
+            "Return auto_npcs as an array with name, race, description, clothing, inventory, health_status, triggers, significance_score, and reason.",
+            "Include only stable named people likely to matter later: allies, commanders, mentors, antagonists, quest givers, authorities, recurring companions, rivals, or witnesses with important information.",
+            "Exclude the main hero, every existing known character, generic titles, groups, locations, items, organizations, disposable guards, random bandits, crowds, monsters, animals, merchants, servants, and unnamed roles unless the text clearly makes one important.",
+            "description must be useful for a Russian character card and stay grounded in the reply.",
+            "Use significance_score >= 70 only for NPCs that should become cards. Return an empty array when there is no such NPC.",
+        ]
+        if auto_npc_cards_enabled
+        else []
+    )
     system_parts = [
 
         "Analyze exactly one RPG turn for continuity and memory.",
@@ -8723,6 +8819,7 @@ def _extract_story_postprocess_memory_payload(
         "Never invent unsupported scene facts.",
 
         "Return strict JSON only without markdown.",
+        STORY_QWEN_JSON_CONTRACT_DIRECTIVE,
 
         f"Enabled sections: {', '.join(requested_sections)}.",
 
@@ -8742,6 +8839,7 @@ def _extract_story_postprocess_memory_payload(
         ),
         *ambient_system_parts,
         *scene_emotion_system_parts,
+        *auto_npc_system_parts,
     ]
 
     if raw_memory_enabled:
@@ -8819,7 +8917,7 @@ def _extract_story_postprocess_memory_payload(
                 "Respect explicit time skips such as 'спустя 2 месяца', 'через полтора часа', travel, sleep, waiting, or scene skips.",
                 "Treat the latest player turn as authoritative for clear current-time context such as lunch time, dinner time, after lessons, after work, dawn, late evening, or similar cues even when no HH:MM is written.",
                 "If the newest turn clearly implies lunch, after-school daytime, dinner, or another broad time-of-day, move current_datetime into a believable range for that cue instead of lazily preserving an old morning or night clock.",
-                "Gemini 2.5 Flash service model must estimate how much real in-world time the combined latest player turn plus newest narrator reply would reasonably take. Use that estimate to advance current_datetime.",
+                "The OpenRouter service model must estimate how much real in-world time the combined latest player turn plus newest narrator reply would reasonably take. Use that estimate to advance current_datetime.",
                 "Account for indirect time cues: sleep, nap, woke up, slept through the night, morning after, night passed, at breakfast, over breakfast, at lunch, at dinner, after work, after lessons, during travel, waiting, searching, treatment, training, crafting, conversation length, and scene cuts.",
                 "If the text says 'I slept', 'we slept', 'the night passed', or a character wakes after sleep, advance to a believable next waking time, usually the next morning unless the text says otherwise.",
                 "If the text says 'through two weeks', 'after two weeks', 'in two weeks', 'через две недели', or similar, advance the date by that duration and set the time of day from the cue, for example lunch/noon if it says at lunch or over breakfast if it says breakfast.",
@@ -9038,7 +9136,9 @@ def _extract_story_postprocess_memory_payload(
 
             + "\"ambient\":{\"scene\":\"...\",\"lighting\":\"...\",\"primary_color\":\"#112233\",\"secondary_color\":\"#223344\",\"highlight_color\":\"#445566\",\"glow_strength\":0.2,\"background_mix\":0.2,\"vignette_strength\":0.4},"
 
-            + "\"scene_emotion\":{\"show_visualization\":true,\"reason\":\"interaction\",\"participants\":[{\"name\":\"...\",\"emotion\":\"calm\",\"importance\":\"primary\"}]}}.",
+            + "\"scene_emotion\":{\"show_visualization\":true,\"reason\":\"interaction\",\"participants\":[{\"name\":\"...\",\"emotion\":\"calm\",\"importance\":\"primary\"}]},"
+
+            + "\"auto_npcs\":[{\"name\":\"...\",\"race\":\"...\",\"description\":\"...\",\"clothing\":\"...\",\"inventory\":\"...\",\"health_status\":\"...\",\"triggers\":[\"...\"],\"significance_score\":80,\"reason\":\"...\"}]}."
         },
 
         {
@@ -9100,13 +9200,14 @@ def _extract_story_postprocess_memory_payload(
 
 
 
-    for attempt_index in range(2):
+    for attempt_index in range(1):
 
         try:
 
             raw_response = _request_polza_story_text(
 
                 messages_payload,
+                service_game=game,
 
                 model_name=STORY_TURN_POSTPROCESS_MODEL,
                 allow_service_fallback=False,
@@ -9126,6 +9227,7 @@ def _extract_story_postprocess_memory_payload(
                     STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
 
                 ),
+                retry_on_rate_limit=False,
 
             )
 
@@ -9142,6 +9244,9 @@ def _extract_story_postprocess_memory_payload(
         parsed_payload = _extract_json_object_from_text(_normalize_story_message_content(raw_response))
 
         if not isinstance(parsed_payload, dict) or not parsed_payload:
+            logger.warning(
+                "Story unified post-process returned malformed payload",
+            )
             return None
 
 
@@ -9216,6 +9321,15 @@ def _extract_story_postprocess_memory_payload(
             requested_sections=requested_sections,
 
         )
+        raw_auto_npcs_payload = _resolve_story_postprocess_section_payload(
+
+            parsed_payload=parsed_payload,
+
+            section_name="auto_npcs",
+
+            requested_sections=requested_sections,
+
+        )
         if raw_memory_enabled:
             raw_memory_payload = _normalize_story_raw_memory_summary_payload(raw_raw_memory_payload)
 
@@ -9282,6 +9396,19 @@ def _extract_story_postprocess_memory_payload(
         if scene_emotion_enabled and isinstance(raw_scene_emotion_payload, dict):
 
             normalized_payload["scene_emotion"] = dict(raw_scene_emotion_payload)
+        if auto_npc_cards_enabled and isinstance(raw_auto_npcs_payload, list):
+
+            normalized_payload["auto_npcs"] = [
+                dict(item)
+                for item in raw_auto_npcs_payload[:3]
+                if isinstance(item, dict)
+            ]
+
+        if not normalized_payload:
+            logger.warning(
+                "Story unified post-process returned no usable sections",
+            )
+            return None
 
         return normalized_payload
 
@@ -9396,6 +9523,7 @@ def _extract_story_environment_state_payload(
                 "Do not jump forward by half an hour or more unless the text clearly contains travel, waiting, treatment, work, search, sleep, or another extended process. "
                 "Return keep only when the scene truly stays in the same moment with no meaningful time passage, or when a rewind/flashback makes an update unsafe. "
                 "Return strict JSON only without markdown. "
+                f"{STORY_QWEN_JSON_CONTRACT_DIRECTIVE} "
                 "Valid outputs are exactly "
 
                 "{\"action\":\"keep\"} "
@@ -9444,6 +9572,7 @@ def _extract_story_environment_state_payload(
             raw_response = _request_polza_story_text(
 
                 messages_payload,
+                service_game=game,
 
                 model_name=STORY_ENVIRONMENT_ANALYSIS_MODEL,
 
@@ -9986,10 +10115,13 @@ def _build_story_raw_memory_block_content(
         is_assistant: bool,
         max_lines: int,
         max_chars: int,
+        preserve_full_text: bool = False,
     ) -> tuple[str, str]:
         normalized_value = _normalize_turn_source_text(text_value, is_assistant=is_assistant)
         if not normalized_value:
             return ("", "")
+        if preserve_full_text:
+            return ("полный текст", normalized_value)
         summarized_value = _build_story_memory_summary_without_truncation(
             normalized_value,
             super_mode=False,
@@ -10041,12 +10173,14 @@ def _build_story_raw_memory_block_content(
         is_assistant=False,
         max_lines=STORY_MEMORY_RAW_USER_MAX_LINES if preserve_user_text else STORY_MEMORY_COMPRESSED_MAX_LINES,
         max_chars=STORY_MEMORY_RAW_USER_MAX_CHARS if preserve_user_text else STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS,
+        preserve_full_text=bool(preserve_user_text),
     )
     assistant_label, assistant_body = _build_detailed_turn_summary(
         normalized_assistant,
         is_assistant=True,
         max_lines=STORY_MEMORY_RAW_ASSISTANT_MAX_LINES if preserve_assistant_text else STORY_MEMORY_COMPRESSED_MAX_LINES,
         max_chars=STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS if preserve_assistant_text else STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS,
+        preserve_full_text=bool(preserve_assistant_text),
     )
     parts: list[str] = []
     if prompt_body:
@@ -10335,6 +10469,7 @@ def _seed_story_environment_weather_payload(
                 "Keep outputs short, practical, and in Russian. "
 
                 "Return strict JSON only without markdown in this shape: "
+                f"{STORY_QWEN_JSON_CONTRACT_DIRECTIVE} "
 
                 "{\"current_weather\":{\"summary\":\"...\",\"temperature_c\":12,\"fog\":\"...\",\"humidity\":\"...\",\"wind\":\"...\",\"day_date\":\"YYYY-MM-DD\",\"timeline\":[{\"start_time\":\"06:00\",\"end_time\":\"10:00\",\"summary\":\"...\",\"temperature_c\":12,\"fog\":\"...\",\"humidity\":\"...\",\"wind\":\"...\"}]},"
 
@@ -10383,6 +10518,7 @@ def _seed_story_environment_weather_payload(
             raw_response = _request_polza_story_text(
 
                 messages_payload,
+                service_game=game,
 
                 model_name=STORY_ENVIRONMENT_ANALYSIS_MODEL,
 
@@ -11103,7 +11239,7 @@ def _resync_story_continuity_from_assistant_message(
 
     memory_changed = False
     any_changed = False
-    environment_enabled = _normalize_story_environment_enabled(getattr(game, "environment_enabled", None))
+    environment_enabled = _story_environment_any_enabled_for_game(game)
 
     for assistant_message in assistant_messages:
         try:
@@ -12743,9 +12879,7 @@ def _compress_story_memory_block_with_model(
     player_name: str | None = None,
     known_character_names: list[str] | None = None,
 
-    allow_local_fallback: bool = True,
-
-    max_attempts: int = 2,
+    max_attempts: int = 1,
 
 ) -> tuple[str, str]:
     normalized_raw_content = _normalize_story_message_content(raw_content)
@@ -12760,25 +12894,9 @@ def _compress_story_memory_block_with_model(
     )
 
     if not normalized_raw_content:
-
-        return _compress_story_memory_block_locally(
-            raw_content,
-            super_mode=super_mode,
-            player_name=player_name,
-            known_character_names=known_character_names,
-        )
+        raise RuntimeError("Story memory compression source is empty")
 
     if not settings.polza_api_key:
-
-        if allow_local_fallback:
-
-            return _compress_story_memory_block_locally(
-                raw_content,
-                super_mode=super_mode,
-                player_name=player_name,
-                known_character_names=known_character_names,
-            )
-
         raise RuntimeError("Story memory compression model is unavailable")
 
     def _is_model_compression_output_usable(source_text: str, compressed_text: str) -> bool:
@@ -12943,6 +13061,7 @@ def _compress_story_memory_block_with_model(
                 translate_input=False,
 
                 fallback_model_names=fallback_model_names,
+                include_configured_service_fallback=False,
 
                 temperature=0.15 if super_mode else 0.2,
 
@@ -12955,6 +13074,7 @@ def _compress_story_memory_block_with_model(
                     STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
 
                 ),
+                retry_on_rate_limit=False,
 
             )
 
@@ -12977,15 +13097,6 @@ def _compress_story_memory_block_with_model(
                 time.sleep(0.2)
 
                 continue
-
-            if allow_local_fallback:
-
-                return _compress_story_memory_block_locally(
-                    raw_content,
-                    super_mode=super_mode,
-                    player_name=player_name,
-                    known_character_names=known_character_names,
-                )
 
             raise RuntimeError("Story memory compression request failed") from exc
 
@@ -13014,13 +13125,6 @@ def _compress_story_memory_block_with_model(
                 if attempt_index + 1 < normalized_max_attempts:
                     time.sleep(0.15)
                     continue
-                if allow_local_fallback:
-                    return _compress_story_memory_block_locally(
-                        raw_content,
-                        super_mode=super_mode,
-                        player_name=player_name,
-                        known_character_names=known_character_names,
-                    )
                 raise RuntimeError("Story memory compression returned unusable model payload")
 
             title = _build_story_memory_block_title(
@@ -13040,15 +13144,6 @@ def _compress_story_memory_block_with_model(
             time.sleep(0.15)
 
 
-
-    if allow_local_fallback:
-
-        return _compress_story_memory_block_locally(
-            raw_content,
-            super_mode=super_mode,
-            player_name=player_name,
-            known_character_names=known_character_names,
-        )
 
     raise RuntimeError("Story memory compression returned empty model payload")
 
@@ -13127,8 +13222,7 @@ def _rebalance_story_memory_layers(
         )
         if normalized_message_id > 0
     }
-    model_name = _resolve_story_plot_memory_model_name()
-    fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name)
+    model_name = _resolve_story_plot_memory_model_name(game)
     normalized_max_model_requests = (
         None
         if max_model_requests is None
@@ -13335,11 +13429,10 @@ def _rebalance_story_memory_layers(
                     compressed_title, compressed_content = _compress_story_memory_block_with_model(
                         raw_content=prepared_content,
                         model_name=model_name,
-                        fallback_model_names=fallback_model_names,
+                        fallback_model_names=[],
                         super_mode=False,
                         player_name=main_hero_name_for_memory,
                         known_character_names=known_character_names_for_memory,
-                        allow_local_fallback=not require_model_compaction,
                         max_attempts=1,
                     )
                 except Exception:
@@ -13421,11 +13514,10 @@ def _rebalance_story_memory_layers(
                     super_title, super_content = _compress_story_memory_block_with_model(
                         raw_content=prepared_content,
                         model_name=model_name,
-                        fallback_model_names=fallback_model_names,
+                        fallback_model_names=[],
                         super_mode=True,
                         player_name=main_hero_name_for_memory,
                         known_character_names=known_character_names_for_memory,
-                        allow_local_fallback=not require_model_compaction,
                         max_attempts=1,
                     )
                 except Exception:
@@ -13502,18 +13594,15 @@ def _rebalance_story_memory_layers(
         raw_blocks = _layer_blocks(STORY_MEMORY_LAYER_RAW)
         if not raw_blocks:
             return []
-        raw_budget_tokens = max(int(budgets.get(STORY_MEMORY_LAYER_RAW, 0) or 0), 1)
-        raw_tokens = _layer_tokens(STORY_MEMORY_LAYER_RAW)
-        raw_over_budget = raw_tokens > raw_budget_tokens
         stale_blocks = [
             block
             for block in raw_blocks
             if _safe_int(getattr(block, "assistant_message_id", 0)) not in latest_raw_assistant_ids
         ]
-        if stale_blocks and raw_over_budget:
+        if stale_blocks:
             return sorted(stale_blocks, key=_layer_order_key, reverse=prioritize_recent_transitions)
-        if include_protected and len(raw_blocks) > 1 and raw_over_budget:
-            protected_candidates = raw_blocks[:-1]
+        if include_protected and len(raw_blocks) > raw_keep_limit:
+            protected_candidates = raw_blocks[:-raw_keep_limit]
             return sorted(protected_candidates, key=_layer_order_key, reverse=prioritize_recent_transitions)
         return []
 
@@ -13593,33 +13682,7 @@ def _rebalance_story_memory_layers(
             continue
         if _compact_first_viable_raw(_raw_compaction_candidates(include_protected=True)):
             continue
-        removable_blocks = _budgeted_memory_blocks()
-        if not removable_blocks:
-            break
-        removal_candidate: StoryMemoryBlock | None = None
-        for layer in (
-            STORY_MEMORY_LAYER_SUPER,
-            STORY_MEMORY_LAYER_COMPRESSED,
-            STORY_MEMORY_LAYER_RAW,
-            STORY_MEMORY_LAYER_KEY,
-        ):
-            layer_blocks = [
-                block
-                for block in removable_blocks
-                if _normalize_story_memory_layer(block.layer) == layer
-            ]
-            if not layer_blocks:
-                continue
-            if layer == STORY_MEMORY_LAYER_RAW:
-                layer_blocks = _raw_compaction_candidates(include_protected=True)
-                if not layer_blocks:
-                    continue
-            removal_candidate = layer_blocks[0]
-            break
-        if removal_candidate is None:
-            break
-        db.delete(removal_candidate)
-        db.flush()
+        break
 
     raw_after = len(
         [
@@ -13661,6 +13724,7 @@ def _extract_story_important_plot_card_payload(
     latest_user_prompt: str,
 
     latest_assistant_text: str,
+    game: StoryGame | None = None,
 
 ) -> tuple[str, str] | None:
 
@@ -13680,9 +13744,9 @@ def _extract_story_important_plot_card_payload(
 
 
 
-    model_name = _resolve_story_plot_memory_model_name()
+    model_name = _resolve_story_plot_memory_model_name(game)
 
-    fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name)
+    fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name, game)
 
     messages_payload = [
 
@@ -13695,6 +13759,7 @@ def _extract_story_important_plot_card_payload(
                 "Analyze exactly one RPG turn and decide whether there is a player-visible fact that should stay in Important Memory for future continuity. "
 
                 "Return strict JSON only, without markdown: "
+                f"{STORY_QWEN_JSON_CONTRACT_DIRECTIVE} "
 
                 "{\"is_important\": boolean, \"importance_score\": number, \"title\": string, \"content\": string}. "
 

@@ -11,7 +11,7 @@ from app.services import story_memory_pipeline  # noqa: E402
 
 
 class StoryMemoryCompressionTests(unittest.TestCase):
-    def test_raw_memory_preserves_speakers_without_full_text_duplication(self) -> None:
+    def test_raw_memory_preserves_latest_full_text_speakers_without_markup(self) -> None:
         content = story_memory_pipeline._build_story_raw_memory_block_content(
             latest_user_prompt="Я открываю дверь и показываю Марине знак ждать у входа.",
             latest_assistant_text=(
@@ -24,8 +24,8 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             preserve_assistant_text=True,
         )
 
-        self.assertIn("подробный пересказ", content)
-        self.assertNotIn("полный текст", content.casefold())
+        self.assertIn("полный текст", content.casefold())
+        self.assertNotIn("подробный пересказ", content)
         self.assertNotIn("[[", content)
         self.assertIn("JRius:", content)
         self.assertIn("Марина:", content)

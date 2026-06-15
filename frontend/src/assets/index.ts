@@ -2,7 +2,7 @@ import logo from './brand/logo.svg'
 import backIcon from './icons/back.svg'
 import arrowBackIcon from './icons/arrowback.svg'
 import aiIcon from './icons/ai.svg'
-import soulMoriusIcon from './icons/soul-moirus.svg'
+import newSolIcon from './icons/new-sol.svg'
 import communityAgeIcon from './icons/community-age.svg'
 import communityCommentsIcon from './icons/community-comments.svg'
 import communityCardsIcon from './icons/community-cards.svg'
@@ -57,7 +57,7 @@ export const icons = {
   cardsPlot: cardsPlotIcon,
   cardsRules: cardsRulesIcon,
   cardsWorld: cardsWorldIcon,
-  coin: soulMoriusIcon,
+  coin: newSolIcon,
   communityAge: communityAgeIcon,
   communityAdd: communityAddIcon,
   communityCards: communityCardsIcon,
@@ -70,7 +70,7 @@ export const icons = {
   communityStarFilled: communityStarFilledIcon,
   communityStarOutline: communityStarOutlineIcon,
   dailyRewards: dailyDiamondIcon,
-  dailyRewardsCoin: soulMoriusIcon,
+  dailyRewardsCoin: newSolIcon,
   help: helpIcon,
   home: homeIcon,
   menu: menuIcon,
@@ -94,7 +94,7 @@ export const icons = {
   sidebarShop: sidebarShopIcon,
   sidebarVector: sidebarVectorIcon,
   sidebarVectorAlt: sidebarVectorAltIcon,
-  tabcoin: soulMoriusIcon,
+  tabcoin: newSolIcon,
   theme: themeIcon,
   trashCustom: communityEditIcon,
   undo: undoIcon,

@@ -8,6 +8,7 @@ import {
   CircularProgress,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import { brandLogo } from '../assets'
@@ -214,6 +215,77 @@ function GoogleGlyph() {
   )
 }
 
+function ProviderGlyph({ provider }: { provider: 'vk' | 'yandex' | 'mail' }) {
+  const config = {
+    vk: { label: 'VK', color: '#2787f5', fontSize: '0.62rem' },
+    yandex: { label: 'Я', color: '#fc3f1d', fontSize: '1.15rem' },
+    mail: { label: '@', color: '#168de2', fontSize: '1.05rem' },
+  }[provider]
+
+  return (
+    <Box
+      aria-hidden
+      sx={{
+        width: 24,
+        height: 24,
+        display: 'grid',
+        placeItems: 'center',
+        flexShrink: 0,
+        borderRadius: provider === 'vk' ? '6px' : '50%',
+        color: provider === 'vk' ? '#ffffff' : config.color,
+        backgroundColor: provider === 'vk' ? config.color : 'transparent',
+        fontFamily: '"Nunito Sans", sans-serif',
+        fontSize: config.fontSize,
+        fontWeight: 900,
+        lineHeight: 1,
+      }}
+    >
+      {config.label}
+    </Box>
+  )
+}
+
+function DisabledProviderButton({
+  provider,
+  children,
+}: {
+  provider: 'vk' | 'yandex' | 'mail'
+  children: ReactNode
+}) {
+  return (
+    <Tooltip title="Скоро" placement="left" arrow>
+      <Box component="span" sx={{ display: 'block', width: '100%', cursor: 'not-allowed' }}>
+        <Button
+          type="button"
+          fullWidth
+          disabled
+          sx={{
+            minHeight: 52,
+            borderRadius: '10px',
+            border: `1px solid ${BORDER_COLOR}`,
+            color: `${INPUT_TEXT} !important`,
+            backgroundColor: 'rgba(255,255,255,0.018)',
+            fontFamily: '"Nunito Sans", sans-serif',
+            fontSize: '0.96rem',
+            fontWeight: 700,
+            textTransform: 'none',
+            gap: 1.2,
+            opacity: 0.48,
+            '&.Mui-disabled': {
+              color: `${INPUT_TEXT} !important`,
+              borderColor: BORDER_COLOR,
+              backgroundColor: 'rgba(255,255,255,0.018)',
+            },
+          }}
+        >
+          <ProviderGlyph provider={provider} />
+          {children}
+        </Button>
+      </Box>
+    </Tooltip>
+  )
+}
+
 function GoogleAuthButton({
   disabled,
   onStart,
@@ -252,7 +324,7 @@ function GoogleAuthButton({
       disabled={disabled}
       onClick={() => login()}
       sx={{
-        minHeight: 58,
+        minHeight: 52,
         borderRadius: '10px',
         border: `1px solid ${BORDER_COLOR}`,
         color: INPUT_TEXT,
@@ -603,7 +675,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           height: '100dvh',
           minHeight: '100dvh',
           boxSizing: 'border-box',
-          p: 0,
+          p: { md: '40px', xl: '48px' },
           backgroundColor: PAGE_BACKGROUND,
         }}
       >
@@ -613,7 +685,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
             width: '100%',
             height: '100%',
             overflow: 'hidden',
-            borderRadius: 0,
+            borderRadius: { md: '12px', xl: '14px' },
             background:
               'radial-gradient(ellipse at 35% 18%, rgba(87,142,238,0.18) 0%, transparent 42%), linear-gradient(180deg, #111927 0%, #121212 100%)',
           }}
@@ -930,6 +1002,11 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                       Google вход отключен. Проверьте VITE_GOOGLE_CLIENT_ID во frontend/.env и GOOGLE_CLIENT_ID в backend/.env.
                     </Alert>
                   )}
+                  <Stack spacing={1}>
+                    <DisabledProviderButton provider="vk">Войти через VK</DisabledProviderButton>
+                    <DisabledProviderButton provider="yandex">Войти через Yandex</DisabledProviderButton>
+                    <DisabledProviderButton provider="mail">Войти через Mail</DisabledProviderButton>
+                  </Stack>
                   {isGoogleSubmitting ? (
                     <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
                       <CircularProgress size={16} />

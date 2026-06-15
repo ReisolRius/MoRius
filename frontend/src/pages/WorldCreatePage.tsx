@@ -750,6 +750,11 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     }
     setIsPublicationRulesDialogOpen(false)
   }, [])
+
+  const handleCancelPublicationRules = useCallback(() => {
+    setVisibility('private')
+    setIsPublicationRulesDialogOpen(false)
+  }, [])
   const loadedCommunityCharacterDetailsRef = useRef<Set<number>>(new Set())
   const publishWithoutMainHeroConfirmedRef = useRef(false)
   const isSaveInFlightRef = useRef(false)
@@ -3044,9 +3049,11 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
       <BaseDialog
         open={isPublicationRulesDialogOpen}
-        onClose={() => setIsPublicationRulesDialogOpen(false)}
+        onClose={handleCancelPublicationRules}
         maxWidth="sm"
         paperSx={dialogPaperSx}
+        showCloseButton={false}
+        disableBackdropClose
         header={
           <Stack spacing={0.5}>
             <Typography sx={{ fontWeight: 850, fontSize: '1.35rem' }}>Правила публикаций</Typography>
@@ -3057,8 +3064,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         }
         actions={
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="flex-end" sx={{ width: '100%' }}>
-            <Button onClick={() => handleNavigateFromWorldCreate('/publication-rules')} sx={{ color: APP_TEXT_SECONDARY, textTransform: 'none' }}>
-              Подробнее
+            <Button onClick={handleCancelPublicationRules} sx={{ color: APP_TEXT_SECONDARY, textTransform: 'none' }}>
+              Отмена
             </Button>
             <Button
               onClick={handleAcceptPublicationRules}

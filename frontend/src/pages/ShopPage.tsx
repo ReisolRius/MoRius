@@ -389,7 +389,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
           <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2.15rem', fontWeight: 900, lineHeight: 1 }}>
             {formatPrice(plan.price_rub)}
           </Typography>
-          <SoulAmount amount={plan.coins} iconSize={18} color={accent} fontSize="1.05rem" />
+          <SoulAmount amount={plan.coins} iconSize={20} color={accent} fontSize="1.05rem" />
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', lineHeight: 1.45 }}>
             {normalizePlanDescription(plan.description)}
           </Typography>
@@ -525,7 +525,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
             <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.98rem', fontWeight: 900 }}>
-              <SoulAmount amount={item.price_coins} iconSize={17} color="var(--morius-accent)" fontSize="0.98rem" />
+              <SoulAmount amount={item.price_coins} iconSize={19} color="var(--morius-accent)" fontSize="0.98rem" />
             </Typography>
             <Button
               onClick={() => setPurchaseConfirmItem(item)}
@@ -737,7 +737,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
             ) : (
               <Stack component="span" direction="row" spacing={0.65} alignItems="center">
                 <Box component="span">Купить за</Box>
-                <SoulAmount amount={previewTarget.item.price_coins} iconSize={16} />
+                <SoulAmount amount={previewTarget.item.price_coins} iconSize={18} />
               </Stack>
             )}
           </Button>
@@ -751,7 +751,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         </DialogTitle>
         <DialogContent>
           <Typography sx={{ color: 'var(--morius-text-secondary)', lineHeight: 1.55 }}>
-            Купить «{purchaseConfirmItem?.title ?? ''}» за <SoulAmount amount={purchaseConfirmItem?.price_coins ?? 0} iconSize={16} />?
+            Купить «{purchaseConfirmItem?.title ?? ''}» за <SoulAmount amount={purchaseConfirmItem?.price_coins ?? 0} iconSize={18} />?
             Списание произойдет сразу после подтверждения.
           </Typography>
         </DialogContent>

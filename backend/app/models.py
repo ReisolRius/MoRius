@@ -350,6 +350,12 @@ class StoryGame(Base):
         default=False,
         server_default="0",
     )
+    accelerated_service_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     ambient_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

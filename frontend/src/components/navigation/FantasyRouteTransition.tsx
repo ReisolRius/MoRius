@@ -1,6 +1,6 @@
 import { Box } from '@mui/material'
 import { keyframes } from '@mui/system'
-import soulMoriusIcon from '../../assets/icons/soul-moirus.svg'
+import soulMoriusIcon from '../../assets/icons/new-sol.svg'
 
 type FantasyRouteTransitionProps = {
   active: boolean

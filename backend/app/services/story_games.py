@@ -151,6 +151,7 @@ STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32_000
 STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64_000
 STORY_TURN_COST_TIER_5_CONTEXT_LIMIT_MAX = 128_000
 STORY_TURN_COST_DEEPSEEK_TIERS = (1, 4, 9, 18, 35)
+STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS = (3, 8, 18, 36, 36)
 STORY_TURN_COST_GLM47_FLASH_TIERS = (1, 4, 9, 18, 35)
 STORY_TURN_COST_GLM47_TIERS = (2, 5, 12, 25, 48)
 STORY_TURN_COST_AION_TIERS = (3, 7, 16, 34, 65)
@@ -167,12 +168,12 @@ STORY_LLM_MODEL_GLM47_FLASH = "z-ai/glm-4.7-flash"
 STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
 STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
 STORY_LLM_MODEL_DEEPSEEK_V3 = "deepseek/deepseek-chat-v3-0324"
+STORY_LLM_MODEL_DEEPSEEK_V4_PRO = "deepseek/deepseek-v4-pro"
 STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
 STORY_LLM_MODEL_AION_2 = "aion-labs/aion-2.0"
 STORY_LLM_MODEL_CLAUDE_SONNET_46 = "anthropic/claude-sonnet-4.6"
 STORY_LLM_MODEL_GEMINI_25_PRO = "google/gemini-2.5-pro"
 STORY_LLM_MODEL_GEMINI_31_PRO = "google/gemini-3.1-pro-preview"
-STORY_LLM_MODEL_QWEN35_122B_A10B = "qwen/qwen3.5-122b-a10b"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V3
 STORY_LLM_MODEL_LEGACY_ALIASES: dict[str, str] = {}
 STORY_SUPPORTED_LLM_MODELS = {
@@ -182,12 +183,12 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_DEEPSEEK_V3,
+    STORY_LLM_MODEL_DEEPSEEK_V4_PRO,
     STORY_LLM_MODEL_MISTRAL_NEMO,
     STORY_LLM_MODEL_AION_2,
     STORY_LLM_MODEL_CLAUDE_SONNET_46,
     STORY_LLM_MODEL_GEMINI_25_PRO,
     STORY_LLM_MODEL_GEMINI_31_PRO,
-    STORY_LLM_MODEL_QWEN35_122B_A10B,
 }
 STORY_EXTENDED_CONTEXT_LLM_MODELS = {
     STORY_LLM_MODEL_GLM51,
@@ -514,8 +515,6 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
         return STORY_TURN_COST_GLM51_TIERS
     if normalized_model_name == STORY_LLM_MODEL_AION_2:
         return STORY_TURN_COST_AION_TIERS
-    if normalized_model_name == STORY_LLM_MODEL_QWEN35_122B_A10B:
-        return STORY_TURN_COST_QWEN_TIERS
     if normalized_model_name in {STORY_LLM_MODEL_GLM5, STORY_LLM_MODEL_GEMINI_25_PRO}:
         return STORY_TURN_COST_GLM5_GEMINI25_TIERS
     if normalized_model_name == STORY_LLM_MODEL_CLAUDE_SONNET_46:
@@ -524,6 +523,8 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
         return STORY_TURN_COST_GEMINI_31_PRO_TIERS
     if normalized_model_name in {STORY_LLM_MODEL_DEEPSEEK_V32, STORY_LLM_MODEL_DEEPSEEK_V3}:
         return STORY_TURN_COST_DEEPSEEK_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_DEEPSEEK_V4_PRO:
+        return STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS
     if normalized_model_name == STORY_LLM_MODEL_GLM47_FLASH:
         return STORY_TURN_COST_GLM47_FLASH_TIERS
     if normalized_model_name in STORY_TURN_COST_STANDARD_LLM_MODELS:
@@ -563,10 +564,9 @@ def normalize_story_llm_model(value: str | None) -> str:
             detail=(
                 "Unsupported story model. "
                 "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7-flash, z-ai/glm-4.7, "
-                "deepseek/deepseek-v3.2, deepseek/deepseek-chat-v3-0324, mistralai/mistral-nemo, "
+                "deepseek/deepseek-v3.2, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v4-pro, mistralai/mistral-nemo, "
                 "aion-labs/aion-2.0, "
-                "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, google/gemini-3.1-pro-preview, "
-                "qwen/qwen3.5-122b-a10b"
+                "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, google/gemini-3.1-pro-preview"
             ),
         )
     return normalized
@@ -1176,6 +1176,7 @@ def story_game_summary_to_out(
             int(getattr(game, "active_main_hero_card_id", 0) or 0) or None
         ),
         auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
+        accelerated_service_enabled=bool(getattr(game, "accelerated_service_enabled", False)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         display_mode=normalize_story_display_mode(getattr(game, "display_mode", None)),
         character_state_enabled=normalize_story_character_state_enabled(
@@ -1326,6 +1327,7 @@ def story_game_summary_to_compact_out(
             int(getattr(game, "active_main_hero_card_id", 0) or 0) or None
         ),
         auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
+        accelerated_service_enabled=bool(getattr(game, "accelerated_service_enabled", False)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         display_mode=normalize_story_display_mode(getattr(game, "display_mode", None)),
         character_state_enabled=normalize_story_character_state_enabled(

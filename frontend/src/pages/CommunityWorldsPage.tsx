@@ -3375,7 +3375,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         <DialogContent>
           <Stack spacing={1.1} sx={{ pt: 0.45 }}>
             <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem', lineHeight: 1.45 }}>
-              Переведите автору публикации валюту со своего баланса. Минимум <SoulAmount amount={5} iconSize={13} color="inherit" fontSize="0.92rem" />.
+              Переведите автору публикации валюту со своего баланса. Минимум <SoulAmount amount={5} iconSize={15} color="inherit" fontSize="0.92rem" />.
             </Typography>
             <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800 }}>
               {encouragementTarget?.title ?? ''}

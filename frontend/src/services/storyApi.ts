@@ -220,6 +220,8 @@ export type StoryGenerationStreamOptions = {
   showNpcThoughts?: boolean
   ambientEnabled?: boolean
   environmentEnabled?: boolean
+  environmentTimeEnabled?: boolean
+  environmentWeatherEnabled?: boolean
   emotionVisualizationEnabled?: boolean
   onStart?: (payload: StoryStreamStartPayload) => void
   onChunk?: (payload: StoryStreamChunkPayload) => void
@@ -515,6 +517,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
         ? Math.trunc(game.active_main_hero_card_id)
         : null,
     auto_npc_cards_enabled: Boolean(game.auto_npc_cards_enabled),
+    accelerated_service_enabled: Boolean(game.accelerated_service_enabled),
     ambient_enabled: Boolean(game.ambient_enabled),
     display_mode: normalizeStoryDisplayMode(game.display_mode),
     character_state_enabled: Boolean(game.character_state_enabled),
@@ -2042,6 +2045,7 @@ export async function updateStoryGameSettings(payload: {
   showNpcThoughts?: boolean
   activeMainHeroCardId?: number | null
   autoNpcCardsEnabled?: boolean
+  acceleratedServiceEnabled?: boolean
   ambientEnabled?: boolean
   displayMode?: StoryDisplayMode
   characterStateEnabled?: boolean
@@ -2114,6 +2118,9 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.autoNpcCardsEnabled === 'boolean') {
     requestPayload.auto_npc_cards_enabled = payload.autoNpcCardsEnabled
+  }
+  if (typeof payload.acceleratedServiceEnabled === 'boolean') {
+    requestPayload.accelerated_service_enabled = payload.acceleratedServiceEnabled
   }
   if (typeof payload.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = payload.ambientEnabled
@@ -2380,6 +2387,12 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
   if (typeof options.environmentEnabled === 'boolean') {
     requestPayload.environment_enabled = options.environmentEnabled
+  }
+  if (typeof options.environmentTimeEnabled === 'boolean') {
+    requestPayload.environment_time_enabled = options.environmentTimeEnabled
+  }
+  if (typeof options.environmentWeatherEnabled === 'boolean') {
+    requestPayload.environment_weather_enabled = options.environmentWeatherEnabled
   }
   if (typeof options.emotionVisualizationEnabled === 'boolean') {
     requestPayload.emotion_visualization_enabled = options.emotionVisualizationEnabled

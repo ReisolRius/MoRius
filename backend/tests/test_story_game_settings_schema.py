@@ -4,20 +4,25 @@ from pathlib import Path
 import sys
 import unittest
 
+from fastapi import HTTPException
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.schemas import StoryGameCreateRequest, StoryGameSettingsUpdateRequest  # noqa: E402
 from app.models import StoryMessage  # noqa: E402
 from app.services.story_games import (  # noqa: E402
-    get_story_turn_cost_tokens,
+    STORY_DEFAULT_LLM_MODEL,
     coerce_story_image_model,
+    coerce_story_llm_model,
+    get_story_turn_cost_tokens,
     normalize_story_appearance_background_mode,
     normalize_story_appearance_color,
     normalize_story_appearance_gradient_enabled,
     normalize_story_appearance_text_style,
     normalize_story_appearance_ui_style,
     normalize_story_context_limit_chars,
+    normalize_story_llm_model,
 )
 from app.services.story_runtime import _calculate_story_turn_cost_tokens  # noqa: E402
 
@@ -45,6 +50,12 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
 
         self.assertEqual(payload.display_mode, "visual_novel")
         self.assertIn("display_mode", payload.model_fields_set)
+
+    def test_accelerated_service_is_tracked_when_sent(self) -> None:
+        payload = StoryGameSettingsUpdateRequest(accelerated_service_enabled=True)
+
+        self.assertTrue(payload.accelerated_service_enabled)
+        self.assertIn("accelerated_service_enabled", payload.model_fields_set)
 
     def test_create_request_accepts_display_mode(self) -> None:
         payload = StoryGameCreateRequest(title="VN", display_mode="visual_novel")
@@ -83,12 +94,31 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 45)
 
     def test_new_polza_models_have_planned_turn_costs(self) -> None:
+        self.assertEqual(
+            coerce_story_llm_model("deepseek/deepseek-v4-pro"),
+            "deepseek/deepseek-v4-pro",
+        )
+        self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-v4-pro"), 3)
+        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-v4-pro"), 8)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-v4-pro"), 18)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v4-pro"), 36)
+        self.assertEqual(
+            normalize_story_context_limit_chars(128_000, model_name="deepseek/deepseek-v4-pro"),
+            64_000,
+        )
         self.assertEqual(get_story_turn_cost_tokens(32_001, "google/gemini-2.5-pro"), 45)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "qwen/qwen3.5-122b-a10b"), 34)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 45)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 85)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "google/gemini-3.1-pro-preview"), 65)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-4.7"), 25)
+
+    def test_qwen_service_model_is_not_a_selectable_narrator(self) -> None:
+        self.assertEqual(
+            coerce_story_llm_model("qwen/qwen3-next-80b-a3b-instruct:free"),
+            STORY_DEFAULT_LLM_MODEL,
+        )
+        with self.assertRaises(HTTPException):
+            normalize_story_llm_model("qwen/qwen3-next-80b-a3b-instruct:free")
 
     def test_runtime_turn_cost_uses_visible_context_usage_not_selected_limit(self) -> None:
         cost = _calculate_story_turn_cost_tokens(
@@ -103,6 +133,21 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         )
 
         self.assertEqual(cost, 10)
+
+    def test_accelerated_service_adds_one_sol_to_runtime_turn_cost(self) -> None:
+        cost = _calculate_story_turn_cost_tokens(
+            get_story_turn_cost_tokens=lambda _context_usage_tokens, _model_name: 10,
+            context_limit_tokens=32_000,
+            model_name="test",
+            context_messages=[],
+            instruction_cards=[],
+            plot_cards=[],
+            world_cards=[],
+            memory_optimization_enabled=True,
+            accelerated_service_enabled=True,
+        )
+
+        self.assertEqual(cost, 11)
 
     def test_runtime_turn_cost_is_capped_by_selected_context_limit(self) -> None:
         cost = _calculate_story_turn_cost_tokens(

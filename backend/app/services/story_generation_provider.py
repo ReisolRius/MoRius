@@ -134,7 +134,7 @@ def _select_story_presence_penalty_value(
 
 POLZA_RETRY_DELAYS_SECONDS = (1.1, 2.4)
 POLZA_TRANSIENT_STATUS_CODES = {500, 502, 503, 504}
-POLZA_FALLBACK_STATUS_CODES = {404, 429, *POLZA_TRANSIENT_STATUS_CODES}
+POLZA_FALLBACK_STATUS_CODES = {404, 408, 409, 425, 429, *POLZA_TRANSIENT_STATUS_CODES}
 POLZA_STORY_STREAM_CONNECT_TIMEOUT_SECONDS = 20
 POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS = 90
 POLZA_GEMINI_PRO_STREAM_READ_TIMEOUT_SECONDS = 300
@@ -166,9 +166,22 @@ def _apply_polza_story_reasoning_preferences(
     model_name: str | None,
 ) -> None:
     normalized_model_name = _normalize_story_model_id(model_name)
-    if normalized_model_name in {"z-ai/glm-5", "z-ai/glm-5.1", "z-ai/glm-4.7-flash", "z-ai/glm-4.7", STORY_SERVICE_TEXT_MODEL}:
+    if normalized_model_name in {
+        "z-ai/glm-5",
+        "z-ai/glm-5.1",
+        "z-ai/glm-4.7-flash",
+        "z-ai/glm-4.7",
+        STORY_SERVICE_TEXT_MODEL,
+        STORY_ACCELERATED_SERVICE_TEXT_MODEL,
+    }:
         payload["reasoning"] = {
             "effort": "none",
+            "exclude": True,
+        }
+        return
+    if normalized_model_name == STORY_ACCELERATED_SERVICE_FALLBACK_MODEL:
+        payload["reasoning"] = {
+            "effort": "low",
             "exclude": True,
         }
         return
@@ -363,9 +376,19 @@ def _build_polza_story_candidate_models(
     allow_service_fallback: bool,
     fallback_model_names: list[str] | None = None,
 ) -> list[str]:
-    _ = (allow_service_fallback, fallback_model_names)
     normalized_primary_model = str(primary_model or "").strip()
-    return [normalized_primary_model] if normalized_primary_model else []
+    if not normalized_primary_model:
+        return []
+    candidate_models = [normalized_primary_model]
+    for fallback_model in fallback_model_names or []:
+        normalized_fallback_model = str(fallback_model or "").strip()
+        if not normalized_fallback_model or normalized_fallback_model in candidate_models:
+            continue
+        candidate_models.append(normalized_fallback_model)
+    if allow_service_fallback and normalized_primary_model != STORY_SERVICE_TEXT_MODEL:
+        if STORY_SERVICE_TEXT_MODEL not in candidate_models:
+            candidate_models.append(STORY_SERVICE_TEXT_MODEL)
+    return candidate_models
 
 def _normalize_basic_auth_header(raw_value: str) -> str:
     normalized = raw_value.strip()
@@ -628,21 +651,6 @@ def _iter_polza_story_stream_chunks(
     story_generation_game_id: int | None = None,
     story_generation_id: str | None = None,
 ):
-    def _extract_story_novel_suffix(base_text: str, candidate_text: str) -> str:
-        normalized_base = base_text or ""
-        normalized_candidate = candidate_text or ""
-        if not normalized_candidate:
-            return ""
-        if not normalized_base:
-            return normalized_candidate
-        if normalized_candidate.startswith(normalized_base):
-            return normalized_candidate[len(normalized_base) :]
-        overlap_limit = min(len(normalized_base), len(normalized_candidate))
-        for overlap_size in range(overlap_limit, 0, -1):
-            if normalized_base.endswith(normalized_candidate[:overlap_size]):
-                return normalized_candidate[overlap_size:]
-        return normalized_candidate
-
     request_started_at = time.monotonic()
     messages_payload = _build_story_provider_messages(
         context_messages,
@@ -680,7 +688,7 @@ def _iter_polza_story_stream_chunks(
 
     candidate_models = _build_polza_story_candidate_models(
         primary_model,
-        allow_service_fallback=not _should_lock_polza_story_request_to_selected_model(primary_model),
+        allow_service_fallback=False,
     )
 
     last_error: RuntimeError | None = None
@@ -788,22 +796,6 @@ def _iter_polza_story_stream_chunks(
                     error_text = f"OpenRouter chat error ({response.status_code})"
                     if detail:
                         error_text = f"{error_text}: {detail}"
-
-                    if _should_try_polza_fallback_model(
-                        status_code=response.status_code,
-                        detail=detail,
-                        candidate_model=model_name,
-                        candidate_models=candidate_models,
-                    ):
-                        logger.warning(
-                            "OpenRouter stream failed for model=%s provider=%s; trying next configured model. status=%s detail=%s",
-                            model_name,
-                            provider_label,
-                            response.status_code,
-                            detail or "n/a",
-                        )
-                        last_error = RuntimeError(error_text)
-                        break
 
                     raise RuntimeError(error_text)
 
@@ -975,12 +967,6 @@ def _iter_polza_story_stream_chunks(
                     )
                     _sleep_polza_retry(attempt_index)
                     continue
-                if model_name != candidate_models[-1]:
-                    logger.warning(
-                        "OpenRouter empty stream/text response for model=%s; trying next configured model.",
-                        model_name,
-                    )
-                    break
                 raise last_error
             finally:
                 unregister_story_generation_response(
@@ -1064,7 +1050,7 @@ def _request_polza_story_text(
     messages_payload: list[dict[str, str]],
     *,
     model_name: str | None = None,
-    allow_service_fallback: bool = True,
+    allow_service_fallback: bool = False,
     translate_input: bool = True,
     fallback_model_names: list[str] | None = None,
     temperature: float | None = None,
@@ -1235,75 +1221,7 @@ def _request_polza_story_text(
     return ""
 
 
-def _request_proxyapi_story_fallback_text(
-    messages_payload: list[dict[str, str]],
-    *,
-    model_name: str | None,
-    translate_input: bool,
-    temperature: float | None,
-    frequency_penalty: float | None,
-    presence_penalty: float | None,
-    top_k: int | None,
-    top_p: float | None,
-    max_tokens: int | None,
-) -> str:
-    from app.services.proxyapi_fallback import request_text as _request_proxyapi_text
-
-    prepared_messages_payload = _prepare_story_messages_for_model(
-        messages_payload,
-        translate_input=translate_input,
-    )
-    result = _request_proxyapi_text(
-        messages=prepared_messages_payload,
-        model_name=model_name,
-        temperature=temperature,
-        frequency_penalty=frequency_penalty,
-        presence_penalty=presence_penalty,
-        top_k=top_k,
-        top_p=top_p,
-        max_tokens=max_tokens,
-        http_session=HTTP_SESSION,
-    )
-    text_value = str(result.get("text") or "").strip()
-    if not text_value:
-        raise RuntimeError("ProxyAPI fallback returned empty text")
-    logger.warning(
-        "ProxyAPI/OpenRouter story fallback produced text: requested_model=%s upstream_model=%s chars=%s",
-        model_name,
-        result.get("model"),
-        len(text_value),
-    )
-    return text_value
-
-
-def _iter_proxyapi_story_fallback_chunks(
-    messages_payload: list[dict[str, str]],
-    *,
-    model_name: str | None,
-    translate_input: bool,
-    temperature: float | None,
-    frequency_penalty: float | None,
-    presence_penalty: float | None,
-    top_k: int | None,
-    top_p: float | None,
-    max_tokens: int | None,
-):
-    fallback_text = _request_proxyapi_story_fallback_text(
-        messages_payload,
-        model_name=model_name,
-        translate_input=translate_input,
-        temperature=temperature,
-        frequency_penalty=frequency_penalty,
-        presence_penalty=presence_penalty,
-        top_k=top_k,
-        top_p=top_p,
-        max_tokens=max_tokens,
-    )
-    for chunk in _yield_story_stream_chunks_with_pacing(fallback_text):
-        yield chunk
-
-
-def _iter_polza_story_stream_chunks_with_proxyapi_fallback(
+def _iter_polza_story_stream_chunks_single_model(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
     plot_cards: list[dict[str, str]],
@@ -1458,7 +1376,7 @@ def _iter_story_provider_stream_chunks(
         if _is_story_input_translation_enabled() and not input_translation_enabled:
             logger.info("Story input translation skipped for model=%s", selected_model_name)
         if output_translation_enabled:
-            raw_chunk_stream = _iter_polza_story_stream_chunks_with_proxyapi_fallback(
+            raw_chunk_stream = _iter_polza_story_stream_chunks_single_model(
                 context_messages,
                 instruction_cards,
                 plot_cards,
@@ -1493,7 +1411,7 @@ def _iter_story_provider_stream_chunks(
         # Important: do not force-translate each stream chunk for force models.
         # We stream raw chunks and run one final language enforcement pass on the full text.
         raw_chunks: list[str] = []
-        for chunk in _iter_polza_story_stream_chunks_with_proxyapi_fallback(
+        for chunk in _iter_polza_story_stream_chunks_single_model(
             context_messages,
             instruction_cards,
             plot_cards,

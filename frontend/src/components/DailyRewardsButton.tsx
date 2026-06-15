@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { Alert, Box, CircularProgress, IconButton, Popover, Stack, Typography } from '@mui/material'
-import { icons } from '../assets'
 import dailyDiamondIconMarkup from '../assets/icons/daily-diamond.svg?raw'
 import dailyRewardCheckIconMarkup from '../assets/icons/daily-reward-check.svg?raw'
 import dailyRewardLockIconMarkup from '../assets/icons/daily-reward-lock.svg?raw'
@@ -11,6 +10,7 @@ import {
   type DailyRewardStatus,
 } from '../services/authApi'
 import ThemedSvgIcon from './icons/ThemedSvgIcon'
+import SoulIcon from './currency/SoulIcon'
 
 type DailyRewardsButtonProps = {
   authToken: string
@@ -99,8 +99,7 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
     const isLocked = !isClaimable && !isClaimed
     const isDisabled = !isClaimable || isClaiming
 
-    const coinIcon = isBoosted ? icons.coin : icons.dailyRewardsCoin
-    const coinSize = isBoosted ? { width: 15, height: 22 } : { width: 14, height: 21 }
+    const coinSize = isBoosted ? 22 : 20
     const coinOpacity = isClaimed ? 0.45 : 0.95
     const textColor = isClaimed ? 'var(--morius-text-secondary)' : 'var(--morius-title-text)'
 
@@ -173,17 +172,12 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
           <CircularProgress size={16} sx={{ color: 'var(--morius-title-text)' }} />
         ) : (
           <>
-            <Box
-              component="img"
-              src={coinIcon}
-              alt=""
-              sx={{ ...coinSize, opacity: coinOpacity, flexShrink: 0, display: 'block' }}
-            />
+            <SoulIcon size={coinSize} sx={{ color: textColor, opacity: coinOpacity }} />
             <Typography
               sx={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                height: `${coinSize.height}px`,
+                height: `${coinSize}px`,
                 fontSize: '13px',
                 fontWeight: 900,
                 lineHeight: 1,

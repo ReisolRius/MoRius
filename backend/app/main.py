@@ -28,7 +28,13 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.config import POLZA_GEMINI_25_FLASH_LITE_MODEL, POLZA_GEMINI_25_FLASH_MODEL, settings
+from app.config import (
+    POLZA_ACCELERATED_SERVICE_FALLBACK_MODEL,
+    POLZA_ACCELERATED_SERVICE_TEXT_MODEL,
+    POLZA_GEMINI_25_FLASH_LITE_MODEL,
+    POLZA_GEMINI_25_FLASH_MODEL,
+    settings,
+)
 from app.database import SessionLocal
 from app.models import (
     StoryGame,
@@ -69,6 +75,7 @@ from app.routers.story_read import router as story_read_router
 from app.routers.story_turn_image import router as story_turn_image_router
 from app.routers.story_undo import router as story_undo_router
 from app.routers.story_world_cards import router as story_world_cards_router
+from app.services.story_service_budget import consume_story_service_http_request
 from app.schemas import (
     StoryCharacterAvatarGenerateOut,
     StoryCharacterAvatarGenerateRequest,
@@ -299,10 +306,18 @@ STORY_PLOT_CARD_MEMORY_TARGET_LINE_MAX_CHARS = 150
 STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES = 4
 STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 600
 STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
-STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 25
+STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 75
 STORY_PLOT_CARD_REQUEST_MAX_TOKENS = 700
 STORY_SERVICE_TEXT_MODEL = POLZA_GEMINI_25_FLASH_LITE_MODEL
 STORY_PLOT_CARD_MEMORY_MODEL = POLZA_GEMINI_25_FLASH_MODEL
+STORY_ACCELERATED_SERVICE_TEXT_MODEL = (
+    str(getattr(settings, "polza_accelerated_service_model", "") or "").strip()
+    or POLZA_ACCELERATED_SERVICE_TEXT_MODEL
+)
+STORY_ACCELERATED_SERVICE_FALLBACK_MODEL = (
+    str(getattr(settings, "polza_accelerated_service_fallback_model", "") or "").strip()
+    or POLZA_ACCELERATED_SERVICE_FALLBACK_MODEL
+)
 STORY_OUTPUT_TRANSLATION_MODEL = STORY_SERVICE_TEXT_MODEL
 STORY_MEMORY_LOCATION_TITLE = "Место"
 STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS = 280
@@ -491,7 +506,7 @@ STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_MAX_TOKENS = 3_000
 STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_SCOPE = {"main_hero", "npc"}
 STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_REQUIRED = True
 STORY_TURN_IMAGE_STYLE_PROMPT_MAX_CHARS = 320
-STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL = "qwen/qwen3-next-80b-a3b-instruct:free"
+STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL = STORY_SERVICE_TEXT_MODEL
 STORY_TURN_IMAGE_PROMPT_COMPOSER_CONTEXT_MAX_CHARS = 20_000
 STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_TOKENS = 2_400
 STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_WORLD_CARDS = 12
@@ -1216,7 +1231,6 @@ STORY_STREAM_PERSIST_MIN_CHARS = 900
 STORY_STREAM_PERSIST_MAX_INTERVAL_SECONDS = 1.2
 STORY_STREAM_HTTP_CHUNK_SIZE_BYTES = 256
 STORY_STREAM_COALESCED_CHUNK_DELAY_SECONDS = 0.012
-STORY_STREAM_TAIL_RECOVERY_MIN_CHARS = 260
 STORY_STREAM_TRANSLATION_MIN_CHARS = 24
 STORY_STREAM_TRANSLATION_MAX_CHARS = 180
 STORY_POLZA_TRANSLATION_FORCE_MODEL_IDS: set[str] = {
@@ -1232,17 +1246,18 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "z-ai/glm-4.7": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-v3.2": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-chat-v3-0324": STORY_SERVICE_TEXT_MODEL,
+    "deepseek/deepseek-v4-pro": STORY_SERVICE_TEXT_MODEL,
     "mistralai/mistral-nemo": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
     "anthropic/claude-sonnet-4.6": STORY_SERVICE_TEXT_MODEL,
     "google/gemini-2.5-pro": STORY_SERVICE_TEXT_MODEL,
     "google/gemini-3.1-pro-preview": STORY_SERVICE_TEXT_MODEL,
-    "qwen/qwen3.5-122b-a10b": STORY_SERVICE_TEXT_MODEL,
 }
 STORY_LEGACY_MODEL_ALIASES = {}
 STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
     "deepseek/deepseek-v3.2",
     "deepseek/deepseek-chat-v3-0324",
+    "deepseek/deepseek-v4-pro",
 }
 STORY_POLZA_PROVIDER_NEBIUS = "Nebius"
 STORY_POLZA_PROVIDER_IONSTREAM = "Ionstream"
@@ -1267,7 +1282,6 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "aion-labs/aion-2.0": STORY_POLZA_PROVIDER_AION_LABS,
     "anthropic/claude-sonnet-4.6": STORY_POLZA_PROVIDER_MIE,
     "google/gemini-2.5-pro": STORY_POLZA_PROVIDER_MIE,
-    "qwen/qwen3.5-122b-a10b": STORY_POLZA_PROVIDER_VENICE,
 }
 STORY_POLZA_IMAGE_PROVIDER_PINNED_BY_MODEL: dict[str, str] = {}
 STORY_PAID_MODEL_HINTS = {
@@ -1277,21 +1291,19 @@ STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-4.7",
     "deepseek/deepseek-v3.2",
     "deepseek/deepseek-chat-v3-0324",
+    "deepseek/deepseek-v4-pro",
     "mistralai/mistral-nemo",
     "aion-labs/aion-2.0",
     "anthropic/claude-sonnet-4.6",
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
-    "qwen/qwen3.5-122b-a10b",
 }
 STORY_NON_SAMPLING_MODEL_HINTS: set[str] = {
     "anthropic/claude-sonnet-4.6",
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
 }
-STORY_DISABLE_THINKING_MODEL_IDS: set[str] = {
-    "qwen/qwen3.5-122b-a10b",
-}
+STORY_DISABLE_THINKING_MODEL_IDS: set[str] = set()
 
 
 def _is_story_provider_failure_detail(detail: str | None) -> bool:
@@ -1605,12 +1617,6 @@ STORY_MODEL_SPECIFIC_RULES: dict[str, tuple[str, ...]] = {
         "Do not restate, quote, summarize, or paraphrase the player's latest message; treat it as already performed and continue from its consequences.",
         "Do not open the reply by describing what the player just wrote unless one short consequence absolutely requires it.",
         "Never put the player's wording in quotation marks or turn the player turn into a recap.",
-    ),
-    "qwen/qwen3.5-122b-a10b": (
-        "",
-        "MODEL-SPECIFIC DIRECTIVES (Qwen3.5 122B):",
-        "Do not expose chain-of-thought. Write only the final in-world narration, dialogue, and allowed markers.",
-        "Keep Russian output clean and literary when the story language is Russian.",
     ),
 }
 STORY_STRICT_ENGLISH_OUTPUT_RULES = (
@@ -3815,19 +3821,7 @@ def _build_story_npc_card_payload(
     if generated_payload is not None:
         return generated_payload
 
-    normalized_name = _normalize_story_world_card_title(" ".join(name.split()).strip())
-    if not normalized_name or _is_story_generic_npc_name(normalized_name):
-        return None
-    triggers = _build_story_npc_name_triggers(normalized_name)
-    content = _build_story_npc_fallback_profile_content(
-        name=normalized_name,
-        prompt=prompt,
-        assistant_text=assistant_text,
-        dialogues=dialogues,
-        snippets=snippets,
-        existing_cards=existing_cards,
-    )
-    return (normalized_name, triggers, content)
+    return None
 
 
 def _append_missing_story_npc_card_operations(
@@ -6332,9 +6326,22 @@ def _apply_polza_story_reasoning_preferences(
     model_name: str | None,
 ) -> None:
     normalized_model = _normalize_story_model_id(model_name)
-    if normalized_model in {"z-ai/glm-5", "z-ai/glm-5.1", "z-ai/glm-4.7-flash", "z-ai/glm-4.7", STORY_SERVICE_TEXT_MODEL}:
+    if normalized_model in {
+        "z-ai/glm-5",
+        "z-ai/glm-5.1",
+        "z-ai/glm-4.7-flash",
+        "z-ai/glm-4.7",
+        STORY_SERVICE_TEXT_MODEL,
+        STORY_ACCELERATED_SERVICE_TEXT_MODEL,
+    }:
         payload["reasoning"] = {
             "effort": "none",
+            "exclude": True,
+        }
+        return
+    if normalized_model == STORY_ACCELERATED_SERVICE_FALLBACK_MODEL:
+        payload["reasoning"] = {
+            "effort": "low",
             "exclude": True,
         }
         return
@@ -7115,7 +7122,68 @@ def _extract_text_from_model_content(value: Any) -> str:
 
         return "".join(parts)
 
+    if isinstance(value, dict):
+        for key in ("text", "content", "output_text", "value"):
+            text_value = value.get(key)
+            if isinstance(text_value, str):
+                return text_value
+        if value.get("type") == "text":
+            nested_text = value.get("text") or value.get("content")
+            return nested_text if isinstance(nested_text, str) else ""
+
     return ""
+
+
+def _parse_json_or_literal_fragment(fragment: str, expected_type: type) -> Any:
+    normalized = str(fragment or "").strip()
+    if not normalized:
+        return None
+    try:
+        parsed = json.loads(normalized)
+    except json.JSONDecodeError:
+        try:
+            parsed = ast.literal_eval(normalized)
+        except (ValueError, SyntaxError):
+            return None
+    return parsed if isinstance(parsed, expected_type) else None
+
+
+def _iter_balanced_json_fragments(raw_value: str, *, opener: str, closer: str) -> list[str]:
+    normalized = str(raw_value or "").strip()
+    if not normalized:
+        return []
+
+    fragments: list[str] = []
+    stack_depth = 0
+    start_index: int | None = None
+    string_quote: str | None = None
+    escape_next = False
+
+    for index, char in enumerate(normalized):
+        if string_quote is not None:
+            if escape_next:
+                escape_next = False
+            elif char == "\\":
+                escape_next = True
+            elif char == string_quote:
+                string_quote = None
+            continue
+
+        if char in {'"', "'"}:
+            string_quote = char
+            continue
+        if char == opener:
+            if stack_depth == 0:
+                start_index = index
+            stack_depth += 1
+            continue
+        if char == closer and stack_depth > 0:
+            stack_depth -= 1
+            if stack_depth == 0 and start_index is not None:
+                fragments.append(normalized[start_index : index + 1])
+                start_index = None
+
+    return fragments
 
 
 def _extract_json_array_from_text(raw_value: str) -> Any:
@@ -7123,30 +7191,14 @@ def _extract_json_array_from_text(raw_value: str) -> Any:
     if not normalized:
         return []
 
-    try:
-        return json.loads(normalized)
-    except json.JSONDecodeError:
-        try:
-            parsed_literal = ast.literal_eval(normalized)
-        except (ValueError, SyntaxError):
-            parsed_literal = None
-        if isinstance(parsed_literal, list):
-            return parsed_literal
+    parsed_direct = _parse_json_or_literal_fragment(normalized, list)
+    if isinstance(parsed_direct, list):
+        return parsed_direct
 
-    start_index = normalized.find("[")
-    end_index = normalized.rfind("]")
-    if start_index >= 0 and end_index > start_index:
-        fragment = normalized[start_index : end_index + 1]
-        try:
-            return json.loads(fragment)
-        except json.JSONDecodeError:
-            try:
-                parsed_literal = ast.literal_eval(fragment)
-            except (ValueError, SyntaxError):
-                parsed_literal = None
-            if isinstance(parsed_literal, list):
-                return parsed_literal
-            return []
+    for fragment in reversed(_iter_balanced_json_fragments(normalized, opener="[", closer="]")):
+        parsed_fragment = _parse_json_or_literal_fragment(fragment, list)
+        if isinstance(parsed_fragment, list):
+            return parsed_fragment
 
     return []
 
@@ -7156,34 +7208,14 @@ def _extract_json_object_from_text(raw_value: str) -> Any:
     if not normalized:
         return {}
 
-    try:
-        parsed = json.loads(normalized)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        try:
-            parsed_literal = ast.literal_eval(normalized)
-        except (ValueError, SyntaxError):
-            parsed_literal = None
-        if isinstance(parsed_literal, dict):
-            return parsed_literal
+    parsed_direct = _parse_json_or_literal_fragment(normalized, dict)
+    if isinstance(parsed_direct, dict):
+        return parsed_direct
 
-    start_index = normalized.find("{")
-    end_index = normalized.rfind("}")
-    if start_index >= 0 and end_index > start_index:
-        fragment = normalized[start_index : end_index + 1]
-        try:
-            parsed = json.loads(fragment)
-        except json.JSONDecodeError:
-            try:
-                parsed_literal = ast.literal_eval(fragment)
-            except (ValueError, SyntaxError):
-                return {}
-            if isinstance(parsed_literal, dict):
-                return parsed_literal
-            return {}
-        if isinstance(parsed, dict):
-            return parsed
+    for fragment in reversed(_iter_balanced_json_fragments(normalized, opener="{", closer="}")):
+        parsed_fragment = _parse_json_or_literal_fragment(fragment, dict)
+        if isinstance(parsed_fragment, dict):
+            return parsed_fragment
 
     return {}
 
@@ -7468,6 +7500,7 @@ def _resolve_story_turn_postprocess_payload(
     important_event_enabled: bool = False,
     ambient_enabled: bool = False,
     emotion_visualization_enabled: bool = False,
+    auto_npc_cards_enabled: bool = False,
 ) -> dict[str, Any] | None:
     if assistant_message.game_id != game.id or assistant_message.role != STORY_ASSISTANT_ROLE:
         return None
@@ -7515,7 +7548,7 @@ def _resolve_story_turn_postprocess_payload(
                 resolved_previous_assistant_text = previous_assistant_content
 
     resolved_environment_enabled = (
-        story_memory_pipeline._normalize_story_environment_enabled(getattr(game, "environment_enabled", None))
+        story_memory_pipeline._story_environment_any_enabled_for_game(game)
         if environment_enabled is None
         else bool(environment_enabled)
     )
@@ -7564,6 +7597,7 @@ def _resolve_story_turn_postprocess_payload(
             important_event_enabled=important_event_enabled,
             ambient_enabled=ambient_enabled,
             scene_emotion_enabled=emotion_visualization_enabled,
+            auto_npc_cards_enabled=auto_npc_cards_enabled,
             scene_emotion_active_cast_entries=scene_emotion_active_cast_entries,
             scene_emotion_allowed_emotions=sorted(_STORY_CHARACTER_EMOTION_IDS),
         )
@@ -8839,14 +8873,34 @@ def _build_story_plot_card_memory_messages(
     ]
 
 
-def _resolve_story_plot_memory_model_name() -> str:
+def _resolve_story_service_model_pair(game: StoryGame | None = None) -> tuple[str, list[str]]:
+    if bool(getattr(game, "accelerated_service_enabled", False)):
+        primary_model = STORY_ACCELERATED_SERVICE_TEXT_MODEL
+        fallback_model = STORY_ACCELERATED_SERVICE_FALLBACK_MODEL
+    else:
+        primary_model = STORY_SERVICE_TEXT_MODEL
+        fallback_model = str(getattr(settings, "polza_service_fallback_model", "") or "").strip()
+    fallback_models = [fallback_model] if fallback_model and fallback_model != primary_model else []
+    return primary_model, fallback_models
+
+
+def _resolve_story_plot_memory_model_name(game: StoryGame | None = None) -> str:
     # Memory extraction stays pinned to the service model for stable quality.
+    if bool(getattr(game, "accelerated_service_enabled", False)):
+        return _resolve_story_service_model_pair(game)[0]
     return STORY_PLOT_CARD_MEMORY_MODEL
 
 
-def _resolve_story_plot_memory_fallback_models(primary_model: str) -> list[str]:
-    _ = primary_model
-    return []
+def _resolve_story_plot_memory_fallback_models(
+    primary_model: str,
+    game: StoryGame | None = None,
+) -> list[str]:
+    normalized_primary = str(primary_model or "").strip()
+    _, resolved_fallbacks = _resolve_story_service_model_pair(game)
+    configured_fallback = resolved_fallbacks[0] if resolved_fallbacks else ""
+    if not configured_fallback or configured_fallback == normalized_primary:
+        return []
+    return [configured_fallback]
 
 
 def _extract_story_plot_memory_points(raw_payload: dict[str, Any]) -> list[str]:
@@ -9669,12 +9723,14 @@ def _extract_story_important_plot_card_payload(
     *,
     latest_user_prompt: str,
     latest_assistant_text: str,
+    game: StoryGame | None = None,
 ) -> tuple[str, str] | None:
     from app.services import story_memory_pipeline as _story_memory_pipeline
 
     return _story_memory_pipeline._extract_story_important_plot_card_payload(
         latest_user_prompt=latest_user_prompt,
         latest_assistant_text=latest_assistant_text,
+        game=game,
     )
 
 
@@ -10559,37 +10615,13 @@ def _upsert_story_plot_memory_card(
             db=db,
             game_id=game.id,
         )
-        environment_enabled = story_memory_pipeline._normalize_story_environment_enabled(
-            getattr(game, "environment_enabled", None)
-        )
+        environment_enabled = story_memory_pipeline._story_environment_any_enabled_for_game(game)
         postprocess_payload = (
             resolved_postprocess_payload_override
             if isinstance(resolved_postprocess_payload_override, dict)
             else None
         )
         has_postprocess_payload_override = isinstance(resolved_postprocess_payload_override, dict)
-
-        if (
-            bool(getattr(game, "character_state_enabled", None))
-            and allow_model_postprocess_request
-            and not has_postprocess_payload_override
-        ):
-            try:
-                if story_memory_pipeline._seed_story_character_state_cards_from_world_cards(
-                    db=db,
-                    game=game,
-                    latest_user_prompt=latest_user_prompt,
-                    previous_assistant_text=previous_assistant_text,
-                    latest_assistant_text=latest_assistant_text,
-                ):
-                    db.flush()
-            except Exception as exc:
-                logger.warning(
-                    "Story character-state pre-seed failed: game_id=%s assistant_message_id=%s error=%s",
-                    game.id,
-                    assistant_message.id,
-                    exc,
-                )
 
         if postprocess_payload is None and allow_model_postprocess_request:
             try:
@@ -10607,6 +10639,7 @@ def _upsert_story_plot_memory_card(
                     important_event_enabled=should_extract_important_payload,
                     ambient_enabled=False,
                     scene_emotion_enabled=False,
+                    auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
                 )
             except Exception as exc:
                 logger.warning(
@@ -10639,20 +10672,6 @@ def _upsert_story_plot_memory_card(
             and isinstance(postprocess_payload.get("important_event"), tuple)
             else important_payload
         )
-        if important_payload is None and allow_model_postprocess_request and not has_postprocess_payload_override:
-            try:
-                important_payload = story_memory_pipeline._extract_story_important_plot_card_payload(
-                    latest_user_prompt=latest_user_prompt,
-                    latest_assistant_text=latest_assistant_text,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Story important-event model extraction failed: game_id=%s assistant_message_id=%s error=%s",
-                    game.id,
-                    assistant_message.id,
-                    exc,
-                )
-
         if important_payload is None and not has_postprocess_payload_override:
             try:
                 important_payload = story_memory_pipeline._extract_story_important_plot_card_payload_locally(
@@ -10691,8 +10710,8 @@ def _upsert_story_plot_memory_card(
                     latest_user_prompt=latest_user_prompt,
                     previous_assistant_text=previous_assistant_text,
                     latest_assistant_text=latest_assistant_text,
-                    allow_model_seed=allow_model_postprocess_request and not has_postprocess_payload_override,
-                    allow_model_fill=allow_model_postprocess_request and not has_postprocess_payload_override,
+                    allow_model_seed=False,
+                    allow_model_fill=False,
                 )
                 from app.services.story_character_state_fields import apply_story_character_state_payload_to_world_cards
 
@@ -10719,7 +10738,7 @@ def _upsert_story_plot_memory_card(
                     current_location_content_override=current_location_content,
                     resolved_payload_override=environment_payload_for_sync,
                     allow_weather_seed=False,
-                    allow_model_request=allow_model_postprocess_request,
+                    allow_model_request=False,
                 )
             except Exception as exc:
                 logger.warning(
@@ -10736,6 +10755,13 @@ def _upsert_story_plot_memory_card(
                     assistant_message=assistant_message,
                     latest_user_prompt=latest_user_prompt,
                     latest_assistant_text=latest_assistant_text,
+                    resolved_payload_override=(
+                        postprocess_payload.get("auto_npcs")
+                        if isinstance(postprocess_payload, dict)
+                        and isinstance(postprocess_payload.get("auto_npcs"), list)
+                        else []
+                    ),
+                    allow_model_request=False,
                 )
                 if created_auto_npc_cards:
                     should_force_memory_rebalance = True
@@ -11023,21 +11049,6 @@ def _iter_polza_story_stream_chunks(
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ):
-    def _extract_story_novel_suffix(base_text: str, candidate_text: str) -> str:
-        normalized_base = base_text or ""
-        normalized_candidate = candidate_text or ""
-        if not normalized_candidate:
-            return ""
-        if not normalized_base:
-            return normalized_candidate
-        if normalized_candidate.startswith(normalized_base):
-            return normalized_candidate[len(normalized_base) :]
-        overlap_limit = min(len(normalized_base), len(normalized_candidate))
-        for overlap_size in range(overlap_limit, 0, -1):
-            if normalized_base.endswith(normalized_candidate[:overlap_size]):
-                return normalized_candidate[overlap_size:]
-        return normalized_candidate
-
     request_started_at = time.monotonic()
     messages_payload = _build_story_provider_messages(
         context_messages,
@@ -11071,12 +11082,6 @@ def _iter_polza_story_stream_chunks(
         raise RuntimeError("Polza.ai chat model is not configured")
 
     candidate_models = [primary_model]
-    allow_service_model_fallback = (
-        primary_model != STORY_SERVICE_TEXT_MODEL
-        and not _is_story_paid_model(primary_model)
-    )
-    if allow_service_model_fallback:
-        candidate_models.append(STORY_SERVICE_TEXT_MODEL)
 
     last_error: RuntimeError | None = None
 
@@ -11143,10 +11148,6 @@ def _iter_polza_story_stream_chunks(
                     error_text = f"Polza.ai chat error ({response.status_code})"
                     if detail:
                         error_text = f"{error_text}: {detail}"
-
-                    if response.status_code in {404, 429, 503} and model_name != candidate_models[-1]:
-                        last_error = RuntimeError(error_text)
-                        break
 
                     raise RuntimeError(error_text)
 
@@ -11235,67 +11236,18 @@ def _iter_polza_story_stream_chunks(
                             break
 
                 if emitted_delta:
-                    emitted_text = "".join(emitted_text_parts)
                     stream_closed_unexpectedly = not saw_done_marker and not str(finish_reason or "").strip()
                     model_hit_length_limit = str(finish_reason or "").strip().casefold() == "length"
-                    stream_closed_and_short = (
-                        stream_closed_unexpectedly
-                        and len(emitted_text.strip()) < STORY_STREAM_TAIL_RECOVERY_MIN_CHARS
-                    )
-                    should_try_recovery = stream_closed_and_short or (model_hit_length_limit and max_tokens is None)
-                    if should_try_recovery:
-                        fallback_max_tokens = max_tokens
-                        if fallback_max_tokens is None and model_hit_length_limit:
-                            fallback_max_tokens = max(STORY_DEFAULT_RESPONSE_MAX_TOKENS * 3, 1_200)
+                    if stream_closed_unexpectedly or model_hit_length_limit:
                         logger.warning(
-                            "Polza.ai stream may be incomplete; attempting tail recovery: model=%s finish_reason=%s done=%s fallback_max_tokens=%s",
+                            "Polza.ai stream ended before a clean done marker; keeping streamed text without recovery: model=%s finish_reason=%s done=%s",
                             model_name,
                             finish_reason or "",
                             saw_done_marker,
-                            fallback_max_tokens,
                         )
-                        try:
-                            fallback_text = _request_polza_story_text(
-                                messages_payload,
-                                model_name=model_name,
-                                allow_service_fallback=False,
-                                temperature=temperature,
-                                top_k=top_k,
-                                top_p=top_p,
-                                max_tokens=fallback_max_tokens,
-                            )
-                        except Exception as recovery_exc:
-                            logger.warning(
-                                "Polza.ai stream tail recovery failed: model=%s error=%s",
-                                model_name,
-                                recovery_exc,
-                            )
-                            fallback_text = ""
-                        suffix_text = _extract_story_novel_suffix(emitted_text, fallback_text)
-                        if suffix_text:
-                            logger.info(
-                                "Polza.ai stream recovery appended tail: model=%s chars=%s",
-                                model_name,
-                                len(suffix_text),
-                            )
-                            for chunk in _yield_story_stream_chunks_with_pacing(suffix_text):
-                                yield chunk
                     return
 
-                # Fallback when stream completed without textual content chunks.
-                fallback_text = _request_polza_story_text(
-                    messages_payload,
-                    model_name=model_name,
-                    allow_service_fallback=False,
-                    temperature=temperature,
-                    top_k=top_k,
-                    top_p=top_p,
-                    max_tokens=max_tokens,
-                )
-                if fallback_text:
-                    for chunk in _yield_story_stream_chunks_with_pacing(fallback_text):
-                        yield chunk
-                return
+                raise RuntimeError("Polza.ai stream completed without textual content")
             finally:
                 response.close()
 
@@ -11375,7 +11327,7 @@ def _request_polza_story_text(
     messages_payload: list[dict[str, str]],
     *,
     model_name: str | None = None,
-    allow_service_fallback: bool = True,
+    allow_service_fallback: bool = False,
     translate_input: bool = True,
     fallback_model_names: list[str] | None = None,
     temperature: float | None = None,
@@ -11400,12 +11352,11 @@ def _request_polza_story_text(
         raise RuntimeError("Polza.ai chat model is not configured")
 
     candidate_models = [primary_model]
-    if fallback_model_names:
-        for fallback_model in fallback_model_names:
-            normalized_fallback_model = str(fallback_model or "").strip()
-            if not normalized_fallback_model or normalized_fallback_model in candidate_models:
-                continue
-            candidate_models.append(normalized_fallback_model)
+    for fallback_model in fallback_model_names or []:
+        normalized_fallback_model = str(fallback_model or "").strip()
+        if not normalized_fallback_model or normalized_fallback_model in candidate_models:
+            continue
+        candidate_models.append(normalized_fallback_model)
     if allow_service_fallback and primary_model != STORY_SERVICE_TEXT_MODEL:
         if STORY_SERVICE_TEXT_MODEL not in candidate_models:
             candidate_models.append(STORY_SERVICE_TEXT_MODEL)
@@ -11438,6 +11389,14 @@ def _request_polza_story_text(
         _apply_polza_story_reasoning_preferences(payload, model_name=candidate_model)
         attempts_per_model = 2 if retry_on_rate_limit else 1
         for attempt_index in range(attempts_per_model):
+            consume_story_service_http_request()
+            request_started_at = time.monotonic()
+            logger.info(
+                "OpenRouter service request started: model=%s attempt=%s candidates=%s",
+                candidate_model,
+                attempt_index + 1,
+                ",".join(candidate_models),
+            )
             try:
                 response = HTTP_SESSION.post(
                     settings.polza_chat_url,
@@ -11446,7 +11405,23 @@ def _request_polza_story_text(
                     timeout=timeout_value,
                 )
             except requests.RequestException as exc:
-                raise RuntimeError("Failed to reach Polza.ai chat endpoint") from exc
+                error_text = "Failed to reach OpenRouter chat endpoint"
+                if candidate_model != candidate_models[-1]:
+                    logger.warning(
+                        "OpenRouter service transport failed for model=%s; trying fallback model: error=%s",
+                        candidate_model,
+                        exc,
+                    )
+                    last_error = RuntimeError(error_text)
+                    break
+                raise RuntimeError(error_text) from exc
+
+            logger.info(
+                "OpenRouter service response received: model=%s status=%s latency=%.3fs",
+                candidate_model,
+                response.status_code,
+                time.monotonic() - request_started_at,
+            )
 
             if response.status_code >= 400:
                 detail = ""
@@ -11482,9 +11457,9 @@ def _request_polza_story_text(
                 if detail:
                     error_text = f"{error_text}: {detail}"
 
-                if response.status_code in {404, 429, 503} and candidate_model != candidate_models[-1]:
+                if response.status_code in {404, 408, 409, 425, 429, 500, 502, 503, 504} and candidate_model != candidate_models[-1]:
                     logger.warning(
-                        "Polza.ai chat failed for model=%s; trying fallback model. status=%s detail=%s",
+                        "OpenRouter service model failed; trying fallback model: model=%s status=%s detail=%s",
                         candidate_model,
                         response.status_code,
                         detail or "n/a",
@@ -11499,15 +11474,30 @@ def _request_polza_story_text(
                 raise RuntimeError("Polza.ai chat returned invalid payload") from exc
 
             if not isinstance(payload_value, dict):
+                if candidate_model != candidate_models[-1]:
+                    last_error = RuntimeError("OpenRouter chat returned an invalid payload")
+                    break
                 return ""
             choices = payload_value.get("choices")
             if not isinstance(choices, list) or not choices:
+                if candidate_model != candidate_models[-1]:
+                    last_error = RuntimeError("OpenRouter chat returned no choices")
+                    break
                 return ""
             choice = choices[0] if isinstance(choices[0], dict) else {}
             message_value = choice.get("message")
             if not isinstance(message_value, dict):
+                if candidate_model != candidate_models[-1]:
+                    last_error = RuntimeError("OpenRouter chat returned no message")
+                    break
                 return ""
-            return _extract_text_from_model_content(message_value.get("content"))
+            response_text = _extract_text_from_model_content(message_value.get("content"))
+            if response_text:
+                return response_text
+            if candidate_model != candidate_models[-1]:
+                last_error = RuntimeError("OpenRouter chat returned empty text")
+                break
+            return ""
 
     if last_error is not None:
         raise last_error
@@ -12845,7 +12835,7 @@ def _compose_story_turn_image_prompt_with_model(
         composed_prompt = _request_polza_story_text(
             messages_payload,
             model_name=STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL,
-            allow_service_fallback=True,
+            allow_service_fallback=False,
             translate_input=False,
             temperature=0.15,
             max_tokens=STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_TOKENS,
@@ -14471,60 +14461,7 @@ def _remove_story_sprite_background_data_url(data_url: str | None) -> str | None
     return _serialize_story_sprite_image(processed_image) or data_url
 
 
-def _request_proxyapi_story_fallback_text(
-    messages_payload: list[dict[str, str]],
-    *,
-    model_name: str | None,
-    temperature: float | None,
-    top_k: int | None,
-    top_p: float | None,
-    max_tokens: int | None,
-) -> str:
-    from app.services.proxyapi_fallback import request_text as _request_proxyapi_text
-
-    result = _request_proxyapi_text(
-        messages=messages_payload,
-        model_name=model_name,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
-        max_tokens=max_tokens,
-        http_session=HTTP_SESSION,
-    )
-    text_value = str(result.get("text") or "").strip()
-    if not text_value:
-        raise RuntimeError("ProxyAPI fallback returned empty text")
-    logger.warning(
-        "ProxyAPI/OpenRouter story fallback produced text: requested_model=%s upstream_model=%s chars=%s",
-        model_name,
-        result.get("model"),
-        len(text_value),
-    )
-    return text_value
-
-
-def _iter_proxyapi_story_fallback_chunks(
-    messages_payload: list[dict[str, str]],
-    *,
-    model_name: str | None,
-    temperature: float | None,
-    top_k: int | None,
-    top_p: float | None,
-    max_tokens: int | None,
-):
-    fallback_text = _request_proxyapi_story_fallback_text(
-        messages_payload,
-        model_name=model_name,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
-        max_tokens=max_tokens,
-    )
-    for chunk in _yield_story_stream_chunks_with_pacing(fallback_text):
-        yield chunk
-
-
-def _iter_polza_story_stream_chunks_with_proxyapi_fallback(
+def _iter_polza_story_stream_chunks_single_model(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
     plot_cards: list[dict[str, str]],
@@ -14564,44 +14501,12 @@ def _iter_polza_story_stream_chunks_with_proxyapi_fallback(
             if str(chunk or "").strip():
                 emitted_text = True
             yield chunk
-    except Exception as exc:
-        if emitted_text:
-            raise
-        logger.warning(
-            "Polza.ai story stream failed before text; falling back to ProxyAPI/OpenRouter: model=%s error=%s",
-            model_name,
-            exc,
-        )
+    except Exception:
+        raise
     else:
         if emitted_text:
             return
-        logger.warning(
-            "Polza.ai story stream produced no text; falling back to ProxyAPI/OpenRouter: model=%s",
-            model_name,
-        )
-
-    messages_payload = _build_story_provider_messages(
-        context_messages,
-        instruction_cards,
-        plot_cards,
-        world_cards,
-        use_plot_memory=use_plot_memory,
-        context_limit_tokens=context_limit_chars,
-        response_max_tokens=max_tokens,
-        translate_for_model=translate_for_model,
-        model_name=model_name,
-        reroll_discarded_assistant_text=reroll_discarded_assistant_text,
-        show_gg_thoughts=show_gg_thoughts,
-        show_npc_thoughts=show_npc_thoughts,
-    )
-    yield from _iter_proxyapi_story_fallback_chunks(
-        messages_payload,
-        model_name=model_name,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
-        max_tokens=max_tokens,
-    )
+        raise RuntimeError("OpenRouter story stream completed without textual content")
 
 
 def _iter_story_provider_stream_chunks(
@@ -14693,7 +14598,7 @@ def _iter_story_provider_stream_chunks(
         input_translation_enabled = _is_story_input_translation_enabled()
         output_translation_enabled = _is_story_output_translation_enabled()
         if output_translation_enabled:
-            raw_chunk_stream = _iter_polza_story_stream_chunks_with_proxyapi_fallback(
+            raw_chunk_stream = _iter_polza_story_stream_chunks_single_model(
                 context_messages,
                 instruction_cards,
                 plot_cards,
@@ -14721,7 +14626,7 @@ def _iter_story_provider_stream_chunks(
         # Important: do not force-translate each stream chunk for force models.
         # We stream raw chunks and run one final language enforcement pass on the full text.
         raw_chunks: list[str] = []
-        for chunk in _iter_polza_story_stream_chunks_with_proxyapi_fallback(
+        for chunk in _iter_polza_story_stream_chunks_single_model(
             context_messages,
             instruction_cards,
             plot_cards,

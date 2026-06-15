@@ -80,6 +80,7 @@ import BaseDialog from '../components/dialogs/BaseDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
+import SoulIcon from '../components/currency/SoulIcon'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
@@ -730,10 +731,10 @@ const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
 const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
 const STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64000
 const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [1, 4, 9, 18, 35]
+const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [3, 8, 18, 36, 36]
 const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [1, 4, 9, 18, 35]
 const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [2, 5, 12, 25, 48]
 const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [3, 7, 16, 34, 65]
-const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [3, 7, 16, 34, 65]
 const STORY_TURN_COST_GLM5_GEMINI25_TIERS: readonly [number, number, number, number, number] = [4, 10, 22, 45, 85]
 const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [5, 12, 26, 55, 105]
 const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [8, 20, 35, 65, 125]
@@ -1000,6 +1001,12 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarrat
     storyTopK: STORY_DEFAULT_TOP_K,
     storyTopR: STORY_DEFAULT_TOP_R,
   },
+  'deepseek/deepseek-v4-pro': {
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
+  },
   'mistralai/mistral-nemo': {
     storyTemperature: STORY_DEFAULT_TEMPERATURE,
     storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
@@ -1025,12 +1032,6 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarrat
     storyTopR: STORY_DEFAULT_TOP_R,
   },
   'google/gemini-3.1-pro-preview': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
-  },
-  'qwen/qwen3.5-122b-a10b': {
     storyTemperature: STORY_DEFAULT_TEMPERATURE,
     storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
     storyTopK: STORY_DEFAULT_TOP_K,
@@ -1118,6 +1119,19 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
+    id: 'deepseek/deepseek-v4-pro',
+    title: 'DeepSeek V4 Pro',
+    description:
+      'Продвинутая модель DeepSeek для сложных сцен, устойчивой причинности и глубокого ведения персонажей. Контекст ограничен 64000 токенов.',
+    portraitSrc: narratorVelesPortrait,
+    portraitAlt: 'DeepSeek V4 Pro',
+    stats: [
+      { label: 'Интеллект', value: 5 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 5 },
+    ],
+  },
+  {
     id: 'mistralai/mistral-nemo',
     title: 'Mistral Nemo',
     description:
@@ -1167,19 +1181,6 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Интеллект', value: 5 },
       { label: 'Скорость', value: 3 },
       { label: 'Глубина', value: 5 },
-    ],
-  },
-  {
-    id: 'qwen/qwen3.5-122b-a10b',
-    title: 'Qwen 3.5 122B',
-    description:
-      'Мощный рассказчик с хорошей логикой и гибкой сценой. Подходит для сложных миров, где важны правила, связи и последствия.',
-    portraitSrc: narratorVelesPortrait,
-    portraitAlt: 'Qwen 3.5 122B',
-    stats: [
-      { label: 'Интеллект', value: 5 },
-      { label: 'Скорость', value: 4 },
-      { label: 'Глубина', value: 4 },
     ],
   },
   {
@@ -1238,7 +1239,7 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите модель рассказчика. DeepSeek V3, DeepSeek V3.2 и GLM 4.7 Flash дают короткие ходы от 1 единицы валюты; обычный GLM 4.7 дороже, но стабильнее; старшие модели стоят по новой таблице.',
+    'Выберите модель рассказчика. DeepSeek V3, DeepSeek V3.2 и GLM 4.7 Flash дают короткие ходы от 1 единицы валюты; DeepSeek V4 Pro рассчитан на более сложные сцены; старшие модели стоят по таблице.',
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
@@ -3975,9 +3976,6 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'aion-labs/aion-2.0') {
     return STORY_TURN_COST_AION_TIERS
   }
-  if (modelId === 'qwen/qwen3.5-122b-a10b') {
-    return STORY_TURN_COST_QWEN_TIERS
-  }
   if (modelId === 'z-ai/glm-5' || modelId === 'google/gemini-2.5-pro') {
     return STORY_TURN_COST_GLM5_GEMINI25_TIERS
   }
@@ -3986,6 +3984,9 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   }
   if (modelId === 'google/gemini-3.1-pro-preview') {
     return STORY_TURN_COST_GEMINI_31_PRO_TIERS
+  }
+  if (modelId === 'deepseek/deepseek-v4-pro') {
+    return STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS
   }
   if (modelId === 'deepseek/deepseek-v3.2' || modelId === 'deepseek/deepseek-chat-v3-0324') {
     return STORY_TURN_COST_DEEPSEEK_TIERS
@@ -4009,6 +4010,12 @@ function getStoryTurnCostTooltipText(): string {
     '16001–32000 — 9 ед.',
     '32001–64000 — 18 ед.',
     '',
+    'DeepSeek V4 Pro:',
+    'до 6000 — 3 ед.',
+    '6001–16000 — 8 ед.',
+    '16001–32000 — 18 ед.',
+    '32001–64000 — 36 ед.',
+    '',
     'GLM 4.7 Flash:',
     'до 6000 — 1 ед.',
     '6001–16000 — 4 ед.',
@@ -4021,7 +4028,7 @@ function getStoryTurnCostTooltipText(): string {
     '16001–32000 — 12 ед.',
     '32001–64000 — 25 ед.',
     '',
-    'AionLabs, Qwen 3.5 122B:',
+    'AionLabs:',
     'до 6000 — 3 ед.',
     '6001–16000 — 7 ед.',
     '16001–32000 — 16 ед.',
@@ -4057,10 +4064,10 @@ function getStoryTurnCostTooltipText(): string {
 function StoryTurnCostTooltipContent() {
   const rows = [
     { title: 'DeepSeek V3/V3.2', values: ['1', '4', '9', '18', '—'] },
+    { title: 'DeepSeek V4 Pro', values: ['3', '8', '18', '36', '—'] },
     { title: 'GLM 4.7 Flash', values: ['1', '4', '9', '18', '—'] },
     { title: 'GLM 4.7', values: ['2', '5', '12', '25', '—'] },
     { title: 'AionLabs', values: ['3', '7', '16', '34', '65'] },
-    { title: 'Qwen 3.5 122B', values: ['3', '7', '16', '34', '—'] },
     { title: 'GLM 5.0', values: ['4', '10', '22', '45', '—'] },
     { title: 'Gemini 2.5 Pro', values: ['4', '10', '22', '45', '—'] },
     { title: 'GLM 5.1', values: ['5', '12', '26', '55', '105'] },
@@ -5927,6 +5934,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [showGgThoughts, setShowGgThoughts] = useState(false)
   const [showNpcThoughts, setShowNpcThoughts] = useState(false)
   const [autoNpcCardsEnabled, setAutoNpcCardsEnabled] = useState(false)
+  const [acceleratedServiceEnabled, setAcceleratedServiceEnabled] = useState(false)
   const [ambientEnabled, setAmbientEnabled] = useState(false)
   const [characterStateEnabled, setCharacterStateEnabled] = useState(false)
   const [appearanceBackgroundMode, setAppearanceBackgroundMode] = useState<StoryAppearanceBackgroundMode>(
@@ -6005,6 +6013,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isSavingShowGgThoughts = false
   const [isSavingShowNpcThoughts, setIsSavingShowNpcThoughts] = useState(false)
   const [isSavingAutoNpcCardsEnabled, setIsSavingAutoNpcCardsEnabled] = useState(false)
+  const [isSavingAcceleratedServiceEnabled, setIsSavingAcceleratedServiceEnabled] = useState(false)
   const [isSavingAmbientEnabled, setIsSavingAmbientEnabled] = useState(false)
   const [isSavingCharacterStateEnabled, setIsSavingCharacterStateEnabled] = useState(false)
   const [isSavingStoryAppearance, setIsSavingStoryAppearance] = useState(false)
@@ -6041,6 +6050,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const turnImageAbortControllersRef = useRef<Map<number, AbortController>>(new Map())
   const imageStylePromptByGameRef = useRef<Record<number, string>>({})
   const activeGameIdRef = useRef<number | null>(null)
+  const acceleratedServicePendingRef = useRef<{ gameId: number; value: boolean } | null>(null)
   const rightPanelResizingRef = useRef(false)
   const instructionDialogGameIdRef = useRef<number | null>(null)
   const plotCardDialogGameIdRef = useRef<number | null>(null)
@@ -6505,6 +6515,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
   const applyStoryGameSettings = useCallback((game: StoryGameSummary) => {
     const runtimeGame = game as Partial<StoryGameSummary>
+    const pendingAcceleratedService = acceleratedServicePendingRef.current
+    setAcceleratedServiceEnabled(
+      pendingAcceleratedService?.gameId === game.id
+        ? pendingAcceleratedService.value
+        : Boolean(runtimeGame.accelerated_service_enabled),
+    )
     const normalizedRuntimeStoryModel = normalizeStoryNarratorModelId(runtimeGame.story_llm_model)
     const override = storySettingsOverridesRef.current[game.id]
     const effectiveContextModel = override ? normalizeStoryNarratorModelId(override.storyLlmModel) : normalizedRuntimeStoryModel
@@ -7264,8 +7280,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         storyLlmModel,
         effectiveAmbientEnabled,
         effectiveEmotionVisualizationEnabled,
-      ),
-    [cardsContextCharsUsed, contextLimitChars, effectiveAmbientEnabled, effectiveEmotionVisualizationEnabled, storyLlmModel],
+      ) + (acceleratedServiceEnabled ? 1 : 0),
+    [
+      acceleratedServiceEnabled,
+      cardsContextCharsUsed,
+      contextLimitChars,
+      effectiveAmbientEnabled,
+      effectiveEmotionVisualizationEnabled,
+      storyLlmModel,
+    ],
   )
   const hasInsufficientTokensForTurn = user.coins < currentTurnCostTokens
   useEffect(() => {
@@ -7309,6 +7332,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingStorySampling ||
     isSavingThoughtVisibility ||
     isSavingAutoNpcCardsEnabled ||
+    isSavingAcceleratedServiceEnabled ||
     isSavingAmbientEnabled ||
     isSavingCharacterStateEnabled ||
     isSavingStoryAppearance ||
@@ -13800,6 +13824,52 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingStorySettings,
   ])
 
+  const toggleAcceleratedServiceEnabled = useCallback(async () => {
+    const targetGameId = activeGameId
+    if (!targetGameId || isSavingStorySettings || isGenerating) {
+      return
+    }
+
+    const previousValue = acceleratedServiceEnabled
+    const nextValue = !previousValue
+    acceleratedServicePendingRef.current = { gameId: targetGameId, value: nextValue }
+    setAcceleratedServiceEnabled(nextValue)
+    setErrorMessage('')
+    setIsSavingAcceleratedServiceEnabled(true)
+    try {
+      const updatedGame = await updateStoryGameSettings({
+        token: authToken,
+        gameId: targetGameId,
+        acceleratedServiceEnabled: nextValue,
+      })
+      const persistedValue = Boolean(updatedGame.accelerated_service_enabled)
+      acceleratedServicePendingRef.current = { gameId: targetGameId, value: persistedValue }
+      if (activeGameIdRef.current === targetGameId) {
+        setAcceleratedServiceEnabled(persistedValue)
+      }
+      applyUpdatedGameSummary(updatedGame)
+    } catch (error) {
+      acceleratedServicePendingRef.current = { gameId: targetGameId, value: previousValue }
+      if (activeGameIdRef.current === targetGameId) {
+        setAcceleratedServiceEnabled(previousValue)
+      }
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить ускоренный сервис'
+      setErrorMessage(detail)
+    } finally {
+      if (acceleratedServicePendingRef.current?.gameId === targetGameId) {
+        acceleratedServicePendingRef.current = null
+      }
+      setIsSavingAcceleratedServiceEnabled(false)
+    }
+  }, [
+    acceleratedServiceEnabled,
+    activeGameId,
+    applyUpdatedGameSummary,
+    authToken,
+    isGenerating,
+    isSavingStorySettings,
+  ])
+
   const toggleCharacterStateEnabled = useCallback(async () => {
     const targetGameId = activeGameId
     if (
@@ -15330,6 +15400,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           showNpcThoughts,
           ambientEnabled: effectiveAmbientEnabled,
           environmentEnabled: environmentTimeEnabled || environmentWeatherEnabled,
+          environmentTimeEnabled,
+          environmentWeatherEnabled,
           emotionVisualizationEnabled: effectiveEmotionVisualizationEnabled,
           signal: requestState.controller.signal,
           onStart: (payload) => {
@@ -18758,7 +18830,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             Выбор рассказчика
                           </Typography>
                           <SettingsInfoTooltipIcon
-                            text={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны GLM 5.1, AionLabs, Gemini 2.5 Pro, Gemini 3.1 Pro, Qwen 3.5 122B и Claude Sonnet 4.6.`}
+                            text={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны DeepSeek V4 Pro, GLM 5.1, AionLabs, Gemini 2.5 Pro, Gemini 3.1 Pro и Claude Sonnet 4.6.`}
                           />
                         </Stack>
                         <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>
@@ -19452,6 +19524,35 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             checked={advancedRegenerationEnabled}
                             onChange={toggleAdvancedRegenerationEnabled}
                             disabled={isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': {
+                                color: 'var(--morius-accent)',
+                              },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                backgroundColor: switchCheckedTrackColor,
+                                opacity: 1,
+                              },
+                              '& .MuiSwitch-track': {
+                                backgroundColor: switchTrackColor,
+                                opacity: 1,
+                              },
+                            }}
+                          />
+                        </Stack>
+
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Ускоренный сервис
+                            </Typography>
+                            <SettingsInfoTooltipIcon text="Переключает оптимизацию памяти, модули, авто-карточки и авто состояние на google/gemini-2.5-flash-lite с fallback openai/gpt-oss-120b. Стоимость каждого хода увеличивается на 1 сол." />
+                          </Stack>
+                          <Switch
+                            checked={acceleratedServiceEnabled}
+                            onChange={() => {
+                              void toggleAcceleratedServiceEnabled()
+                            }}
+                            disabled={isSavingStorySettings || isGenerating}
                             sx={{
                               '& .MuiSwitch-switchBase.Mui-checked': {
                                 color: 'var(--morius-accent)',
@@ -22779,7 +22880,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       flexShrink: 0,
                     }}
                   >
-                    <AssetMaskIcon src={icons.coin} size={16} sx={{ opacity: 0.98 }} />
+                    <SoulIcon size={19} sx={{ opacity: 0.98 }} />
                     <Typography
                       sx={{
                         color: 'var(--morius-title-text)',

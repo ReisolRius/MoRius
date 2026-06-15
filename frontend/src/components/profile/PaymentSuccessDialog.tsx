@@ -44,11 +44,11 @@ function PaymentSuccessDialog({ open, coins, referralBonusCoins = 0, onClose, tr
       </DialogTitle>
       <DialogContent sx={{ pt: 0.6 }}>
         <Typography sx={{ color: 'text.secondary', lineHeight: 1.5 }}>
-          Начислено <SoulAmount amount={`+${Math.max(0, Math.trunc(coins)).toLocaleString('ru-RU')}`} iconSize={16} />.
+          Начислено <SoulAmount amount={`+${Math.max(0, Math.trunc(coins)).toLocaleString('ru-RU')}`} iconSize={18} />.
         </Typography>
         {normalizedReferralBonusCoins > 0 ? (
           <Typography sx={{ color: 'var(--morius-accent)', lineHeight: 1.5, mt: 0.8, fontWeight: 700 }}>
-            Реферальный бонус: <SoulAmount amount={`+${normalizedReferralBonusCoins.toLocaleString('ru-RU')}`} iconSize={16} />.
+            Реферальный бонус: <SoulAmount amount={`+${normalizedReferralBonusCoins.toLocaleString('ru-RU')}`} iconSize={18} />.
           </Typography>
         ) : null}
       </DialogContent>

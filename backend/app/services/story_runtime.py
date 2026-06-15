@@ -33,6 +33,9 @@ from app.schemas import StoryGenerateRequest, StoryInstructionCardInput, UserOut
 from app.services.story_games import (
     STORY_RESPONSE_MAX_TOKENS_MAX,
     coerce_story_llm_model,
+    normalize_story_environment_enabled,
+    normalize_story_environment_time_enabled,
+    normalize_story_environment_weather_enabled,
     normalize_story_repetition_penalty,
     normalize_story_response_max_tokens,
     normalize_story_response_max_tokens_enabled,
@@ -52,6 +55,10 @@ from app.services.story_canonical_pipeline import (
     persist_canonical_state_to_game,
 )
 from app.services.story_memory import resolve_story_current_location_label
+from app.services.story_service_budget import (
+    StoryServiceHttpRequestBudget,
+    use_story_service_http_request_budget,
+)
 from app.services.story_smart_regeneration import (
     build_smart_regeneration_instruction_card,
     normalize_smart_regeneration_mode,
@@ -243,6 +250,61 @@ def _should_use_english_memory_source(model_name: str | None) -> bool:
     return _normalize_story_model_id(model_name) in STORY_MEMORY_SOURCE_EN_MODEL_IDS
 
 
+def _resolve_story_environment_runtime_flags(
+    game: StoryGame,
+    *,
+    payload_environment_enabled: bool | None = None,
+    payload_environment_time_enabled: bool | None = None,
+    payload_environment_weather_enabled: bool | None = None,
+) -> tuple[bool, bool, bool]:
+    legacy_enabled = normalize_story_environment_enabled(getattr(game, "environment_enabled", None))
+    time_enabled = normalize_story_environment_time_enabled(
+        getattr(game, "environment_time_enabled", None),
+        legacy_environment_enabled=legacy_enabled,
+    )
+    weather_enabled = normalize_story_environment_weather_enabled(
+        getattr(game, "environment_weather_enabled", None),
+        legacy_environment_enabled=legacy_enabled,
+    )
+
+    if payload_environment_enabled is not None and payload_environment_time_enabled is None:
+        time_enabled = normalize_story_environment_time_enabled(
+            None,
+            legacy_environment_enabled=payload_environment_enabled,
+        )
+    if payload_environment_enabled is not None and payload_environment_weather_enabled is None:
+        weather_enabled = normalize_story_environment_weather_enabled(
+            None,
+            legacy_environment_enabled=payload_environment_enabled,
+        )
+    if payload_environment_time_enabled is not None:
+        time_enabled = normalize_story_environment_time_enabled(
+            payload_environment_time_enabled,
+            legacy_environment_enabled=time_enabled,
+        )
+    if payload_environment_weather_enabled is not None:
+        weather_enabled = normalize_story_environment_weather_enabled(
+            payload_environment_weather_enabled,
+            legacy_environment_enabled=weather_enabled,
+        )
+
+    no_environment_payload = (
+        payload_environment_enabled is None
+        and payload_environment_time_enabled is None
+        and payload_environment_weather_enabled is None
+    )
+    if no_environment_payload and not (time_enabled or weather_enabled):
+        if str(getattr(game, "environment_current_datetime", "") or "").strip():
+            time_enabled = True
+        if (
+            str(getattr(game, "environment_current_weather", "") or "").strip()
+            or str(getattr(game, "environment_tomorrow_weather", "") or "").strip()
+        ):
+            weather_enabled = True
+
+    return time_enabled or weather_enabled, time_enabled, weather_enabled
+
+
 def _with_latest_user_prompt_override(
     context_messages: list[StoryMessage],
     replacement_content: str,
@@ -415,6 +477,7 @@ def _calculate_story_turn_cost_tokens(
     plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     memory_optimization_enabled: bool,
+    accelerated_service_enabled: bool = False,
 ) -> int:
     context_usage_tokens = _estimate_story_context_usage_tokens(
         context_messages=context_messages,
@@ -428,7 +491,8 @@ def _calculate_story_turn_cost_tokens(
         max(context_usage_tokens, 0),
         max(int(context_limit_tokens or 0), 0),
     )
-    return max(int(get_story_turn_cost_tokens(billable_context_usage_tokens, model_name)), 0)
+    base_cost = max(int(get_story_turn_cost_tokens(billable_context_usage_tokens, model_name)), 0)
+    return base_cost + (1 if accelerated_service_enabled else 0)
 
 
 def _merge_story_active_world_cards(
@@ -701,14 +765,7 @@ def _best_effort_sync_story_turn_memory_and_environment(
                 assistant_message.id,
             )
 
-    if story_memory_pipeline is not None:
-        environment_enabled = bool(
-            story_memory_pipeline._normalize_story_environment_enabled(
-                getattr(game, "environment_enabled", None),
-            )
-        )
-    else:
-        environment_enabled = bool(getattr(game, "environment_enabled", False))
+    environment_enabled, _, _ = _resolve_story_environment_runtime_flags(game)
     if environment_enabled:
         if story_memory_pipeline is not None:
             try:
@@ -1035,24 +1092,27 @@ def _stream_story_response(
             )
 
     unified_postprocess_payload: dict[str, Any] | None = None
+    service_request_budget = StoryServiceHttpRequestBudget(max_requests=3)
     if not aborted and response_has_content:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "postprocess"})
         try:
-            unified_postprocess_payload = deps.resolve_story_turn_postprocess_payload(
-                db=db,
-                game=game,
-                assistant_message=assistant_message,
-                latest_user_prompt=prompt,
-                latest_assistant_text=assistant_text_for_memory,
-                world_cards=world_cards,
-                raw_memory_enabled=False,
-                location_enabled=True,
-                environment_enabled=bool(getattr(game, "environment_enabled", None)),
-                character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
-                important_event_enabled=True,
-                ambient_enabled=ambient_enabled,
-                emotion_visualization_enabled=emotion_visualization_enabled,
-            )
+            with use_story_service_http_request_budget(service_request_budget):
+                unified_postprocess_payload = deps.resolve_story_turn_postprocess_payload(
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    latest_user_prompt=prompt,
+                    latest_assistant_text=assistant_text_for_memory,
+                    world_cards=world_cards,
+                    raw_memory_enabled=False,
+                    location_enabled=True,
+                    environment_enabled=_resolve_story_environment_runtime_flags(game)[0],
+                    character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
+                    important_event_enabled=True,
+                    ambient_enabled=ambient_enabled,
+                    emotion_visualization_enabled=emotion_visualization_enabled,
+                    auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
+                )
         except Exception:
             logger.exception(
                 "Failed to resolve unified story post-process payload: game_id=%s assistant_message_id=%s",
@@ -1161,16 +1221,17 @@ def _stream_story_response(
             return False
 
         try:
-            plot_card_created, _generated_plot_events = deps.upsert_story_plot_memory_card(
-                db=db,
-                game=game,
-                assistant_message=assistant_message,
-                latest_user_prompt_override=prompt,
-                latest_assistant_text_override=assistant_text_for_memory,
-                resolved_postprocess_payload_override=unified_postprocess_payload,
-                memory_optimization_enabled=memory_optimization_enabled,
-                allow_model_postprocess_request=False,
-            )
+            with use_story_service_http_request_budget(service_request_budget):
+                plot_card_created, _generated_plot_events = deps.upsert_story_plot_memory_card(
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    latest_user_prompt_override=prompt,
+                    latest_assistant_text_override=assistant_text_for_memory,
+                    resolved_postprocess_payload_override=unified_postprocess_payload,
+                    memory_optimization_enabled=memory_optimization_enabled,
+                    allow_model_postprocess_request=False,
+                )
             db.commit()
             try:
                 db.refresh(game)
@@ -1220,15 +1281,16 @@ def _stream_story_response(
 
         baseline_synced = False
         if needs_baseline_sync:
-            baseline_synced = _best_effort_sync_story_turn_memory_and_environment(
-                deps=deps,
-                db=db,
-                game=game,
-                assistant_message=assistant_message,
-                latest_user_prompt=prompt,
-                latest_assistant_text=assistant_text_for_memory,
-                memory_optimization_enabled=memory_optimization_enabled,
-            )
+            with use_story_service_http_request_budget(service_request_budget):
+                baseline_synced = _best_effort_sync_story_turn_memory_and_environment(
+                    deps=deps,
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    latest_user_prompt=prompt,
+                    latest_assistant_text=assistant_text_for_memory,
+                    memory_optimization_enabled=memory_optimization_enabled,
+                )
         if postprocess_failed and not baseline_synced:
             logger.warning(
                 "Story post-process failed and baseline sync made no changes: game_id=%s assistant_message_id=%s",
@@ -1358,21 +1420,21 @@ def _generate_story_response_locked(
     if bool(getattr(game, "memory_optimization_enabled", True)) is not True:
         game.memory_optimization_enabled = True
     payload_environment_enabled = getattr(payload, "environment_enabled", None)
+    payload_environment_time_enabled = getattr(payload, "environment_time_enabled", None)
+    payload_environment_weather_enabled = getattr(payload, "environment_weather_enabled", None)
     raw_environment_enabled = getattr(game, "environment_enabled", None)
-    environment_enabled = bool(raw_environment_enabled)
-    if payload_environment_enabled is None and not environment_enabled:
-        has_environment_snapshot = any(
-            str(value or "").strip()
-            for value in (
-                getattr(game, "environment_current_datetime", ""),
-                getattr(game, "environment_current_weather", ""),
-                getattr(game, "environment_tomorrow_weather", ""),
-            )
-        )
-        if has_environment_snapshot:
-            environment_enabled = True
-    if payload_environment_enabled is not None:
-        environment_enabled = bool(payload_environment_enabled)
+    raw_environment_time_enabled = getattr(game, "environment_time_enabled", None)
+    raw_environment_weather_enabled = getattr(game, "environment_weather_enabled", None)
+    environment_enabled, environment_time_enabled, environment_weather_enabled = _resolve_story_environment_runtime_flags(
+        game,
+        payload_environment_enabled=payload_environment_enabled,
+        payload_environment_time_enabled=payload_environment_time_enabled,
+        payload_environment_weather_enabled=payload_environment_weather_enabled,
+    )
+    if bool(getattr(game, "environment_time_enabled", None)) != environment_time_enabled:
+        game.environment_time_enabled = environment_time_enabled
+    if bool(getattr(game, "environment_weather_enabled", None)) != environment_weather_enabled:
+        game.environment_weather_enabled = environment_weather_enabled
     if bool(getattr(game, "environment_enabled", None)) != environment_enabled:
         game.environment_enabled = environment_enabled
     if environment_enabled:
@@ -1414,14 +1476,20 @@ def _generate_story_response_locked(
         emotion_visualization_enabled = False
     visual_novel_enabled = is_story_visual_novel_enabled_for_user(game, user)
     logger.info(
-        "Story generate settings: game_id=%s memory_optimization_enabled=%s payload_override=%s game_value=%s environment_enabled=%s environment_payload_override=%s environment_game_value=%s ambient_enabled=%s ambient_payload_override=%s ambient_game_value=%s emotion_visualization_enabled=%s emotion_payload_override=%s emotion_game_value=%s",
+        "Story generate settings: game_id=%s memory_optimization_enabled=%s payload_override=%s game_value=%s environment_enabled=%s environment_time_enabled=%s environment_weather_enabled=%s environment_payload_override=%s environment_time_payload_override=%s environment_weather_payload_override=%s environment_game_value=%s environment_time_game_value=%s environment_weather_game_value=%s ambient_enabled=%s ambient_payload_override=%s ambient_game_value=%s emotion_visualization_enabled=%s emotion_payload_override=%s emotion_game_value=%s",
         game.id,
         memory_optimization_enabled,
         payload.memory_optimization_enabled,
         raw_memory_optimization_enabled,
         environment_enabled,
+        environment_time_enabled,
+        environment_weather_enabled,
         payload_environment_enabled,
+        payload_environment_time_enabled,
+        payload_environment_weather_enabled,
         raw_environment_enabled,
+        raw_environment_time_enabled,
+        raw_environment_weather_enabled,
         ambient_enabled,
         payload.ambient_enabled,
         raw_ambient_enabled,
@@ -1947,6 +2015,7 @@ def _generate_story_response_locked(
         plot_cards=active_plot_cards,
         world_cards=active_world_cards,
         memory_optimization_enabled=memory_optimization_enabled,
+        accelerated_service_enabled=bool(getattr(game, "accelerated_service_enabled", False)),
     )
     _ensure_user_can_afford_turn(turn_cost_tokens)
     db.commit()

@@ -30,12 +30,12 @@ export type StoryNarratorModelId =
   | 'z-ai/glm-4.7'
   | 'deepseek/deepseek-v3.2'
   | 'deepseek/deepseek-chat-v3-0324'
+  | 'deepseek/deepseek-v4-pro'
   | 'mistralai/mistral-nemo'
   | 'aion-labs/aion-2.0'
   | 'anthropic/claude-sonnet-4.6'
   | 'google/gemini-2.5-pro'
   | 'google/gemini-3.1-pro-preview'
-  | 'qwen/qwen3.5-122b-a10b'
 export type StoryMemoryOptimizationMode = 'standard' | 'enhanced' | 'maximum'
 export type StoryAppearanceBackgroundMode = 'default' | 'custom'
 export type StoryAppearanceUiStyle = 'default' | 'cyberpunk' | 'fantasy' | 'modern'
@@ -110,6 +110,7 @@ export type StoryGameSummary = {
   show_npc_thoughts: boolean
   active_main_hero_card_id?: number | null
   auto_npc_cards_enabled?: boolean
+  accelerated_service_enabled?: boolean
   ambient_enabled: boolean
   display_mode: StoryDisplayMode
   character_state_enabled: boolean

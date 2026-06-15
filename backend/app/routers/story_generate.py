@@ -813,6 +813,7 @@ def _fallback_resolve_story_turn_postprocess_payload(
     important_event_enabled: bool = False,
     ambient_enabled: bool = False,
     emotion_visualization_enabled: bool = False,
+    auto_npc_cards_enabled: bool = False,
 ) -> dict[str, Any] | None:
     try:
         from app import main as monolith_main
@@ -842,6 +843,7 @@ def _fallback_resolve_story_turn_postprocess_payload(
                 important_event_enabled=important_event_enabled,
                 ambient_enabled=ambient_enabled,
                 emotion_visualization_enabled=emotion_visualization_enabled,
+                auto_npc_cards_enabled=auto_npc_cards_enabled,
             )
             if isinstance(resolved_payload, dict) and resolved_payload:
                 return resolved_payload
@@ -978,9 +980,7 @@ def _fallback_sync_story_memory_and_environment(
         if isinstance(resolved_postprocess_payload_override, dict)
         else None
     )
-    environment_enabled = story_memory_pipeline._normalize_story_environment_enabled(
-        getattr(game, "environment_enabled", None)
-    )
+    environment_enabled = story_memory_pipeline._story_environment_any_enabled_for_game(game)
     latest_assistant_message_ids = set(
         story_memory_pipeline._list_story_latest_assistant_message_ids(
             db,

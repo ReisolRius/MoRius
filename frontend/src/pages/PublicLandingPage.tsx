@@ -26,11 +26,11 @@ import landingGearIcon from '../assets/icons/landing-gear.svg'
 import landingPlayIcon from '../assets/icons/landing-play.svg'
 import arrowPrevIcon from '../assets/icons/landing-arrow-prev.svg'
 import arrowNextIcon from '../assets/icons/landing-arrow-next.svg'
-import landingCoinIcon from '../assets/icons/soul-moirus.svg'
 import landingControlsIcon from '../assets/icons/landing-controls.svg'
 import landingSendIcon from '../assets/icons/landing-send.svg'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import Footer from '../components/Footer'
+import SoulIcon from '../components/currency/SoulIcon'
 import ProgressiveImage from '../components/media/ProgressiveImage'
 import { listPublicCommunityWorlds } from '../services/storyApi'
 import { resolveApiResourceUrl } from '../services/httpClient'
@@ -847,7 +847,7 @@ export default function PublicLandingPage({
                     backgroundColor: 'rgba(23,23,22,0.9)',
                   }}
                 >
-                  <Box component="img" src={landingCoinIcon} alt="" sx={{ width: 14, height: 14, filter: 'brightness(0) invert(1)', opacity: 0.8 }} />
+                  <SoulIcon size={17} sx={{ color: TEXT_HEADING, opacity: 0.86, filter: 'none' }} />
                   <Typography sx={{ fontSize: '0.85rem', color: TEXT_HEADING, fontFamily: '"Nunito Sans", sans-serif', fontWeight: 500 }}>5</Typography>
                 </Box>
                 <Box component="img" src={landingControlsIcon} alt="controls" sx={{ height: 28, opacity: 0.75 }} />
@@ -1757,7 +1757,7 @@ export default function PublicLandingPage({
                           <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>
                             {plan.coins}
                           </Typography>
-                          <Box component="img" src={landingCoinIcon} alt="" sx={{ width: 9, height: 14, opacity: 0.88 }} />
+                          <SoulIcon size={16} sx={{ color: TEXT_BODY, opacity: 0.9, filter: 'none' }} />
                         </Stack>
                         <Stack spacing={0.5} sx={{ flex: 1 }}>
                           {plan.details.map((d, j) => (
@@ -1932,7 +1932,7 @@ export default function PublicLandingPage({
                       <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>
                         {plan.coins}
                       </Typography>
-                      <Box component="img" src={landingCoinIcon} alt="" sx={{ width: 9, height: 14, opacity: 0.88 }} />
+                      <SoulIcon size={16} sx={{ color: TEXT_BODY, opacity: 0.9, filter: 'none' }} />
                     </Stack>
                     <Stack spacing={0.5} sx={{ flex: 1 }}>
                       {plan.details.map((d, j) => (

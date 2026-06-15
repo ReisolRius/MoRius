@@ -2582,7 +2582,7 @@ function CharacterManagerDialog({
                         {option.description}
                       </Typography>
                     </Stack>
-                    <SoulAmount amount={option.cost} iconSize={15} color="rgba(231, 211, 158, 0.96)" fontSize="0.8rem" fontWeight={700} />
+                    <SoulAmount amount={option.cost} iconSize={17} color="rgba(231, 211, 158, 0.96)" fontSize="0.8rem" fontWeight={700} />
                   </Stack>
                 </Button>
               ))}
@@ -2661,7 +2661,7 @@ function CharacterManagerDialog({
             ) : (
               <Stack component="span" direction="row" spacing={0.65} alignItems="center">
                 <Box component="span">{hasAvatarDraft ? 'Перегенерировать за' : 'Сгенерировать за'}</Box>
-                <SoulAmount amount={selectedAiAvatarGenerationCost} iconSize={15} />
+                <SoulAmount amount={selectedAiAvatarGenerationCost} iconSize={17} />
               </Stack>
             )}
           </Button>
@@ -2710,7 +2710,7 @@ function CharacterManagerDialog({
                         {option.description}
                       </Typography>
                     </Stack>
-                    <SoulAmount amount={option.cost} iconSize={15} color="rgba(231, 211, 158, 0.96)" fontSize="0.8rem" fontWeight={700} />
+                    <SoulAmount amount={option.cost} iconSize={17} color="rgba(231, 211, 158, 0.96)" fontSize="0.8rem" fontWeight={700} />
                   </Stack>
                 </Button>
               ))}
@@ -2807,7 +2807,7 @@ function CharacterManagerDialog({
             ) : (
               <Stack component="span" direction="row" spacing={0.65} alignItems="center">
                 <Box component="span">{readyEmotionCount > 0 ? 'Обновить за' : 'Сгенерировать за'}</Box>
-                <SoulAmount amount={selectedEmotionGenerationCost} iconSize={15} />
+                <SoulAmount amount={selectedEmotionGenerationCost} iconSize={17} />
               </Stack>
             )}
           </Button>

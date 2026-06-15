@@ -751,6 +751,7 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     show_npc_thoughts: bool | None = None
     active_main_hero_card_id: int | None = Field(default=None, ge=1)
     auto_npc_cards_enabled: bool | None = None
+    accelerated_service_enabled: bool | None = None
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
     display_mode: Literal["text", "visual_novel"] | None = None
@@ -1603,6 +1604,7 @@ class StoryGameSummaryOut(BaseModel):
     show_npc_thoughts: bool
     active_main_hero_card_id: int | None = None
     auto_npc_cards_enabled: bool = False
+    accelerated_service_enabled: bool = False
     ambient_enabled: bool
     display_mode: Literal["text", "visual_novel"] = "text"
     character_state_enabled: bool = False

@@ -200,7 +200,7 @@ function TopUpDialog({
                 },
               }}
             >
-              После первой покупки по приглашению начислим <SoulAmount amount={`+${Math.max(0, Math.trunc(resolvedReferralBonusAmount)).toLocaleString('ru-RU')}`} iconSize={15} /> вам и другу.
+              После первой покупки по приглашению начислим <SoulAmount amount={`+${Math.max(0, Math.trunc(resolvedReferralBonusAmount)).toLocaleString('ru-RU')}`} iconSize={17} /> вам и другу.
             </Alert>
           ) : null}
           {isTopUpPlansLoading ? (
@@ -327,7 +327,7 @@ function TopUpDialog({
                       <Typography sx={{ fontWeight: 900, fontSize: '3rem', lineHeight: 1, color: '#FFFFFF' }}>
                         {plan.price_rub} ₽
                       </Typography>
-                      <SoulAmount amount={plan.coins} iconSize={18} color={card.accent} fontSize="1.08rem" fontWeight={800} />
+                      <SoulAmount amount={plan.coins} iconSize={20} color={card.accent} fontSize="1.08rem" fontWeight={800} />
                       {card.lines.map((line) => (
                         <Typography key={`${plan.id}-${line}`} sx={{ color: 'rgba(255,255,255,0.78)', fontSize: '1.02rem' }}>
                           {line}

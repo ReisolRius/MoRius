@@ -4285,7 +4285,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     },
                   }}
                 >
-                  <SoulAmount amount={coins} iconSize={15} fontSize="0.78rem" />
+                  <SoulAmount amount={coins} iconSize={17} fontSize="0.78rem" />
                 </Button>
               </Stack>
 
@@ -4354,7 +4354,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 >
                   <Stack component="span" direction="row" spacing={0.6} alignItems="center">
                     <Box component="span">Баланс</Box>
-                    <SoulAmount amount={coins} iconSize={15} fontSize="0.9rem" />
+                    <SoulAmount amount={coins} iconSize={17} fontSize="0.9rem" />
                   </Stack>
                 </Button>
               </Stack>
@@ -4907,7 +4907,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                                   },
                                 }}
                               >
-                                <SoulAmount amount={coins} iconSize={14} fontSize="0.72rem" />
+                                <SoulAmount amount={coins} iconSize={16} fontSize="0.72rem" />
                               </Button>
                             </Stack>
                           ) : null}
@@ -4944,7 +4944,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                             },
                           }}
                         >
-                          <SoulAmount amount={coins} iconSize={14} fontSize="12px" />
+                          <SoulAmount amount={coins} iconSize={16} fontSize="12px" />
                         </Button>
                       </Box>
                     ) : null}
@@ -4965,7 +4965,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                               Пригласи друга
                             </Typography>
                             <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.78rem', fontWeight: 900 }}>
-                              <SoulAmount amount="+500" iconSize={15} fontSize="0.78rem" />
+                              <SoulAmount amount="+500" iconSize={17} fontSize="0.78rem" />
                             </Typography>
                           </Stack>
                           <Button
@@ -5673,7 +5673,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         </Typography>
                       </Stack>
                       <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.35 }}>
-                        Друг получит <SoulAmount amount="+500" iconSize={13} fontSize="0.78rem" /> после первой покупки, и ты тоже получишь <SoulAmount amount="+500" iconSize={13} fontSize="0.78rem" />.
+                        Друг получит <SoulAmount amount="+500" iconSize={15} fontSize="0.78rem" /> после первой покупки, и ты тоже получишь <SoulAmount amount="+500" iconSize={15} fontSize="0.78rem" />.
                       </Typography>
                       {isReferralSummaryLoading && !referralSummary ? (
                         <Skeleton variant="rounded" height={34} sx={{ borderRadius: '8px', bgcolor: 'rgba(184, 201, 226, 0.16)' }} />

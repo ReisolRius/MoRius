@@ -1,6 +1,6 @@
 import { Box, Typography } from '@mui/material'
 import type { SxProps, Theme } from '@mui/material/styles'
-import { icons } from '../../assets'
+import SoulIcon from './SoulIcon'
 
 type SoulAmountProps = {
   amount: number | string
@@ -21,7 +21,7 @@ function formatSoulAmount(amount: number | string): string {
 
 export default function SoulAmount({
   amount,
-  iconSize = 16,
+  iconSize = 18,
   gap = 0.45,
   color = 'currentColor',
   fontSize = 'inherit',
@@ -47,19 +47,7 @@ export default function SoulAmount({
       <Typography component="span" sx={{ color: 'inherit', fontSize, fontWeight, lineHeight: 1 }}>
         {formatSoulAmount(amount)}
       </Typography>
-      <Box
-        component="img"
-        src={icons.coin}
-        alt=""
-        aria-hidden
-        sx={{
-          width: Math.round(iconSize * 0.64),
-          height: iconSize,
-          flex: '0 0 auto',
-          display: 'block',
-          filter: 'drop-shadow(0 0 5px rgba(255,255,255,0.18))',
-        }}
-      />
+      <SoulIcon size={iconSize} />
     </Box>
   )
 }
