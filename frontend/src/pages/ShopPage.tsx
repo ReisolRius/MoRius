@@ -80,7 +80,7 @@ const DEFAULT_PLANS: CoinTopUpPlan[] = [
 
 function isPrivilegedUser(user: AuthUser): boolean {
   const role = user.role.trim().toLowerCase()
-  return role === 'administrator'
+  return role === 'administrator' || role === 'moderator'
 }
 
 function normalizePlanDescription(description: string | null | undefined): string {

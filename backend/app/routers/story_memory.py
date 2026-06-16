@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 _MEMORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9A-Za-zА-Яа-яЁё]+|[^\s]", re.IGNORECASE)
 
-_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 2.0
+_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 15.0
 
 
 def _acquire_story_operation_lease_or_409(*, game_id: int, operation: str):

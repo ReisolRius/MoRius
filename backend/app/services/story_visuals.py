@@ -1242,14 +1242,19 @@ def _build_story_turn_image_prompt(
             "CHARACTER_CARD_LOCK priority is absolute: "
             "CHARACTER_CARD_LOCK > appearance-lock > scene state."
         )
+    _try_append_optional_line(
+        "Visible cast must come from the latest player turn and narrator response: include every visible character in this scene, including newly mentioned characters without cards; omit characters who are not present."
+    )
+    _try_append_optional_line(
+        "The main hero is optional: include the player character only when the current scene text places the main hero visibly in the scene."
+    )
     if character_lines:
         _try_append_optional_line(
-            "Mandatory visible cast (must match exactly): "
+            "Character card appearance hints (use only for these listed characters when they are actually visible): "
             + " ".join(f"{index + 1}) {line}." for index, line in enumerate(character_lines))
         )
         _try_append_optional_line(
-            f"Exactly {len(character_lines)} visible people in the frame. "
-            "Do not add, remove, replace, or duplicate any character."
+            "Do not treat listed cards as a required cast count. Add visible non-card characters from the scene text and omit listed card characters who are absent."
         )
         _try_append_optional_line("Keep each listed character's role, gender, and key appearance.")
         if has_gender_lock_line:
@@ -1277,7 +1282,7 @@ def _build_story_turn_image_prompt(
                 "Choose framing and lighting so locked facial and hair details remain clearly readable."
             )
         if has_main_hero_line:
-            _try_append_optional_line("Main hero must be visible in-frame. Do not switch to first-person POV.")
+            _try_append_optional_line("If the main hero is visible in the scene, show the main hero in third-person framing; if not present, do not force the main hero into the image.")
     if has_hair_length_lock:
         _try_append_optional_line("Hair length lock: hair length must match exactly.")
         _try_append_optional_line("Hair length lock: forbidden conflicting hair lengths.")

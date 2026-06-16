@@ -528,6 +528,55 @@ export default function PublicLandingPage({
   const handleNextFeatureSlide = () => setCurrentFeatureSlide((i) => Math.min(featureCards.length - 1, i + 1))
   const handlePrevPlanSlide = () => setCurrentPlanSlide((i) => Math.max(0, i - 1))
   const handleNextPlanSlide = () => setCurrentPlanSlide((i) => Math.min(tariffPlans.length - 1, i + 1))
+  const renderTariffPlanCard = (plan: TariffPlan, index: number) => {
+    const accents = ['#6B9BFF', '#5ADDC7', '#F2B356']
+    const accent = accents[index % accents.length]
+    const priceDigits = Number.parseInt(plan.price.replace(/[^\d]/g, ''), 10)
+    const priceLabel = Number.isFinite(priceDigits) ? `${priceDigits.toLocaleString('ru-RU')} ₽` : plan.price
+    return (
+      <Box
+        sx={{
+          borderRadius: '18px',
+          overflow: 'hidden',
+          backgroundColor: CARD_BG,
+          border: `0.5px solid ${CARD_BORDER}`,
+          boxShadow: '0 18px 42px rgba(0,0,0,0.24)',
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: '100%',
+          transition: 'transform 240ms ease, border-color 240ms ease',
+          '&:hover': { transform: 'translateY(-6px)', borderColor: 'rgba(87,142,238,0.3)' },
+        }}
+      >
+        <Box sx={{ height: 84, p: 2, background: `linear-gradient(135deg, ${accent}, color-mix(in srgb, ${accent} 58%, #111 42%))` }}>
+          <Typography sx={{ color: '#101317', fontSize: '1.6rem', fontWeight: 900, lineHeight: 1, fontFamily: '"Nunito Sans", sans-serif' }}>
+            {plan.title}
+          </Typography>
+        </Box>
+        <Stack spacing={1.4} sx={{ p: 2, flex: 1 }}>
+          <Typography sx={{ color: '#ffffff', fontSize: { xs: '2rem', md: '2.15rem' }, fontWeight: 900, lineHeight: 1, fontFamily: '"Nunito Sans", sans-serif' }}>
+            {priceLabel}
+          </Typography>
+          <Stack direction="row" spacing={0.45} alignItems="center">
+            <Typography sx={{ color: accent, fontFamily: '"Nunito Sans", sans-serif', fontSize: '1.05rem', fontWeight: 900 }}>
+              {plan.coins}
+            </Typography>
+            <SoulIcon size={20} sx={{ color: accent, opacity: 0.95, filter: 'none' }} />
+          </Stack>
+          <Stack spacing={0.5} sx={{ flex: 1 }}>
+            {plan.details.map((detail, detailIndex) => (
+              <Typography key={detailIndex} sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.88rem', lineHeight: 1.45 }}>
+                {detail}
+              </Typography>
+            ))}
+          </Stack>
+          <Button variant="contained" onClick={() => openAuthPage('register')} sx={{ ...ctaButtonSx, width: '100%', mt: 1, borderRadius: '14px', backgroundColor: accent, color: '#101317', fontWeight: 900, '&:hover': { backgroundColor: `color-mix(in srgb, ${accent} 88%, #fff 12%)`, color: '#101317' } }}>
+            {BUY_PLAN_CTA_LABEL}
+          </Button>
+        </Stack>
+      </Box>
+    )
+  }
 
   return (
     <Box sx={{ backgroundColor: '#111111', color: TEXT_BODY, overflowX: 'hidden' }}>
@@ -1529,6 +1578,20 @@ export default function PublicLandingPage({
               gap: 2,
             }}
           >
+            {tariffPlans.map((plan, i) => (
+              <RevealOnView key={`shop-style-plan-${plan.id}`} delay={i * 80 + 100} y={28}>
+                {renderTariffPlanCard(plan, i)}
+              </RevealOnView>
+            ))}
+          </Box>
+
+          <Box
+            sx={{
+              display: 'none',
+              gridTemplateColumns: { sm: 'repeat(2,1fr)', md: 'repeat(3,1fr)' },
+              gap: 2,
+            }}
+          >
             {featureCards.map((card, i) => (
               <RevealOnView key={card.id} delay={i * 80} y={28}>
                 <Box
@@ -1685,96 +1748,9 @@ export default function PublicLandingPage({
                   willChange: 'transform',
                 }}
               >
-                {tariffPlans.map((plan) => (
+                {tariffPlans.map((plan, index) => (
                   <Box key={`mobile-plan-${plan.id}`} sx={{ minWidth: '100%', width: '100%', flexShrink: 0 }}>
-                    <Box
-                      sx={{
-                        backgroundColor: CARD_BG,
-                        border: `0.5px solid ${CARD_BORDER}`,
-                        borderRadius: '12px',
-                        overflow: 'hidden',
-                        display: 'flex',
-                        flexDirection: 'column',
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          position: 'relative',
-                          height: 120,
-                          overflow: 'hidden',
-                          backgroundColor: '#151515',
-                        }}
-                      >
-                        <ProgressiveImage
-                          src={plan.image}
-                          alt=""
-                          loading="lazy"
-                          objectFit="cover"
-                          objectPosition="center"
-                          loaderSize={22}
-                          containerSx={{ position: 'absolute', inset: 0 }}
-                        />
-                        <Box
-                          aria-hidden
-                          sx={{
-                            position: 'absolute',
-                            inset: 0,
-                            background: 'linear-gradient(180deg, rgba(17,17,17,0.05) 0%, rgba(17,17,17,0.45) 100%)',
-                            zIndex: 1,
-                          }}
-                        />
-                        <Typography
-                          sx={{
-                            position: 'absolute',
-                            zIndex: 2,
-                            bottom: 12,
-                            left: 16,
-                            fontFamily: '"Nunito Sans", sans-serif',
-                            fontWeight: 900,
-                            fontSize: '2rem',
-                            lineHeight: 1,
-                            color: '#ffffff',
-                            textShadow: '0 2px 8px rgba(0,0,0,0.6)',
-                          }}
-                        >
-                          {plan.title}
-                        </Typography>
-                      </Box>
-
-                      <Box sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1.5, flex: 1 }}>
-                        <Typography
-                          sx={{
-                            fontFamily: '"Nunito Sans", sans-serif',
-                            fontWeight: 700,
-                            fontSize: '2rem',
-                            color: '#ffffff',
-                            lineHeight: 1.1,
-                          }}
-                        >
-                          {plan.price}
-                        </Typography>
-                        <Stack direction="row" spacing={0.45} alignItems="center">
-                          <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>
-                            {plan.coins}
-                          </Typography>
-                          <SoulIcon size={16} sx={{ color: TEXT_BODY, opacity: 0.9, filter: 'none' }} />
-                        </Stack>
-                        <Stack spacing={0.5} sx={{ flex: 1 }}>
-                          {plan.details.map((d, j) => (
-                            <Typography key={j} sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.82rem', lineHeight: 1.5 }}>
-                              {d}
-                            </Typography>
-                          ))}
-                        </Stack>
-                        <Button
-                          variant="contained"
-                          onClick={() => openAuthPage('register')}
-                          sx={{ ...ctaButtonSx, width: '100%', mt: 1 }}
-                        >
-                          {BUY_PLAN_CTA_LABEL}
-                        </Button>
-                      </Box>
-                    </Box>
+                    {renderTariffPlanCard(plan, index)}
                   </Box>
                 ))}
               </Box>

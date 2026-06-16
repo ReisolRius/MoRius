@@ -6504,6 +6504,8 @@ def _request_story_character_state_seed_cards(
                 "Do not borrow clothing or health details from other characters. "
 
                 "status must describe only bodily or health condition: wounds, illness, poison, exhaustion, intoxication, or normal physical state. "
+                "Health default is exactly 'Состояние нормальное'. Use abnormal health only for explicit disease, poison, curse, injury, pain, exhaustion, or direct scene consequence. "
+                "When abnormal health is explicit, list concrete separate facts instead of vague labels: twisted ankle, broken rib, scratch on back, fever, plague, poison, burn, bleeding cut. "
 
                 "status must follow exactly one Russian template: 'Состояние нормальное' when there is no active abnormal health condition; 'Болен: <название болезни или состояния>' for illness, poison, curse, infection, fever, syndrome, exhaustion, or any invented disease that is clearly treated as illness in context; 'Ранен: <конкретные повреждения>' for wounds, scratches, fractures, cuts, bruises, bleeding, burns, or other injuries. If both illness and injury are explicit, include both parts separated by '; '. "
 
@@ -6514,12 +6516,15 @@ def _request_story_character_state_seed_cards(
                 "Never use action, pose, mood, or location in status. "
 
                 "clothing must describe what is worn on specific body areas: head, upper body, outer layer, lower body, feet, hands, and visible accessories when relevant. "
+                "Clothing must be written from head to toe in a practical order: head, neck/shoulders, torso, outer layer, arms/hands, waist, legs, feet, visible accessories. "
+                "Track asymmetry exactly when explicit: one sock removed, one boot missing, one glove off, torn sleeve, loosened belt, wet hem, hood up/down, blood stains, dirt, broken clasp. "
 
                 "Do not use generic phrases like 'обычная одежда', 'одежда авантюристки', or 'легкая одежда' without concrete breakdown. "
 
                 "Track small but persistent clothing details when they matter to continuity: one boot removed, torn sleeve, loosened belt, wet hem, broken clasp, blood stains, dirt, missing glove, hood up or down. "
 
                 "Be detailed but practical, without turning into obsessive inventory. "
+                "equipment is inventory: write a simple comma-separated list of items the character has. Do not describe clothing here unless it is carried, not worn. "
 
                 "location must never be empty, 'неизвестно', 'не указано', or vague filler. "
 
@@ -8146,6 +8151,8 @@ def _sync_story_auto_npc_cards_for_assistant_message(
     existing_cards = _list_story_world_cards(db, game.id)
     existing_identity_keys: set[str] = set()
     known_character_names: list[str] = []
+    existing_character_context: list[dict[str, Any]] = []
+    build_card_identity_keys = globals().get("_build_story_card_identity_keys")
     for card in existing_cards:
         card_kind = normalize_story_world_card_kind(getattr(card, "kind", None))
         if card_kind not in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_NPC}:
@@ -8156,13 +8163,27 @@ def _sync_story_auto_npc_cards_for_assistant_message(
         key = title.casefold()
         existing_identity_keys.add(key)
         known_character_names.append(title)
+        trigger_values: list[str] = []
         try:
             for trigger in _deserialize_story_world_card_triggers(getattr(card, "triggers", "") or ""):
+                trigger_values.append(str(trigger or "").strip())
                 trigger_key = " ".join(str(trigger or "").split()).strip().casefold()
                 if trigger_key:
                     existing_identity_keys.add(trigger_key)
         except Exception:
             pass
+        if callable(build_card_identity_keys):
+            try:
+                existing_identity_keys.update(str(value) for value in build_card_identity_keys(card) if str(value).strip())
+            except Exception:
+                pass
+        existing_character_context.append(
+            {
+                "title": title,
+                "kind": card_kind,
+                "triggers": [value for value in trigger_values if value],
+            }
+        )
 
     raw_npcs = resolved_payload_override if isinstance(resolved_payload_override, list) else None
     if raw_npcs is None and allow_model_request and settings.polza_api_key:
@@ -8177,8 +8198,13 @@ def _sync_story_auto_npc_cards_for_assistant_message(
                     "\"description\":\"...\",\"clothing\":\"...\",\"inventory\":\"...\","
                     "\"health_status\":\"...\",\"triggers\":[\"...\"],\"significance_score\":0,"
                     "\"reason\":\"...\"}]}. "
-                    "Create an NPC only if the reply introduces a stable named person who is likely to matter later. "
-                    "Never add the player's main hero, existing known characters, generic titles, groups, locations, items, or organizations. "
+                    "Create an NPC only if the reply introduces a stable person who is likely to matter later. "
+                    "If the source identifies an important person only by role/title (for example administrator, director, guard captain, priestess), invent one plausible personal name consistent with gender/culture evidence instead of using the role as name. "
+                    "When you invent a name for a role/title, include the original role/title in triggers so future mentions of that role resolve to the same card. "
+                    "Never add the player's main hero, existing known characters, groups, locations, items, or organizations. "
+                    "Do not return an NPC when the mention matches an existing character name, trigger, role alias, or title in Existing character cards. "
+                    "description must follow this Russian template exactly with three lines: 'Возраст: ...', 'Внешность: ...', 'Характер: ...'. "
+                    "Race must be filled. If race is not explicit, infer one plausible race/species from genre, scene, and role. "
                     "Use significance_score >= 70 only for NPCs that should become cards. Return an empty array when there is no such NPC."
                 ),
             },
@@ -8186,6 +8212,7 @@ def _sync_story_auto_npc_cards_for_assistant_message(
                 "role": "user",
                 "content": (
                     f"Existing character names:\n{json.dumps(known_character_names, ensure_ascii=False)}\n\n"
+                    f"Existing character cards with aliases:\n{json.dumps(existing_character_context, ensure_ascii=False)}\n\n"
                     f"Latest player turn:\n{normalized_prompt or 'none'}\n\n"
                     f"Narrator reply:\n{normalized_assistant}"
                 ),
@@ -8250,10 +8277,41 @@ def _sync_story_auto_npc_cards_for_assistant_message(
             title = normalize_story_world_card_title(raw_name)
         except Exception:
             continue
-        if title.casefold() in existing_identity_keys:
-            continue
         if len(title.split()) > 5:
             continue
+
+        raw_triggers = raw_item.get("triggers")
+        trigger_values = [title]
+        if isinstance(raw_triggers, list):
+            trigger_values.extend(str(value) for value in raw_triggers if isinstance(value, str))
+        elif isinstance(raw_triggers, str):
+            trigger_values.append(raw_triggers)
+        for alias_key in ("source_role", "role", "role_alias", "original_mention", "mentioned_as"):
+            alias_value = raw_item.get(alias_key)
+            if isinstance(alias_value, str) and alias_value.strip():
+                trigger_values.append(alias_value)
+
+        is_generic_npc_name = globals().get("_is_story_generic_npc_name")
+        if callable(is_generic_npc_name):
+            try:
+                if is_generic_npc_name(title):
+                    continue
+            except Exception:
+                pass
+
+        is_duplicate_npc = globals().get("_is_story_npc_identity_duplicate")
+        if title.casefold() in existing_identity_keys:
+            continue
+        if callable(is_duplicate_npc):
+            try:
+                if is_duplicate_npc(
+                    candidate_name=title,
+                    candidate_triggers=trigger_values,
+                    known_identity_keys=existing_identity_keys,
+                ):
+                    continue
+            except Exception:
+                pass
 
         raw_description = str(raw_item.get("description") or raw_item.get("content") or "").strip()
         if len(raw_description) < 24:
@@ -8266,12 +8324,6 @@ def _sync_story_auto_npc_cards_for_assistant_message(
         except Exception:
             continue
 
-        raw_triggers = raw_item.get("triggers")
-        trigger_values = [title]
-        if isinstance(raw_triggers, list):
-            trigger_values.extend(str(value) for value in raw_triggers if isinstance(value, str))
-        elif isinstance(raw_triggers, str):
-            trigger_values.append(raw_triggers)
         triggers = normalize_story_world_card_triggers(trigger_values, fallback_title=title)
 
         card = StoryWorldCard(
@@ -8303,6 +8355,12 @@ def _sync_story_auto_npc_cards_for_assistant_message(
         db.flush()
         created_cards.append(card)
         existing_identity_keys.add(title.casefold())
+        build_identity_keys = globals().get("_build_story_identity_keys")
+        if callable(build_identity_keys):
+            try:
+                existing_identity_keys.update(str(value) for value in build_identity_keys(title, triggers) if str(value).strip())
+            except Exception:
+                pass
         for trigger in triggers:
             trigger_key = " ".join(str(trigger or "").split()).strip().casefold()
             if trigger_key:
@@ -8607,6 +8665,7 @@ def _extract_story_postprocess_memory_payload(
     ambient_enabled: bool = False,
     scene_emotion_enabled: bool = False,
     auto_npc_cards_enabled: bool = False,
+    world_cards: list[dict[str, Any]] | None = None,
     scene_emotion_active_cast_entries: list[dict[str, Any]] | None = None,
     scene_emotion_allowed_emotions: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any] | None:
@@ -8728,6 +8787,35 @@ def _extract_story_postprocess_memory_payload(
         player_name=main_hero_name_for_memory,
         known_character_names=known_character_names_for_memory,
     )
+    auto_npc_existing_character_context: list[dict[str, Any]] = []
+    if auto_npc_cards_enabled:
+        for card in _list_story_world_cards(db, game.id):
+            card_kind = _normalize_story_world_card_kind(getattr(card, "kind", None))
+            if card_kind not in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_NPC}:
+                continue
+            title = " ".join(str(getattr(card, "title", "") or "").split()).strip()
+            if not title:
+                continue
+            try:
+                triggers = [
+                    " ".join(str(value or "").split()).strip()
+                    for value in _deserialize_story_world_card_triggers(getattr(card, "triggers", "") or "")
+                    if " ".join(str(value or "").split()).strip()
+                ]
+            except Exception:
+                triggers = []
+            auto_npc_existing_character_context.append(
+                {
+                    "title": title,
+                    "kind": card_kind,
+                    "triggers": triggers,
+                }
+            )
+    location_world_card_context = (
+        _build_story_location_world_card_context_payload(world_cards)
+        if location_enabled
+        else []
+    )
     requested_sections: list[str] = []
 
     if raw_memory_enabled:
@@ -8798,11 +8886,14 @@ def _extract_story_postprocess_memory_payload(
     )
     auto_npc_system_parts = (
         [
-            "For auto_npcs: extract only NEW significant named NPCs introduced in the newest narrator reply.",
+            "For auto_npcs: extract only NEW significant NPCs introduced in the newest narrator reply.",
             "Return auto_npcs as an array with name, race, description, clothing, inventory, health_status, triggers, significance_score, and reason.",
             "Include only stable named people likely to matter later: allies, commanders, mentors, antagonists, quest givers, authorities, recurring companions, rivals, or witnesses with important information.",
-            "Exclude the main hero, every existing known character, generic titles, groups, locations, items, organizations, disposable guards, random bandits, crowds, monsters, animals, merchants, servants, and unnamed roles unless the text clearly makes one important.",
-            "description must be useful for a Russian character card and stay grounded in the reply.",
+            "If an important person is identified only by a role/title, invent one plausible personal name from gender/culture evidence and put the original role/title into triggers.",
+            "Do not use a generic role/title such as administrator, guard, merchant, priest, director, or stranger as the card name.",
+            "Exclude the main hero, every existing known character, every existing trigger or role alias, groups, locations, items, organizations, disposable guards, random bandits, crowds, monsters, animals, merchants, servants, and unnamed roles unless the text clearly makes one important.",
+            "description must follow this Russian template exactly with three lines: 'Возраст: ...', 'Внешность: ...', 'Характер: ...'.",
+            "Race must be filled. If race is not explicit, infer a plausible race/species from the scene, genre, role, and narrator wording.",
             "Use significance_score >= 70 only for NPCs that should become cards. Return an empty array when there is no such NPC.",
         ]
         if auto_npc_cards_enabled
@@ -8884,6 +8975,11 @@ def _extract_story_postprocess_memory_payload(
                 "Do not widen a precise scene into a broader area. If the text gives 'у входа в здание гильдии авантюристов', do not reduce it to 'на улицах города', 'у гильдии', or another broader outdoor label.",
                 "Preserve named establishments and rooms such as 'таверна Ржавый якорь' whenever the current scene is still happening there.",
                 "Never add a city, capital, district, country, kingdom, or world name just to make the place sound fuller. If that broader geography is not explicitly present in the recent scene text, omit it.",
+                "When explicit evidence is available, prefer a precise hierarchy: country/empire/kingdom + city/settlement + district/street + building/establishment + room/sublocation.",
+                "For wilderness or non-urban scenes, prefer country/empire/kingdom + terrain/locality + explicit cardinal region or direction, for example northern empire, eastern forest, or south road, but only when the source states it.",
+                "Use relevant world-card facts only as factual geography anchors when they clearly match the current scene or its enclosing region.",
+                "Omit every unsupported level. Never invent an empire, city, street, building, room, terrain, or cardinal direction to make the location look complete.",
+                "If a world card provides the country/empire/city/street/building/room and the latest scene clearly happens inside that place, include those known levels in location.content and label.",
                 "Use the latest player turn as supporting evidence, and allow it to establish or refine the place when it explicitly states where the hero enters, goes, stands, remains, or moves and the newest narrator reply continues that same scene without contradiction.",
                 "If the latest player turn or newest narrator reply says or strongly implies that the active scene moved, arrived, entered, exited, woke up somewhere, sat down somewhere, began breakfast/lunch/dinner somewhere, started work somewhere, or continued after travel, update the location to that new current place.",
                 "Do not wait for a formal phrase like 'we moved to'. Treat concrete verbs and scene anchors as location evidence: entered, left, reached, arrived, returned, woke up, went downstairs, crossed the threshold, sat at the table, stood at the counter, opened the door into a room, came to the square, or similar movement/placement.",
@@ -9018,6 +9114,8 @@ def _extract_story_postprocess_memory_payload(
                 "Never replace a known location with vague filler such as 'неизвестно', 'не указано', 'unknown', or an empty value.",
 
                 "status must describe only bodily or health condition: wounds, illness, poison, exhaustion, intoxication, or normal physical state.",
+                "Health default is exactly 'Состояние нормальное'. Use abnormal health only for explicit disease, poison, curse, injury, pain, exhaustion, or direct scene consequence.",
+                "When abnormal health is explicit, list concrete separate facts instead of vague labels: for example twisted ankle, broken rib, scratch on back, fever, plague, poison, burn, bleeding cut.",
                 "status must follow exactly one Russian template: 'Состояние нормальное' when there is no active abnormal health condition; 'Болен: <название болезни или состояния>' for illness, poison, curse, infection, fever, syndrome, exhaustion, or any invented disease that is clearly treated as illness in context; 'Ранен: <конкретные повреждения>' for wounds, scratches, fractures, cuts, bruises, bleeding, burns, or other injuries. If both illness and injury are explicit, include both parts separated by '; '.",
                 "For the main hero card, explicit player-stated bodily facts are valid evidence: symptoms, illness names, poison, curses, injuries, exhaustion, medication, trembling, fever, nausea, pain, weakness, clothing changes, and carried equipment.",
                 "If a separate distilled block of explicit main-hero self-description from the latest player turn is provided, treat it as high-priority evidence and preserve its named conditions and symptoms literally unless the newest narrator reply clearly resolves or contradicts them.",
@@ -9030,6 +9128,8 @@ def _extract_story_postprocess_memory_payload(
                 "For the main hero and any NPC whose is_active=true in this turn, status must never be empty.",
 
                 "clothing must describe what is worn on specific body areas: head, upper body, outer layer, lower body, feet, hands, and visible accessories when relevant.",
+                "Clothing must be written from head to toe in a practical order: head, neck/shoulders, torso, outer layer, arms/hands, waist, legs, feet, visible accessories.",
+                "Track asymmetry exactly when explicit: one sock removed, one boot missing, one glove off, torn sleeve, loosened belt, wet hem, hood up/down, blood stains, dirt, broken clasp.",
 
                 "For the main hero and any NPC whose is_active=true in this turn, clothing must never be empty.",
 
@@ -9048,6 +9148,7 @@ def _extract_story_postprocess_memory_payload(
                 "Track small but persistent clothing details when they matter to continuity: one boot removed, torn sleeve, loosened belt, wet hem, broken clasp, blood stains, dirt, missing glove, hood up or down.",
 
                 "Be detailed but practical, without turning into obsessive inventory.",
+                "equipment is inventory: write a simple comma-separated list of items the character has. Do not describe clothing here unless it is carried, not worn.",
 
                 "equipment must be concrete and definite. Never write alternatives or uncertainty such as 'или', '/', 'возможно', or 'скорее всего'.",
 
@@ -9268,6 +9369,18 @@ def _extract_story_postprocess_memory_payload(
                 + (
                     f"Явные самоописания ГГ из хода игрока:\n{main_hero_explicit_state_evidence}\n\n"
                     if character_state_enabled and main_hero_explicit_state_evidence
+                    else ""
+                )
+                + (
+                    "Relevant world/card location facts (use only if they clearly match the current scene; do not invent missing address levels):\n"
+                    f"{json.dumps(location_world_card_context, ensure_ascii=False)}\n\n"
+                    if location_enabled and location_world_card_context
+                    else ""
+                )
+                + (
+                    "Existing character cards with aliases for auto_npcs duplicate checks:\n"
+                    f"{json.dumps(auto_npc_existing_character_context, ensure_ascii=False)}\n\n"
+                    if auto_npc_cards_enabled and auto_npc_existing_character_context
                     else ""
                 )
                 + (
@@ -10348,6 +10461,43 @@ def _collect_story_memory_identity_names(
     for raw_name in list(known_character_names or []):
         _append_name(raw_name)
     return names
+
+
+def _build_story_location_world_card_context_payload(
+    world_cards: list[dict[str, Any]] | None,
+    *,
+    max_cards: int = 8,
+    max_content_chars: int = 900,
+) -> list[dict[str, str]]:
+    context_cards: list[dict[str, str]] = []
+    seen_keys: set[str] = set()
+    for raw_card in world_cards or []:
+        if not isinstance(raw_card, dict):
+            continue
+        title = _normalize_story_prompt_text(str(raw_card.get("title", "")), max_chars=140)
+        content = _normalize_story_prompt_text(
+            _normalize_story_markup_to_plain_text(str(raw_card.get("content", ""))),
+            max_chars=max_content_chars,
+        )
+        if not title or not content:
+            continue
+        card_kind = _normalize_story_world_card_kind(str(raw_card.get("kind", "")))
+        detail_type = _normalize_story_prompt_text(str(raw_card.get("detail_type", "")), max_chars=80)
+        key = f"{card_kind}:{title.casefold()}"
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        payload: dict[str, str] = {
+            "title": title,
+            "kind": card_kind,
+            "content": content,
+        }
+        if detail_type:
+            payload["detail_type"] = detail_type
+        context_cards.append(payload)
+        if len(context_cards) >= max_cards:
+            break
+    return context_cards
 
 
 def _count_story_user_turns_before_assistant_message(

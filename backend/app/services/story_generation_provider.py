@@ -334,6 +334,20 @@ def _should_retry_polza_gemini_pro_turn_failure(
     return int(status_code) in POLZA_GEMINI_PRO_RETRY_STATUS_CODES
 
 
+def _is_polza_gemini_pro_incomplete_stream_result(
+    *,
+    model_name: str | None,
+    finish_reason: str | None,
+    saw_done_marker: bool,
+) -> bool:
+    if _normalize_story_model_id(model_name) not in POLZA_GEMINI_31_PRO_MODEL_IDS:
+        return False
+    normalized_finish_reason = str(finish_reason or "").strip().casefold()
+    if normalized_finish_reason == "length":
+        return True
+    return not bool(saw_done_marker) and not normalized_finish_reason
+
+
 def _should_try_polza_fallback_model(
     *,
     status_code: int,
@@ -942,8 +956,25 @@ def _iter_polza_story_stream_chunks(
                     stream_closed_unexpectedly = not saw_done_marker and not str(finish_reason or "").strip()
                     model_hit_length_limit = str(finish_reason or "").strip().casefold() == "length"
                     if stream_closed_unexpectedly or model_hit_length_limit:
+                        log_message = (
+                            "OpenRouter stream ended before a clean done marker: model=%s finish_reason=%s done=%s"
+                        )
+                        if _is_polza_gemini_pro_incomplete_stream_result(
+                            model_name=model_name,
+                            finish_reason=finish_reason,
+                            saw_done_marker=saw_done_marker,
+                        ):
+                            logger.error(
+                                log_message + "; rejecting incomplete Gemini Pro turn instead of saving truncated text",
+                                model_name,
+                                finish_reason or "",
+                                saw_done_marker,
+                            )
+                            raise RuntimeError(
+                                "OpenRouter Gemini Pro stream ended incomplete; the partial response was rejected"
+                            )
                         logger.warning(
-                            "OpenRouter stream ended before a clean done marker; keeping streamed text without recovery: model=%s finish_reason=%s done=%s",
+                            log_message + "; keeping streamed text",
                             model_name,
                             finish_reason or "",
                             saw_done_marker,

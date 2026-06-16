@@ -552,7 +552,7 @@ def get_shop_catalog(
 ) -> ShopCatalogOut:
     user = get_current_user(db, authorization)
     owned_item_ids = list_user_owned_cosmetic_item_ids(db, user_id=int(user.id))
-    can_manage_shop = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+    can_manage_shop = user_has_admin_panel_access(user)
     statement = select(CosmeticItem)
     if can_manage_shop:
         statement = statement.order_by(CosmeticItem.is_active.desc(), CosmeticItem.kind.asc(), CosmeticItem.price_coins.asc(), CosmeticItem.id.asc())
@@ -591,7 +591,7 @@ def create_shop_cosmetic_item(
     db: Session = Depends(get_db),
 ) -> CosmeticItemOut:
     user = get_current_user(db, authorization)
-    _require_administrator(user)
+    _require_staff(user)
     image_url = str(payload.image_url or "").strip()
     _validate_cosmetic_image_url(image_url)
     item = CosmeticItem(
@@ -617,7 +617,7 @@ def update_shop_cosmetic_item(
     db: Session = Depends(get_db),
 ) -> CosmeticItemOut:
     user = get_current_user(db, authorization)
-    _require_administrator(user)
+    _require_staff(user)
     item = db.get(CosmeticItem, int(item_id))
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cosmetic item not found")
@@ -648,7 +648,7 @@ def delete_shop_cosmetic_item(
     db: Session = Depends(get_db),
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
-    _require_administrator(user)
+    _require_staff(user)
     item = db.get(CosmeticItem, int(item_id))
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cosmetic item not found")

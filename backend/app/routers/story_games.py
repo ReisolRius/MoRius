@@ -380,6 +380,7 @@ STORY_CLONE_TITLE_SUFFIX = " (копия)"
 PRIVILEGED_WORLD_COMMENT_ROLES = {"administrator", "moderator"}
 STORY_LIST_PREVIEW_MAX_CHARS = 145
 STORY_LIST_PREVIEW_MAX_CHARS_WITH_ELLIPSIS = 142
+STORY_QUICK_START_MAX_TOKENS = 1_800
 STORY_QUICK_START_ALLOWED_START_MODES = {"calm", "action"}
 STORY_CLONE_DISPLAY_SUFFIX = " (\u043a\u043e\u043f\u0438\u044f)"
 STORY_CLONE_DISPLAY_SUFFIX_PATTERN = re.compile(
@@ -679,6 +680,21 @@ def _extract_story_quick_start_json(raw_value: str) -> dict[str, object] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _repair_story_quick_start_payload(payload: dict[str, object]) -> dict[str, object]:
+    repaired: dict[str, object] = {}
+    for key, value in payload.items():
+        if isinstance(value, str):
+            repaired[key] = sanitize_likely_utf8_mojibake(value).strip()
+        elif isinstance(value, list):
+            repaired[key] = [
+                sanitize_likely_utf8_mojibake(str(item)).strip()
+                for item in value
+                if isinstance(item, str) and sanitize_likely_utf8_mojibake(str(item)).strip()
+            ]
+        else:
+            repaired[key] = value
+    return repaired
+
 
 def _build_story_quick_start_fallback_payload(
     *,
@@ -831,7 +847,7 @@ def _generate_story_quick_start_payload(
     except Exception:
         pass
 
-    return fallback_payload
+    return _repair_story_quick_start_payload(fallback_payload)
 
 
 def _build_story_clone_title(source_title: str) -> str:
@@ -2767,10 +2783,10 @@ def create_story_quick_start_game(
         start_mode=start_mode,
     )
 
-    raw_game_title = str(generated_payload.get("game_title") or "").strip()
-    raw_game_description = str(generated_payload.get("game_description") or "").strip()
-    raw_hero_description = str(generated_payload.get("hero_description") or "").strip()
-    raw_opening_scene = str(generated_payload.get("opening_scene") or "").strip()
+    raw_game_title = sanitize_likely_utf8_mojibake(str(generated_payload.get("game_title") or "")).strip()
+    raw_game_description = sanitize_likely_utf8_mojibake(str(generated_payload.get("game_description") or "")).strip()
+    raw_hero_description = sanitize_likely_utf8_mojibake(str(generated_payload.get("hero_description") or "")).strip()
+    raw_opening_scene = sanitize_likely_utf8_mojibake(str(generated_payload.get("opening_scene") or "")).strip()
     raw_hero_triggers = generated_payload.get("hero_triggers")
 
     game_title = (raw_game_title or f"{genre}: {protagonist_name}")[:160].strip() or STORY_DEFAULT_TITLE
@@ -2782,11 +2798,24 @@ def create_story_quick_start_game(
             "У героя уже есть заметная внешность, своя манера держаться и причина оказаться в центре этой истории."
         )
     )
+    opening_scene = normalize_story_game_opening_scene(
+        raw_opening_scene
+        or (
+            f"{protagonist_name} делает первый шаг в историю жанра {genre}. "
+            f"Перед {protagonist_name} возникает конкретная сцена, связанная с ролью {hero_class.lower()}, "
+            "и мир сразу ждёт следующего решения игрока."
+        )
+    )
+    if not opening_scene:
+        opening_scene = normalize_story_game_opening_scene(
+            f"{protagonist_name} оказывается в начале новой истории. Сцена замирает на моменте выбора."
+        )
+
     if isinstance(raw_hero_triggers, list):
         hero_triggers_source = [
-            str(value).strip()
+            sanitize_likely_utf8_mojibake(str(value)).strip()
             for value in raw_hero_triggers
-            if isinstance(value, str) and str(value).strip()
+            if isinstance(value, str) and sanitize_likely_utf8_mojibake(str(value)).strip()
         ]
     else:
         hero_triggers_source = [protagonist_name, hero_class, genre]

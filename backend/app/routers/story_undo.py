@@ -22,7 +22,7 @@ from app.services.story_undo import (
 )
 
 router = APIRouter()
-_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 2.0
+_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 15.0
 
 
 def _acquire_story_operation_lease_or_409(*, game_id: int, operation: str):

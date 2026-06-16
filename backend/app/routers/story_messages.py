@@ -31,7 +31,7 @@ from app.services.story_text import normalize_story_text
 router = APIRouter()
 logger = logging.getLogger(__name__)
 STORY_MESSAGE_BUSY_DETAIL = STORY_GAME_OPERATION_BUSY_DETAIL
-_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 2.0
+_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 15.0
 _STORY_INLINE_EDIT_RAW_KEEP_LATEST_ASSISTANT_TURNS = 1
 
 

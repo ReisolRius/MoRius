@@ -1660,6 +1660,24 @@ STORY_DIALOGUE_FORMAT_RULES_V2 = (
     "Без JSON, markdown, списков и код-блоков.",
 )
 
+def _build_story_narrator_guardrail_rules(protagonist_label: str) -> tuple[str, ...]:
+    protagonist = " ".join(str(protagonist_label or "").split()).strip() or "the player character"
+    return (
+        "HIDDEN NARRATOR HELPER (MANDATORY):",
+        "Treat the latest player message as already performed input, not as text to echo.",
+        "Do not quote, paraphrase, summarize, translate, or restate the player's latest message.",
+        "Do not begin by describing what the player just wrote unless it is a direct immediate consequence in the world.",
+        "Use instruction, plot, and world cards silently as continuity facts. Never explain the cards, list card contents, or write 'according to the card'.",
+        f"The player character is {protagonist}. Do not invent new speech, thoughts, decisions, routes, motives, or actions for this character.",
+        "Direct speech must be in its own paragraph and must start with exactly [[NPC:Name]] or [[GG:Name]].",
+        "Thoughts must be in their own paragraph and must start with exactly [[NPC_THOUGHT:Name]] or [[GG_THOUGHT:Name]] only when thoughts are enabled by settings.",
+        "Narration, gestures, silence, scenery, actions, and reactions are plain paragraphs without any marker.",
+        "Never put a speech/thought marker in the middle of a paragraph. One marked paragraph means one speaker and one utterance or thought.",
+        "If a line has a speaker avatar/name in the UI, it must be marked; if it is not spoken or thought text, it must remain unmarked narration.",
+        "End the response at a natural player decision point instead of continuing the player character's next move.",
+    )
+
+
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
 if settings.app_allowed_hosts and settings.app_allowed_hosts != ["*"]:
@@ -5045,7 +5063,16 @@ def _build_story_system_prompt(
         if use_english_language_contract
         else STORY_STRICT_RUSSIAN_OUTPUT_RULES
     )
-    lines.extend(["", *STORY_DIALOGUE_FORMAT_RULES_V2, "", *language_contract_rules])
+    lines.extend(
+        [
+            "",
+            *STORY_DIALOGUE_FORMAT_RULES_V2,
+            "",
+            *_build_story_narrator_guardrail_rules(protagonist_label),
+            "",
+            *language_contract_rules,
+        ]
+    )
     if "deepseek/" in normalized_model_name:
         lines.extend(
             [
@@ -7598,6 +7625,7 @@ def _resolve_story_turn_postprocess_payload(
             ambient_enabled=ambient_enabled,
             scene_emotion_enabled=emotion_visualization_enabled,
             auto_npc_cards_enabled=auto_npc_cards_enabled,
+            world_cards=active_scene_world_cards,
             scene_emotion_active_cast_entries=scene_emotion_active_cast_entries,
             scene_emotion_allowed_emotions=sorted(_STORY_CHARACTER_EMOTION_IDS),
         )
@@ -10638,6 +10666,19 @@ def _upsert_story_plot_memory_card(
             else None
         )
         has_postprocess_payload_override = isinstance(resolved_postprocess_payload_override, dict)
+        postprocess_world_cards: list[dict[str, Any]] = []
+        try:
+            postprocess_world_cards = _select_story_world_cards_for_prompt(
+                _list_story_messages(db, game.id),
+                _list_story_world_cards(db, game.id),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Story postprocess world-card context selection failed: game_id=%s assistant_message_id=%s error=%s",
+                game.id,
+                assistant_message.id,
+                exc,
+            )
 
         if postprocess_payload is None and allow_model_postprocess_request:
             try:
@@ -10656,6 +10697,7 @@ def _upsert_story_plot_memory_card(
                     ambient_enabled=False,
                     scene_emotion_enabled=False,
                     auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
+                    world_cards=postprocess_world_cards,
                 )
             except Exception as exc:
                 logger.warning(
@@ -12595,14 +12637,19 @@ def _build_story_turn_image_prompt(
             "CHARACTER_CARD_LOCK priority is absolute: "
             "CHARACTER_CARD_LOCK > appearance-lock > scene state."
         )
+    _try_append_optional_line(
+        "Visible cast must come from the latest player turn and narrator response: include every visible character in this scene, including newly mentioned characters without cards; omit characters who are not present."
+    )
+    _try_append_optional_line(
+        "The main hero is optional: include the player character only when the current scene text places the main hero visibly in the scene."
+    )
     if character_lines:
         _try_append_optional_line(
-            "Mandatory visible cast (must match exactly): "
+            "Character card appearance hints (use only for these listed characters when they are actually visible): "
             + " ".join(f"{index + 1}) {line}." for index, line in enumerate(character_lines))
         )
         _try_append_optional_line(
-            f"Exactly {len(character_lines)} visible people in the frame. "
-            "Do not add, remove, replace, or duplicate any character."
+            "Do not treat listed cards as a required cast count. Add visible non-card characters from the scene text and omit listed card characters who are absent."
         )
         _try_append_optional_line("Keep each listed character's role, gender, and key appearance.")
         if has_gender_lock_line:
@@ -12630,7 +12677,7 @@ def _build_story_turn_image_prompt(
                 "Choose framing and lighting so locked facial and hair details remain clearly readable."
             )
         if has_main_hero_line:
-            _try_append_optional_line("Main hero must be visible in-frame. Do not switch to first-person POV.")
+            _try_append_optional_line("If the main hero is visible in the scene, show the main hero in third-person framing; if not present, do not force the main hero into the image.")
     if has_hair_length_lock:
         _try_append_optional_line("Hair length lock: hair length must match exactly.")
         _try_append_optional_line("Hair length lock: forbidden conflicting hair lengths.")
@@ -12734,9 +12781,10 @@ def _build_story_turn_image_prompt_composer_messages(
         "If the STYLE DIRECTIVE requests anime or manga, the final prompt must make anime/manga mandatory. "
         "Use the latest player turn and latest narrator response as the scene source. "
         "Active place/time/weather module context, when provided, is mandatory visual state and overrides stale card wording. "
-        "The main_hero card, if present, is mandatory visible cast: include the player character in-frame even when the scene is written in first person. "
-        "Never omit the main_hero, never turn the shot into first-person POV, and never replace main_hero with an NPC. "
-        "Include only characters who participate in or are clearly visible in this latest scene; do not add active characters who are not present. "
+        "The main_hero card is not mandatory visible cast. Include the player character only when the latest scene text places the main hero visibly in this moment. "
+        "If the main hero is absent from the scene, omit the main hero even when a main_hero card is listed. "
+        "Include every character who participates in or is clearly visible in this latest scene, including newly mentioned characters without cards. "
+        "Do not add active/card characters who are not present. "
         "Keep the exact scene moment, location, participants, actions, mood, and important props. "
         "Return only the final prompt text, no markdown, no JSON, no explanations."
     )
@@ -12765,8 +12813,9 @@ def _build_story_turn_image_prompt_composer_messages(
         "- Write in English for best image model adherence.\n"
         "- Start with the required style and medium.\n"
         "- Describe the exact visible scene, participants, action, composition, camera, lighting, atmosphere, props, location details, and character appearances.\n"
-        "- Always include the main_hero/player character visibly in the frame when a main_hero card is listed.\n"
-        "- Avoid first-person POV; use third-person cinematic framing where the main_hero can be seen.\n"
+        "- Include the main_hero/player character only if the latest scene text shows the main hero present; otherwise omit the main hero.\n"
+        "- Include all visible scene characters even when no character card exists; infer their appearance only from the player turn and narrator response.\n"
+        "- Avoid first-person POV when the main hero is present; use third-person cinematic framing where the main_hero can be seen.\n"
         "- Preserve character identity and location details from cards when they are relevant to the latest scene.\n"
         "- Preserve active place, time of day, season, lighting, sky, and weather from the module context when present.\n"
         "- Do not include NPC characters who are not in the latest player turn or narrator response.\n"
@@ -12813,15 +12862,15 @@ def _prefix_story_turn_image_prompt_with_style_lock(
     )
     if character_lines:
         prompt_parts.append(
-            "MANDATORY VISIBLE CAST: "
+            "CHARACTER CARD APPEARANCE HINTS (not a required cast count): "
             + " ".join(f"{index + 1}) {line}." for index, line in enumerate(character_lines))
         )
         if any(line.startswith("main_hero:") for line in character_lines):
             prompt_parts.append(
-                "MAIN HERO LOCK: the main_hero is the player character and must be visible in-frame; do not switch to first-person POV, do not omit the main_hero, and do not replace the main_hero with an NPC."
+                "MAIN HERO OPTIONALITY: include the main_hero only if the latest scene text places the player character visibly in this moment; if present, keep the main_hero identity and use third-person framing."
             )
         prompt_parts.append(
-            f"Exactly {len(character_lines)} listed character(s) should be visible unless the scene explicitly shows a crowd; do not add unrelated active characters."
+            "Visible cast comes from the latest scene text: include visible non-card characters, omit absent card characters, and do not add unrelated active characters."
         )
     if normalized_environment_context:
         prompt_parts.append(f"ACTIVE PLACE/TIME/WEATHER LOCK: {normalized_environment_context}")
