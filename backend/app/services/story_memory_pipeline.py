@@ -10670,19 +10670,6 @@ def _build_story_raw_memory_block_content(
             )
         return (normalized_memory_text or normalized_value).strip()
 
-    def _trim_detailed_turn_summary(text_value: str, *, source_text: str, max_chars: int) -> str:
-        normalized_value = " ".join(str(text_value or "").replace("\r\n", " ").split()).strip()
-        if not normalized_value:
-            return ""
-        normalized_max_chars = max(int(max_chars or 0), 1)
-        if len(source_text) > 260:
-            target_chars = max(160, min(normalized_max_chars, int(len(source_text) * 0.86)))
-            if len(normalized_value) > target_chars:
-                return _normalize_story_prompt_text(normalized_value, max_chars=target_chars)
-        if len(normalized_value) > normalized_max_chars:
-            return _normalize_story_prompt_text(normalized_value, max_chars=normalized_max_chars)
-        return normalized_value
-
     def _build_detailed_turn_summary(
         text_value: str,
         *,
@@ -10694,31 +10681,8 @@ def _build_story_raw_memory_block_content(
         normalized_value = _normalize_turn_source_text(text_value, is_assistant=is_assistant)
         if not normalized_value:
             return ("", "")
-        if preserve_full_text:
-            return ("полный текст", normalized_value)
-        summarized_value = _build_story_memory_summary_without_truncation(
-            normalized_value,
-            super_mode=False,
-            player_name=normalized_player_turn_label,
-            known_character_names=known_character_names,
-            max_lines=max_lines,
-            max_chars=max_chars,
-        ).strip()
-        if not summarized_value:
-            fallback_sentences = _extract_story_memory_sentences(normalized_value)
-            if fallback_sentences:
-                summarized_value = _join_story_memory_sentences_as_prose(
-                    fallback_sentences[: max(max_lines, 1)],
-                    max_chars=max(max_chars, 1),
-                ).strip()
-            else:
-                summarized_value = normalized_value
-        summarized_value = _trim_detailed_turn_summary(
-            summarized_value,
-            source_text=normalized_value,
-            max_chars=max_chars,
-        )
-        return ("подробный пересказ", summarized_value)
+        _ = (max_lines, max_chars, preserve_full_text)
+        return ("полный текст", normalized_value)
 
     def _normalize_story_memory_turn_actor_label(value: str | None, *, fallback: str) -> str:
         normalized = " ".join(str(value or "").split()).strip()
@@ -10747,14 +10711,14 @@ def _build_story_raw_memory_block_content(
         is_assistant=False,
         max_lines=STORY_MEMORY_RAW_USER_MAX_LINES if preserve_user_text else STORY_MEMORY_COMPRESSED_MAX_LINES,
         max_chars=STORY_MEMORY_RAW_USER_MAX_CHARS if preserve_user_text else STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS,
-        preserve_full_text=bool(preserve_user_text),
+        preserve_full_text=True,
     )
     assistant_label, assistant_body = _build_detailed_turn_summary(
         normalized_assistant,
         is_assistant=True,
         max_lines=STORY_MEMORY_RAW_ASSISTANT_MAX_LINES if preserve_assistant_text else STORY_MEMORY_COMPRESSED_MAX_LINES,
         max_chars=STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS if preserve_assistant_text else STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS,
-        preserve_full_text=bool(preserve_assistant_text),
+        preserve_full_text=True,
     )
     parts: list[str] = []
     if prompt_body:
@@ -13435,60 +13399,6 @@ def _extract_story_important_plot_card_payload_locally(
 
 
 
-def _compress_story_memory_block_locally(
-
-    raw_content: str,
-
-    *,
-
-    super_mode: bool,
-    player_name: str | None = None,
-    known_character_names: list[str] | None = None,
-
-) -> tuple[str, str]:
-
-    compressed = _build_story_memory_summary_without_truncation(
-
-        raw_content,
-
-        super_mode=super_mode,
-        player_name=player_name,
-        known_character_names=known_character_names,
-
-    )
-
-    if not compressed:
-
-        fallback_sentences = _extract_story_memory_sentences(raw_content)
-
-        if fallback_sentences:
-
-            max_lines = STORY_MEMORY_SUPER_MAX_LINES if super_mode else STORY_MEMORY_COMPRESSED_MAX_LINES
-
-            max_chars = STORY_MEMORY_SUPER_MAX_CHARS if super_mode else STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS
-
-            compressed = _join_story_memory_sentences_as_prose(
-
-                fallback_sentences[: max(max_lines, 1)],
-
-                max_chars=max_chars,
-
-            ).strip()
-
-        else:
-
-            compressed = "Существенных фактов не выделено."
-
-    fallback_prefix = "Суперсжатая память" if super_mode else "Сжатая память"
-
-    title = _build_story_memory_block_title(compressed, fallback_prefix=fallback_prefix)
-
-    return (title, compressed)
-
-
-
-
-
 def _compress_story_memory_block_with_model(
 
     *,
@@ -13668,9 +13578,21 @@ def _compress_story_memory_block_with_model(
 
 
 
-    normalized_max_attempts = max(int(max_attempts or 0), 1)
+    _ = max_attempts
+    candidate_models: list[str] = []
+    for candidate_model in [model_name, *(fallback_model_names or [])]:
+        normalized_candidate_model = str(candidate_model or "").strip()
+        if not normalized_candidate_model or normalized_candidate_model in candidate_models:
+            continue
+        candidate_models.append(normalized_candidate_model)
+        if len(candidate_models) >= 2:
+            break
+    if not candidate_models:
+        raise RuntimeError("Story memory compression model is unavailable")
 
-    for attempt_index in range(normalized_max_attempts):
+    last_failure: Exception | None = None
+
+    for attempt_index, candidate_model in enumerate(candidate_models):
 
         try:
 
@@ -13678,13 +13600,13 @@ def _compress_story_memory_block_with_model(
 
                 messages_payload,
 
-                model_name=model_name,
+                model_name=candidate_model,
 
                 allow_service_fallback=False,
 
                 translate_input=False,
 
-                fallback_model_names=fallback_model_names,
+                fallback_model_names=[],
                 include_configured_service_fallback=False,
 
                 temperature=0.15 if super_mode else 0.2,
@@ -13703,36 +13625,29 @@ def _compress_story_memory_block_with_model(
             )
 
         except Exception as exc:
+            last_failure = exc
 
             logger.warning(
 
-                "Story memory compression request failed on attempt %s/%s: %s",
+                "Story memory compression request failed for model %s on attempt %s/%s: %s",
 
+                candidate_model,
                 attempt_index + 1,
 
-                normalized_max_attempts,
+                len(candidate_models),
 
                 exc,
 
             )
 
-            if attempt_index + 1 < normalized_max_attempts:
-
-                time.sleep(0.2)
-
+            if attempt_index + 1 < len(candidate_models):
                 continue
 
             raise RuntimeError("Story memory compression request failed") from exc
 
 
 
-        normalized_response = _normalize_story_prompt_text(
-
-            raw_response,
-
-            max_chars=STORY_MEMORY_SUPER_MAX_CHARS if super_mode else STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS,
-
-        )
+        normalized_response = _normalize_story_message_content(raw_response)
 
         normalized_response = re.sub(r"^\s*[-•]+\s*", "", normalized_response).strip()
 
@@ -13741,15 +13656,16 @@ def _compress_story_memory_block_with_model(
             normalized_response = _normalize_story_memory_block_content(normalized_response)
 
             if not _is_model_compression_output_usable(normalized_raw_content, normalized_response):
+                last_failure = RuntimeError("Story memory compression returned unusable model payload")
                 logger.warning(
-                    "Story memory compression returned unusable model payload on attempt %s/%s",
+                    "Story memory compression returned unusable model payload for model %s on attempt %s/%s",
+                    candidate_model,
                     attempt_index + 1,
-                    normalized_max_attempts,
+                    len(candidate_models),
                 )
-                if attempt_index + 1 < normalized_max_attempts:
-                    time.sleep(0.15)
+                if attempt_index + 1 < len(candidate_models):
                     continue
-                raise RuntimeError("Story memory compression returned unusable model payload")
+                raise RuntimeError("Story memory compression returned unusable model payload") from last_failure
 
             title = _build_story_memory_block_title(
 
@@ -13761,14 +13677,12 @@ def _compress_story_memory_block_with_model(
 
             return (title, normalized_response)
 
-
-
-        if attempt_index + 1 < normalized_max_attempts:
-
-            time.sleep(0.15)
+        last_failure = RuntimeError("Story memory compression returned empty model payload")
 
 
 
+    if last_failure is not None:
+        raise RuntimeError("Story memory compression failed") from last_failure
     raise RuntimeError("Story memory compression returned empty model payload")
 
 
@@ -13848,10 +13762,11 @@ def _rebalance_story_memory_layers(
     }
     model_name = _resolve_story_plot_memory_model_name(game)
     normalized_max_model_requests = (
-        None
+        1
         if max_model_requests is None
         else max(int(max_model_requests or 0), 0)
     )
+    compression_fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name, game)
     model_requests_used = 0
     failed_raw_block_ids: set[int] = set()
     failed_compressed_block_ids: set[int] = set()
@@ -13954,11 +13869,55 @@ def _rebalance_story_memory_layers(
         normalized = re.sub(r"\n{3,}", "\n\n", normalized)
         return normalized.strip()
 
+    def _compress_with_model_budget(
+        prepared_content: str,
+        *,
+        super_mode: bool,
+        source_block_id: int,
+        target_layer: str,
+    ) -> tuple[str, str] | None:
+        nonlocal model_requests_used
+        model_allowed = model_requests_used < normalized_max_model_requests
+        if not model_allowed:
+            if require_model_compaction:
+                raise RuntimeError("Story memory compaction model request budget exhausted")
+            logger.warning(
+                "Story memory model compaction skipped: game_id=%s source_block_id=%s target_layer=%s reason=budget_exhausted",
+                game.id,
+                source_block_id,
+                target_layer,
+            )
+            return None
+
+        model_requests_used += 1
+        try:
+            return _compress_story_memory_block_with_model(
+                raw_content=prepared_content,
+                model_name=model_name,
+                fallback_model_names=compression_fallback_model_names,
+                super_mode=super_mode,
+                player_name=main_hero_name_for_memory,
+                known_character_names=known_character_names_for_memory,
+                max_attempts=1,
+            )
+        except Exception as exc:
+            if require_model_compaction:
+                raise
+            logger.warning(
+                "Story memory model compaction failed; keeping source block unchanged: game_id=%s source_block_id=%s target_layer=%s error=%s",
+                game.id,
+                source_block_id,
+                target_layer,
+                exc,
+            )
+            return None
+
     def _sanitize_compact_layers() -> None:
         changed = False
         for layer_value in (STORY_MEMORY_LAYER_COMPRESSED, STORY_MEMORY_LAYER_SUPER):
             super_mode = layer_value == STORY_MEMORY_LAYER_SUPER
             for block in _layer_blocks(layer_value):
+                source_block_id = _safe_int(getattr(block, "id", 0))
                 original_title = str(getattr(block, "title", "") or "")
                 original_content = str(getattr(block, "content", "") or "")
                 if not (
@@ -13969,12 +13928,15 @@ def _rebalance_story_memory_layers(
                 prepared_content = _prepare_compaction_content(original_content)
                 if not prepared_content:
                     continue
-                compact_title, compact_content = _compress_story_memory_block_locally(
+                compact_result = _compress_with_model_budget(
                     prepared_content,
                     super_mode=super_mode,
-                    player_name=main_hero_name_for_memory,
-                    known_character_names=known_character_names_for_memory,
+                    source_block_id=source_block_id,
+                    target_layer=layer_value,
                 )
+                if compact_result is None:
+                    continue
+                compact_title, compact_content = compact_result
                 normalized_content = _normalize_story_memory_block_content(compact_content)
                 next_token_count = max(_estimate_story_tokens(normalized_content), 1)
                 if str(getattr(block, "title", "") or "") != compact_title:
@@ -14019,7 +13981,6 @@ def _rebalance_story_memory_layers(
             db.flush()
 
     def _compact_raw_block(block: StoryMemoryBlock) -> bool:
-        nonlocal model_requests_used
         source_block_id = _safe_int(getattr(block, "id", 0))
         source_assistant_message_id = _safe_int(getattr(block, "assistant_message_id", 0))
         prepared_content = _prepare_compaction_content(str(getattr(block, "content", "") or ""))
@@ -14043,40 +14004,15 @@ def _rebalance_story_memory_layers(
                 )
                 return False
         try:
-            model_allowed = (
-                normalized_max_model_requests is None
-                or model_requests_used < normalized_max_model_requests
+            compact_result = _compress_with_model_budget(
+                prepared_content,
+                super_mode=False,
+                source_block_id=source_block_id,
+                target_layer=STORY_MEMORY_LAYER_COMPRESSED,
             )
-            if model_allowed:
-                model_requests_used += 1
-                try:
-                    compressed_title, compressed_content = _compress_story_memory_block_with_model(
-                        raw_content=prepared_content,
-                        model_name=model_name,
-                        fallback_model_names=[],
-                        super_mode=False,
-                        player_name=main_hero_name_for_memory,
-                        known_character_names=known_character_names_for_memory,
-                        max_attempts=1,
-                    )
-                except Exception:
-                    if require_model_compaction:
-                        raise
-                    compressed_title, compressed_content = _compress_story_memory_block_locally(
-                        prepared_content,
-                        super_mode=False,
-                        player_name=main_hero_name_for_memory,
-                        known_character_names=known_character_names_for_memory,
-                    )
-            else:
-                if require_model_compaction:
-                    raise RuntimeError("Story memory compaction model request budget exhausted")
-                compressed_title, compressed_content = _compress_story_memory_block_locally(
-                    prepared_content,
-                    super_mode=False,
-                    player_name=main_hero_name_for_memory,
-                    known_character_names=known_character_names_for_memory,
-                )
+            if compact_result is None:
+                return False
+            compressed_title, compressed_content = compact_result
             with db.begin_nested():
                 current_block = db.get(StoryMemoryBlock, source_block_id)
                 if current_block is None:
@@ -14104,7 +14040,6 @@ def _rebalance_story_memory_layers(
             return False
 
     def _compact_compressed_block(block: StoryMemoryBlock) -> bool:
-        nonlocal model_requests_used
         source_block_id = _safe_int(getattr(block, "id", 0))
         source_assistant_message_id = _safe_int(getattr(block, "assistant_message_id", 0))
         prepared_content = _prepare_compaction_content(str(getattr(block, "content", "") or ""))
@@ -14128,40 +14063,15 @@ def _rebalance_story_memory_layers(
                 )
                 return False
         try:
-            model_allowed = (
-                normalized_max_model_requests is None
-                or model_requests_used < normalized_max_model_requests
+            compact_result = _compress_with_model_budget(
+                prepared_content,
+                super_mode=True,
+                source_block_id=source_block_id,
+                target_layer=STORY_MEMORY_LAYER_SUPER,
             )
-            if model_allowed:
-                model_requests_used += 1
-                try:
-                    super_title, super_content = _compress_story_memory_block_with_model(
-                        raw_content=prepared_content,
-                        model_name=model_name,
-                        fallback_model_names=[],
-                        super_mode=True,
-                        player_name=main_hero_name_for_memory,
-                        known_character_names=known_character_names_for_memory,
-                        max_attempts=1,
-                    )
-                except Exception:
-                    if require_model_compaction:
-                        raise
-                    super_title, super_content = _compress_story_memory_block_locally(
-                        prepared_content,
-                        super_mode=True,
-                        player_name=main_hero_name_for_memory,
-                        known_character_names=known_character_names_for_memory,
-                    )
-            else:
-                if require_model_compaction:
-                    raise RuntimeError("Story memory super-compaction model request budget exhausted")
-                super_title, super_content = _compress_story_memory_block_locally(
-                    prepared_content,
-                    super_mode=True,
-                    player_name=main_hero_name_for_memory,
-                    known_character_names=known_character_names_for_memory,
-                )
+            if compact_result is None:
+                return False
+            super_title, super_content = compact_result
             with db.begin_nested():
                 current_block = db.get(StoryMemoryBlock, source_block_id)
                 if current_block is None:

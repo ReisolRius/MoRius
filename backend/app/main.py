@@ -9213,19 +9213,6 @@ def _extract_story_important_plot_card_payload_locally(
     )
 
 
-def _compress_story_memory_block_locally(
-    raw_content: str,
-    *,
-    super_mode: bool,
-) -> tuple[str, str]:
-    from app.services import story_memory_pipeline as _story_memory_pipeline
-
-    return _story_memory_pipeline._compress_story_memory_block_locally(
-        raw_content,
-        super_mode=super_mode,
-    )
-
-
 def _compress_story_memory_block_with_model(
     *,
     raw_content: str,
