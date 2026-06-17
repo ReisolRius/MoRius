@@ -59,6 +59,7 @@ const STORY_GENERATION_INTERRUPTED_MESSAGE =
   'Генерация прервалась. Зависший запрос остановлен, можно повторить ход или продолжить сцену.'
 const STORY_ROUTERAI_TEMPORARY_ERROR_MESSAGE =
   'OpenRouter сейчас возвращает ошибку провайдера. Ход не был сгенерирован; повторите попытку позже.'
+const STORY_GENERATION_BUSY_RETRY_DELAYS_MS = [800, 1600, 2600, 4200] as const
 const STORY_GENERATION_TRANSPORT_ERROR_MARKERS = [
   'network error',
   'failed to fetch',
@@ -165,6 +166,18 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
+}
+
+function isStoryOperationBusyMessage(detail: string): boolean {
+  const normalizedDetail = detail.replace(/\s+/g, ' ').trim().toLocaleLowerCase().replace(/ё/g, 'е')
+  if (!normalizedDetail) {
+    return false
+  }
+  return (
+    normalizedDetail.includes('ход еще синхронизируется') ||
+    normalizedDetail.includes('story storage is still finalizing') ||
+    normalizedDetail.includes('story game operation lock')
+  )
 }
 
 function normalizeStoryProviderErrorMessage(detail: string): string {
@@ -2405,27 +2418,43 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
     isContinue: Boolean(options.isContinue),
     rerollLastResponse: Boolean(options.rerollLastResponse),
   })
-  let response: Response
-  try {
-    response = await fetch(targetUrl, {
-      method: 'POST',
-      signal: options.signal,
-      headers: {
-        Authorization: `Bearer ${options.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestPayload),
-    })
-  } catch (error) {
-    if (isAbortError(error)) {
-      throw error
+  let response: Response | null = null
+  for (let attempt = 0; attempt <= STORY_GENERATION_BUSY_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      response = await fetch(targetUrl, {
+        method: 'POST',
+        signal: options.signal,
+        headers: {
+          Authorization: `Bearer ${options.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestPayload),
+      })
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw error
+      }
+      throw new Error(normalizeStoryProviderErrorMessage(`Failed to connect to API (${targetUrl}).`))
     }
-    throw new Error(normalizeStoryProviderErrorMessage(`Failed to connect to API (${targetUrl}).`))
+
+    if (response.ok) {
+      break
+    }
+
+    const parsedError = await parseApiError(response)
+    if (
+      response.status === 409 &&
+      isStoryOperationBusyMessage(parsedError.message) &&
+      attempt < STORY_GENERATION_BUSY_RETRY_DELAYS_MS.length
+    ) {
+      await delay(STORY_GENERATION_BUSY_RETRY_DELAYS_MS[attempt])
+      continue
+    }
+    throw new Error(normalizeStoryProviderErrorMessage(parsedError.message))
   }
 
-  if (!response.ok) {
-    const parsedError = await parseApiError(response)
-    throw new Error(normalizeStoryProviderErrorMessage(parsedError.message))
+  if (!response?.ok) {
+    throw new Error(normalizeStoryProviderErrorMessage('Story generation could not be started'))
   }
 
   if (!response.body) {

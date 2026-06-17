@@ -187,6 +187,8 @@
 
   .image-cropper-actions {
     justify-content: stretch;
+    padding-bottom: calc(16px + 8px + env(safe-area-inset-bottom));
+    background: var(--morius-card-bg);
   }
 
   .image-cropper-button {

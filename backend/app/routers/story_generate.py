@@ -1012,13 +1012,17 @@ def _fallback_sync_story_memory_and_environment(
         if isinstance(postprocess_payload, dict) and isinstance(postprocess_payload.get("location"), dict)
         else None
     )
-    if location_payload_for_sync is None:
-        location_payload_for_sync = {"action": "keep"}
     environment_payload_for_sync = (
         postprocess_payload.get("environment")
         if environment_enabled
         and isinstance(postprocess_payload, dict)
         and isinstance(postprocess_payload.get("environment"), dict)
+        else None
+    )
+    character_state_payload_for_sync = (
+        postprocess_payload.get("character_state")
+        if isinstance(postprocess_payload, dict)
+        and isinstance(postprocess_payload.get("character_state"), dict)
         else None
     )
     important_payload = (
@@ -1037,6 +1041,8 @@ def _fallback_sync_story_memory_and_environment(
     key_memory_changed = False
     location_changed = False
     environment_changed = False
+    auto_npc_changed = False
+    character_state_changed = False
     rebalance_changed = False
 
     try:
@@ -1076,6 +1082,61 @@ def _fallback_sync_story_memory_and_environment(
             db=db,
             game_id=game.id,
         )
+        created_auto_npc_card_ids: set[int] = set()
+        if bool(getattr(game, "auto_npc_cards_enabled", False)):
+            created_auto_npc_cards = story_memory_pipeline._sync_story_auto_npc_cards_for_assistant_message(
+                db=db,
+                game=game,
+                assistant_message=assistant_message,
+                latest_user_prompt=latest_user_prompt,
+                latest_assistant_text=latest_assistant_text,
+                resolved_payload_override=(
+                    postprocess_payload.get("auto_npcs")
+                    if isinstance(postprocess_payload, dict)
+                    and isinstance(postprocess_payload.get("auto_npcs"), list)
+                    else None
+                ),
+                allow_model_request=False,
+            )
+            created_auto_npc_card_ids = {
+                int(getattr(card, "id"))
+                for card in created_auto_npc_cards
+                if isinstance(getattr(card, "id", None), int)
+            }
+            auto_npc_changed = bool(created_auto_npc_cards)
+        if bool(getattr(game, "character_state_enabled", None)):
+            character_state_changed = bool(
+                story_memory_pipeline._ensure_story_character_state_cards_include_world_cards(
+                    db=db,
+                    game=game,
+                    active_world_card_ids=created_auto_npc_card_ids,
+                    current_location_content=current_location_content,
+                )
+            ) or character_state_changed
+            character_state_changed = bool(
+                story_memory_pipeline._sync_story_character_state_cards(
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    resolved_payload_override=character_state_payload_for_sync,
+                    current_location_content=current_location_content,
+                    latest_user_prompt=latest_user_prompt,
+                    previous_assistant_text=previous_assistant_text,
+                    latest_assistant_text=latest_assistant_text,
+                    allow_model_seed=False,
+                    allow_model_fill=False,
+                )
+            ) or character_state_changed
+            try:
+                from app.services.story_character_state_fields import apply_story_character_state_payload_to_world_cards
+
+                apply_story_character_state_payload_to_world_cards(db=db, game=game)
+            except Exception:
+                logger.exception(
+                    "Fallback runtime failed to apply character-state fields: game_id=%s assistant_message_id=%s",
+                    game.id,
+                    assistant_message.id,
+                )
         if environment_enabled:
             environment_changed = story_memory_pipeline._sync_story_environment_state_for_assistant_message(
                 db=db,
@@ -1109,7 +1170,15 @@ def _fallback_sync_story_memory_and_environment(
                     game.id,
                     assistant_message.id,
                 )
-        if memory_changed or location_changed or environment_changed or key_memory_changed or rebalance_changed:
+        if (
+            memory_changed
+            or location_changed
+            or environment_changed
+            or auto_npc_changed
+            or character_state_changed
+            or key_memory_changed
+            or rebalance_changed
+        ):
             touch_story_game(game)
             db.commit()
             db.refresh(game)

@@ -81,8 +81,8 @@ from app.services.story_visual_novel import (
 logger = logging.getLogger(__name__)
 STORY_MEMORY_SOURCE_EN_MODEL_IDS: set[str] = set()
 STORY_SQLITE_BUSY_DETAIL = "Story storage is still finalizing. Please retry the request."
-STORY_GENERATE_LOCK_WAIT_SECONDS = 2.0
-STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 8.0
+STORY_GENERATE_LOCK_WAIT_SECONDS = 15.0
+STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 20.0
 STORY_CONTINUE_MODEL_PROMPT = (
     "Continue the current scene from exactly where the latest assistant response ended. "
     "Do not repeat or paraphrase the previous response. Advance events with a new action, reaction, consequence, "
@@ -765,14 +765,94 @@ def _best_effort_sync_story_turn_memory_and_environment(
                 assistant_message.id,
             )
 
+    current_location_content = ""
+    if story_memory_pipeline is not None:
+        try:
+            previous_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
+                db=db,
+                game_id=game.id,
+            )
+            changed = bool(
+                story_memory_pipeline._upsert_story_location_memory_block(
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    latest_user_prompt=latest_user_prompt,
+                    latest_assistant_text=latest_assistant_text,
+                    previous_assistant_text="",
+                    resolved_payload_override=None,
+                )
+            ) or changed
+            current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
+                db=db,
+                game_id=game.id,
+            )
+            created_auto_npc_card_ids: set[int] = set()
+            if bool(getattr(game, "auto_npc_cards_enabled", False)):
+                created_auto_npc_cards = story_memory_pipeline._sync_story_auto_npc_cards_for_assistant_message(
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    latest_user_prompt=latest_user_prompt,
+                    latest_assistant_text=latest_assistant_text,
+                    resolved_payload_override=None,
+                    allow_model_request=False,
+                )
+                created_auto_npc_card_ids = {
+                    int(getattr(card, "id"))
+                    for card in created_auto_npc_cards
+                    if isinstance(getattr(card, "id", None), int)
+                }
+                changed = bool(created_auto_npc_cards) or changed
+            if bool(getattr(game, "character_state_enabled", None)):
+                changed = bool(
+                    story_memory_pipeline._ensure_story_character_state_cards_include_world_cards(
+                        db=db,
+                        game=game,
+                        active_world_card_ids=created_auto_npc_card_ids,
+                        current_location_content=current_location_content or previous_location_content,
+                    )
+                ) or changed
+                changed = bool(
+                    story_memory_pipeline._sync_story_character_state_cards(
+                        db=db,
+                        game=game,
+                        assistant_message=assistant_message,
+                        resolved_payload_override=None,
+                        current_location_content=current_location_content or previous_location_content,
+                        latest_user_prompt=latest_user_prompt,
+                        previous_assistant_text="",
+                        latest_assistant_text=latest_assistant_text,
+                        allow_model_seed=False,
+                        allow_model_fill=False,
+                    )
+                ) or changed
+                try:
+                    from app.services.story_character_state_fields import apply_story_character_state_payload_to_world_cards
+
+                    apply_story_character_state_payload_to_world_cards(db=db, game=game)
+                except Exception:
+                    logger.exception(
+                        "Story fallback character-state field sync failed: game_id=%s assistant_message_id=%s",
+                        game.id,
+                        assistant_message.id,
+                    )
+        except Exception:
+            logger.exception(
+                "Story fallback location/NPC/state sync failed: game_id=%s assistant_message_id=%s",
+                game.id,
+                assistant_message.id,
+            )
+
     environment_enabled, _, _ = _resolve_story_environment_runtime_flags(game)
     if environment_enabled:
         if story_memory_pipeline is not None:
             try:
-                current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
-                    db=db,
-                    game_id=game.id,
-                )
+                if not current_location_content:
+                    current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
+                        db=db,
+                        game_id=game.id,
+                    )
                 changed = bool(
                     story_memory_pipeline._sync_story_environment_state_for_assistant_message(
                         db=db,
@@ -1092,9 +1172,9 @@ def _stream_story_response(
             )
 
     unified_postprocess_payload: dict[str, Any] | None = None
-    # Hard cap for post-generation service calls. Together with the main story
-    # stream this keeps a normal turn within 2-3 OpenRouter requests total.
-    service_request_budget = StoryServiceHttpRequestBudget(max_requests=2)
+    # Hard cap for post-generation service calls. Heavy module combinations may
+    # split post-processing into location, NPC/state, environment, and memory.
+    service_request_budget = StoryServiceHttpRequestBudget(max_requests=4)
     if not aborted and response_has_content:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "postprocess"})
         try:

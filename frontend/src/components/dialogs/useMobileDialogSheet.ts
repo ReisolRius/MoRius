@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefCallback } f
 import { useMediaQuery, type SxProps, type Theme } from '@mui/material'
 
 const MOBILE_DIALOG_MEDIA_QUERY = '(max-width:599.95px)'
+const MOBILE_DIALOG_SAFE_BOTTOM = 'calc(8px + env(safe-area-inset-bottom))'
 const SWIPE_CLOSE_TRIGGER_PX = 96
 const SWIPE_LOCK_THRESHOLD_PX = 10
 
@@ -225,13 +226,19 @@ function useMobileDialogSheet({
             overflow: 'hidden',
             overscrollBehaviorY: 'contain',
             WebkitOverflowScrolling: 'touch',
+            '--morius-mobile-sheet-safe-bottom': MOBILE_DIALOG_SAFE_BOTTOM,
             '--morius-content-gap': '22px',
             '--morius-title-top-gap': '46px',
             '--morius-title-bottom-gap': '18px',
             transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : 'translateY(0)',
             transition: isDragging ? 'none' : 'transform 220ms ease',
-            background: 'var(--morius-dialog-bg)',
             boxShadow: '0 -26px 56px rgba(0, 0, 0, 0.42)',
+            '& > .MuiDialogContent-root:last-child': {
+              paddingBottom: 'calc(16px + var(--morius-mobile-sheet-safe-bottom))',
+            },
+            '& > .MuiDialogActions-root:last-child': {
+              paddingBottom: 'calc(16px + var(--morius-mobile-sheet-safe-bottom))',
+            },
             ...(showHandleIndicator
               ? {
                   '&::before': {

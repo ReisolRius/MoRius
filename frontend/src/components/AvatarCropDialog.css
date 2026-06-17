@@ -182,6 +182,8 @@
 
   .avatar-crop-actions {
     justify-content: stretch;
+    padding-bottom: calc(14px + 8px + env(safe-area-inset-bottom));
+    background: var(--morius-card-bg);
   }
 
   .avatar-crop-button {

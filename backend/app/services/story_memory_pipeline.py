@@ -1775,6 +1775,7 @@ def _extract_story_location_memory_payload(
                 "Never add a city, capital, district, country, kingdom, or world name just to make the place sound fuller. If that broader geography is not explicitly present in the recent scene text, omit it. "
                 "Prefer the most specific currently active location that also keeps the wider context when it is explicit, "
                 "for example use 'Действие происходит в лагере разбойников в лесу.' instead of only '...в лагере разбойников.' "
+                "Do not over-shorten unnamed places: if the text says 'улица столицы', 'улица города', 'улица деревни', or 'проселочная дорога в лесу', keep those details instead of returning only 'улица' or 'дорога'. "
                 "Keep immediate enclosing context like forest, cave, district, temple wing, mountain pass, cellar, or shoreline when the narrator explicitly gives it. "
                 "If the newest narrator reply does not clearly restate a current place, keep the saved place when it is still valid. "
                 "If there is no valid saved place yet, you may use the latest explicit player-stated place only when the newest narrator reply continues that same scene without contradiction. "
@@ -2093,13 +2094,158 @@ def _story_location_phrase_looks_concrete(value: str) -> bool:
     )
 
 
+def _build_story_location_update_payload_from_label(label: str) -> dict[str, str] | None:
+    normalized_label = _resolve_story_location_memory_label(label=label)
+    if not normalized_label:
+        return None
+
+    phrase = normalized_label
+    lowered = phrase.casefold()
+    if lowered == "лес":
+        phrase = "в лесу"
+    elif lowered.startswith("лес "):
+        phrase = f"в лесу {phrase[4:].strip()}".strip()
+    elif lowered == "улица":
+        phrase = "на улице"
+    elif lowered.startswith("улица "):
+        phrase = f"на улице {phrase[6:].strip()}".strip()
+    elif lowered == "площадь":
+        phrase = "на площади"
+    elif lowered.startswith("площадь "):
+        phrase = f"на площади {phrase[8:].strip()}".strip()
+    elif lowered == "дорога":
+        phrase = "на дороге"
+    elif lowered.startswith("дорога "):
+        phrase = f"на дороге {phrase[7:].strip()}".strip()
+    elif lowered == "столица":
+        phrase = "в столице"
+    elif lowered == "город":
+        phrase = "в городе"
+    elif lowered == "гильдия":
+        phrase = "в гильдии"
+    elif lowered == "зал":
+        phrase = "в зале"
+    elif lowered == "комната":
+        phrase = "в комнате"
+    elif phrase and phrase[0].isupper():
+        phrase = phrase[:1].lower() + phrase[1:]
+    normalized_content = _normalize_story_location_memory_content(f"{_LOCATION_SENTENCE_ACTION} {phrase}.")
+    if not normalized_content:
+        return None
+    return {
+        "action": "update",
+        "content": normalized_content,
+        "label": _resolve_story_location_memory_label(label=normalized_label, content=normalized_content),
+    }
+
+
+def _clean_story_location_fallback_phrase(value: str) -> str:
+    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip(" ,.;:-")
+    if not normalized:
+        return ""
+    normalized = re.split(r"[.!?:;\n]", normalized, maxsplit=1)[0].strip(" ,.;:-")
+    normalized = re.split(
+        r"\b(?:как вдруг|когда вдруг|и вдруг|но вдруг|после чего|затем|потом)\b",
+        normalized,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip(" ,.;:-")
+    return normalized[:160].rstrip(" ,.;:-")
+
+
+def _extract_story_location_direction_suffix(value: str) -> str:
+    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip(" ,.;:-")
+    if not normalized:
+        return ""
+    direction_match = re.search(
+        r"\b(?P<suffix>(?:к\s+)?(?:северу|югу|востоку|западу|северо-востоку|северо-западу|"
+        r"юго-востоку|юго-западу|севернее|южнее|восточнее|западнее)\s+от\s+[^,.!?:;\n]{3,80})",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if direction_match is None:
+        return ""
+    return _clean_story_location_fallback_phrase(str(direction_match.group("suffix") or ""))
+
+
+def _resolve_story_location_fallback_label_from_text(value: str) -> str:
+    normalized = _normalize_story_prompt_text(value, max_chars=1_400)
+    if not normalized:
+        return ""
+
+    forest_match = re.search(
+        r"\b(?:в|во|по|через|среди)\s+(?:[A-Za-zА-Яа-яЁё-]+\s+){0,3}лес[ауеом]?\b"
+        r"(?P<tail>[^,.!?:;\n]{0,120})",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if forest_match is not None:
+        direction_suffix = _extract_story_location_direction_suffix(
+            str(forest_match.group(0) or "")
+        )
+        return f"Лес {direction_suffix}".strip()
+
+    road_match = re.search(
+        r"\b(?:на|по)\s+(?P<road>(?:проселочной|лесной|горной|пыльной|каменной)?\s*дорог[еуы])"
+        r"(?P<context>\s+(?:в|во|через)\s+лес[ауеом]?|\s+к\s+[^,.!?:;\n]{2,80})?",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if road_match is not None:
+        road_value = " ".join(str(road_match.group("road") or "").split()).casefold()
+        if "лесн" in road_value:
+            label = "Лесная дорога"
+        elif "просел" in road_value or "просёл" in road_value:
+            label = "Проселочная дорога"
+        elif "горн" in road_value:
+            label = "Горная дорога"
+        else:
+            label = "Дорога"
+        context = _clean_story_location_fallback_phrase(str(road_match.group("context") or ""))
+        if context and "лес" in context.casefold() and "лес" not in label.casefold():
+            label = f"{label} в лесу"
+        elif context and context.casefold().startswith("к "):
+            label = f"{label} {context}"
+        return label.strip()
+
+    generic_patterns: tuple[tuple[str, str], ...] = (
+        (r"\b(?:в|во|внутри)\s+таверн[аеуы]\b", "Таверна"),
+        (r"\b(?:в|во|внутри)\s+трактир[еау]\b", "Трактир"),
+        (r"\b(?:в|во|внутри)\s+гильди[июе]\b", "Гильдия"),
+        (r"\b(?:в|во|внутри)\s+зал[еау]?\b", "Зал"),
+        (r"\b(?:в|во|внутри)\s+комнат[еуы]\b", "Комната"),
+        (r"\b(?:в|во|внутри)\s+храм[еау]?\b", "Храм"),
+        (r"\b(?:в|во)\s+город[еау]?\b", "Город"),
+        (r"\b(?:в|во)\s+столиц[еуыу]\b", "Столица"),
+        (r"\b(?:на|по)\s+улиц[еуы]\b", "Улица"),
+        (r"\b(?:на|по)\s+площад[иею]\b", "Площадь"),
+        (r"\b(?:в|во|на)\s+порт[еау]?\b", "Порт"),
+        (r"\b(?:на|у)\s+берег[еу]\b", "Берег"),
+        (r"\b(?:у|около|возле)\s+вход[а]?\b", "У входа"),
+    )
+    for pattern, label in generic_patterns:
+        if re.search(pattern, normalized, flags=re.IGNORECASE):
+            return label
+    return ""
+
+
 def _build_story_location_fallback_payload_from_player_turn(
     *,
     latest_user_prompt: str,
     latest_assistant_text: str,
 ) -> dict[str, str] | None:
+    """Local place extraction is disabled; place updates must come from AI postprocess."""
     return None
 
+
+def _should_repair_story_location_payload_with_local_fallback(
+    *,
+    current_location_content: str,
+    model_payload: dict[str, Any] | None,
+    fallback_payload: dict[str, str] | None,
+) -> bool:
+    """Local place repair is disabled; model payload is the source of truth."""
+    return False
 
 def _normalize_story_location_memory_content(value: str) -> str:
     normalized = " ".join(str(value or "").replace("\r\n", " ").split()).strip()
@@ -7287,6 +7433,82 @@ def _ensure_story_character_state_base_cards_from_world_cards(
     return True
 
 
+def _ensure_story_character_state_cards_include_world_cards(
+    *,
+    db: Session,
+    game: StoryGame,
+    active_world_card_ids: set[int] | None = None,
+    current_location_content: str = "",
+) -> bool:
+    if not _normalize_story_character_state_enabled(getattr(game, "character_state_enabled", None)):
+        return False
+
+    active_ids = {int(value) for value in (active_world_card_ids or set()) if isinstance(value, int) or str(value).isdigit()}
+    existing_cards = _normalize_story_character_state_cards_payload(_story_character_state_cards_from_game(game))
+    existing_ids = {
+        int(card.get("world_card_id"))
+        for card in existing_cards
+        if isinstance(card.get("world_card_id"), int)
+    }
+    scene_location = _story_character_state_location_from_scene(current_location_content)
+
+    missing_cards: list[dict[str, Any]] = []
+    for world_card in _list_story_world_cards(db, game.id):
+        world_card_id = getattr(world_card, "id", None)
+        if not isinstance(world_card_id, int) or world_card_id <= 0 or world_card_id in existing_ids:
+            continue
+        kind = _normalize_story_world_card_kind(getattr(world_card, "kind", None))
+        if kind not in {STORY_CHARACTER_STATE_KIND_MAIN_HERO, STORY_CHARACTER_STATE_KIND_NPC}:
+            continue
+        if not bool(getattr(world_card, "ai_edit_enabled", True)):
+            continue
+
+        name = " ".join(str(getattr(world_card, "title", "") or "").split()).strip()
+        if not name:
+            continue
+
+        is_active = kind == STORY_CHARACTER_STATE_KIND_MAIN_HERO or world_card_id in active_ids
+        source_status = " ".join(str(getattr(world_card, "health_status", "") or "").split()).strip()
+        source_clothing = " ".join(str(getattr(world_card, "clothing", "") or "").split()).strip()
+        source_inventory = " ".join(str(getattr(world_card, "inventory", "") or "").split()).strip()
+        source_content = _normalize_story_prompt_text(str(getattr(world_card, "content", "") or ""), max_chars=220)
+        missing_cards.append(
+            {
+                "world_card_id": world_card_id,
+                "name": name,
+                "kind": kind,
+                "is_active": is_active,
+                "status": _normalize_story_character_state_status_template(
+                    source_status or STORY_CHARACTER_STATE_STATUS_NORMAL
+                ),
+                "clothing": source_clothing or ("одежда не уточнена в сцене" if is_active else ""),
+                "location": scene_location if is_active and scene_location else "",
+                "equipment": source_inventory or ("без явно указанных предметов" if is_active else ""),
+                "mood": "заинтересованное" if is_active and kind == STORY_CHARACTER_STATE_KIND_NPC else "",
+                "attitude_to_hero": "доброжелательное" if is_active and kind == STORY_CHARACTER_STATE_KIND_NPC else "",
+                "personality": source_content,
+            }
+        )
+
+    if not missing_cards:
+        return False
+
+    next_cards = _normalize_story_character_state_cards_payload([*existing_cards, *missing_cards])
+    if not next_cards:
+        return False
+    next_payload = _serialize_story_character_state_cards_payload(next_cards)
+    if str(getattr(game, "character_state_payload", "") or "") == next_payload:
+        return False
+    game.character_state_payload = next_payload
+    logger.info(
+        "Story character-state local cards appended: game_id=%s cards=%s active_new=%s",
+        game.id,
+        len(missing_cards),
+        len(active_ids),
+    )
+    return True
+
+
 def _seed_story_character_state_cards_from_world_cards(
     *,
     db: Session,
@@ -7890,6 +8112,8 @@ def _normalize_story_location_analysis_payload(raw_payload: Any) -> dict[str, st
 
             return {"action": "keep"}
 
+        if _story_location_phrase_looks_concrete(normalized_response):
+            return _build_story_location_update_payload_from_label(normalized_response)
         return None
 
     if not isinstance(raw_payload, dict) or not raw_payload:
@@ -7912,11 +8136,36 @@ def _normalize_story_location_analysis_payload(raw_payload: Any) -> dict[str, st
 
         or raw_payload.get("location_sentence")
 
+        or raw_payload.get("current_location")
+
+        or raw_payload.get("current_place")
+
+        or raw_payload.get("place")
+
+        or raw_payload.get("location")
+
+        or raw_payload.get("label")
+
         or ""
 
     )
+    if isinstance(raw_content, dict):
+        raw_content = (
+            raw_content.get("content")
+            or raw_content.get("location_sentence")
+            or raw_content.get("current_location")
+            or raw_content.get("place")
+            or raw_content.get("label")
+            or ""
+        )
 
-    normalized_content = _normalize_story_location_memory_content(str(raw_content or ""))
+    raw_content_value = str(raw_content or "")
+    if raw_content_value and not raw_content_value.casefold().startswith(
+        (_LOCATION_SENTENCE_ACTION_LOWER, _LOCATION_SENTENCE_EVENTS_LOWER)
+    ):
+        raw_content_value = f"{_LOCATION_SENTENCE_ACTION} {raw_content_value}."
+
+    normalized_content = _normalize_story_location_memory_content(raw_content_value)
 
     if not normalized_content:
 
@@ -7971,6 +8220,10 @@ def _normalize_story_environment_analysis_payload(
 
         or raw_payload.get("current_time")
 
+        or raw_payload.get("currentDateTime")
+
+        or raw_payload.get("currentTime")
+
         or ""
 
     )
@@ -7983,7 +8236,7 @@ def _normalize_story_environment_analysis_payload(
 
     normalized_current_weather = _normalize_story_environment_weather_payload(
 
-        raw_payload.get("current_weather")
+        raw_payload.get("current_weather") or raw_payload.get("currentWeather") or raw_payload.get("weather")
 
     )
 
@@ -7993,7 +8246,7 @@ def _normalize_story_environment_analysis_payload(
 
     normalized_tomorrow_weather = _normalize_story_environment_weather_payload(
 
-        raw_payload.get("tomorrow_weather")
+        raw_payload.get("tomorrow_weather") or raw_payload.get("tomorrowWeather") or raw_payload.get("forecast")
 
     )
 
@@ -8108,6 +8361,16 @@ def _normalize_story_important_event_analysis_payload(
 
     return (normalized_title, sanitized_content)
 
+
+def _build_story_auto_npc_local_payloads(
+    *,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+    existing_identity_keys: set[str],
+    max_items: int = 3,
+) -> list[dict[str, Any]]:
+    """Local NPC extraction is disabled; NPC cards must come from AI postprocess."""
+    return []
 
 def _sync_story_auto_npc_cards_for_assistant_message(
     *,
@@ -8392,6 +8655,78 @@ def _resolve_story_postprocess_section_payload(
 
 ) -> Any:
 
+    wrapper_keys = ("result", "data", "payload", "postprocess", "analysis", "sections", "memory")
+    for wrapper_key in wrapper_keys:
+        wrapped_payload = parsed_payload.get(wrapper_key)
+        if not isinstance(wrapped_payload, dict) or wrapped_payload is parsed_payload:
+            continue
+        wrapped_value = _resolve_story_postprocess_section_payload(
+            parsed_payload=wrapped_payload,
+            section_name=section_name,
+            requested_sections=requested_sections,
+        )
+        if wrapped_value is not None:
+            return wrapped_value
+
+    section_aliases = {
+        "location": (
+            "location",
+            "place",
+            "current_location",
+            "current_place",
+            "scene_location",
+            "active_location",
+        ),
+        "environment": (
+            "environment",
+            "env",
+            "weather",
+            "time_weather",
+            "time_and_weather",
+            "scene_environment",
+        ),
+        "character_state": (
+            "character_state",
+            "character_states",
+            "characters_state",
+            "state_cards",
+            "status_cards",
+            "character_cards",
+        ),
+        "important_event": (
+            "important_event",
+            "important_memory",
+            "key_event",
+            "key_memory",
+            "memory_event",
+        ),
+        "raw_memory": (
+            "raw_memory",
+            "memory_summary",
+            "turn_memory",
+            "summary",
+        ),
+        "ambient": ("ambient", "ambient_profile", "scene_ambient"),
+        "scene_emotion": ("scene_emotion", "emotion_scene", "visual_emotion", "emotion_visualization"),
+        "auto_npcs": (
+            "auto_npcs",
+            "auto_npc",
+            "npcs",
+            "new_npcs",
+            "characters",
+            "new_characters",
+            "npc_cards",
+            "character_cards",
+        ),
+    }
+
+    for alias in section_aliases.get(section_name, (section_name,)):
+        if alias not in parsed_payload:
+            continue
+        direct_alias_value = parsed_payload.get(alias)
+        if direct_alias_value is not None:
+            return direct_alias_value
+
     direct_value = parsed_payload.get(section_name)
 
     if direct_value is not None:
@@ -8523,6 +8858,44 @@ def _resolve_story_postprocess_section_payload(
 
     return None
 
+
+
+def _coerce_story_auto_npcs_section_payload(raw_payload: Any) -> list[dict[str, Any]] | None:
+    candidate_payload = raw_payload
+    if isinstance(candidate_payload, str):
+        normalized_response = _normalize_story_message_content(candidate_payload)
+        if not normalized_response:
+            return None
+        parsed_object = _extract_json_object_from_text(normalized_response)
+        if isinstance(parsed_object, dict):
+            candidate_payload = parsed_object
+        else:
+            parsed_array = _extract_json_array_from_text(normalized_response)
+            candidate_payload = parsed_array
+
+    if isinstance(candidate_payload, dict):
+        for key in (
+            "auto_npcs",
+            "npcs",
+            "new_npcs",
+            "characters",
+            "new_characters",
+            "cards",
+            "items",
+            "results",
+        ):
+            value = candidate_payload.get(key)
+            if isinstance(value, list):
+                candidate_payload = value
+                break
+        else:
+            if any(key in candidate_payload for key in ("name", "title")):
+                candidate_payload = [candidate_payload]
+
+    if not isinstance(candidate_payload, list):
+        return None
+
+    return [dict(item) for item in candidate_payload[:3] if isinstance(item, dict)]
 
 
 
@@ -8789,7 +9162,12 @@ def _extract_story_postprocess_memory_payload(
     )
     auto_npc_existing_character_context: list[dict[str, Any]] = []
     if auto_npc_cards_enabled:
-        for card in _list_story_world_cards(db, game.id):
+        try:
+            auto_npc_source_cards = _list_story_world_cards(db, game.id)
+        except Exception as exc:
+            logger.warning("Story auto-NPC existing-card context unavailable: game_id=%s error=%s", game.id, exc)
+            auto_npc_source_cards = []
+        for card in auto_npc_source_cards:
             card_kind = _normalize_story_world_card_kind(getattr(card, "kind", None))
             if card_kind not in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_NPC}:
                 continue
@@ -8975,6 +9353,8 @@ def _extract_story_postprocess_memory_payload(
                 "Do not widen a precise scene into a broader area. If the text gives 'у входа в здание гильдии авантюристов', do not reduce it to 'на улицах города', 'у гильдии', or another broader outdoor label.",
                 "Preserve named establishments and rooms such as 'таверна Ржавый якорь' whenever the current scene is still happening there.",
                 "Never add a city, capital, district, country, kingdom, or world name just to make the place sound fuller. If that broader geography is not explicitly present in the recent scene text, omit it.",
+                "Do not over-shorten unnamed places. If the source says a generic place plus explicit context, keep that context: use 'улица столицы', 'улица города', 'улица деревни', 'проселочная дорога в лесу', or 'площадь района' instead of only 'улица', 'дорога', or 'площадь'.",
+                "An unnamed location is still valid when it is described by type and context; preserve concrete qualifiers, terrain, settlement type, district, building relation, and enclosing region stated by the player turn, narrator reply, or relevant world_profile/world card.",
                 "When explicit evidence is available, prefer a precise hierarchy: country/empire/kingdom + city/settlement + district/street + building/establishment + room/sublocation.",
                 "For wilderness or non-urban scenes, prefer country/empire/kingdom + terrain/locality + explicit cardinal region or direction, for example northern empire, eastern forest, or south road, but only when the source states it.",
                 "Use relevant world-card facts only as factual geography anchors when they clearly match the current scene or its enclosing region.",
@@ -9593,13 +9973,10 @@ def _extract_story_postprocess_memory_payload(
         if scene_emotion_enabled and isinstance(raw_scene_emotion_payload, dict):
 
             normalized_payload["scene_emotion"] = dict(raw_scene_emotion_payload)
-        if auto_npc_cards_enabled and isinstance(raw_auto_npcs_payload, list):
-
-            normalized_payload["auto_npcs"] = [
-                dict(item)
-                for item in raw_auto_npcs_payload[:3]
-                if isinstance(item, dict)
-            ]
+        if auto_npc_cards_enabled:
+            auto_npcs_payload = _coerce_story_auto_npcs_section_payload(raw_auto_npcs_payload)
+            if auto_npcs_payload is not None:
+                normalized_payload["auto_npcs"] = auto_npcs_payload
 
         if not normalized_payload:
             logger.warning(
@@ -10466,12 +10843,25 @@ def _collect_story_memory_identity_names(
 def _build_story_location_world_card_context_payload(
     world_cards: list[dict[str, Any]] | None,
     *,
-    max_cards: int = 8,
-    max_content_chars: int = 900,
+    max_cards: int = 12,
+    max_content_chars: int = 1_400,
 ) -> list[dict[str, str]]:
     context_cards: list[dict[str, str]] = []
     seen_keys: set[str] = set()
-    for raw_card in world_cards or []:
+    card_priority = {
+        STORY_WORLD_CARD_KIND_WORLD_PROFILE: 0,
+        STORY_WORLD_CARD_KIND_WORLD: 1,
+        STORY_WORLD_CARD_KIND_MAIN_HERO: 2,
+        STORY_WORLD_CARD_KIND_NPC: 3,
+    }
+    prioritized_cards = sorted(
+        [raw_card for raw_card in world_cards or [] if isinstance(raw_card, dict)],
+        key=lambda raw_card: (
+            card_priority.get(_normalize_story_world_card_kind(str(raw_card.get("kind", ""))), 4),
+            int(raw_card.get("id") or 0),
+        ),
+    )
+    for raw_card in prioritized_cards:
         if not isinstance(raw_card, dict):
             continue
         title = _normalize_story_prompt_text(str(raw_card.get("title", "")), max_chars=140)

@@ -39,7 +39,7 @@ import { useScrollLoadTrigger } from '../hooks/useScrollLoadTrigger'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
-import cardsWorldRaw from '../assets/icons/cards-world.svg?raw'
+import communityPlayRaw from '../assets/icons/community-play.svg?raw'
 import cardsPlotRaw from '../assets/icons/cards-plot.svg?raw'
 import cardsRulesRaw from '../assets/icons/cards-rules.svg?raw'
 import searchIconRaw from '../assets/icons/search.svg?raw'
@@ -809,7 +809,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     ref: loadMoreCommunityWorldsRef,
     loadMoreSignal: loadMoreCommunityWorldsSignal,
   } = useScrollLoadTrigger<HTMLDivElement>({
-    rootMargin: '160px 0px',
+    rootMargin: '360px 0px',
     disabled:
       activeSection !== 'worlds' ||
       !hasMoreCommunityWorldsServer ||
@@ -820,7 +820,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     ref: loadMoreCommunityCharactersRef,
     loadMoreSignal: loadMoreCommunityCharactersSignal,
   } = useScrollLoadTrigger<HTMLDivElement>({
-    rootMargin: '160px 0px',
+    rootMargin: '360px 0px',
     disabled:
       activeSection !== 'characters' ||
       !hasMoreCommunityCharactersServer ||
@@ -831,7 +831,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     ref: loadMoreCommunityInstructionTemplatesRef,
     loadMoreSignal: loadMoreCommunityInstructionTemplatesSignal,
   } = useScrollLoadTrigger<HTMLDivElement>({
-    rootMargin: '160px 0px',
+    rootMargin: '360px 0px',
     disabled:
       activeSection !== 'rules' ||
       !hasMoreCommunityInstructionTemplatesServer ||
@@ -1237,7 +1237,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         )
         void syncCommunityWorldGameIds()
       } catch (error) {
-        const detail = error instanceof Error ? error.message : 'Не удалось открыть мир'
+        const detail = error instanceof Error ? error.message : 'Не удалось открыть игру'
         setActionError(detail)
       } finally {
         setIsCommunityWorldDialogLoading(false)
@@ -1469,7 +1469,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         setCommunityWorlds((previous) => previous.map((item) => (item.id === updatedWorld.id ? updatedWorld : item)))
         setSelectedCommunityWorld((previous) => (previous && previous.world.id === updatedWorld.id ? { ...previous, world: updatedWorld } : previous))
       } catch (error) {
-        const detail = error instanceof Error ? error.message : 'Не удалось обновить любимые миры'
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить избранные игры'
         setActionError(detail)
       } finally {
         setFavoriteWorldActionById((previous) => {
@@ -1755,7 +1755,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       })
       onNavigate(`/home/${game.id}`)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось запустить мир'
+      const detail = error instanceof Error ? error.message : 'Не удалось запустить игру'
       setActionError(detail)
     } finally {
       setIsLaunchingCommunityWorld(false)
@@ -2183,7 +2183,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           {/* Tabs — use Box component="button" to avoid global MUI Button CSS overrides */}
           <Box sx={{ display: 'flex', justifyContent: 'center', gap: '8px', mb: '27px', flexWrap: 'wrap' }}>
             {([
-              { key: 'worlds', label: 'Миры', icon: cardsWorldRaw },
+              { key: 'worlds', label: 'Игры', icon: communityPlayRaw },
               { key: 'characters', label: 'Персонажи', icon: cardsPlotRaw },
               { key: 'rules', label: 'Правила', icon: cardsRulesRaw },
             ] as const).map(({ key, label, icon }) => {
@@ -2560,7 +2560,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     p: 1.4,
                   }}
                 >
-                  <Typography sx={{ color: APP_TEXT_SECONDARY }}>Пока нет публичных миров от игроков.</Typography>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY }}>Пока нет публичных игр от игроков.</Typography>
                 </Box>
               ) : filteredCommunityWorlds.length === 0 ? (
                 <Box
@@ -2571,7 +2571,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     p: 1.4,
                   }}
                 >
-                  <Typography sx={{ color: APP_TEXT_SECONDARY }}>По выбранным фильтрам миры не найдены.</Typography>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY }}>По выбранным фильтрам игры не найдены.</Typography>
                 </Box>
               ) : (
               <>
@@ -2628,7 +2628,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                       />
                     ))}
                   </Stack>
-                  {hasMoreCommunityWorlds ? <Box ref={loadMoreCommunityWorldsRef} sx={{ height: 1, width: '100%' }} /> : null}
+                  {hasMoreCommunityWorlds ? <Box ref={loadMoreCommunityWorldsRef} sx={{ height: 32, width: '100%' }} /> : null}
                   {isCommunityWorldsLoadingMore ? (
                     <Stack alignItems="center" justifyContent="center" sx={{ pt: 0.8 }}>
                       <CircularProgress size={22} />
@@ -2726,7 +2726,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                   ))}
                 </Stack>
                 {hasMoreCommunityCharacters ? (
-                  <Box ref={loadMoreCommunityCharactersRef} sx={{ height: 1, width: '100%' }} />
+                  <Box ref={loadMoreCommunityCharactersRef} sx={{ height: 32, width: '100%' }} />
                 ) : null}
                 {isCommunityCharactersLoadingMore ? (
                   <Stack alignItems="center" justifyContent="center" sx={{ pt: 0.8 }}>
@@ -2829,7 +2829,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 ))}
               </Stack>
               {hasMoreCommunityInstructionTemplates ? (
-                <Box ref={loadMoreCommunityInstructionTemplatesRef} sx={{ height: 1, width: '100%' }} />
+                <Box ref={loadMoreCommunityInstructionTemplatesRef} sx={{ height: 32, width: '100%' }} />
               ) : null}
               {isCommunityInstructionTemplatesLoadingMore ? (
                 <Stack alignItems="center" justifyContent="center" sx={{ pt: 0.8 }}>

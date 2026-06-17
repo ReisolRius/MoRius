@@ -994,7 +994,7 @@ function SettingsDialog({
                           }}
                         >
                           <AvatarFrame frameId={avatarFrameId} frameImageUrl={selectedOwnedAvatarFrame?.image_url ?? null} size={mobileSheet.isMobileSheet ? 76 : 88}>
-                            <UserAvatar user={previewAvatarUser} size={mobileSheet.isMobileSheet ? 76 : 88} />
+                            <UserAvatar user={previewAvatarUser} size={mobileSheet.isMobileSheet ? 76 : 88} withFrame={false} />
                           </AvatarFrame>
                           <Box
                             className="morius-settings-avatar-overlay"
@@ -1015,7 +1015,7 @@ function SettingsDialog({
                         </Button>
                       ) : (
                         <AvatarFrame frameId={avatarFrameId} frameImageUrl={selectedOwnedAvatarFrame?.image_url ?? null} size={mobileSheet.isMobileSheet ? 76 : 88}>
-                          <UserAvatar user={previewAvatarUser} size={mobileSheet.isMobileSheet ? 76 : 88} />
+                          <UserAvatar user={previewAvatarUser} size={mobileSheet.isMobileSheet ? 76 : 88} withFrame={false} />
                         </AvatarFrame>
                       )}
                       {avatarInputRef && onAvatarChange ? <Box component="input" ref={avatarInputRef} type="file" accept="image/*" onChange={onAvatarChange} sx={{ display: 'none' }} /> : null}
@@ -1061,7 +1061,7 @@ function SettingsDialog({
                         >
                           <Stack spacing={0.7} alignItems="center" sx={{ minWidth: 0 }}>
                             <AvatarFrame frameId={item.selection_id} frameImageUrl={item.image_url} size={58}>
-                              <UserAvatar user={previewAvatarUser} size={58} />
+                              <UserAvatar user={previewAvatarUser} size={58} withFrame={false} />
                             </AvatarFrame>
                             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.78rem', fontWeight: 900, lineHeight: 1.1, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {item.title}
@@ -1090,7 +1090,7 @@ function SettingsDialog({
                         >
                           <Stack spacing={0.7} alignItems="center" sx={{ minWidth: 0 }}>
                             <AvatarFrame frameId={preset.id} size={58}>
-                              <UserAvatar user={previewAvatarUser} size={58} />
+                              <UserAvatar user={previewAvatarUser} size={58} withFrame={false} />
                             </AvatarFrame>
                             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.78rem', fontWeight: 900, lineHeight: 1.1, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {preset.label}
@@ -1552,7 +1552,8 @@ function SettingsDialog({
         <Box
           sx={{
             px: mobileSheet.isMobileSheet ? 1.25 : 2.2,
-            py: mobileSheet.isMobileSheet ? 1 : 1.2,
+            pt: mobileSheet.isMobileSheet ? 1 : 1.2,
+            pb: mobileSheet.isMobileSheet ? 'calc(8px + env(safe-area-inset-bottom) + 8px)' : 1.2,
             borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
             backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 78%, #020304 22%)',
             boxShadow: '0 -10px 24px rgba(0, 0, 0, 0.18)',

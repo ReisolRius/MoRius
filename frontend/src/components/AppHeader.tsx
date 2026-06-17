@@ -103,7 +103,10 @@ const SIDEBAR_ICON_SIZE = 22
 const COMPACT_SIDEBAR_MEDIA_QUERY = '(max-width:1535.95px)'
 const PHONE_MEDIA_QUERY = '(max-width:899.95px)'
 const HIDE_LOGO_MEDIA_QUERY = '(max-width:499.95px)'
-const MOBILE_BOTTOM_NAV_HEIGHT = 'calc(78px + env(safe-area-inset-bottom))'
+const MOBILE_BOTTOM_NAV_CONTENT_HEIGHT = 66
+const MOBILE_BOTTOM_NAV_BOTTOM_GAP = 14
+const MOBILE_BOTTOM_NAV_BACKGROUND = 'var(--morius-card-bg)'
+const MOBILE_BOTTOM_NAV_HEIGHT = `calc(${MOBILE_BOTTOM_NAV_CONTENT_HEIGHT}px + ${MOBILE_BOTTOM_NAV_BOTTOM_GAP}px + env(safe-area-inset-bottom))`
 const MOBILE_SHEET_TOP_OFFSET = 'calc(var(--morius-header-menu-top) + 8px)'
 const MOBILE_ACTION_CARD_HEIGHT = 118
 const HEADER_NAV_KEYS = new Set(['dashboard', 'games-all', 'community-worlds'])
@@ -1350,20 +1353,21 @@ function AppHeader({
               right: 0,
               bottom: 0,
               zIndex: 41,
-              pb: 'env(safe-area-inset-bottom)',
+              pb: `calc(${MOBILE_BOTTOM_NAV_BOTTOM_GAP}px + env(safe-area-inset-bottom))`,
+              backgroundColor: MOBILE_BOTTOM_NAV_BACKGROUND,
               pointerEvents: 'none',
             }}
           >
             <Box
               sx={{
                 pointerEvents: 'auto',
-                minHeight: MOBILE_BOTTOM_NAV_HEIGHT,
+                minHeight: MOBILE_BOTTOM_NAV_CONTENT_HEIGHT,
                 borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
-                backgroundColor: 'var(--morius-card-bg)',
+                backgroundColor: MOBILE_BOTTOM_NAV_BACKGROUND,
                 boxShadow: '0 -18px 34px rgba(0, 0, 0, 0.24)',
-                px: 2.5,
-                pt: 0.4,
-                pb: 0.45,
+                px: 2.2,
+                pt: 0.15,
+                pb: 0.2,
               }}
             >
               <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.2}>
@@ -1373,7 +1377,7 @@ function AppHeader({
                     closeMobileSheets()
                     mobileHomeItem?.onClick()
                   }}
-                  sx={sidebarButtonSx(Boolean(mobileHomeItem?.isActive), false, false, false)}
+                  sx={{ ...sidebarButtonSx(Boolean(mobileHomeItem?.isActive), false, false, false), minHeight: 46, height: 46 }}
                 >
                   <Box sx={sidebarIconWrapSx(Boolean(mobileHomeItem?.isActive))}>
                     <SidebarHomeIcon />
@@ -1385,7 +1389,7 @@ function AppHeader({
                     closeMobileSheets()
                     mobileLibraryItem?.onClick()
                   }}
-                  sx={sidebarButtonSx(Boolean(mobileLibraryItem?.isActive), false, false, false)}
+                  sx={{ ...sidebarButtonSx(Boolean(mobileLibraryItem?.isActive), false, false, false), minHeight: 46, height: 46 }}
                 >
                   <Box sx={sidebarIconWrapSx(Boolean(mobileLibraryItem?.isActive))}>
                     <SidebarLibraryIcon />
@@ -1399,11 +1403,12 @@ function AppHeader({
                   }}
                   sx={{
                     ...sidebarButtonSx(isMobileActionSheetOpen, false, false, false),
-                    width: 72,
-                    minWidth: 72,
-                    height: 54,
+                    width: 66,
+                    minWidth: 66,
+                    minHeight: 46,
+                    height: 46,
                     justifyContent: 'center',
-                    borderRadius: '18px',
+                    borderRadius: '16px',
                     backgroundColor: 'transparent',
                     color: isMobileActionSheetOpen ? 'var(--morius-title-text)' : 'var(--morius-accent)',
                     '&:hover': {
@@ -1419,7 +1424,7 @@ function AppHeader({
                     closeMobileSheets()
                     mobileCommunityItem?.onClick()
                   }}
-                  sx={sidebarButtonSx(Boolean(mobileCommunityItem?.isActive), false, false, false)}
+                  sx={{ ...sidebarButtonSx(Boolean(mobileCommunityItem?.isActive), false, false, false), minHeight: 46, height: 46 }}
                 >
                   <Box sx={sidebarIconWrapSx(Boolean(mobileCommunityItem?.isActive))}>
                     <SidebarCommunityIcon />
@@ -1431,7 +1436,7 @@ function AppHeader({
                     setIsMobileActionSheetOpen(false)
                     setIsMobileMoreSheetOpen((previous) => !previous)
                   }}
-                  sx={sidebarButtonSx(isMoreButtonActive, false, true, false)}
+                  sx={{ ...sidebarButtonSx(isMoreButtonActive, false, true, false), minHeight: 46, height: 46 }}
                 >
                   <Box sx={sidebarIconWrapSx(isMoreButtonActive)}>
                     <ThemedSvgIcon markup={menuIconMarkup} size={20} />

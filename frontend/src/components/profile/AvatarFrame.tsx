@@ -84,6 +84,7 @@ function AvatarFrame({ children, frameId, frameImageUrl, size }: AvatarFrameProp
         display: 'grid',
         placeItems: 'center',
         borderRadius: '50%',
+        overflow: 'visible',
       }}
     >
       <Box
@@ -118,6 +119,7 @@ function AvatarFrame({ children, frameId, frameImageUrl, size }: AvatarFrameProp
         <Box
           component="img"
           src={frameImageRequestSrc ?? imageSrc}
+          className="morius-avatar-frame-image"
           alt=""
           loading="lazy"
           fetchPriority="low"
@@ -138,7 +140,10 @@ function AvatarFrame({ children, frameId, frameImageUrl, size }: AvatarFrameProp
             inset: '-15%',
             width: '130%',
             height: '130%',
+            maxWidth: 'none',
+            maxHeight: 'none',
             objectFit: 'contain',
+            borderRadius: 0,
             opacity: isFrameLoaded ? 1 : 0,
             transition: 'opacity 160ms ease',
             pointerEvents: 'none',

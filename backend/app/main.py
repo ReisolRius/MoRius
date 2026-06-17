@@ -25,7 +25,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import (
@@ -1975,6 +1975,11 @@ def list_story_games_fallback(
 )
 def list_story_community_worlds_fallback(
     limit: int = Query(default=60, ge=1, le=60),
+    offset: int = Query(default=0, ge=0),
+    sort: str = Query(default="updated_desc"),
+    query: str = Query(default="", max_length=120),
+    age_rating: str | None = Query(default=None),
+    genre: str | None = Query(default=None, max_length=80),
     authorization: str | None = Header(default=None),
 ) -> list[StoryCommunityWorldSummaryOut]:
     if story_games_router is not None:
@@ -1984,17 +1989,52 @@ def list_story_community_worlds_fallback(
     db = SessionLocal()
     try:
         _ = _get_current_user(db, authorization)
-        worlds = db.scalars(
-            select(StoryGame)
-            .where(StoryGame.visibility == "public")
-            .order_by(
-                StoryGame.community_launches.desc(),
-                StoryGame.community_views.desc(),
+        normalized_sort = str(sort or "updated_desc").strip().lower()
+        if normalized_sort not in {"updated_desc", "rating_desc", "launches_desc", "views_desc"}:
+            normalized_sort = "updated_desc"
+        normalized_query = " ".join(str(query or "").split()).strip()
+        normalized_age_rating = str(age_rating or "").strip()
+        if normalized_age_rating not in {"6+", "16+", "18+"}:
+            normalized_age_rating = ""
+        normalized_genre = " ".join(str(genre or "").split()).strip()
+
+        statement = select(StoryGame).where(StoryGame.visibility == "public")
+        if normalized_query:
+            like_pattern = f"%{normalized_query}%"
+            statement = statement.where(
+                or_(
+                    StoryGame.title.ilike(like_pattern),
+                    StoryGame.description.ilike(like_pattern),
+                )
+            )
+        if normalized_age_rating:
+            statement = statement.where(StoryGame.age_rating == normalized_age_rating)
+        if normalized_genre:
+            statement = statement.where(StoryGame.genres.ilike(f"%{normalized_genre}%"))
+
+        if normalized_sort == "rating_desc":
+            statement = statement.order_by(
                 StoryGame.community_rating_count.desc(),
+                StoryGame.community_rating_sum.desc(),
+                StoryGame.created_at.desc(),
                 StoryGame.id.desc(),
             )
-            .limit(limit)
-        ).all()
+        elif normalized_sort == "views_desc":
+            statement = statement.order_by(
+                StoryGame.community_views.desc(),
+                StoryGame.created_at.desc(),
+                StoryGame.id.desc(),
+            )
+        elif normalized_sort == "launches_desc":
+            statement = statement.order_by(
+                StoryGame.community_launches.desc(),
+                StoryGame.created_at.desc(),
+                StoryGame.id.desc(),
+            )
+        else:
+            statement = statement.order_by(StoryGame.created_at.desc(), StoryGame.id.desc())
+
+        worlds = db.scalars(statement.offset(offset).limit(limit)).all()
         if not worlds:
             return []
 
@@ -3414,434 +3454,6 @@ def _find_story_npc_identity_duplicate_card(
     return None
 
 
-def _extract_story_npc_dialogue_mentions(assistant_text: str) -> list[dict[str, Any]]:
-    mentions_by_key: dict[str, dict[str, Any]] = {}
-    normalized_text = _normalize_story_message_content(assistant_text)
-    for paragraph in re.split(r"\n{2,}", normalized_text):
-        paragraph_value = paragraph.strip()
-        if not paragraph_value:
-            continue
-        marker_match = STORY_NPC_DIALOGUE_MARKER_PATTERN.match(paragraph_value)
-        if marker_match is None:
-            continue
-        raw_name = _cleanup_story_npc_candidate_name(marker_match.group(1))
-        if not raw_name:
-            continue
-        if _is_story_generic_npc_name(raw_name):
-            continue
-
-        dialogue_text = " ".join(
-            _normalize_story_markup_to_plain_text(marker_match.group(2)).replace("\r", " ").replace("\n", " ").split()
-        ).strip()
-        mention_key = raw_name.casefold()
-        mention = mentions_by_key.get(mention_key)
-        if mention is None:
-            mention = {"name": raw_name, "dialogues": []}
-            mentions_by_key[mention_key] = mention
-        if dialogue_text:
-            dialogues = mention["dialogues"]
-            if dialogue_text not in dialogues:
-                dialogues.append(dialogue_text)
-
-    return list(mentions_by_key.values())
-
-
-def _extract_story_npc_speaker_line_mentions(assistant_text: str) -> list[dict[str, Any]]:
-    mentions_by_key: dict[str, dict[str, Any]] = {}
-    plain_text = _normalize_story_markup_to_plain_text(assistant_text)
-    for paragraph in re.split(r"\n{2,}", plain_text):
-        paragraph_value = paragraph.strip()
-        if not paragraph_value:
-            continue
-
-        speaker_match = STORY_NPC_SPEAKER_LINE_PATTERN.match(paragraph_value)
-        if speaker_match is None:
-            continue
-        raw_name = _cleanup_story_npc_candidate_name(speaker_match.group(1))
-        if not raw_name:
-            continue
-        if _is_story_generic_npc_name(raw_name):
-            continue
-
-        dialogue_text = " ".join(speaker_match.group(2).replace("\r", " ").replace("\n", " ").split()).strip()
-        mention_key = raw_name.casefold()
-        mention = mentions_by_key.get(mention_key)
-        if mention is None:
-            mention = {"name": raw_name, "dialogues": []}
-            mentions_by_key[mention_key] = mention
-        if dialogue_text:
-            dialogues = mention["dialogues"]
-            if dialogue_text not in dialogues:
-                dialogues.append(dialogue_text)
-
-    return list(mentions_by_key.values())
-
-
-def _extract_story_npc_narrative_mentions(assistant_text: str) -> list[dict[str, Any]]:
-    mentions_by_key: dict[str, dict[str, Any]] = {}
-    plain_text = _normalize_story_markup_to_plain_text(assistant_text)
-    for sentence in _split_story_text_into_sentences(plain_text):
-        compact_sentence = re.sub(r"\s+", " ", sentence).strip()
-        if not compact_sentence:
-            continue
-        candidate_matches = [
-            *STORY_NPC_NARRATIVE_NAME_BEFORE_VERB_PATTERN.finditer(compact_sentence),
-            *STORY_NPC_NARRATIVE_VERB_BEFORE_NAME_PATTERN.finditer(compact_sentence),
-        ]
-        for match in candidate_matches:
-            raw_name = _cleanup_story_npc_candidate_name(match.group(1))
-            if not raw_name:
-                continue
-            raw_name_key = raw_name.casefold()
-            if raw_name_key in STORY_NPC_NAME_EXCLUDED_TOKENS:
-                continue
-            if _is_story_generic_npc_name(raw_name):
-                continue
-
-            mention = mentions_by_key.get(raw_name_key)
-            if mention is None:
-                mention = {"name": raw_name, "dialogues": [], "snippets": []}
-                mentions_by_key[raw_name_key] = mention
-            snippets_value = mention["snippets"]
-            if compact_sentence not in snippets_value:
-                snippets_value.append(compact_sentence)
-
-    return list(mentions_by_key.values())
-
-
-def _merge_story_npc_mentions(*sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    mentions_by_key: dict[str, dict[str, Any]] = {}
-    for source in sources:
-        for mention in source:
-            if not isinstance(mention, dict):
-                continue
-            raw_name = " ".join(str(mention.get("name", "")).split()).strip()
-            if not raw_name:
-                continue
-            mention_key = raw_name.casefold()
-            target = mentions_by_key.get(mention_key)
-            if target is None:
-                target = {"name": raw_name, "dialogues": [], "snippets": []}
-                mentions_by_key[mention_key] = target
-
-            dialogues = mention.get("dialogues")
-            if isinstance(dialogues, list):
-                for value in dialogues:
-                    if not isinstance(value, str):
-                        continue
-                    compact = " ".join(value.replace("\r", " ").replace("\n", " ").split()).strip()
-                    if compact and compact not in target["dialogues"]:
-                        target["dialogues"].append(compact)
-
-            snippets = mention.get("snippets")
-            if isinstance(snippets, list):
-                for value in snippets:
-                    if not isinstance(value, str):
-                        continue
-                    compact = " ".join(value.replace("\r", " ").replace("\n", " ").split()).strip()
-                    if compact and compact not in target["snippets"]:
-                        target["snippets"].append(compact)
-    return list(mentions_by_key.values())
-
-
-def _is_story_secondary_npc_mention(mention: dict[str, Any]) -> bool:
-    dialogues = mention.get("dialogues")
-    dialogue_values = [value for value in dialogues if isinstance(value, str) and value.strip()] if isinstance(dialogues, list) else []
-    if dialogue_values:
-        return True
-
-    snippets = mention.get("snippets")
-    snippet_values = [value for value in snippets if isinstance(value, str) and value.strip()] if isinstance(snippets, list) else []
-    if len(snippet_values) >= 2:
-        return True
-    if any(STORY_NPC_RELATION_HINT_PATTERN.search(value) is not None for value in snippet_values):
-        return True
-    return False
-
-
-def _is_story_npc_title_matching_requested_name(requested_name: str, candidate_title: str) -> bool:
-    requested_tokens = _normalize_story_match_tokens(requested_name)
-    candidate_tokens = _normalize_story_match_tokens(candidate_title)
-    if not requested_tokens or not candidate_tokens:
-        return False
-    primary_requested = requested_tokens[0]
-    return primary_requested in candidate_tokens
-
-
-def _build_story_npc_profile_context_cards_preview(
-    *,
-    existing_cards: list[StoryWorldCard],
-    requested_name: str,
-) -> str:
-    requested_tokens = _normalize_story_match_tokens(requested_name)
-    requested_key = requested_tokens[0] if requested_tokens else ""
-    preview_payload: list[dict[str, Any]] = []
-
-    for card in existing_cards:
-        title = " ".join(card.title.split()).strip()
-        content = _normalize_story_message_content(getattr(card, "content", None))
-        if not title or not content:
-            continue
-        kind = _normalize_story_world_card_kind(card.kind)
-        triggers = _deserialize_story_world_card_triggers(card.triggers)
-        plain_content = _normalize_story_markup_to_plain_text(content)
-        content_for_context = plain_content or content
-        card_search_space = " ".join([title, *triggers, content_for_context]).casefold()
-        is_related = (
-            requested_key in card_search_space
-            if requested_key
-            else False
-        )
-        is_character_card = kind in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}
-        if not is_related and not is_character_card:
-            continue
-
-        content_preview = _normalize_story_prompt_text(
-            content_for_context,
-            max_chars=STORY_NPC_PROFILE_CONTEXT_CARD_CONTENT_MAX_CHARS,
-        )
-        trigger_preview = [
-            _normalize_story_prompt_text(trigger, max_chars=70)
-            for trigger in triggers[:8]
-            if isinstance(trigger, str) and trigger.strip()
-        ]
-        trigger_preview = [value for value in trigger_preview if value]
-        preview_payload.append(
-            {
-                "title": title,
-                "kind": kind,
-                "triggers": trigger_preview,
-                "content": content_preview,
-            }
-        )
-        if len(preview_payload) >= STORY_NPC_PROFILE_CONTEXT_MAX_EXISTING_CARDS:
-            break
-
-    if not preview_payload:
-        return "[]"
-    return json.dumps(preview_payload, ensure_ascii=False)
-
-
-def _build_story_npc_name_triggers(name: str) -> list[str]:
-    normalized_name = _normalize_story_world_card_title(name)
-    if not normalized_name:
-        return []
-
-    trigger_candidates = [normalized_name]
-    name_parts = [part for part in normalized_name.replace(",", " ").split() if part]
-    if len(name_parts) >= 2:
-        surname = name_parts[-1].strip()
-        if surname and surname.casefold() != normalized_name.casefold():
-            trigger_candidates.append(surname)
-    return _normalize_story_world_card_triggers(trigger_candidates, fallback_title=normalized_name)
-
-
-def _build_story_npc_fallback_profile_content(
-    *,
-    name: str,
-    prompt: str,
-    assistant_text: str,
-    dialogues: list[str],
-    snippets: list[str],
-    existing_cards: list[StoryWorldCard],
-) -> str:
-    inferred_gender = _infer_story_npc_gender_from_context(name, prompt, assistant_text) or "не указано"
-    _ = (dialogues, snippets)  # Intentionally ignored: fallback must not copy raw GLM text into profile fields.
-    requested_tokens = _normalize_story_match_tokens(name)
-    requested_key = requested_tokens[0] if requested_tokens else ""
-    important = ""
-    if requested_key:
-        for card in existing_cards:
-            content = _normalize_story_message_content(getattr(card, "content", None))
-            if not content:
-                continue
-            content_plain = _normalize_story_markup_to_plain_text(content)
-            search_space = f"{card.title} {content_plain or content}".casefold()
-            if requested_key not in search_space:
-                continue
-            for sentence in _split_story_text_into_sentences(content_plain or content):
-                compact_sentence = _normalize_story_prompt_text(sentence, max_chars=220)
-                if not compact_sentence:
-                    continue
-                if STORY_NPC_RELATION_HINT_PATTERN.search(compact_sentence) is None:
-                    continue
-                important = compact_sentence
-                break
-            if important:
-                break
-
-    if inferred_gender == "женский":
-        appearance = "девушка с опрятной внешностью и повседневным стилем одежды."
-    elif inferred_gender == "мужской":
-        appearance = "мужчина с опрятной внешностью и повседневным стилем одежды."
-    else:
-        appearance = "опрятный человек с узнаваемыми чертами внешности и повседневным стилем одежды."
-
-    traits_role = "второстепенный участник сцены; манера общения и роль уточняются по ходу истории."
-    important = important or f"{name} участвует в текущем эпизоде и влияет на развитие сцены."
-
-    return _normalize_story_npc_profile_content(
-        name,
-        (
-            f"Пол: {inferred_gender}\n"
-            "Возраст: не указан\n"
-            f"Внешность: {appearance}\n"
-            f"Черты и роль: {traits_role}\n"
-        ),
-    )
-
-
-def _generate_story_npc_profile_with_polza(
-    *,
-    name: str,
-    prompt: str,
-    assistant_text: str,
-    dialogues: list[str],
-    snippets: list[str],
-    existing_cards: list[StoryWorldCard],
-) -> tuple[str, list[str], str] | None:
-    if not settings.polza_api_key:
-        return None
-
-    model_name = str(settings.polza_world_card_model or settings.polza_model or POLZA_GEMINI_25_FLASH_LITE_MODEL).strip()
-    if not model_name:
-        return None
-
-    normalized_name = " ".join(name.split()).strip()
-    if not normalized_name or _is_story_generic_npc_name(normalized_name):
-        return None
-    title = _normalize_story_world_card_title(normalized_name)
-    if not title:
-        return None
-    triggers = _build_story_npc_name_triggers(title)
-
-    snippets_preview_lines: list[str] = []
-    for raw_item in [*snippets[:6], *dialogues[:4]]:
-        if not isinstance(raw_item, str) or not raw_item.strip():
-            continue
-        cleaned_item = _normalize_story_prompt_text(
-            _normalize_story_markup_to_plain_text(raw_item),
-            max_chars=280,
-        )
-        if not cleaned_item:
-            continue
-        snippets_preview_lines.append(f"- {cleaned_item}")
-        if len(snippets_preview_lines) >= 8:
-            break
-    snippets_preview = "\n".join(snippets_preview_lines)
-    if not snippets_preview:
-        snippets_preview = "- Контекст о персонаже минимален."
-
-    text_preview = _normalize_story_prompt_text(
-        _normalize_story_markup_to_plain_text(assistant_text),
-        max_chars=2200,
-    )
-    prompt_preview = _normalize_story_prompt_text(
-        _normalize_story_markup_to_plain_text(prompt),
-        max_chars=900,
-    )
-    existing_cards_preview = _build_story_npc_profile_context_cards_preview(
-        existing_cards=existing_cards,
-        requested_name=title,
-    )
-
-    base_system_content = (
-        "Ты создаешь профиль ИМЕНОВАННОГО NPC для RPG. "
-        "Верни только текст и только 5 строк в строгом шаблоне:\n"
-        "Пол: ...\n"
-        "Возраст: ...\n"
-        "Внешность: ...\n"
-        "Черты и роль: ...\n"
-        "Нельзя возвращать JSON, markdown или комментарии. "
-        "Нельзя подменять имя персонажа. "
-        "Запрещены маркеры [[...]], реплики с префиксом 'Имя:' и служебные теги."
-    )
-    base_user_content = (
-        f"Имя нового персонажа: {title}\n\n"
-        f"Последний ход игрока:\n{prompt_preview or 'нет'}\n\n"
-        f"Фрагменты из сцены:\n{snippets_preview}\n\n"
-        f"Контекст ответа мастера:\n{text_preview}\n\n"
-        f"Уже существующие карточки мира (JSON):\n{existing_cards_preview}\n\n"
-        "Верни только 5 строк в указанном шаблоне."
-    )
-
-    previous_attempt_response = ""
-    for attempt_index in range(2):
-        system_content = base_system_content
-        user_content = base_user_content
-        if attempt_index > 0:
-            system_content += (
-                " КРИТИЧНО: строка 'Внешность:' обязательна, без реплик и без диалога; "
-                "она должна описывать только внешний вид персонажа."
-            )
-            if previous_attempt_response:
-                previous_preview = _normalize_story_prompt_text(previous_attempt_response, max_chars=1200)
-                user_content += (
-                    "\n\nПредыдущий ответ был невалиден (для исправления):\n"
-                    f"{previous_preview}\n\n"
-                    "Исправь и верни новый ответ строго по шаблону 5 строк."
-                )
-
-        messages_payload = [
-            {"role": "system", "content": system_content},
-            {"role": "user", "content": user_content},
-        ]
-        try:
-            raw_response = _request_polza_story_text(
-                messages_payload,
-                model_name=model_name,
-                allow_service_fallback=False,
-                temperature=0.0,
-                request_timeout=(
-                    12,
-                    45,
-                ),
-            )
-        except Exception as exc:
-            logger.warning("NPC profile generation failed: %s", exc)
-            if attempt_index == 1:
-                return None
-            continue
-
-        cleaned_response = _normalize_story_markup_to_plain_text(raw_response).replace("\r\n", "\n").strip()
-        if not cleaned_response:
-            logger.warning("NPC profile generation returned empty payload for name=%s", title)
-            if attempt_index == 1:
-                return None
-            continue
-
-        content = _normalize_story_npc_profile_content(title, cleaned_response)
-        if _has_story_valid_npc_appearance(content):
-            return (title, triggers, content)
-        previous_attempt_response = cleaned_response
-        logger.warning("NPC profile generation returned invalid appearance for name=%s", title)
-
-    return None
-
-
-def _build_story_npc_card_payload(
-    *,
-    name: str,
-    prompt: str,
-    assistant_text: str,
-    dialogues: list[str],
-    snippets: list[str],
-    existing_cards: list[StoryWorldCard],
-) -> tuple[str, list[str], str] | None:
-    generated_payload = _generate_story_npc_profile_with_polza(
-        name=name,
-        prompt=prompt,
-        assistant_text=assistant_text,
-        dialogues=dialogues,
-        snippets=snippets,
-        existing_cards=existing_cards,
-    )
-    if generated_payload is not None:
-        return generated_payload
-
-    return None
-
-
 def _append_missing_story_npc_card_operations(
     *,
     operations: list[dict[str, Any]],
@@ -3849,92 +3461,7 @@ def _append_missing_story_npc_card_operations(
     assistant_text: str,
     existing_cards: list[StoryWorldCard],
 ) -> list[dict[str, Any]]:
-    if len(operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
-        return operations
-
-    npc_mentions = _merge_story_npc_mentions(
-        _extract_story_npc_dialogue_mentions(assistant_text),
-        _extract_story_npc_speaker_line_mentions(assistant_text),
-        _extract_story_npc_narrative_mentions(assistant_text),
-    )
-    if not npc_mentions:
-        return operations
-
-    known_identity_keys = _build_story_known_npc_identity_keys(existing_cards)
-    pending_identity_keys: set[str] = set()
-    for operation in operations:
-        action = _normalize_story_world_card_event_action(str(operation.get("action", "")))
-        if action not in {STORY_WORLD_CARD_EVENT_ADDED, STORY_WORLD_CARD_EVENT_UPDATED}:
-            continue
-        op_kind = _normalize_story_world_card_kind(str(operation.get("kind", STORY_WORLD_CARD_KIND_WORLD)))
-        if op_kind not in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
-            continue
-        operation_title = " ".join(str(operation.get("title", "")).split()).strip()
-        if not operation_title:
-            continue
-        raw_operation_triggers = operation.get("triggers")
-        operation_triggers = (
-            [item for item in raw_operation_triggers if isinstance(item, str)]
-            if isinstance(raw_operation_triggers, list)
-            else []
-        )
-        identity_operation_triggers = _filter_story_identity_triggers(operation_title, operation_triggers)
-        pending_identity_keys.update(_build_story_identity_keys(operation_title, identity_operation_triggers))
-
-    for mention in npc_mentions:
-        if len(operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
-            break
-
-        name = " ".join(str(mention.get("name", "")).split()).strip()
-        if not name:
-            continue
-        if _is_story_generic_npc_name(name):
-            continue
-        if not _is_story_secondary_npc_mention(mention):
-            continue
-        mention_dialogues = mention.get("dialogues")
-        dialogue_values = [item for item in mention_dialogues if isinstance(item, str)] if isinstance(mention_dialogues, list) else []
-        mention_snippets = mention.get("snippets")
-        snippet_values = [item for item in mention_snippets if isinstance(item, str)] if isinstance(mention_snippets, list) else []
-        payload = _build_story_npc_card_payload(
-            name=name,
-            prompt=prompt,
-            assistant_text=assistant_text,
-            dialogues=dialogue_values,
-            snippets=snippet_values,
-            existing_cards=existing_cards,
-        )
-        if payload is None:
-            continue
-        title_value, mention_triggers, content = payload
-        identity_triggers = _filter_story_identity_triggers(title_value, mention_triggers)
-        if not identity_triggers:
-            identity_triggers = [title_value]
-        if _is_story_npc_identity_duplicate(
-            candidate_name=title_value,
-            candidate_triggers=identity_triggers,
-            known_identity_keys=known_identity_keys,
-        ):
-            continue
-        if _is_story_npc_identity_duplicate(
-            candidate_name=title_value,
-            candidate_triggers=identity_triggers,
-            known_identity_keys=pending_identity_keys,
-        ):
-            continue
-
-        operations.append(
-            {
-                "action": STORY_WORLD_CARD_EVENT_ADDED,
-                "title": title_value,
-                "content": content,
-                "triggers": mention_triggers,
-                "kind": STORY_WORLD_CARD_KIND_NPC,
-                "changed_text": content,
-            }
-        )
-        pending_identity_keys.update(_build_story_identity_keys(title_value, identity_triggers))
-
+    """Local NPC extraction is disabled; auto-card additions must come from AI operations only."""
     return operations
 
 
@@ -3946,96 +3473,8 @@ def _ensure_story_npc_cards_from_dialogue(
     prompt: str,
     assistant_text: str,
 ) -> list[StoryWorldCardChangeEvent]:
-    npc_mentions = _merge_story_npc_mentions(
-        _extract_story_npc_dialogue_mentions(assistant_text),
-        _extract_story_npc_speaker_line_mentions(assistant_text),
-        _extract_story_npc_narrative_mentions(assistant_text),
-    )
-    if not npc_mentions:
-        return []
-
-    existing_cards = _list_story_world_cards(db, game.id)
-    existing_identity_keys = _build_story_known_npc_identity_keys(existing_cards)
-
-    events: list[StoryWorldCardChangeEvent] = []
-    for mention in npc_mentions:
-        raw_name = " ".join(str(mention.get("name", "")).split()).strip()
-        if not raw_name:
-            continue
-        if _is_story_generic_npc_name(raw_name):
-            continue
-        if not _is_story_secondary_npc_mention(mention):
-            continue
-        mention_dialogues = mention.get("dialogues")
-        dialogue_values = [item for item in mention_dialogues if isinstance(item, str)] if isinstance(mention_dialogues, list) else []
-        mention_snippets = mention.get("snippets")
-        snippet_values = [item for item in mention_snippets if isinstance(item, str)] if isinstance(mention_snippets, list) else []
-        payload = _build_story_npc_card_payload(
-            name=raw_name,
-            prompt=prompt,
-            assistant_text=assistant_text,
-            dialogues=dialogue_values,
-            snippets=snippet_values,
-            existing_cards=existing_cards,
-        )
-        if payload is None:
-            continue
-        title_value, triggers_value, content_value = payload
-        identity_triggers = _filter_story_identity_triggers(title_value, triggers_value)
-        if not identity_triggers:
-            identity_triggers = [title_value]
-        if _is_story_npc_identity_duplicate(
-            candidate_name=title_value,
-            candidate_triggers=identity_triggers,
-            known_identity_keys=existing_identity_keys,
-        ):
-            continue
-
-        card = StoryWorldCard(
-            game_id=game.id,
-            title=title_value,
-            content=content_value,
-            triggers=_serialize_story_world_card_triggers(triggers_value),
-            kind=STORY_WORLD_CARD_KIND_NPC,
-            avatar_url=None,
-            character_id=None,
-            memory_turns=STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS,
-            is_locked=False,
-            ai_edit_enabled=True,
-            source=STORY_WORLD_CARD_SOURCE_AI,
-        )
-        db.add(card)
-        db.flush()
-
-        after_snapshot = _story_world_card_snapshot_from_card(card)
-        changed_text_fallback = _derive_story_changed_text_from_snapshots(
-            action=STORY_WORLD_CARD_EVENT_ADDED,
-            before_snapshot=None,
-            after_snapshot=after_snapshot,
-        )
-        changed_text = _normalize_story_world_card_changed_text("", fallback=changed_text_fallback)
-        event = StoryWorldCardChangeEvent(
-            game_id=game.id,
-            assistant_message_id=assistant_message.id,
-            world_card_id=card.id,
-            action=STORY_WORLD_CARD_EVENT_ADDED,
-            title=card.title,
-            changed_text=changed_text,
-            before_snapshot=None,
-            after_snapshot=_serialize_story_world_card_snapshot(after_snapshot),
-        )
-        db.add(event)
-        events.append(event)
-        existing_identity_keys.update(_build_story_identity_keys(title_value, identity_triggers))
-
-    if not events:
-        return []
-
-    _touch_story_game(game)
-    db.commit()
-    for event in events:
-        db.refresh(event)
-    return events
+    """Local NPC extraction is disabled; NPC cards must come from AI postprocess/operations."""
+    return []
 
 
 def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]:
@@ -7606,29 +7045,104 @@ def _resolve_story_turn_postprocess_payload(
         else []
     )
 
-    try:
+    current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
+        db=db,
+        game_id=game.id,
+    )
+
+    def request_postprocess_group(
+        *,
+        current_location_content_override: str,
+        raw_memory: bool = False,
+        location: bool = False,
+        environment: bool = False,
+        character_state: bool = False,
+        important_event: bool = False,
+        ambient: bool = False,
+        scene_emotion: bool = False,
+        auto_npcs: bool = False,
+    ) -> dict[str, Any] | None:
+        if not any([raw_memory, location, environment, character_state, important_event, ambient, scene_emotion, auto_npcs]):
+            return None
         return story_memory_pipeline._extract_story_postprocess_memory_payload(
             db=db,
             game=game,
-            current_location_content=story_memory_pipeline._get_story_latest_location_memory_content(
-                db=db,
-                game_id=game.id,
-            ),
+            current_location_content=current_location_content_override,
             latest_user_prompt=latest_user_prompt,
             previous_assistant_text=resolved_previous_assistant_text,
             latest_assistant_text=latest_assistant_text,
-            raw_memory_enabled=raw_memory_enabled,
-            location_enabled=location_enabled,
-            environment_enabled=resolved_environment_enabled,
-            character_state_enabled=character_state_enabled,
-            important_event_enabled=important_event_enabled,
-            ambient_enabled=ambient_enabled,
-            scene_emotion_enabled=emotion_visualization_enabled,
-            auto_npc_cards_enabled=auto_npc_cards_enabled,
+            raw_memory_enabled=raw_memory,
+            location_enabled=location,
+            environment_enabled=environment,
+            character_state_enabled=character_state,
+            important_event_enabled=important_event,
+            ambient_enabled=ambient,
+            scene_emotion_enabled=scene_emotion,
+            auto_npc_cards_enabled=auto_npcs,
             world_cards=active_scene_world_cards,
             scene_emotion_active_cast_entries=scene_emotion_active_cast_entries,
             scene_emotion_allowed_emotions=sorted(_STORY_CHARACTER_EMOTION_IDS),
         )
+
+    def merge_payload(target: dict[str, Any], source: dict[str, Any] | None) -> None:
+        if not isinstance(source, dict):
+            return
+        for key, value in source.items():
+            if value is not None:
+                target[key] = value
+
+    split_heavy_modules = bool(resolved_environment_enabled or character_state_enabled or auto_npc_cards_enabled)
+    try:
+        if not split_heavy_modules:
+            return request_postprocess_group(
+                current_location_content_override=current_location_content,
+                raw_memory=raw_memory_enabled,
+                location=location_enabled,
+                environment=resolved_environment_enabled,
+                character_state=character_state_enabled,
+                important_event=important_event_enabled,
+                ambient=ambient_enabled,
+                scene_emotion=emotion_visualization_enabled,
+                auto_npcs=auto_npc_cards_enabled,
+            )
+
+        merged_payload: dict[str, Any] = {}
+        merge_payload(
+            merged_payload,
+            request_postprocess_group(
+                current_location_content_override=current_location_content,
+                raw_memory=raw_memory_enabled,
+                location=location_enabled,
+                important_event=important_event_enabled,
+                ambient=ambient_enabled,
+                scene_emotion=emotion_visualization_enabled,
+            ),
+        )
+        effective_location_content = current_location_content
+        location_payload = merged_payload.get("location")
+        if isinstance(location_payload, dict):
+            normalized_location_content = story_memory_pipeline._normalize_story_location_memory_content(
+                str(location_payload.get("content") or "")
+            )
+            if normalized_location_content:
+                effective_location_content = normalized_location_content
+
+        merge_payload(
+            merged_payload,
+            request_postprocess_group(
+                current_location_content_override=effective_location_content,
+                character_state=character_state_enabled,
+                auto_npcs=auto_npc_cards_enabled,
+            ),
+        )
+        merge_payload(
+            merged_payload,
+            request_postprocess_group(
+                current_location_content_override=effective_location_content,
+                environment=resolved_environment_enabled,
+            ),
+        )
+        return merged_payload or None
     except Exception as exc:
         logger.warning(
             "Story unified post-process failed: game_id=%s assistant_message_id=%s error=%s",
@@ -9787,336 +9301,127 @@ def _create_story_key_memory_block(
     )
 
 
-_STORY_LOCATION_BROAD_CONTEXT_PATTERNS = (
-    (re.compile(r"\b(?:в|во)\s+(?:самой\s+)?столиц[еыуа]\b", re.IGNORECASE), lambda _match: "Столица"),
-    (
-        re.compile(r"\b(?:в|во)\s+город[еау]?\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,40})", re.IGNORECASE),
-        lambda match: f"Город {' '.join(str(match.group('name') or '').split()).strip()}",
-    ),
-    (
-        re.compile(r"\b(?:в|во)\s+деревн[еиу]\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,40})", re.IGNORECASE),
-        lambda match: f"Деревня {' '.join(str(match.group('name') or '').split()).strip()}",
-    ),
-)
-
-_STORY_LOCATION_SCENE_NAME_STRIP_CHARS = "\"«»"
-
-
-_STORY_LOCATION_SCENE_CONTEXT_PATTERNS = (
-    (
-        re.compile(r"\bтаверн[аеиыу]?\s+[\"«'](?P<name>[^\"»']{1,60})[\"»']", re.IGNORECASE),
-        lambda match: f"Таверна «{' '.join(str(match.group('name') or '').split()).strip()}»",
-    ),
-    (
-        re.compile(
-            r"\b(?:в|во|внутри|у|к|за\s+стойкой)\s+таверн[аеиыу]?\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,60})",
-            re.IGNORECASE,
-        ),
-        lambda match: f"Таверна {' '.join(str(match.group('name') or '').split()).strip(_STORY_LOCATION_SCENE_NAME_STRIP_CHARS)}",
-    ),
-    (
-        re.compile(r"\bтрактир[аеиыу]?\s+[\"«'](?P<name>[^\"»']{1,60})[\"»']", re.IGNORECASE),
-        lambda match: f"Трактир «{' '.join(str(match.group('name') or '').split()).strip()}»",
-    ),
-    (
-        re.compile(
-            r"\b(?:в|во|внутри|у|к|за\s+стойкой)\s+трактир[аеиыу]?\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,60})",
-            re.IGNORECASE,
-        ),
-        lambda match: f"Трактир {' '.join(str(match.group('name') or '').split()).strip(_STORY_LOCATION_SCENE_NAME_STRIP_CHARS)}",
-    ),
-    (
-        re.compile(r"\bгостиниц[аеиыу]?\s+[\"«'](?P<name>[^\"»']{1,60})[\"»']", re.IGNORECASE),
-        lambda match: f"Гостиница «{' '.join(str(match.group('name') or '').split()).strip()}»",
-    ),
-    (
-        re.compile(
-            r"\b(?:в|во|внутри|у|к)\s+гостиниц[аеиыу]?\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,60})",
-            re.IGNORECASE,
-        ),
-        lambda match: f"Гостиница {' '.join(str(match.group('name') or '').split()).strip(_STORY_LOCATION_SCENE_NAME_STRIP_CHARS)}",
-    ),
-    (re.compile(r"\b(?:в|во|внутри|за\s+стойкой)\s+таверн[аеиыу]?\b", re.IGNORECASE), lambda _match: "Таверна"),
-    (re.compile(r"\b(?:в|во|внутри)\s+трактир[аеиыу]?\b", re.IGNORECASE), lambda _match: "Трактир"),
-    (re.compile(r"\b(?:в|во|внутри)\s+гостиниц[аеиыу]?\b", re.IGNORECASE), lambda _match: "Гостиница"),
-    (re.compile(r"\b(?:на|по)\s+(?:[A-Za-zА-Яа-яЁё-]+\s+)?улиц[еуы]\b", re.IGNORECASE), lambda _match: "Улица"),
-    (re.compile(r"\b(?:в|во)\s+(?:[A-Za-zА-Яа-яЁё-]+\s+)?переулк[еуыи]\b", re.IGNORECASE), lambda _match: "Переулок"),
-    (re.compile(r"\b(?:на|по)\s+(?:[A-Za-zА-Яа-яЁё-]+\s+)?площад[иеу]\b", re.IGNORECASE), lambda _match: "Площадь"),
-    (re.compile(r"\b(?:на|в)\s+рынк[еу]\b", re.IGNORECASE), lambda _match: "Рынок"),
-    (re.compile(r"\b(?:в|во)\s+порт[еу]?\b", re.IGNORECASE), lambda _match: "Порт"),
-    (re.compile(r"\b(?:в|во)\s+дворц[еуа]?\b", re.IGNORECASE), lambda _match: "Дворец"),
-    (re.compile(r"\b(?:в|во)\s+замк[еуа]?\b", re.IGNORECASE), lambda _match: "Замок"),
-    (re.compile(r"\b(?:в|во)\s+лесу\b", re.IGNORECASE), lambda _match: "Лес"),
-    (re.compile(r"\b(?:на|у)\s+берегу\b", re.IGNORECASE), lambda _match: "Берег"),
-    (re.compile(r"\b(?:в|во|внутри|у|к|перед)\s+гильди[июе]\b", re.IGNORECASE), lambda _match: "Гильдия"),
-    (re.compile(r"\b(?:в|во|внутри)\s+зал[еау]?\s+гильди[июе]\b", re.IGNORECASE), lambda _match: "Зал гильдии"),
-    (re.compile(r"\b(?:в|во|внутри)\s+здани[ие]\s+гильди[июе]\b", re.IGNORECASE), lambda _match: "Здание гильдии"),
-    (re.compile(r"\b(?:у|около|возле)\s+вход[а]?\s+в\s+гильди[иююе]\b", re.IGNORECASE), lambda _match: "У входа в гильдию"),
-    (re.compile(r"\b(?:в|во|внутри)\s+зал[еау]?\b", re.IGNORECASE), lambda _match: "Зал"),
-    (re.compile(r"\b(?:в|во|внутри)\s+комнат[еуы]\b", re.IGNORECASE), lambda _match: "Комната"),
-    (re.compile(r"\b(?:в|во|внутри|по)\s+коридор[еу]?\b", re.IGNORECASE), lambda _match: "Коридор"),
-    (re.compile(r"\b(?:у|к|за)\s+стойк[еи]\b", re.IGNORECASE), lambda _match: "У стойки"),
-    (re.compile(r"\b(?:у|за)\s+стол(?:ом|а|иком|ика)?\b", re.IGNORECASE), lambda _match: "У стола"),
-    (re.compile(r"\b(?:в|во|внутри)\s+храм[еау]?\b", re.IGNORECASE), lambda _match: "Храм"),
-    (re.compile(r"\b(?:в|во|внутри)\s+школ[еуы]\b", re.IGNORECASE), lambda _match: "Школа"),
-    (re.compile(r"\b(?:в|во|внутри)\s+библиотек[еуы]\b", re.IGNORECASE), lambda _match: "Библиотека"),
-    (re.compile(r"\b(?:в|во|внутри)\s+лавк[еуы]\b", re.IGNORECASE), lambda _match: "Лавка"),
-    (re.compile(r"\b(?:в|во|внутри)\s+магазин[еау]?\b", re.IGNORECASE), lambda _match: "Магазин"),
-)
-
-
-def _extract_story_location_fallback_label_from_patterns(
-    *,
-    story_memory_pipeline: Any,
-    source_text: str,
-    patterns: tuple[tuple[re.Pattern[str], Any], ...],
-) -> str:
-    normalized_text = story_memory_pipeline._normalize_story_prompt_text(source_text, max_chars=2_400)
-    if not normalized_text:
+def _normalize_story_unnamed_location_context_suffix(raw_value: str) -> str:
+    normalized = " ".join(str(raw_value or "").replace("\r", " ").replace("\n", " ").split()).strip(" ,.;:-")
+    if not normalized:
         return ""
 
-    best_label = ""
-    best_match_end = -1
-    for pattern, builder in patterns:
-        for match in pattern.finditer(normalized_text):
-            candidate_label = builder(match) if callable(builder) else str(builder or "")
-            normalized_label = story_memory_pipeline._resolve_story_location_memory_label(label=candidate_label)
-            if not normalized_label:
-                continue
-            if match.end() >= best_match_end:
-                best_match_end = match.end()
-                best_label = normalized_label
-    return best_label
+    lowered = normalized.casefold()
+    words = normalized.split()
+    tail = " ".join(words[1:]).strip(" ,.;:-") if len(words) > 1 else ""
+    if lowered.startswith("столиц"):
+        return "столицы"
+    if lowered.startswith("город"):
+        return f"города {tail}".strip() if tail else "города"
+    if lowered.startswith("деревн"):
+        return f"деревни {tail}".strip() if tail else "деревни"
+    if lowered.startswith("сел"):
+        return f"села {tail}".strip() if tail else "села"
+    if lowered.startswith(("посел", "посёл")):
+        return f"поселка {tail}".strip() if tail else "поселка"
+    if lowered.startswith("квартал"):
+        return f"квартала {tail}".strip() if tail else "квартала"
+    if lowered.startswith("район"):
+        return f"района {tail}".strip() if tail else "района"
+    return normalized
 
 
-_STORY_LOCATION_FALLBACK_TOKEN_STOPWORDS = {
-    "в",
-    "во",
-    "на",
-    "у",
-    "к",
-    "внутри",
-    "действие",
-    "происходит",
-    "события",
-    "происходят",
-    "столица",
-    "город",
-    "деревня",
-    "улица",
-    "переулок",
-    "площадь",
-    "рынок",
-    "порт",
-    "дворец",
-    "замок",
-    "лес",
-    "берег",
-    "ночью",
-}
+def _clean_story_location_inline_name(raw_value: str) -> str:
+    normalized = str(raw_value or "").replace("\r", " ").replace("\n", " ")
+    normalized = re.split(r"[—-]", normalized, maxsplit=1)[0]
+    normalized = re.split(r"[,.!?:;]", normalized, maxsplit=1)[0]
+    normalized = normalized.strip(" \"«»'—-")
+    if not normalized:
+        return ""
 
-
-def _extract_story_location_anchor_tokens(label: str) -> set[str]:
-    return {
-        token.casefold()
-        for token in re.findall(r"[A-Za-zА-Яа-яЁё0-9-]+", str(label or ""))
-        if len(token) >= 3 and token.casefold() not in _STORY_LOCATION_FALLBACK_TOKEN_STOPWORDS
+    stop_tokens = {
+        "в",
+        "во",
+        "на",
+        "у",
+        "к",
+        "и",
+        "или",
+        "но",
+        "а",
+        "что",
+        "где",
+        "когда",
+        "которая",
+        "который",
+        "столица",
+        "город",
     }
-
-
-def _should_prefer_story_scene_location_fallback(
-    *,
-    model_label: str,
-    fallback_label: str,
-) -> bool:
-    normalized_fallback_label = str(fallback_label or "").strip()
-    if not normalized_fallback_label:
-        return False
-
-    fallback_tokens = _extract_story_location_anchor_tokens(normalized_fallback_label)
-    if not fallback_tokens:
-        return False
-
-    model_tokens = _extract_story_location_anchor_tokens(model_label)
-    if not model_tokens:
-        return True
-
-    return not bool(model_tokens & fallback_tokens)
-
-
-_STORY_LOCATION_NAME_STOPWORDS = {
-    "в",
-    "во",
-    "на",
-    "у",
-    "к",
-    "из",
-    "от",
-    "до",
-    "по",
-    "под",
-    "над",
-    "перед",
-    "за",
-    "и",
-    "или",
-    "но",
-    "а",
-    "же",
-    "что",
-    "когда",
-    "если",
-    "как",
-    "где",
-    "потом",
-    "сейчас",
-    "ночью",
-    "утром",
-    "днем",
-    "вечером",
-    "столице",
-    "городе",
-}
-
-
-def _extract_story_named_location_tail_after_keyword(
-    *,
-    source_text: str,
-    keyword_root: str,
-) -> str:
-    normalized_text = str(source_text or "")
-    lowered_text = normalized_text.casefold()
-    keyword_positions: list[int] = []
-    search_start = 0
-    while True:
-        keyword_position = lowered_text.find(keyword_root.casefold(), search_start)
-        if keyword_position < 0:
+    tokens = re.findall(r"[A-Za-zА-Яа-яЁё0-9-]+", normalized)
+    candidate_tokens: list[str] = []
+    for token in tokens:
+        if token.casefold() in stop_tokens:
             break
-        keyword_positions.append(keyword_position)
-        search_start = keyword_position + len(keyword_root)
+        candidate_tokens.append(token)
+        if len(candidate_tokens) >= 4:
+            break
+    if not candidate_tokens or not candidate_tokens[0][:1].isupper():
+        return ""
+    return " ".join(candidate_tokens).strip()
 
-    if not keyword_positions:
+
+def _build_story_unnamed_urban_location_label(match: re.Match[str], base_label: str) -> str:
+    suffix = _normalize_story_unnamed_location_context_suffix(str(match.group("context") or ""))
+    return f"{base_label} {suffix}".strip() if suffix else base_label
+
+
+def _normalize_story_road_location_context(raw_value: str) -> str:
+    normalized = " ".join(str(raw_value or "").replace("\r", " ").replace("\n", " ").split()).strip(" ,.;:-")
+    if not normalized:
         return ""
 
-    for keyword_position in reversed(keyword_positions):
-        word_end = keyword_position
-        while word_end < len(normalized_text) and (
-            normalized_text[word_end].isalnum() or normalized_text[word_end] in {"-", "ё", "Ё"}
-        ):
-            word_end += 1
-
-        tail = normalized_text[word_end:].lstrip(" \t\r\n\"«'")
-        if not tail:
-            continue
-
-        tail_tokens = re.findall(r"[A-Za-zА-Яа-яЁё0-9-]+", tail[:80])
-        if not tail_tokens:
-            continue
-
-        first_token = tail_tokens[0]
-        if not first_token[:1].isupper():
-            continue
-        if first_token.casefold() in _STORY_LOCATION_NAME_STOPWORDS:
-            continue
-
-        candidate_tokens = [first_token]
-        for token in tail_tokens[1:]:
-            if token.casefold() in _STORY_LOCATION_NAME_STOPWORDS:
-                break
-            candidate_tokens.append(token)
-            if len(candidate_tokens) >= 4:
-                break
-
-        candidate = " ".join(candidate_tokens).strip(" ,.;:-")
-        if candidate:
-            return candidate
-
-    return ""
+    lowered = normalized.casefold()
+    if lowered.startswith("в лес") or lowered.startswith("во лес"):
+        return "в лесу"
+    if lowered.startswith("через лес"):
+        return "через лес"
+    if lowered.startswith("у реки"):
+        return "у реки"
+    if lowered.startswith("к город"):
+        return "к городу"
+    if lowered.startswith("к деревн"):
+        return "к деревне"
+    if lowered.startswith("к сел"):
+        return "к селу"
+    return normalized
 
 
-def _extract_story_scene_establishment_label(source_text: str) -> str:
-    normalized_text = str(source_text or "")
-    lowered_text = normalized_text.casefold()
-
-    for keyword_root, label in (
-        ("таверн", "Таверна"),
-        ("трактир", "Трактир"),
-        ("гостиниц", "Гостиница"),
-    ):
-        if keyword_root not in lowered_text:
-            continue
-        name_tail = _extract_story_named_location_tail_after_keyword(
-            source_text=normalized_text,
-            keyword_root=keyword_root,
-        )
-        if name_tail:
-            return f"{label} {name_tail}".strip()
-        if any(
-            marker in lowered_text
-            for marker in (
-                f"в {keyword_root}",
-                f"во {keyword_root}",
-                f"внутри {keyword_root}",
-                f"за стойкой {keyword_root}",
-            )
-        ):
-            return label
-
-    return ""
-
-
-def _legacy_build_story_location_fallback_payload_from_scene_text(
-    *,
-    story_memory_pipeline: Any,
-    latest_user_prompt: str,
-    latest_assistant_text: str,
-) -> dict[str, str] | None:
-    normalized_latest_assistant = story_memory_pipeline._normalize_story_prompt_text(
-        latest_assistant_text,
-        max_chars=1_800,
-    )
-    normalized_user_prompt = story_memory_pipeline._normalize_story_prompt_text(
-        latest_user_prompt,
-        max_chars=900,
-    )
-    combined_text = "\n".join(
-        part
-        for part in (normalized_user_prompt, normalized_latest_assistant)
-        if isinstance(part, str) and part.strip()
-    )
-    if not combined_text:
-        return None
-
-    explicit_scene_label = _extract_story_scene_establishment_label(combined_text)
-    broad_label = _extract_story_location_fallback_label_from_patterns(
-        story_memory_pipeline=story_memory_pipeline,
-        source_text=combined_text,
-        patterns=_STORY_LOCATION_BROAD_CONTEXT_PATTERNS,
-    )
-    scene_label = explicit_scene_label or _extract_story_location_fallback_label_from_patterns(
-        story_memory_pipeline=story_memory_pipeline,
-        source_text=combined_text,
-        patterns=_STORY_LOCATION_SCENE_CONTEXT_PATTERNS,
-    )
-    if scene_label and broad_label and scene_label.casefold() != broad_label.casefold():
-        combined_label = f"{broad_label}, {scene_label}"
+def _build_story_road_location_label(match: re.Match[str]) -> str:
+    road_value = " ".join(str(match.group("road") or "").split()).casefold()
+    if "просел" in road_value:
+        base_label = "Проселочная дорога"
+    elif "лесн" in road_value:
+        base_label = "Лесная дорога"
+    elif "горн" in road_value:
+        base_label = "Горная дорога"
+    elif "пыльн" in road_value:
+        base_label = "Пыльная дорога"
+    elif "камен" in road_value:
+        base_label = "Каменная дорога"
     else:
-        combined_label = scene_label or broad_label
-    combined_label = story_memory_pipeline._resolve_story_location_memory_label(label=combined_label)
-    if not combined_label:
-        return None
+        base_label = "Дорога"
+    context = _normalize_story_road_location_context(str(match.group("context") or ""))
+    return f"{base_label} {context}".strip() if context else base_label
 
-    normalized_content = story_memory_pipeline._normalize_story_location_memory_content(
-        f"Действие происходит {combined_label}."
-    )
-    if not normalized_content:
-        return None
-    return {
-        "action": "update",
-        "content": normalized_content,
-        "label": story_memory_pipeline._resolve_story_location_memory_label(content=normalized_content),
-    }
 
+def _story_location_scene_label_contains_broad_context(*, scene_label: str, broad_label: str) -> bool:
+    normalized_scene = " ".join(str(scene_label or "").split()).casefold()
+    normalized_broad = " ".join(str(broad_label or "").split()).casefold()
+    if not normalized_scene or not normalized_broad:
+        return False
+    if "столиц" in normalized_broad and "столиц" in normalized_scene:
+        return True
+    broad_tokens = [
+        token
+        for token in re.findall(r"[A-Za-zА-Яа-яЁё0-9-]+", normalized_broad)
+        if len(token) >= 3
+    ]
+    return bool(broad_tokens) and all(token in normalized_scene for token in broad_tokens)
 
 
 def _build_story_location_fallback_payload_from_scene_text(
@@ -10127,172 +9432,8 @@ def _build_story_location_fallback_payload_from_scene_text(
     previous_assistant_text: str,
     opening_scene_text: str,
 ) -> dict[str, str] | None:
-    from app.services import story_memory_pipeline
-
-    source_parts = [
-        part
-        for part in (
-            _normalize_story_prompt_text(latest_assistant_text, max_chars=1_600),
-            _normalize_story_prompt_text(previous_assistant_text, max_chars=1_600),
-            _normalize_story_prompt_text(opening_scene_text, max_chars=1_200),
-            _normalize_story_prompt_text(latest_user_prompt, max_chars=800),
-        )
-        if isinstance(part, str) and part.strip()
-    ]
-    if not source_parts:
-        return None
-
-    def _clean_named_place(raw_value: str) -> str:
-        normalized_value = str(raw_value or "").replace("\r", " ").replace("\n", " ")
-        normalized_value = re.split(r"[,.!?:;]", normalized_value, maxsplit=1)[0]
-        normalized_value = normalized_value.strip(" \"«»'")
-        if not normalized_value:
-            return ""
-
-        tokens = re.findall(r"[A-Za-zА-Яа-яЁё0-9-]+", normalized_value)
-        if not tokens:
-            return ""
-        if not tokens[0][:1].isupper():
-            return ""
-
-        stop_tokens = {
-            "в",
-            "во",
-            "на",
-            "у",
-            "к",
-            "и",
-            "но",
-            "а",
-            "что",
-            "когда",
-            "где",
-            "пока",
-            "после",
-            "перед",
-            "внутри",
-            "снаружи",
-            "вечер",
-            "ночь",
-            "утро",
-            "день",
-        }
-        candidate_tokens = [tokens[0]]
-        for token in tokens[1:]:
-            if token.casefold() in stop_tokens:
-                break
-            candidate_tokens.append(token)
-            if len(candidate_tokens) >= 4:
-                break
-        return " ".join(candidate_tokens).strip()
-
-    def _resolve_broad_label(text_value: str) -> str:
-        if re.search(r"\b(?:в|во)\s+(?:самой\s+)?столиц[еыуа]\b", text_value, flags=re.IGNORECASE):
-            return "Столица"
-        city_match = re.search(
-            r"\b(?:в|во)\s+город[еау]?\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,40})",
-            text_value,
-            flags=re.IGNORECASE,
-        )
-        if city_match:
-            city_name = _clean_named_place(str(city_match.group("name") or ""))
-            if city_name:
-                return f"Город {city_name}"
-        village_match = re.search(
-            r"\b(?:в|во)\s+деревн[ееиу]\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,40})",
-            text_value,
-            flags=re.IGNORECASE,
-        )
-        if village_match:
-            village_name = _clean_named_place(str(village_match.group("name") or ""))
-            if village_name:
-                return f"Деревня {village_name}"
-        return ""
-
-    def _resolve_scene_label(text_value: str) -> str:
-        named_patterns = (
-            (r"\bтаверн[аеиыу]?\s+[«\"](?P<name>[^\"»\n]{1,60})[»\"]", "Таверна"),
-            (r"\bтрактир[аеиыу]?\s+[«\"](?P<name>[^\"»\n]{1,60})[»\"]", "Трактир"),
-            (r"\bгостиниц[аеиыу]?\s+[«\"](?P<name>[^\"»\n]{1,60})[»\"]", "Гостиница"),
-            (
-                r"\b(?:в|во|внутри|у|к|за\s+стойкой)\s+таверн[аеиыу]?\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,60})",
-                "Таверна",
-            ),
-            (
-                r"\b(?:в|во|внутри|у|к|за\s+стойкой)\s+трактир[аеиыу]?\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,60})",
-                "Трактир",
-            ),
-            (
-                r"\b(?:в|во|внутри|у|к)\s+гостиниц[аеиыу]?\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,60})",
-                "Гостиница",
-            ),
-        )
-        best_label = ""
-        best_match_end = -1
-        for pattern, prefix in named_patterns:
-            for match in re.finditer(pattern, text_value, flags=re.IGNORECASE):
-                candidate_name = _clean_named_place(str(match.group("name") or ""))
-                if not candidate_name:
-                    continue
-                candidate_label = f"{prefix} {candidate_name}".strip()
-                if match.end() >= best_match_end:
-                    best_match_end = match.end()
-                    best_label = candidate_label
-        if best_label:
-            return best_label
-
-        for pattern, label in (
-            (r"\b(?:в|во|внутри|за\s+стойкой)\s+таверн[аеиыу]?\b", "Таверна"),
-            (r"\b(?:в|во|внутри|за\s+стойкой)\s+трактир[аеиыу]?\b", "Трактир"),
-            (r"\b(?:в|во|внутри)\s+гостиниц[аеиыу]?\b", "Гостиница"),
-        ):
-            if re.search(pattern, text_value, flags=re.IGNORECASE):
-                return label
-        return ""
-
-    broad_label = ""
-    scene_label = ""
-    generic_scene_label = ""
-    for part in source_parts:
-        if not broad_label:
-            broad_label = _resolve_broad_label(part)
-        candidate_scene_label = _resolve_scene_label(part)
-        if candidate_scene_label:
-            if len(candidate_scene_label.split()) > 1:
-                scene_label = candidate_scene_label
-                break
-            if not generic_scene_label:
-                generic_scene_label = candidate_scene_label
-
-    if not scene_label:
-        scene_label = generic_scene_label
-
-    if not scene_label and not broad_label:
-        return None
-
-    combined_label = (
-        f"{broad_label}, {scene_label}"
-        if scene_label and broad_label and scene_label.casefold() != broad_label.casefold()
-        else scene_label or broad_label
-    )
-    combined_label = story_memory_pipeline._resolve_story_location_memory_label(label=combined_label)
-    if not combined_label:
-        return None
-
-    normalized_content = story_memory_pipeline._normalize_story_location_memory_content(
-        f"Действие происходит {combined_label}."
-    )
-    if not normalized_content:
-        normalized_content = f"Действие происходит {combined_label}."
-    return {
-        "action": "update",
-        "content": normalized_content,
-        "label": story_memory_pipeline._resolve_story_location_memory_label(
-            label=combined_label,
-            content=normalized_content,
-        ),
-    }
-
+    """Local place extraction is disabled; place updates must come from AI postprocess."""
+    return None
 
 def _build_story_prompt_context_cards(
     *,
@@ -10710,22 +9851,6 @@ def _upsert_story_plot_memory_card(
         location_payload_for_sync = None
         if isinstance(postprocess_payload, dict) and isinstance(postprocess_payload.get("location"), dict):
             location_payload_for_sync = postprocess_payload.get("location")
-        elif not has_postprocess_payload_override or allow_model_postprocess_request:
-            try:
-                location_payload_for_sync = _legacy_build_story_location_fallback_payload_from_scene_text(
-                    story_memory_pipeline=story_memory_pipeline,
-                    latest_user_prompt=latest_user_prompt,
-                    latest_assistant_text=latest_assistant_text,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Story local location fallback failed: game_id=%s assistant_message_id=%s error=%s",
-                    game.id,
-                    assistant_message.id,
-                    exc,
-                )
-            if location_payload_for_sync is None:
-                location_payload_for_sync = {"action": "keep"}
         elif not allow_model_postprocess_request:
             location_payload_for_sync = {"action": "keep"}
 
@@ -10773,8 +9898,45 @@ def _upsert_story_plot_memory_card(
             db=db,
             game_id=game.id,
         )
+        created_auto_npc_card_ids: set[int] = set()
+        if bool(getattr(game, "auto_npc_cards_enabled", False)):
+            try:
+                created_auto_npc_cards = story_memory_pipeline._sync_story_auto_npc_cards_for_assistant_message(
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    latest_user_prompt=latest_user_prompt,
+                    latest_assistant_text=latest_assistant_text,
+                    resolved_payload_override=(
+                        postprocess_payload.get("auto_npcs")
+                        if isinstance(postprocess_payload, dict)
+                        and isinstance(postprocess_payload.get("auto_npcs"), list)
+                        else None
+                    ),
+                    allow_model_request=False,
+                )
+                created_auto_npc_card_ids = {
+                    int(getattr(card, "id"))
+                    for card in created_auto_npc_cards
+                    if isinstance(getattr(card, "id", None), int)
+                }
+                if created_auto_npc_cards:
+                    should_force_memory_rebalance = True
+            except Exception as exc:
+                logger.warning(
+                    "Story auto-NPC post-process failed: game_id=%s assistant_message_id=%s error=%s",
+                    game.id,
+                    assistant_message.id,
+                    exc,
+                )
         if bool(getattr(game, "character_state_enabled", None)):
             try:
+                story_memory_pipeline._ensure_story_character_state_cards_include_world_cards(
+                    db=db,
+                    game=game,
+                    active_world_card_ids=created_auto_npc_card_ids,
+                    current_location_content=current_location_content,
+                )
                 story_memory_pipeline._sync_story_character_state_cards(
                     db=db,
                     game=game,
@@ -10817,31 +9979,6 @@ def _upsert_story_plot_memory_card(
             except Exception as exc:
                 logger.warning(
                     "Story environment post-process failed: game_id=%s assistant_message_id=%s error=%s",
-                    game.id,
-                    assistant_message.id,
-                    exc,
-                )
-        if bool(getattr(game, "auto_npc_cards_enabled", False)):
-            try:
-                created_auto_npc_cards = story_memory_pipeline._sync_story_auto_npc_cards_for_assistant_message(
-                    db=db,
-                    game=game,
-                    assistant_message=assistant_message,
-                    latest_user_prompt=latest_user_prompt,
-                    latest_assistant_text=latest_assistant_text,
-                    resolved_payload_override=(
-                        postprocess_payload.get("auto_npcs")
-                        if isinstance(postprocess_payload, dict)
-                        and isinstance(postprocess_payload.get("auto_npcs"), list)
-                        else None
-                    ),
-                    allow_model_request=False,
-                )
-                if created_auto_npc_cards:
-                    should_force_memory_rebalance = True
-            except Exception as exc:
-                logger.warning(
-                    "Story auto-NPC post-process failed: game_id=%s assistant_message_id=%s error=%s",
                     game.id,
                     assistant_message.id,
                     exc,

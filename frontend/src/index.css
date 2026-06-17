@@ -278,6 +278,21 @@ select {
   border-radius: inherit !important;
 }
 
+.morius-app-shell .morius-framed-avatar {
+  overflow: visible !important;
+}
+
+.morius-app-shell .morius-framed-avatar img.morius-avatar-frame-image {
+  position: absolute !important;
+  inset: -15% !important;
+  width: 130% !important;
+  height: 130% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  border-radius: 0 !important;
+}
+
 .morius-app-shell .MuiIconButton-root.morius-daily-rewards-button {
   width: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
   height: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;

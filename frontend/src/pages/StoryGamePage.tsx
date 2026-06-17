@@ -269,6 +269,7 @@ type RightPanelMode = 'ai' | 'world' | 'memory'
 type AiPanelTab = 'instructions' | 'settings'
 type WorldPanelTab = 'story' | 'world'
 type CardsPanelTab = 'characters' | 'world' | 'instructions' | 'plot'
+type NpcPanelSortMode = 'recent' | 'alphabetical_asc' | 'alphabetical_desc' | 'active_first'
 type MemoryPanelTab = 'memory' | 'dev'
 type EnvironmentModuleCardId = 'place' | 'time' | 'weather'
 type EnvironmentModuleCardPosition = {
@@ -5371,6 +5372,69 @@ function StoryTitleLoadingSkeleton() {
 }
 
 const MISSING_MAIN_HERO_DIALOG_SUPPRESS_KEY = 'morius:missing-main-hero-dialog:v2:suppress'
+const NPC_PANEL_PINNED_STORAGE_PREFIX = 'morius:story:npc-pinned:v1'
+const NPC_PANEL_SORT_OPTIONS: ReadonlyArray<{ value: NpcPanelSortMode; label: string }> = [
+  { value: 'recent', label: 'Недавние' },
+  { value: 'active_first', label: 'Активные' },
+  { value: 'alphabetical_asc', label: 'А-Я' },
+  { value: 'alphabetical_desc', label: 'Я-А' },
+]
+
+function getNpcPanelPinnedStorageKey(gameId: number): string {
+  return `${NPC_PANEL_PINNED_STORAGE_PREFIX}:${Math.max(0, Math.trunc(gameId || 0))}`
+}
+
+function readNpcPanelPinnedCardIds(gameId: number | null): number[] {
+  if (!gameId) {
+    return []
+  }
+  try {
+    const rawValue = localStorage.getItem(getNpcPanelPinnedStorageKey(gameId))
+    const parsedValue = rawValue ? JSON.parse(rawValue) : []
+    if (!Array.isArray(parsedValue)) {
+      return []
+    }
+    const seenIds = new Set<number>()
+    parsedValue.forEach((value) => {
+      const normalizedId = Number(value)
+      if (Number.isInteger(normalizedId) && normalizedId > 0) {
+        seenIds.add(normalizedId)
+      }
+    })
+    return [...seenIds]
+  } catch {
+    return []
+  }
+}
+
+function writeNpcPanelPinnedCardIds(gameId: number | null, cardIds: number[]): void {
+  if (!gameId) {
+    return
+  }
+  const normalizedIds = Array.from(
+    new Set(
+      cardIds
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0),
+    ),
+  )
+  try {
+    localStorage.setItem(getNpcPanelPinnedStorageKey(gameId), JSON.stringify(normalizedIds))
+  } catch {
+    // Ignore storage quota/private mode failures; pinning still works for the session.
+  }
+}
+
+function NpcPinIcon({ size = 14 }: { size?: number }) {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: size, height: size, color: 'inherit', display: 'block' }}>
+      <path
+        d="M14.7 2.8 21.2 9.3 17.7 10.7 13.4 15 13.1 20.2 11.9 21.4 8.1 17.6 4.4 21.3 2.7 19.6 6.4 15.9 2.6 12.1 3.8 10.9 9 10.6 13.3 6.3 14.7 2.8Z"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
 
 function StoryMessagesLoadingSkeleton() {
   return (
@@ -5806,6 +5870,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     DEFAULT_SMART_REGENERATION_OPTIONS,
   )
   const [worldCards, setWorldCards] = useState<StoryWorldCard[]>([])
+  const [npcPanelSearchQuery, setNpcPanelSearchQuery] = useState('')
+  const [npcPanelSortMode, setNpcPanelSortMode] = useState<NpcPanelSortMode>('recent')
+  const [pinnedNpcCardIds, setPinnedNpcCardIds] = useState<number[]>([])
   const [characters, setCharacters] = useState<StoryCharacter[]>([])
   const [hasLoadedCharacters, setHasLoadedCharacters] = useState(false)
   const [isLoadingCharacters, setIsLoadingCharacters] = useState(false)
@@ -7415,21 +7482,96 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => worldCards.filter((card) => card.kind !== 'main_hero'),
     [worldCards],
   )
+  const rawNpcCards = useMemo(
+    () => displayedWorldCards.filter((card) => card.kind === 'npc'),
+    [displayedWorldCards],
+  )
+  useEffect(() => {
+    setPinnedNpcCardIds(readNpcPanelPinnedCardIds(activeGameId))
+  }, [activeGameId])
+  const pinnedNpcCardIdSet = useMemo(() => new Set(pinnedNpcCardIds), [pinnedNpcCardIds])
+  const npcPanelSearchIsActive = npcPanelSearchQuery.trim().length > 0
+  const togglePinnedNpcCard = useCallback(
+    (cardId: number) => {
+      if (!activeGameId) {
+        return
+      }
+      const targetCard = rawNpcCards.find((card) => card.id === cardId)
+      if (!targetCard || targetCard.kind !== 'npc') {
+        return
+      }
+      setPinnedNpcCardIds((previousIds) => {
+        const currentIds = previousIds.filter((id) => rawNpcCards.some((card) => card.id === id))
+        const nextIds = currentIds.includes(cardId)
+          ? currentIds.filter((id) => id !== cardId)
+          : [...currentIds, cardId]
+        writeNpcPanelPinnedCardIds(activeGameId, nextIds)
+        return nextIds
+      })
+    },
+    [activeGameId, rawNpcCards],
+  )
+  useEffect(() => {
+    if (!activeGameId) {
+      return
+    }
+    const existingNpcCardIds = new Set(rawNpcCards.map((card) => card.id))
+    const nextPinnedIds = pinnedNpcCardIds.filter((id) => existingNpcCardIds.has(id))
+    if (nextPinnedIds.length !== pinnedNpcCardIds.length) {
+      setPinnedNpcCardIds(nextPinnedIds)
+      writeNpcPanelPinnedCardIds(activeGameId, nextPinnedIds)
+    }
+  }, [activeGameId, pinnedNpcCardIds, rawNpcCards])
   const worldProfileCard = useMemo(
     () => worldCards.find((card) => card.kind === 'world_profile') ?? null,
     [worldCards],
   )
   const displayedNpcCards = useMemo(
-    () =>
-      [...displayedWorldCards.filter((card) => card.kind === 'npc')].sort((left, right) => {
+    () => {
+      const normalizedQuery = normalizeCharacterIdentity(npcPanelSearchQuery)
+      const filteredCards = normalizedQuery
+        ? rawNpcCards.filter((card) => {
+            const searchText = normalizeCharacterIdentity(
+              [
+                card.title,
+                card.content,
+                card.race,
+                card.clothing,
+                card.inventory,
+                card.health_status,
+                card.detail_type,
+                ...card.triggers,
+              ].join(' '),
+            )
+            return searchText.includes(normalizedQuery)
+          })
+        : rawNpcCards
+
+      return [...filteredCards].sort((left, right) => {
+        const leftPinned = pinnedNpcCardIdSet.has(left.id)
+        const rightPinned = pinnedNpcCardIdSet.has(right.id)
+        if (leftPinned !== rightPinned) {
+          return leftPinned ? -1 : 1
+        }
         const leftActive = Boolean(worldCardContextStateById.get(left.id)?.isActive)
         const rightActive = Boolean(worldCardContextStateById.get(right.id)?.isActive)
+        if (npcPanelSortMode === 'active_first' && leftActive !== rightActive) {
+          return leftActive ? -1 : 1
+        }
+        if (npcPanelSortMode === 'alphabetical_asc' || npcPanelSortMode === 'alphabetical_desc') {
+          const nameCompare = left.title.localeCompare(right.title, 'ru', { sensitivity: 'base' })
+          if (nameCompare !== 0) {
+            return npcPanelSortMode === 'alphabetical_asc' ? nameCompare : -nameCompare
+          }
+          return right.id - left.id
+        }
         if (leftActive !== rightActive) {
           return leftActive ? -1 : 1
         }
         return parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
-      }),
-    [displayedWorldCards, worldCardContextStateById],
+      })
+    },
+    [npcPanelSearchQuery, npcPanelSortMode, pinnedNpcCardIdSet, rawNpcCards, worldCardContextStateById],
   )
   const displayedDetailCards = useMemo(
     () =>
@@ -12389,6 +12531,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCardMenuType(null)
     setCardMenuCardId(null)
   }, [])
+
+  const handleTogglePinnedNpcFromCardMenu = useCallback(() => {
+    if (!selectedMenuWorldCard || selectedMenuWorldCard.kind !== 'npc') {
+      handleCloseCardMenu()
+      return
+    }
+    togglePinnedNpcCard(selectedMenuWorldCard.id)
+    handleCloseCardMenu()
+  }, [handleCloseCardMenu, selectedMenuWorldCard, togglePinnedNpcCard])
 
   const handleCardMenuEdit = () => {
     if (cardMenuCardId === null || cardMenuType === null) {
@@ -17603,12 +17754,129 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       Добавить ГГ
                     </Button>
 
-                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.08rem', fontWeight: 800, pt: 0.2 }}>Персонажи</Typography>
+                    <Stack spacing={0.75} sx={{ pt: 0.2 }}>
+                      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ minWidth: 0 }}>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.08rem', fontWeight: 800 }}>Персонажи</Typography>
+                        {rawNpcCards.length > 0 ? (
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', fontWeight: 800, flexShrink: 0 }}>
+                            {displayedNpcCards.length}/{rawNpcCards.length}
+                          </Typography>
+                        ) : null}
+                      </Stack>
+                      {rawNpcCards.length > 0 ? (
+                        <Stack direction="row" spacing={0.65} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
+                          <Box
+                            sx={{
+                              flex: '1 1 154px',
+                              minWidth: 0,
+                              height: 38,
+                              borderRadius: '10px',
+                              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 86%, #000 14%)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 0.65,
+                              px: 0.95,
+                            }}
+                          >
+                            <Box component="img" src={icons.search} alt="" sx={{ width: 15, height: 15, opacity: 0.66, flexShrink: 0 }} />
+                            <Box
+                              component="input"
+                              value={npcPanelSearchQuery}
+                              placeholder="Найти персонажа"
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => setNpcPanelSearchQuery(event.target.value)}
+                              sx={{
+                                width: '100%',
+                                minWidth: 0,
+                                border: 0,
+                                p: 0,
+                                outline: 'none',
+                                backgroundColor: 'transparent',
+                                color: 'var(--morius-text-primary)',
+                                font: 'inherit',
+                                fontSize: '0.88rem',
+                                fontWeight: 700,
+                                '&::placeholder': {
+                                  color: 'color-mix(in srgb, var(--morius-text-secondary) 74%, transparent)',
+                                  opacity: 1,
+                                },
+                              }}
+                            />
+                            {npcPanelSearchQuery ? (
+                              <IconButton
+                                size="small"
+                                aria-label="Очистить поиск"
+                                onClick={() => setNpcPanelSearchQuery('')}
+                                sx={{
+                                  width: 22,
+                                  height: 22,
+                                  minWidth: 22,
+                                  color: 'var(--morius-text-secondary)',
+                                  '&:hover': { color: 'var(--morius-title-text)', backgroundColor: 'var(--morius-button-hover)' },
+                                }}
+                              >
+                                <Box component="img" src={icons.searchClose} alt="" sx={{ width: 10, height: 10, display: 'block' }} />
+                              </IconButton>
+                            ) : null}
+                          </Box>
+                          <Select<NpcPanelSortMode>
+                            value={npcPanelSortMode}
+                            onChange={(event: SelectChangeEvent<NpcPanelSortMode>) => setNpcPanelSortMode(event.target.value as NpcPanelSortMode)}
+                            size="small"
+                            displayEmpty
+                            MenuProps={{
+                              PaperProps: {
+                                sx: {
+                                  mt: 0.45,
+                                  borderRadius: '12px',
+                                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                  backgroundColor: 'var(--morius-card-bg)',
+                                  boxShadow: '0 16px 36px rgba(0, 0, 0, 0.42)',
+                                  '& .MuiMenuItem-root': {
+                                    color: 'var(--morius-text-primary)',
+                                    fontSize: '0.88rem',
+                                    fontWeight: 700,
+                                    minHeight: 36,
+                                  },
+                                },
+                              },
+                            }}
+                            sx={{
+                              flex: '0 0 126px',
+                              height: 38,
+                              borderRadius: '10px',
+                              color: 'var(--morius-text-primary)',
+                              fontSize: '0.86rem',
+                              fontWeight: 800,
+                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 86%, #000 14%)',
+                              '& .MuiSelect-select': { py: 0.65, pr: '28px !important' },
+                              '& .MuiOutlinedInput-notchedOutline': {
+                                borderColor: 'color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+                              },
+                              '&:hover .MuiOutlinedInput-notchedOutline, &.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                                borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, var(--morius-card-border))',
+                              },
+                              '& .MuiSvgIcon-root': { color: 'var(--morius-text-secondary)' },
+                            }}
+                          >
+                            {NPC_PANEL_SORT_OPTIONS.map((option) => (
+                              <MenuItem key={option.value} value={option.value}>
+                                {option.label}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </Stack>
+                      ) : null}
+                    </Stack>
                     {displayedNpcCards.length === 0 ? (
                       <RightPanelEmptyState
-                        iconSrc={icons.world}
-                        title="NPC пока нет"
-                        description="Добавляйте спутников, противников и важных персонажей, чтобы они сразу участвовали в истории."
+                        iconSrc={npcPanelSearchIsActive ? icons.search : icons.world}
+                        title={npcPanelSearchIsActive ? 'Ничего не найдено' : 'NPC пока нет'}
+                        description={
+                          npcPanelSearchIsActive
+                            ? 'Измените поиск или сортировку, чтобы вернуть персонажей в список.'
+                            : 'Добавляйте спутников, противников и важных персонажей, чтобы они сразу участвовали в истории.'
+                        }
                       />
                     ) : (
                       <>
@@ -17618,6 +17886,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             {displayedNpcCards.map((card) => {
                               const contextState = worldCardContextStateById.get(card.id)
                               const isCardContextActive = Boolean(contextState?.isActive)
+                              const isPinnedNpcCard = pinnedNpcCardIdSet.has(card.id)
                               const memoryTurnsLabelValue =
                                 isCardContextActive &&
                                 !contextState?.isAlwaysActive &&
@@ -17647,8 +17916,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     highlighted={isCardContextActive}
                                     descriptionLineClamp={4}
                                     titleAccessory={
-                                      (isCardContextActive && memoryTurnsLabelValue && memoryTurnsLabelValue > 0) || (characterStateEnabled && card.ai_edit_enabled) ? (
+                                      isPinnedNpcCard ||
+                                      (isCardContextActive && memoryTurnsLabelValue && memoryTurnsLabelValue > 0) ||
+                                      (characterStateEnabled && card.ai_edit_enabled) ? (
                                         <Stack direction="row" spacing={0.52} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
+                                          {isPinnedNpcCard ? (
+                                            <Tooltip title="Закреплен">
+                                              <Box
+                                                sx={{
+                                                  width: 18,
+                                                  height: 18,
+                                                  borderRadius: '50%',
+                                                  color: 'color-mix(in srgb, var(--morius-accent) 72%, #ffd783)',
+                                                  backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, transparent)',
+                                                  display: 'flex',
+                                                  alignItems: 'center',
+                                                  justifyContent: 'center',
+                                                }}
+                                              >
+                                                <NpcPinIcon size={12} />
+                                              </Box>
+                                            </Tooltip>
+                                          ) : null}
                                           {isCardContextActive && memoryTurnsLabelValue && memoryTurnsLabelValue > 0 ? (
                                             <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
                                               <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 14, height: 14, display: 'block', opacity: 0.94 }} />
@@ -17686,6 +17975,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             {displayedNpcCards.map((card) => {
                               const contextState = worldCardContextStateById.get(card.id)
                               const isCardContextActive = Boolean(contextState?.isActive)
+                              const isPinnedNpcCard = pinnedNpcCardIdSet.has(card.id)
                               const memoryTurnsLabelValue =
                                 isCardContextActive &&
                                 !contextState?.isAlwaysActive &&
@@ -17704,8 +17994,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   showPlayButton={false}
                                   onMenuClick={(e) => handleOpenCardMenu(e, 'world', card.id)}
                                   infoNode={
-                                    (isCardContextActive && memoryTurnsLabelValue) || (characterStateEnabled && card.ai_edit_enabled) ? (
+                                    isPinnedNpcCard || (isCardContextActive && memoryTurnsLabelValue) || (characterStateEnabled && card.ai_edit_enabled) ? (
                                       <Stack direction="row" spacing={0.6} alignItems="center">
+                                        {isPinnedNpcCard ? (
+                                          <Tooltip title="Закреплен">
+                                            <Box
+                                              sx={{
+                                                color: 'color-mix(in srgb, var(--morius-accent) 72%, #ffd783)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                              }}
+                                            >
+                                              <NpcPinIcon size={12} />
+                                            </Box>
+                                          </Tooltip>
+                                        ) : null}
                                         {isCardContextActive && memoryTurnsLabelValue ? (
                                           <Stack direction="row" spacing={0.3} alignItems="center">
                                             <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 13, height: 13, opacity: 0.9 }} />
@@ -23676,6 +23979,27 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           },
         }}
       >
+        {cardMenuType === 'world' && selectedMenuWorldCard?.kind === 'npc' ? (
+          <MenuItem
+            onClick={handleTogglePinnedNpcFromCardMenu}
+            disabled={isWorldCardActionLocked || !selectedMenuWorldCard}
+            sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+          >
+            <Stack direction="row" spacing={0.7} alignItems="center">
+              <Box
+                sx={{
+                  color: pinnedNpcCardIdSet.has(selectedMenuWorldCard.id)
+                    ? 'color-mix(in srgb, var(--morius-accent) 72%, #ffd783)'
+                    : 'rgba(220, 231, 245, 0.82)',
+                  display: 'flex',
+                }}
+              >
+                <NpcPinIcon size={14} />
+              </Box>
+              <Box component="span">{pinnedNpcCardIdSet.has(selectedMenuWorldCard.id) ? 'Открепить' : 'Закрепить'}</Box>
+            </Stack>
+          </MenuItem>
+        ) : null}
         {cardMenuType === 'world' && characterStateEnabled && selectedMenuWorldCard && supportsWorldCardAiStateUi(selectedMenuWorldCard) ? (
           <MenuItem
             onClick={() => {

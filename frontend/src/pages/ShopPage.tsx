@@ -504,7 +504,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         >
           {isFrame ? (
             <AvatarFrame frameId={item.selection_id} frameImageUrl={item.image_url} size={84}>
-              <UserAvatar user={previewAvatarUser} size={84} />
+              <UserAvatar user={previewAvatarUser} size={84} withFrame={false} />
             </AvatarFrame>
           ) : (
             <ProgressiveImage
@@ -589,7 +589,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         rightActions={<HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} />}
       />
 
-      <Box sx={{ pt: { xs: 'max(58px, calc(var(--morius-header-menu-top) - 8px))', md: 'calc(var(--morius-header-menu-top) + 18px)' }, pb: { xs: 10, md: 7 }, px: { xs: 1.6, md: 3 } }}>
+      <Box sx={{ pt: { xs: 'max(58px, calc(var(--morius-header-menu-top) - 8px))', md: 'calc(var(--morius-header-menu-top) + 18px)' }, pb: { xs: 'calc(118px + env(safe-area-inset-bottom))', md: 7 }, px: { xs: 1.6, md: 3 } }}>
         <Stack spacing={3.2} sx={{ maxWidth: 1320, mx: 'auto' }}>
           <Stack spacing={0.7}>
             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: { xs: '2.15rem', md: '3rem' }, fontWeight: 950, lineHeight: 1 }}>
@@ -713,7 +713,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
             </Box>
             <Stack spacing={1} sx={{ p: 2, pt: 0, alignItems: 'center', textAlign: 'center', transform: 'translateY(-34px)', mb: '-24px' }}>
               <AvatarFrame frameId={previewFrameId} frameImageUrl={previewFrameImageUrl} size={96}>
-                <UserAvatar user={previewAvatarUser} size={96} />
+                <UserAvatar user={previewAvatarUser} size={96} withFrame={false} />
               </AvatarFrame>
               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.28rem', fontWeight: 950 }}>{user.display_name || 'Игрок MoRius'}</Typography>
               <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', lineHeight: 1.45, maxWidth: 420 }}>

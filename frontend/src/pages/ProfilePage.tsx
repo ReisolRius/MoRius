@@ -24,6 +24,7 @@ import {
 } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
+import AppDownloadDialog from '../components/AppDownloadDialog'
 import HeaderAccountActions from '../components/HeaderAccountActions'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
@@ -697,6 +698,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [referralError, setReferralError] = useState('')
   const [isReferralCopied, setIsReferralCopied] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [appDownloadDialogOpen, setAppDownloadDialogOpen] = useState(false)
   const [shopProfileBanners, setShopProfileBanners] = useState<CosmeticItem[]>([])
 
   const [error, setError] = useState('')
@@ -4391,7 +4393,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     width: PROFILE_AVATAR_SIZE,
                     height: PROFILE_AVATAR_SIZE,
                     borderRadius: '50%',
-                    overflow: 'hidden',
+                    overflow: 'visible',
                     cursor: isOwnProfile && !isAvatarSaving ? 'pointer' : 'default',
                     flexShrink: 0,
                     mx: isProfileNarrowMobile ? 'auto' : 0,
@@ -4406,6 +4408,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     sx={{
                       position: 'absolute',
                       inset: 0,
+                      borderRadius: '50%',
                       display: 'grid',
                       placeItems: 'center',
                       opacity: 0,
@@ -4699,7 +4702,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         width: 112,
                         height: 112,
                         borderRadius: '50%',
-                        overflow: 'hidden',
+                        overflow: 'visible',
                         cursor: isOwnProfile && !isAvatarSaving ? 'pointer' : 'default',
                         flexShrink: 0,
                         mx: { xs: 'auto', sm: 0 },
@@ -4715,6 +4718,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         sx={{
                           position: 'absolute',
                           inset: 0,
+                          borderRadius: '50%',
                           display: 'grid',
                           placeItems: 'center',
                           opacity: 0,
@@ -4908,6 +4912,27 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                                 }}
                               >
                                 <SoulAmount amount={coins} iconSize={16} fontSize="0.72rem" />
+                              </Button>
+                              <Button
+                                onClick={() => setAppDownloadDialogOpen(true)}
+                                sx={{
+                                  display: { xs: 'inline-flex', md: 'none' },
+                                  minHeight: 28,
+                                  px: 1.12,
+                                  borderRadius: '8px',
+                                  border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
+                                  backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 72%, var(--morius-accent) 28%)',
+                                  color: 'var(--morius-title-text)',
+                                  textTransform: 'none',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 800,
+                                  lineHeight: 1,
+                                  '&:hover': {
+                                    backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 62%, var(--morius-accent) 38%)',
+                                  },
+                                }}
+                              >
+                                Скачать
                               </Button>
                             </Stack>
                           ) : null}
@@ -6512,6 +6537,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           setPaymentSuccessCoins(null)
           setPaymentReferralBonusCoins(0)
         }}
+      />
+
+      <AppDownloadDialog
+        open={appDownloadDialogOpen}
+        onClose={() => setAppDownloadDialogOpen(false)}
       />
 
       <ProfileDialog

@@ -18,6 +18,7 @@ type UserAvatarProps = {
   size?: number
   priority?: boolean
   frameImageUrl?: string | null
+  withFrame?: boolean
 }
 
 export function AvatarPlaceholder({ fallbackLabel, size }: AvatarPlaceholderProps) {
@@ -59,7 +60,7 @@ export function AvatarPlaceholder({ fallbackLabel, size }: AvatarPlaceholderProp
   )
 }
 
-function UserAvatar({ user, size = 44, priority = true, frameImageUrl = null }: UserAvatarProps) {
+function UserAvatar({ user, size = 44, priority = true, frameImageUrl = null, withFrame = true }: UserAvatarProps) {
   const [loadStatus, setLoadStatus] = useState<ImageLoadStatus>('idle')
   const fallbackLabel = user.display_name || user.email
   const avatarScale = Math.max(1, Math.min(3, user.avatar_scale ?? 1))
@@ -180,6 +181,10 @@ function UserAvatar({ user, size = 44, priority = true, frameImageUrl = null }: 
   ) : (
     <AvatarPlaceholder fallbackLabel={fallbackLabel} size={size} />
   )
+
+  if (!withFrame) {
+    return avatarNode
+  }
 
   return (
     <AvatarFrame frameId={user.avatar_frame_id} frameImageUrl={frameImageUrl ?? user.avatar_frame_image_url ?? null} size={size}>
