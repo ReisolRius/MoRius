@@ -11749,7 +11749,12 @@ def _sync_story_raw_memory_blocks_for_recent_turns(
             ),
         )
         try:
-            _rebalance_story_memory_layers(db=db, game=game)
+            _rebalance_story_memory_layers(
+                db=db,
+                game=game,
+                backfill_existing_compact_layers=False,
+                prioritize_recent_transitions=True,
+            )
             rebalance_succeeded = True
             after_rebalance_layers = (
                 len(
@@ -11895,7 +11900,12 @@ def _resync_story_continuity_from_assistant_message(
 
     if run_rebalance and memory_changed:
         try:
-            _rebalance_story_memory_layers(db=db, game=game)
+            _rebalance_story_memory_layers(
+                db=db,
+                game=game,
+                backfill_existing_compact_layers=False,
+                prioritize_recent_transitions=True,
+            )
         except Exception:
             logger.exception(
                 "Story continuity resync rebalance failed: game_id=%s starting_assistant_message_id=%s",
@@ -12025,9 +12035,9 @@ def _optimize_story_memory_state(
 
                 require_model_compaction=require_model_compaction,
 
-                backfill_existing_compact_layers=not require_model_compaction,
+                backfill_existing_compact_layers=False,
 
-                prioritize_recent_transitions=require_model_compaction,
+                prioritize_recent_transitions=True,
 
                 commit_each_model_compaction=require_model_compaction,
 
@@ -12044,9 +12054,9 @@ def _optimize_story_memory_state(
 
                     require_model_compaction=require_model_compaction,
 
-                    backfill_existing_compact_layers=not require_model_compaction,
+                    backfill_existing_compact_layers=False,
 
-                    prioritize_recent_transitions=require_model_compaction,
+                    prioritize_recent_transitions=True,
 
                     commit_each_model_compaction=require_model_compaction,
 
@@ -13495,51 +13505,26 @@ def _compress_story_memory_block_with_model(
 
             "content": (
 
-                "Ты аккуратно сжимаешь блоки памяти для текстовой RPG. "
-
-                "Пиши только на русском. "
-
-                "Не используй списки, буллеты, markdown, заголовки или кавычки. "
-
-                "Ничего не выдумывай и не добавляй от себя. "
-
-                "Сохраняй смысл и общий стиль исходного текста, но убирай лишние подробности. "
-
-                "CRITICAL NAME RULE: if the source explicitly names a character, hero, NPC, speaker, creature, or other named entity, keep that exact name in the compressed memory. "
-                "Never replace an explicit name with a pronoun or a generic role like player, hero, he, she, they, man, woman, girl, guy, stranger, companion, or NPC. "
-                "If the main hero has an explicit name, use that exact name instead of 'игрок', 'герой', or 'ты' whenever the reference is unambiguous. "
-                "If multiple named characters appear in one event, do not merge them into 'they' and do not drop who exactly acted, spoke, suffered, promised, decided, or was targeted. "
-                "HARD VALIDATION RULE: if even one explicit name from the source disappears in the compressed result, that result is invalid. "
-                "Before you finish, verify that every explicit name from the source block is still present in the final compressed text. "
+                "Ты сжимаешь один блок памяти текстовой RPG. "
+                "Верни только готовый русский текст без markdown, списков, заголовков и пояснений. "
+                "Не выдумывай факты. Сохрани действия, решения, последствия, важный контекст, прямую речь только если она важна. "
+                "Служебные заголовки вроде 'Ход игрока', 'Ответ рассказчика' и '(полный текст)' не сохраняй. "
+                "Все реальные имена персонажей, существ, мест, предметов и организаций из исходника сохраняй точно. "
+                "Не заменяй явное имя на 'игрок', 'герой', 'он', 'она', 'они' или generic role. "
                 + (
-                    "Known continuity names that must stay exact when present in the source: "
+                    "Known continuity names: "
                     + ", ".join(repr(name) for name in memory_identity_names)
                     + ". "
                     if memory_identity_names
                     else ""
                 )
                 + (
-                    "Exact explicit names found in this source block and mandatory to preserve: "
+                    "Names detected in source: "
                     + ", ".join(repr(name) for name in source_required_names)
                     + ". "
                     if source_required_names
                     else ""
                 )
-
-                + "КРИТИЧЕСКОЕ ПРАВИЛО: в сжатой памяти всегда должно быть ясно, кто именно что сделал или сказал. "
-
-                "Если в источнике есть прямая речь, каждая сохраненная реплика в памяти должна быть строго в виде 'Имя: реплика'; не оставляй реплики без говорящего. "
-                "Если говорящий известен из маркера, заголовка хода или строки перед репликой, перенеси это имя в формат 'Имя: реплика'. "
-                "Если из исходника субъект назван явно, сохраняй именно это имя, роль или сущность. "
-                "Если местоимение он, она, его, ее, ему, ей или они однозначно указывает на уже названного персонажа или героя игрока, замени местоимение на точное имя из исходника. "
-
-                "Если местоимение или ссылка в исходнике не раскрыты однозначно, не выдумывай нового человека или сущность вроде 'женщина', 'мужчина', 'девушка', 'охранник', 'незнакомец'. "
-
-                "В таком случае лучше сохрани осторожную формулировку без домысливания, чем подставляй неверный субъект. "
-
-                "Никогда не превращай болезнь, существо, демона, предмет, еду, место или абстрактный объект в человека только ради ясности. "
-
-                "Не меняй конкретную сущность на похожую или более общую: картошка не становится кашей, демоны не становятся людьми."
 
             ),
 
@@ -13553,20 +13538,18 @@ def _compress_story_memory_block_with_model(
 
                 f"{target_description}\n"
 
-                "Keep concrete continuity facts even if they seem mundane: employer, task, contract, order, duty, named location, and scene-state facts such as empty, quiet, noisy, crowded, closed, or abandoned.\n"
+                "Сохрани конкретные continuity-факты: задачу, договор, приказ, обязанность, состояние сцены, место, угрозу, предмет, отношение, травму, обещание.\n"
                 + (
-                    f"Known names that must stay exact if mentioned:\n{json.dumps(memory_identity_names, ensure_ascii=False)}\n"
+                    f"Known names:\n{json.dumps(memory_identity_names, ensure_ascii=False)}\n"
                     if memory_identity_names
                     else ""
                 )
                 + (
-                    f"Exact explicit names from this source block that must not disappear:\n{json.dumps(source_required_names, ensure_ascii=False)}\n"
+                    f"Detected names:\n{json.dumps(source_required_names, ensure_ascii=False)}\n"
                     if source_required_names
                     else ""
                 )
-                + "Сохрани явные субъекты, объекты действия и говорящих.\n"
-
-                "Верни только готовый сжатый текст без пояснений.\n\n"
+                + "Если сомневаешься, лучше сохрани факт короче, чем потеряй его. Верни только сжатую память.\n\n"
 
                 f"Исходный блок памяти:\n{normalized_raw_content}"
 
@@ -13591,6 +13574,10 @@ def _compress_story_memory_block_with_model(
         raise RuntimeError("Story memory compression model is unavailable")
 
     last_failure: Exception | None = None
+    compression_read_timeout_seconds = max(
+        min(int(STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS or 0), 30),
+        10,
+    )
 
     for attempt_index, candidate_model in enumerate(candidate_models):
 
@@ -13617,7 +13604,7 @@ def _compress_story_memory_block_with_model(
 
                     STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
 
-                    STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+                    compression_read_timeout_seconds,
 
                 ),
                 retry_on_rate_limit=False,
@@ -13701,9 +13688,9 @@ def _rebalance_story_memory_layers(
 
     require_model_compaction: bool = False,
 
-    backfill_existing_compact_layers: bool = True,
+    backfill_existing_compact_layers: bool = False,
 
-    prioritize_recent_transitions: bool = False,
+    prioritize_recent_transitions: bool = True,
 
     commit_each_model_compaction: bool = False,
 
@@ -13772,7 +13759,7 @@ def _rebalance_story_memory_layers(
     failed_compressed_block_ids: set[int] = set()
 
     logger.info(
-        "Story memory rebalance started: game_id=%s raw_before=%s compressed_before=%s super_before=%s raw_keep_limit=%s compressed_keep_limit=%s latest_raw_ids=%s",
+        "Story memory rebalance started: game_id=%s raw_before=%s compressed_before=%s super_before=%s raw_keep_limit=%s compressed_keep_limit=%s latest_raw_ids=%s model=%s fallback_models=%s max_model_ops=%s backfill_compact=%s prioritize_recent=%s",
         game.id,
         raw_before,
         compressed_before,
@@ -13780,6 +13767,11 @@ def _rebalance_story_memory_layers(
         raw_keep_limit,
         compressed_keep_recent_limit,
         ",".join(str(item) for item in sorted(latest_raw_assistant_ids)) or "none",
+        model_name,
+        ",".join(compression_fallback_model_names) or "none",
+        normalized_max_model_requests,
+        bool(backfill_existing_compact_layers),
+        bool(prioritize_recent_transitions),
     )
     main_hero_name_for_memory = _get_story_main_hero_name_for_memory(db, game_id=game.id)
     known_character_names_for_memory = _list_story_known_character_names_for_memory(
@@ -13891,6 +13883,17 @@ def _rebalance_story_memory_layers(
 
         model_requests_used += 1
         try:
+            logger.info(
+                "Story memory model compaction request: game_id=%s source_block_id=%s target_layer=%s source_chars=%s model=%s fallback_models=%s model_op=%s/%s",
+                game.id,
+                source_block_id,
+                target_layer,
+                len(prepared_content),
+                model_name,
+                ",".join(compression_fallback_model_names) or "none",
+                model_requests_used,
+                normalized_max_model_requests,
+            )
             return _compress_story_memory_block_with_model(
                 raw_content=prepared_content,
                 model_name=model_name,
@@ -14160,9 +14163,6 @@ def _rebalance_story_memory_layers(
             db.flush()
         return changed
 
-    if backfill_existing_compact_layers:
-        _sanitize_compact_layers()
-
     _cleanup_low_value_key_memory_blocks()
 
     _dedupe_layer_by_assistant_message_id(STORY_MEMORY_LAYER_COMPRESSED)
@@ -14202,6 +14202,9 @@ def _rebalance_story_memory_layers(
             break
         if not _compact_first_viable_raw(budget_raw_blocks):
             break
+
+    if backfill_existing_compact_layers:
+        _sanitize_compact_layers()
 
     while len(_layer_blocks(STORY_MEMORY_LAYER_COMPRESSED)) > compressed_keep_recent_limit:
         if not _compact_first_viable_compressed(_layer_blocks(STORY_MEMORY_LAYER_COMPRESSED)):

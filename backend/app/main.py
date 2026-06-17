@@ -9235,6 +9235,8 @@ def _rebalance_story_memory_layers(
     db: Session,
     game: StoryGame,
     max_model_requests: int | None = None,
+    backfill_existing_compact_layers: bool = False,
+    prioritize_recent_transitions: bool = True,
 ) -> None:
     from app.services import story_memory_pipeline as unified_memory_pipeline
 
@@ -9245,6 +9247,8 @@ def _rebalance_story_memory_layers(
         db=db,
         game=game,
         max_model_requests=max_model_requests,
+        backfill_existing_compact_layers=backfill_existing_compact_layers,
+        prioritize_recent_transitions=prioritize_recent_transitions,
     )
 
 

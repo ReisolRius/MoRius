@@ -186,6 +186,214 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
         self.assertEqual(compress_mock.call_count, 1)
         create_mock.assert_not_called()
 
+    def test_rebalance_prioritizes_newest_stale_raw_block(self) -> None:
+        blocks = [
+            SimpleNamespace(
+                id=1,
+                game_id=10,
+                assistant_message_id=100,
+                layer="raw",
+                title="old stale turn",
+                content="old stale full turn content",
+                token_count=10,
+            ),
+            SimpleNamespace(
+                id=2,
+                game_id=10,
+                assistant_message_id=101,
+                layer="raw",
+                title="new stale turn",
+                content="new stale full turn content",
+                token_count=10,
+            ),
+            SimpleNamespace(
+                id=3,
+                game_id=10,
+                assistant_message_id=102,
+                layer="raw",
+                title="latest full turn",
+                content="latest full turn content",
+                token_count=10,
+            ),
+        ]
+
+        class FakeNestedTransaction:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        class FakeSession:
+            def begin_nested(self):
+                return FakeNestedTransaction()
+
+            def get(self, _model, block_id):
+                return next((block for block in blocks if block.id == block_id), None)
+
+            def delete(self, block):
+                blocks.remove(block)
+
+            def flush(self):
+                return None
+
+            def commit(self):
+                return None
+
+        def create_memory_block(**kwargs):
+            block = SimpleNamespace(
+                id=max(item.id for item in blocks) + 1,
+                game_id=kwargs["game_id"],
+                assistant_message_id=kwargs["assistant_message_id"],
+                layer=kwargs["layer"],
+                title=kwargs["title"],
+                content=kwargs["content"],
+                token_count=5,
+            )
+            blocks.append(block)
+            return block
+
+        game = SimpleNamespace(
+            id=10,
+            context_limit_chars=6_000,
+            story_llm_model="z-ai/glm-5",
+            memory_optimization_mode="standard",
+        )
+
+        with (
+            patch.object(
+                story_memory_pipeline,
+                "_list_story_memory_blocks",
+                side_effect=lambda _db, _game_id: list(blocks),
+            ),
+            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
+            patch.object(story_memory_pipeline, "_get_story_main_hero_name_for_memory", return_value="Hero"),
+            patch.object(story_memory_pipeline, "_list_story_known_character_names_for_memory", return_value=["Hero"]),
+            patch.object(
+                story_memory_pipeline,
+                "_compress_story_memory_block_with_model",
+                return_value=("compressed new stale", "compressed new stale content"),
+            ) as compress_mock,
+            patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
+        ):
+            story_memory_pipeline._rebalance_story_memory_layers(
+                db=FakeSession(),
+                game=game,
+                max_model_requests=1,
+            )
+
+        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "new stale full turn content")
+        raw_blocks = [block for block in blocks if block.layer == "raw"]
+        compressed_blocks = [block for block in blocks if block.layer == "compressed"]
+        self.assertEqual([block.assistant_message_id for block in raw_blocks], [100, 102])
+        self.assertEqual([block.assistant_message_id for block in compressed_blocks], [101])
+
+    def test_compact_backfill_does_not_steal_raw_compaction_budget(self) -> None:
+        blocks = [
+            SimpleNamespace(
+                id=1,
+                game_id=10,
+                assistant_message_id=90,
+                layer="compressed",
+                title="old full text compact",
+                content="Ход игрока (полный текст):\nold compact content",
+                token_count=10,
+            ),
+            SimpleNamespace(
+                id=2,
+                game_id=10,
+                assistant_message_id=101,
+                layer="raw",
+                title="stale full turn",
+                content="stale raw content for model",
+                token_count=10,
+            ),
+            SimpleNamespace(
+                id=3,
+                game_id=10,
+                assistant_message_id=102,
+                layer="raw",
+                title="latest full turn",
+                content="latest full turn content",
+                token_count=10,
+            ),
+        ]
+
+        class FakeNestedTransaction:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        class FakeSession:
+            def begin_nested(self):
+                return FakeNestedTransaction()
+
+            def get(self, _model, block_id):
+                return next((block for block in blocks if block.id == block_id), None)
+
+            def delete(self, block):
+                blocks.remove(block)
+
+            def flush(self):
+                return None
+
+            def commit(self):
+                return None
+
+        def create_memory_block(**kwargs):
+            block = SimpleNamespace(
+                id=max(item.id for item in blocks) + 1,
+                game_id=kwargs["game_id"],
+                assistant_message_id=kwargs["assistant_message_id"],
+                layer=kwargs["layer"],
+                title=kwargs["title"],
+                content=kwargs["content"],
+                token_count=5,
+            )
+            blocks.append(block)
+            return block
+
+        game = SimpleNamespace(
+            id=10,
+            context_limit_chars=6_000,
+            story_llm_model="z-ai/glm-5",
+            memory_optimization_mode="standard",
+        )
+
+        with (
+            patch.object(
+                story_memory_pipeline,
+                "_list_story_memory_blocks",
+                side_effect=lambda _db, _game_id: list(blocks),
+            ),
+            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
+            patch.object(story_memory_pipeline, "_get_story_main_hero_name_for_memory", return_value="Hero"),
+            patch.object(story_memory_pipeline, "_list_story_known_character_names_for_memory", return_value=["Hero"]),
+            patch.object(
+                story_memory_pipeline,
+                "_compress_story_memory_block_with_model",
+                return_value=("compressed stale raw", "compressed stale raw content"),
+            ) as compress_mock,
+            patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
+        ):
+            story_memory_pipeline._rebalance_story_memory_layers(
+                db=FakeSession(),
+                game=game,
+                max_model_requests=1,
+                backfill_existing_compact_layers=True,
+            )
+
+        self.assertEqual(compress_mock.call_count, 1)
+        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "stale raw content for model")
+        compact_block = next(block for block in blocks if block.id == 1)
+        self.assertEqual(compact_block.content, "Ход игрока (полный текст):\nold compact content")
+        raw_blocks = [block for block in blocks if block.layer == "raw"]
+        compressed_blocks = [block for block in blocks if block.layer == "compressed"]
+        self.assertEqual([block.assistant_message_id for block in raw_blocks], [102])
+        self.assertEqual([block.assistant_message_id for block in compressed_blocks], [90, 101])
+
 
 if __name__ == "__main__":
     unittest.main()

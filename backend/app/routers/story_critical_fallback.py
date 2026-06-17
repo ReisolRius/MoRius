@@ -219,7 +219,12 @@ def _self_heal_story_memory_and_environment_snapshot(
                 )
             ) or changed
             try:
-                story_memory_pipeline._rebalance_story_memory_layers(db=db, game=game)
+                story_memory_pipeline._rebalance_story_memory_layers(
+                    db=db,
+                    game=game,
+                    backfill_existing_compact_layers=False,
+                    prioritize_recent_transitions=True,
+                )
                 changed = True
             except Exception:
                 logger.exception(

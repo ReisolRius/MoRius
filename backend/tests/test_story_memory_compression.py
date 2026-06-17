@@ -106,6 +106,7 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             [call.kwargs["fallback_model_names"] for call in request_mock.call_args_list],
             [[], []],
         )
+        self.assertTrue(all(call.kwargs["request_timeout"][1] <= 30 for call in request_mock.call_args_list))
         self.assertTrue(all(call.kwargs["retry_on_rate_limit"] is False for call in request_mock.call_args_list))
 
 

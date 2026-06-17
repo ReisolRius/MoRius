@@ -1162,7 +1162,13 @@ def _fallback_sync_story_memory_and_environment(
             )
         if should_force_memory_rebalance or memory_changed or key_memory_changed:
             try:
-                story_memory_pipeline._rebalance_story_memory_layers(db=db, game=game, max_model_requests=1)
+                story_memory_pipeline._rebalance_story_memory_layers(
+                    db=db,
+                    game=game,
+                    max_model_requests=1,
+                    backfill_existing_compact_layers=False,
+                    prioritize_recent_transitions=True,
+                )
                 rebalance_changed = True
             except Exception:
                 logger.exception(

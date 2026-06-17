@@ -757,7 +757,13 @@ def _best_effort_sync_story_turn_memory_and_environment(
 
     if (memory_changed or should_force_memory_rebalance) and story_memory_pipeline is not None:
         try:
-            story_memory_pipeline._rebalance_story_memory_layers(db=db, game=game, max_model_requests=1)
+            story_memory_pipeline._rebalance_story_memory_layers(
+                db=db,
+                game=game,
+                max_model_requests=1,
+                backfill_existing_compact_layers=False,
+                prioritize_recent_transitions=True,
+            )
         except Exception:
             logger.exception(
                 "Story fallback memory rebalance failed: game_id=%s assistant_message_id=%s",
