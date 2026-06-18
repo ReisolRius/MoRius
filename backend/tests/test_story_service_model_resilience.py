@@ -86,12 +86,12 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             ["openai/gpt-oss-120b"],
         )
 
-    def test_standard_game_keeps_free_service_model_pair(self) -> None:
+    def test_standard_game_uses_gemini_flash_service_model_pair(self) -> None:
         primary_model, fallback_models = monolith_main._resolve_story_service_model_pair(
             SimpleNamespace(accelerated_service_enabled=False)
         )
 
-        self.assertEqual(primary_model, "google/gemma-4-31b-it:free")
+        self.assertEqual(primary_model, "google/gemini-2.5-flash")
         self.assertEqual(fallback_models, ["nex-agi/nex-n2-pro:free"])
 
     def test_gpt_oss_fallback_keeps_required_reasoning_but_excludes_it_from_output(self) -> None:

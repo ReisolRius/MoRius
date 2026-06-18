@@ -186,6 +186,89 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
         self.assertEqual(compress_mock.call_count, 1)
         create_mock.assert_not_called()
 
+    def test_strict_rebalance_raises_when_model_compaction_fails(self) -> None:
+        blocks = [
+            SimpleNamespace(
+                id=1,
+                game_id=10,
+                assistant_message_id=101,
+                layer="raw",
+                title="old full turn",
+                content="old full turn content",
+                token_count=10,
+            ),
+            SimpleNamespace(
+                id=2,
+                game_id=10,
+                assistant_message_id=102,
+                layer="raw",
+                title="latest full turn",
+                content="latest full turn content",
+                token_count=10,
+            ),
+        ]
+
+        class FakeNestedTransaction:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        class FakeSession:
+            def begin_nested(self):
+                return FakeNestedTransaction()
+
+            def get(self, _model, block_id):
+                return next((block for block in blocks if block.id == block_id), None)
+
+            def delete(self, block):
+                blocks.remove(block)
+
+            def flush(self):
+                return None
+
+            def commit(self):
+                return None
+
+        game = SimpleNamespace(
+            id=10,
+            context_limit_chars=6_000,
+            story_llm_model="z-ai/glm-5",
+            memory_optimization_mode="standard",
+        )
+
+        with (
+            patch.object(
+                story_memory_pipeline,
+                "_list_story_memory_blocks",
+                side_effect=lambda _db, _game_id: list(blocks),
+            ),
+            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
+            patch.object(story_memory_pipeline, "_get_story_main_hero_name_for_memory", return_value="Hero"),
+            patch.object(story_memory_pipeline, "_list_story_known_character_names_for_memory", return_value=["Hero"]),
+            patch.object(
+                story_memory_pipeline,
+                "_compress_story_memory_block_with_model",
+                side_effect=RuntimeError("model down"),
+            ),
+            patch.object(story_memory_pipeline, "_create_story_memory_block") as create_mock,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "model down"):
+                story_memory_pipeline._rebalance_story_memory_layers(
+                    db=FakeSession(),
+                    game=game,
+                    max_model_requests=1,
+                    require_model_compaction=True,
+                )
+            stale_blocks = story_memory_pipeline._get_story_stale_raw_memory_blocks(
+                db=FakeSession(),
+                game=game,
+            )
+
+        self.assertEqual([block.assistant_message_id for block in stale_blocks], [101])
+        create_mock.assert_not_called()
+
     def test_rebalance_prioritizes_newest_stale_raw_block(self) -> None:
         blocks = [
             SimpleNamespace(

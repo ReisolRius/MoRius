@@ -251,6 +251,69 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
         self.assertEqual(meta["postprocess_status"], "storyteller_succeeded_postprocessing_failed_retryable")
         self.assertIn("unified_postprocess", meta["postprocess_failed_modules"])
 
+    def test_stale_raw_memory_after_rebalance_marks_retryable(self) -> None:
+        game = StoryGame(id=12, user_id=1, title="Test")
+        game.memory_optimization_enabled = True
+        game.character_state_enabled = False
+        game.auto_npc_cards_enabled = False
+        game.environment_enabled = False
+        game.environment_time_enabled = False
+        game.environment_weather_enabled = False
+
+        assistant_message = StoryMessage(
+            id=22,
+            game_id=12,
+            role=main.STORY_ASSISTANT_ROLE,
+            content="The narrator text was produced and must not be lost.",
+        )
+
+        class FakeSession:
+            committed = False
+
+            def scalar(self, *_args, **_kwargs):
+                return None
+
+            def commit(self):
+                self.committed = True
+
+            def rollback(self):
+                return None
+
+        session = FakeSession()
+
+        with (
+            patch.object(main, "_list_story_latest_assistant_message_ids", return_value=[22]),
+            patch.object(main, "_get_story_main_hero_name_for_memory", return_value="Hero"),
+            patch.object(main, "_should_store_story_raw_memory_turn", return_value=True),
+            patch.object(main, "_touch_story_game"),
+            patch.object(story_memory_pipeline, "_upsert_story_raw_memory_block", return_value=True),
+            patch.object(story_memory_pipeline, "_sync_story_raw_memory_blocks_for_recent_turns", return_value=False),
+            patch.object(story_memory_pipeline, "_get_story_latest_location_memory_content", return_value=""),
+            patch.object(story_memory_pipeline, "_story_environment_any_enabled_for_game", return_value=False),
+            patch.object(story_memory_pipeline, "_extract_story_important_plot_card_payload", return_value=None),
+            patch.object(story_memory_pipeline, "_upsert_story_location_memory_block", return_value=False),
+            patch.object(story_memory_pipeline, "_rebalance_story_memory_layers", return_value=False),
+            patch.object(story_memory_pipeline, "_has_story_stale_raw_memory_blocks", return_value=True),
+        ):
+            result = main._upsert_story_plot_memory_card(
+                db=session,
+                game=game,
+                assistant_message=assistant_message,
+                latest_user_prompt_override="Player turn",
+                latest_assistant_text_override=assistant_message.content,
+                resolved_postprocess_payload_override={},
+                memory_optimization_enabled=True,
+                allow_model_postprocess_request=True,
+            )
+
+        self.assertTrue(session.committed)
+        self.assertEqual(len(result), 3)
+        meta = result[2]
+        self.assertTrue(meta["postprocess_pending"])
+        self.assertTrue(meta["postprocess_failed"])
+        self.assertEqual(meta["postprocess_status"], "storyteller_succeeded_postprocessing_failed_retryable")
+        self.assertIn("memory_compression_not_applied", meta["postprocess_failed_modules"])
+
     def test_story_service_budget_caps_postprocess_requests_at_two(self) -> None:
         budget = StoryServiceHttpRequestBudget(max_requests=2)
 

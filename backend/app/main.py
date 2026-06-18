@@ -309,7 +309,7 @@ STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 600
 STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
 STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 75
 STORY_PLOT_CARD_REQUEST_MAX_TOKENS = 700
-STORY_SERVICE_TEXT_MODEL = POLZA_GEMINI_25_FLASH_LITE_MODEL
+STORY_SERVICE_TEXT_MODEL = POLZA_GEMINI_25_FLASH_MODEL
 STORY_PLOT_CARD_MEMORY_MODEL = POLZA_GEMINI_25_FLASH_MODEL
 STORY_ACCELERATED_SERVICE_TEXT_MODEL = (
     str(getattr(settings, "polza_accelerated_service_model", "") or "").strip()
@@ -9282,22 +9282,26 @@ def _rebalance_story_memory_layers(
     db: Session,
     game: StoryGame,
     max_model_requests: int | None = None,
+    require_model_compaction: bool = False,
     backfill_existing_compact_layers: bool = False,
     prioritize_recent_transitions: bool = True,
     commit_each_model_compaction: bool = False,
-) -> None:
+) -> bool:
     from app.services import story_memory_pipeline as unified_memory_pipeline
 
     unified_rebalance_fn = getattr(unified_memory_pipeline, "_rebalance_story_memory_layers", None)
     if not callable(unified_rebalance_fn) or unified_rebalance_fn is _rebalance_story_memory_layers:
         raise RuntimeError("Unified story memory rebalance pipeline is unavailable")
-    unified_rebalance_fn(
-        db=db,
-        game=game,
-        max_model_requests=max_model_requests,
-        backfill_existing_compact_layers=backfill_existing_compact_layers,
-        prioritize_recent_transitions=prioritize_recent_transitions,
-        commit_each_model_compaction=commit_each_model_compaction,
+    return bool(
+        unified_rebalance_fn(
+            db=db,
+            game=game,
+            max_model_requests=max_model_requests,
+            require_model_compaction=require_model_compaction,
+            backfill_existing_compact_layers=backfill_existing_compact_layers,
+            prioritize_recent_transitions=prioritize_recent_transitions,
+            commit_each_model_compaction=commit_each_model_compaction,
+        )
     )
 
 
@@ -10084,16 +10088,26 @@ def _upsert_story_plot_memory_card(
 
     if should_force_memory_rebalance:
         try:
+            from app.services import story_memory_pipeline as rebalance_memory_pipeline
+
             _rebalance_story_memory_layers(
                 db=db,
                 game=game,
                 max_model_requests=1,
+                require_model_compaction=True,
                 commit_each_model_compaction=True,
             )
+            if rebalance_memory_pipeline._has_story_stale_raw_memory_blocks(db=db, game=game):
+                _record_postprocess_failure("memory_compression_not_applied")
+                logger.warning(
+                    "Story memory compression not applied after Gemini response: game_id=%s assistant_message_id=%s",
+                    game.id,
+                    assistant_message.id,
+                )
             commit_with_retry(db)
         except Exception as exc:
             db.rollback()
-            _record_postprocess_failure("memory_rebalance")
+            _record_postprocess_failure("memory_compression_failed")
             logger.warning(
                 "Final story memory rebalance failed: game_id=%s assistant_message_id=%s error=%s",
                 game.id,

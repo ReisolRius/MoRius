@@ -13676,6 +13676,87 @@ def _compress_story_memory_block_with_model(
 
 
 
+def _get_story_stale_raw_memory_blocks(
+    *,
+    db: Session,
+    game: StoryGame,
+    keep_turns: int | None = None,
+) -> list[StoryMemoryBlock]:
+    def _safe_int(value: Any, *, default: int = 0) -> int:
+        try:
+            return int(value)
+        except Exception:
+            return default
+
+    raw_keep_limit = max(
+        int(
+            STORY_MEMORY_RAW_KEEP_LATEST_ASSISTANT_FULL_TURNS
+            if keep_turns is None
+            else keep_turns
+        )
+        or 0,
+        1,
+    )
+    latest_raw_assistant_ids = {
+        _safe_int(message_id)
+        for message_id in _list_story_latest_assistant_message_ids(
+            db,
+            game.id,
+            limit=raw_keep_limit,
+        )
+    }
+    raw_blocks = sorted(
+        [
+            block
+            for block in _list_story_memory_blocks(db, game.id)
+            if _normalize_story_memory_layer(block.layer) == STORY_MEMORY_LAYER_RAW
+        ],
+        key=lambda block: (
+            _safe_int(getattr(block, "assistant_message_id", 0)),
+            _safe_int(getattr(block, "id", 0)),
+        ),
+    )
+    stale_blocks: list[StoryMemoryBlock] = []
+    stale_block_ids: set[int] = set()
+    protected_blocks_by_assistant_id: dict[int, list[StoryMemoryBlock]] = {}
+
+    def _append_stale(block: StoryMemoryBlock) -> None:
+        block_id = _safe_int(getattr(block, "id", 0))
+        if block_id > 0 and block_id in stale_block_ids:
+            return
+        if block_id > 0:
+            stale_block_ids.add(block_id)
+        stale_blocks.append(block)
+
+    for block in raw_blocks:
+        assistant_message_id = _safe_int(getattr(block, "assistant_message_id", 0))
+        if assistant_message_id <= 0 or assistant_message_id not in latest_raw_assistant_ids:
+            _append_stale(block)
+            continue
+        protected_blocks_by_assistant_id.setdefault(assistant_message_id, []).append(block)
+
+    for protected_blocks in protected_blocks_by_assistant_id.values():
+        if len(protected_blocks) <= 1:
+            continue
+        for duplicate_block in protected_blocks[:-1]:
+            _append_stale(duplicate_block)
+
+    if len(raw_blocks) > raw_keep_limit:
+        for overflow_block in raw_blocks[: max(len(raw_blocks) - raw_keep_limit, 0)]:
+            _append_stale(overflow_block)
+
+    return stale_blocks
+
+
+def _has_story_stale_raw_memory_blocks(
+    *,
+    db: Session,
+    game: StoryGame,
+    keep_turns: int | None = None,
+) -> bool:
+    return bool(_get_story_stale_raw_memory_blocks(db=db, game=game, keep_turns=keep_turns))
+
+
 def _rebalance_story_memory_layers(
 
     *,
@@ -13694,7 +13775,7 @@ def _rebalance_story_memory_layers(
 
     commit_each_model_compaction: bool = False,
 
-) -> None:
+) -> bool:
     def _safe_int(value: Any, *, default: int = 0) -> int:
         try:
             return int(value)
@@ -13999,6 +14080,8 @@ def _rebalance_story_memory_layers(
                     db.commit()
                 return True
             except Exception as exc:
+                if require_model_compaction:
+                    raise
                 logger.warning(
                     "Story raw cleanup failed: game_id=%s source_block_id=%s error=%s",
                     game.id,
@@ -14034,6 +14117,8 @@ def _rebalance_story_memory_layers(
                 db.commit()
             return True
         except Exception as exc:
+            if require_model_compaction:
+                raise
             logger.warning(
                 "Story raw->compressed compaction failed: game_id=%s source_block_id=%s error=%s",
                 game.id,
@@ -14058,6 +14143,8 @@ def _rebalance_story_memory_layers(
                     db.commit()
                 return True
             except Exception as exc:
+                if require_model_compaction:
+                    raise
                 logger.warning(
                     "Story compressed cleanup failed: game_id=%s source_block_id=%s error=%s",
                     game.id,
@@ -14093,6 +14180,8 @@ def _rebalance_story_memory_layers(
                 db.commit()
             return True
         except Exception as exc:
+            if require_model_compaction:
+                raise
             logger.warning(
                 "Story compressed->super compaction failed: game_id=%s source_block_id=%s error=%s",
                 game.id,
@@ -14253,6 +14342,7 @@ def _rebalance_story_memory_layers(
             super_before,
             super_after,
         )
+    return (raw_before, compressed_before, super_before) != (raw_after, compressed_after, super_after)
 
 def _extract_story_important_plot_card_payload(
 

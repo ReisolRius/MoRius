@@ -1044,6 +1044,7 @@ def _fallback_sync_story_memory_and_environment(
     auto_npc_changed = False
     character_state_changed = False
     rebalance_changed = False
+    memory_rebalance_failed = False
 
     try:
         memory_changed = story_memory_pipeline._upsert_story_raw_memory_block(
@@ -1162,15 +1163,25 @@ def _fallback_sync_story_memory_and_environment(
             )
         if should_force_memory_rebalance or memory_changed or key_memory_changed:
             try:
-                story_memory_pipeline._rebalance_story_memory_layers(
-                    db=db,
-                    game=game,
-                    max_model_requests=1,
-                    backfill_existing_compact_layers=False,
-                    prioritize_recent_transitions=True,
+                rebalance_changed = bool(
+                    story_memory_pipeline._rebalance_story_memory_layers(
+                        db=db,
+                        game=game,
+                        max_model_requests=1,
+                        require_model_compaction=True,
+                        backfill_existing_compact_layers=False,
+                        prioritize_recent_transitions=True,
+                    )
                 )
-                rebalance_changed = True
+                if story_memory_pipeline._has_story_stale_raw_memory_blocks(db=db, game=game):
+                    memory_rebalance_failed = True
+                    logger.warning(
+                        "Fallback runtime left stale raw memory after Gemini compression: game_id=%s assistant_message_id=%s",
+                        game.id,
+                        assistant_message.id,
+                    )
             except Exception:
+                memory_rebalance_failed = True
                 logger.exception(
                     "Fallback runtime failed to rebalance story memory layers: game_id=%s assistant_message_id=%s",
                     game.id,
@@ -1192,7 +1203,7 @@ def _fallback_sync_story_memory_and_environment(
                 db.refresh(assistant_message)
             except Exception:
                 pass
-            return True
+            return not memory_rebalance_failed
         return False
     except Exception:
         logger.exception(
