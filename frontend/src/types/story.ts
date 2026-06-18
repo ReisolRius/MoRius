@@ -231,7 +231,17 @@ export type StoryPlotCardEvent = {
   created_at: string
 }
 
-export type StoryMemoryLayer = 'raw' | 'compressed' | 'super' | 'key' | 'location' | 'weather'
+export type StoryMemoryLayer =
+  | 'raw'
+  | 'latest_full'
+  | 'fresh_detailed'
+  | 'compressed'
+  | 'super'
+  | 'facts'
+  | 'raw_pending'
+  | 'key'
+  | 'location'
+  | 'weather'
 
 export type StoryMemoryBlock = {
   id: number

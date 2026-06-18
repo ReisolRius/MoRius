@@ -29,8 +29,6 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import (
-    POLZA_ACCELERATED_SERVICE_FALLBACK_MODEL,
-    POLZA_ACCELERATED_SERVICE_TEXT_MODEL,
     POLZA_GEMINI_25_FLASH_LITE_MODEL,
     POLZA_GEMINI_25_FLASH_MODEL,
     settings,
@@ -311,14 +309,6 @@ STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 75
 STORY_PLOT_CARD_REQUEST_MAX_TOKENS = 700
 STORY_SERVICE_TEXT_MODEL = POLZA_GEMINI_25_FLASH_MODEL
 STORY_PLOT_CARD_MEMORY_MODEL = POLZA_GEMINI_25_FLASH_MODEL
-STORY_ACCELERATED_SERVICE_TEXT_MODEL = (
-    str(getattr(settings, "polza_accelerated_service_model", "") or "").strip()
-    or POLZA_ACCELERATED_SERVICE_TEXT_MODEL
-)
-STORY_ACCELERATED_SERVICE_FALLBACK_MODEL = (
-    str(getattr(settings, "polza_accelerated_service_fallback_model", "") or "").strip()
-    or POLZA_ACCELERATED_SERVICE_FALLBACK_MODEL
-)
 STORY_OUTPUT_TRANSLATION_MODEL = STORY_SERVICE_TEXT_MODEL
 STORY_MEMORY_LOCATION_TITLE = "Место"
 STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS = 280
@@ -2413,6 +2403,34 @@ def _normalize_story_plot_cards_for_prompt(plot_cards: list[dict[str, str]]) -> 
     return normalized_cards
 
 
+def _is_story_memory_prompt_card(card: dict[str, str]) -> bool:
+    source_kind = str(card.get("source_kind", "") or "").strip().lower()
+    if source_kind == "memory":
+        return True
+    memory_layer = _normalize_story_memory_layer(str(card.get("memory_layer", "") or ""))
+    if memory_layer in {
+        STORY_MEMORY_LAYER_RAW,
+        STORY_MEMORY_LAYER_COMPRESSED,
+        STORY_MEMORY_LAYER_SUPER,
+        "latest_full",
+        "fresh_detailed",
+        "facts",
+        "raw_pending",
+    }:
+        return True
+    title = " ".join(str(card.get("title", "") or "").replace("\r\n", " ").split()).strip()
+    return title.startswith(
+        (
+            "Свежая память:",
+            "Последний полный ход:",
+            "Подробная память:",
+            "Сжатая память:",
+            "Факты памяти:",
+            "Ожидает сжатия:",
+        )
+    )
+
+
 def _trim_story_plot_cards_to_context_limit(
     plot_cards: list[dict[str, str]],
     context_limit_tokens: int,
@@ -2448,6 +2466,8 @@ def _trim_story_plot_cards_to_context_limit(
             continue
 
         if not selected_reversed:
+            if _is_story_memory_prompt_card(normalized_card):
+                break
             title_cost = _estimate_story_tokens(title) + 6
             content_budget_tokens = max(limit - title_cost, 1)
             trimmed_content = _trim_story_text_tail_by_sentence_tokens(content, content_budget_tokens)
@@ -2566,7 +2586,11 @@ def _fit_story_plot_cards_to_context_limit(
         and iteration_count < 400
     ):
         oldest_card = fitted_plot_cards[0]
-        shortened_content = _drop_story_oldest_sentence(oldest_card.get("content", ""))
+        shortened_content = (
+            ""
+            if _is_story_memory_prompt_card(oldest_card)
+            else _drop_story_oldest_sentence(oldest_card.get("content", ""))
+        )
         if shortened_content:
             fitted_plot_cards[0] = {
                 **oldest_card,
@@ -5799,14 +5823,14 @@ def _apply_polza_story_reasoning_preferences(
         "z-ai/glm-4.7-flash",
         "z-ai/glm-4.7",
         STORY_SERVICE_TEXT_MODEL,
-        STORY_ACCELERATED_SERVICE_TEXT_MODEL,
+        POLZA_GEMINI_25_FLASH_LITE_MODEL,
     }:
         payload["reasoning"] = {
             "effort": "none",
             "exclude": True,
         }
         return
-    if normalized_model == STORY_ACCELERATED_SERVICE_FALLBACK_MODEL:
+    if normalized_model == "openai/gpt-oss-120b":
         payload["reasoning"] = {
             "effort": "low",
             "exclude": True,
@@ -7136,7 +7160,7 @@ def _resolve_story_turn_postprocess_payload(
             if value is not None:
                 target[key] = value
 
-    split_heavy_modules = bool(resolved_environment_enabled or character_state_enabled or auto_npc_cards_enabled)
+    split_heavy_modules = False
     if not split_heavy_modules:
         payload = safe_request_postprocess_group(
             module_name="unified_postprocess",
@@ -8463,21 +8487,16 @@ def _build_story_plot_card_memory_messages(
 
 
 def _resolve_story_service_model_pair(game: StoryGame | None = None) -> tuple[str, list[str]]:
-    if bool(getattr(game, "accelerated_service_enabled", False)):
-        primary_model = STORY_ACCELERATED_SERVICE_TEXT_MODEL
-        fallback_model = STORY_ACCELERATED_SERVICE_FALLBACK_MODEL
-    else:
-        primary_model = STORY_SERVICE_TEXT_MODEL
-        fallback_model = str(getattr(settings, "polza_service_fallback_model", "") or "").strip()
+    _ = game
+    primary_model = POLZA_GEMINI_25_FLASH_MODEL
+    fallback_model = str(getattr(settings, "polza_service_fallback_model", "") or "").strip()
     fallback_models = [fallback_model] if fallback_model and fallback_model != primary_model else []
     return primary_model, fallback_models
 
 
 def _resolve_story_plot_memory_model_name(game: StoryGame | None = None) -> str:
-    # Memory extraction stays pinned to the service model for stable quality.
-    if bool(getattr(game, "accelerated_service_enabled", False)):
-        return _resolve_story_service_model_pair(game)[0]
-    return STORY_PLOT_CARD_MEMORY_MODEL
+    _ = game
+    return POLZA_GEMINI_25_FLASH_MODEL
 
 
 def _resolve_story_plot_memory_fallback_models(
@@ -9579,15 +9598,25 @@ def _list_story_prompt_memory_cards(
     if memory_blocks:
         layer_order = {
             STORY_MEMORY_LAYER_KEY: 0,
+            "facts": 1,
             STORY_MEMORY_LAYER_SUPER: 1,
             STORY_MEMORY_LAYER_COMPRESSED: 2,
-            STORY_MEMORY_LAYER_RAW: 3,
+            "compressed": 2,
+            "fresh_detailed": 3,
+            STORY_MEMORY_LAYER_RAW: 4,
+            "latest_full": 4,
+            "raw_pending": 5,
         }
         layer_label = {
             STORY_MEMORY_LAYER_KEY: "Важный момент",
-            STORY_MEMORY_LAYER_SUPER: "Суперсжатая память",
+            "facts": "Факты памяти",
+            STORY_MEMORY_LAYER_SUPER: "Факты памяти",
             STORY_MEMORY_LAYER_COMPRESSED: "Сжатая память",
+            "compressed": "Сжатая память",
+            "fresh_detailed": "Подробная память",
             STORY_MEMORY_LAYER_RAW: "Свежая память",
+            "latest_full": "Последний полный ход",
+            "raw_pending": "Ожидает сжатия",
         }
         ordered_blocks = sorted(
             memory_blocks,
@@ -10093,7 +10122,7 @@ def _upsert_story_plot_memory_card(
             _rebalance_story_memory_layers(
                 db=db,
                 game=game,
-                max_model_requests=1,
+                max_model_requests=3,
                 require_model_compaction=True,
                 commit_each_model_compaction=True,
             )

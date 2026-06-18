@@ -1174,7 +1174,7 @@ class StoryMemoryBlock(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
     assistant_message_id: Mapped[int | None] = mapped_column(ForeignKey("story_messages.id"), nullable=True, index=True)
-    layer: Mapped[str] = mapped_column(String(16), nullable=False, default="raw", server_default="raw")
+    layer: Mapped[str] = mapped_column(String(32), nullable=False, default="raw", server_default="raw")
     title: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
     content: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

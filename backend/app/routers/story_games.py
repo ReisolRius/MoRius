@@ -1731,7 +1731,7 @@ def _create_story_game_publication_copy_from_source(
         story_temperature=source_game.story_temperature,
         show_gg_thoughts=source_game.show_gg_thoughts,
         show_npc_thoughts=source_game.show_npc_thoughts,
-        accelerated_service_enabled=bool(getattr(source_game, "accelerated_service_enabled", False)),
+        accelerated_service_enabled=False,
         ambient_enabled=source_game.ambient_enabled,
         appearance_background_mode=normalize_story_appearance_background_mode(
             getattr(source_game, "appearance_background_mode", None)
@@ -2986,7 +2986,7 @@ def clone_story_game(
         ),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(source_game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(source_game, "show_npc_thoughts", None)),
-        accelerated_service_enabled=bool(getattr(source_game, "accelerated_service_enabled", False)),
+        accelerated_service_enabled=False,
         ambient_enabled=normalize_story_ambient_enabled(getattr(source_game, "ambient_enabled", None)),
         appearance_background_mode=normalize_story_appearance_background_mode(
             getattr(source_game, "appearance_background_mode", None)
@@ -3241,7 +3241,7 @@ def update_story_game_settings(
     if payload.auto_npc_cards_enabled is not None:
         game.auto_npc_cards_enabled = bool(payload.auto_npc_cards_enabled)
     if payload.accelerated_service_enabled is not None:
-        game.accelerated_service_enabled = bool(payload.accelerated_service_enabled)
+        game.accelerated_service_enabled = False
     if payload.ambient_enabled is not None and can_use_visual_novel_mode:
         game.ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
     if "appearance_background_mode" in payload.model_fields_set:

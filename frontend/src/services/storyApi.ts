@@ -2058,7 +2058,6 @@ export async function updateStoryGameSettings(payload: {
   showNpcThoughts?: boolean
   activeMainHeroCardId?: number | null
   autoNpcCardsEnabled?: boolean
-  acceleratedServiceEnabled?: boolean
   ambientEnabled?: boolean
   displayMode?: StoryDisplayMode
   characterStateEnabled?: boolean
@@ -2131,9 +2130,6 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.autoNpcCardsEnabled === 'boolean') {
     requestPayload.auto_npc_cards_enabled = payload.autoNpcCardsEnabled
-  }
-  if (typeof payload.acceleratedServiceEnabled === 'boolean') {
-    requestPayload.accelerated_service_enabled = payload.acceleratedServiceEnabled
   }
   if (typeof payload.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = payload.ambientEnabled

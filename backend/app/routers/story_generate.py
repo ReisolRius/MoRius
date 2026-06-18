@@ -1167,7 +1167,7 @@ def _fallback_sync_story_memory_and_environment(
                     story_memory_pipeline._rebalance_story_memory_layers(
                         db=db,
                         game=game,
-                        max_model_requests=1,
+                        max_model_requests=3,
                         require_model_compaction=True,
                         backfill_existing_compact_layers=False,
                         prioritize_recent_transitions=True,

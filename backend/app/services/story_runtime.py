@@ -501,6 +501,7 @@ def _calculate_story_turn_cost_tokens(
     memory_optimization_enabled: bool,
     accelerated_service_enabled: bool = False,
 ) -> int:
+    _ = accelerated_service_enabled
     context_usage_tokens = _estimate_story_context_usage_tokens(
         context_messages=context_messages,
         instruction_cards=instruction_cards,
@@ -514,7 +515,7 @@ def _calculate_story_turn_cost_tokens(
         max(int(context_limit_tokens or 0), 0),
     )
     base_cost = max(int(get_story_turn_cost_tokens(billable_context_usage_tokens, model_name)), 0)
-    return base_cost + (1 if accelerated_service_enabled else 0)
+    return base_cost
 
 
 def _merge_story_active_world_cards(
@@ -636,7 +637,7 @@ def _checkpoint_story_raw_turn_memory(
 
         has_raw_checkpoint = any(
             int(getattr(block, "assistant_message_id", 0) or 0) == int(getattr(assistant_message, "id", 0) or 0)
-            and str(getattr(block, "layer", "") or "").strip().lower() == "raw"
+            and str(getattr(block, "layer", "") or "").strip().lower() in {"raw", "latest_full"}
             for block in story_memory_pipeline._list_story_memory_blocks(db, game.id)
         )
 
@@ -707,7 +708,7 @@ def _best_effort_sync_story_turn_memory_and_environment(
     def _assistant_has_dev_memory_block(*, assistant_id: int) -> bool:
         for item in deps.list_story_memory_blocks(db, game.id):
             layer_value = str(getattr(item, "layer", "") or "").strip().lower()
-            if layer_value not in {"raw", "compressed", "super"}:
+            if layer_value not in {"raw", "latest_full", "fresh_detailed", "compressed", "facts", "raw_pending", "super"}:
                 continue
             if int(getattr(item, "assistant_message_id", 0) or 0) == assistant_id:
                 return True
@@ -890,7 +891,7 @@ def _best_effort_sync_story_turn_memory_and_environment(
             story_memory_pipeline._rebalance_story_memory_layers(
                 db=db,
                 game=game,
-                max_model_requests=1,
+                max_model_requests=3,
                 backfill_existing_compact_layers=False,
                 prioritize_recent_transitions=True,
             )
@@ -1452,7 +1453,7 @@ def _stream_story_response(
                 else:
                     assistant_message_id = getattr(item, "assistant_message_id", None)
                     layer_value = str(getattr(item, "layer", "") or "").strip().lower()
-                if layer_value not in {"raw", "compressed", "super"}:
+                if layer_value not in {"raw", "latest_full", "fresh_detailed", "compressed", "facts", "raw_pending", "super"}:
                     continue
                 if int(assistant_message_id or 0) == assistant_message.id:
                     return True

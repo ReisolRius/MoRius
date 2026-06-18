@@ -1312,6 +1312,19 @@ def _ensure_story_soft_undo_columns_exist() -> None:
             _execute_schema_statement(connection, statement)
 
 
+def _ensure_story_memory_block_schema() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryMemoryBlock.__tablename__):
+        return
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as connection:
+        _execute_schema_statement(
+            connection,
+            f"ALTER TABLE {StoryMemoryBlock.__tablename__} ALTER COLUMN layer TYPE VARCHAR(32)",
+        )
+
+
 def _ensure_dashboard_news_schema() -> None:
     inspector = inspect(engine)
     if not inspector.has_table(DashboardNewsCard.__tablename__):
@@ -1748,5 +1761,6 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     _ensure_shop_schema_columns_exist()
     _ensure_shop_system_cosmetics()
     _ensure_story_soft_undo_columns_exist()
+    _ensure_story_memory_block_schema()
     _repair_legacy_story_avatar_media_tokens()
     _ensure_performance_indexes_exist()

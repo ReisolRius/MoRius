@@ -1523,7 +1523,18 @@ class StoryMemoryBlockOut(BaseModel):
     id: int
     game_id: int
     assistant_message_id: int | None
-    layer: Literal["raw", "compressed", "super", "key", "location", "weather"]
+    layer: Literal[
+        "raw",
+        "latest_full",
+        "fresh_detailed",
+        "compressed",
+        "super",
+        "facts",
+        "raw_pending",
+        "key",
+        "location",
+        "weather",
+    ]
     title: str
     content: str
     token_count: int

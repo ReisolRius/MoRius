@@ -16,10 +16,8 @@ PROXYAPI_OPENROUTER_BASE_URL = OPENROUTER_API_BASE_URL
 AITUNNEL_API_BASE_URL = ""
 POLZA_SERVICE_TEXT_MODEL = "google/gemma-4-31b-it:free"
 POLZA_SERVICE_FALLBACK_MODEL = "nex-agi/nex-n2-pro:free"
-POLZA_ACCELERATED_SERVICE_TEXT_MODEL = "google/gemini-2.5-flash-lite"
-POLZA_ACCELERATED_SERVICE_FALLBACK_MODEL = "openai/gpt-oss-120b"
 POLZA_GEMINI_25_FLASH_MODEL = "google/gemini-2.5-flash"
-POLZA_GEMINI_25_FLASH_LITE_MODEL = POLZA_ACCELERATED_SERVICE_TEXT_MODEL
+POLZA_GEMINI_25_FLASH_LITE_MODEL = "google/gemini-2.5-flash-lite"
 POLZA_DEFAULT_STORY_MODEL = "z-ai/glm-5"
 POLZA_DEFAULT_IMAGE_MODEL = "black-forest-labs/flux.2-pro"
 DEFAULT_CORS_ORIGINS = [
@@ -263,8 +261,6 @@ class Settings:
     polza_translation_model: str
     polza_plot_card_model: str
     polza_service_fallback_model: str
-    polza_accelerated_service_model: str
-    polza_accelerated_service_fallback_model: str
     polza_image_url: str
     polza_image_model: str
     polza_image_size: str
@@ -387,14 +383,6 @@ settings = Settings(
     polza_service_fallback_model=_env(
         "POLZA_SERVICE_FALLBACK_MODEL",
         POLZA_SERVICE_FALLBACK_MODEL,
-    ).strip(),
-    polza_accelerated_service_model=_env(
-        "POLZA_ACCELERATED_SERVICE_MODEL",
-        POLZA_ACCELERATED_SERVICE_TEXT_MODEL,
-    ).strip(),
-    polza_accelerated_service_fallback_model=_env(
-        "POLZA_ACCELERATED_SERVICE_FALLBACK_MODEL",
-        POLZA_ACCELERATED_SERVICE_FALLBACK_MODEL,
     ).strip(),
     polza_image_url=_env("POLZA_IMAGE_URL", POLZA_MEDIA_URL).strip(),
     polza_image_model=_env("POLZA_IMAGE_MODEL", POLZA_DEFAULT_IMAGE_MODEL).strip(),

@@ -12,160 +12,113 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.services import story_memory_pipeline  # noqa: E402
 
 
+class _FakeNestedTransaction:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+
+class _FakeSession:
+    def __init__(self, blocks: list[SimpleNamespace]) -> None:
+        self.blocks = blocks
+
+    def begin_nested(self):
+        return _FakeNestedTransaction()
+
+    def get(self, _model, block_id):
+        return next((block for block in self.blocks if block.id == block_id), None)
+
+    def delete(self, block):
+        self.blocks.remove(block)
+
+    def flush(self):
+        return None
+
+    def commit(self):
+        return None
+
+
+def _block(block_id: int, assistant_id: int, layer: str, content: str, token_count: int = 10) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=block_id,
+        game_id=10,
+        assistant_message_id=assistant_id,
+        layer=layer,
+        title=f"{layer} {assistant_id}",
+        content=content,
+        token_count=token_count,
+    )
+
+
+def _game() -> SimpleNamespace:
+    return SimpleNamespace(
+        id=10,
+        context_limit_chars=30_000,
+        story_llm_model="z-ai/glm-5",
+        memory_optimization_mode="standard",
+    )
+
+
+def _budget(*, fresh: int = 10_000, compressed: int = 6_000, facts: int = 4_000) -> SimpleNamespace:
+    return SimpleNamespace(
+        user_memory_token_limit=30_000,
+        active_cards_token_count=0,
+        available_history_tokens=30_000,
+        fresh_budget=fresh,
+        compressed_budget=compressed,
+        facts_budget=facts,
+    )
+
+
 class StoryMemoryLayerProgressionTests(unittest.TestCase):
-    def test_rebalance_keeps_only_latest_turn_raw_and_compresses_previous_turn(self) -> None:
+    def test_rebalance_keeps_latest_full_and_compresses_previous_turn_to_fresh_detailed(self) -> None:
         blocks = [
-            SimpleNamespace(
-                id=1,
-                game_id=10,
-                assistant_message_id=101,
-                layer="raw",
-                title="old full turn",
-                content="old full turn content",
-                token_count=10,
-            ),
-            SimpleNamespace(
-                id=2,
-                game_id=10,
-                assistant_message_id=102,
-                layer="raw",
-                title="latest full turn",
-                content="latest full turn content",
-                token_count=10,
-            ),
+            _block(1, 101, "latest_full", "old full turn content"),
+            _block(2, 102, "latest_full", "latest full turn content"),
         ]
 
-        class FakeNestedTransaction:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, traceback):
-                return False
-
-        class FakeSession:
-            def begin_nested(self):
-                return FakeNestedTransaction()
-
-            def get(self, _model, block_id):
-                return next((block for block in blocks if block.id == block_id), None)
-
-            def delete(self, block):
-                blocks.remove(block)
-
-            def flush(self):
-                return None
-
-            def commit(self):
-                return None
-
         def create_memory_block(**kwargs):
-            block = SimpleNamespace(
-                id=max(item.id for item in blocks) + 1,
-                game_id=kwargs["game_id"],
-                assistant_message_id=kwargs["assistant_message_id"],
-                layer=kwargs["layer"],
-                title=kwargs["title"],
-                content=kwargs["content"],
+            block = _block(
+                max(item.id for item in blocks) + 1,
+                kwargs["assistant_message_id"],
+                kwargs["layer"],
+                kwargs["content"],
                 token_count=5,
             )
+            block.title = kwargs["title"]
             blocks.append(block)
             return block
 
-        game = SimpleNamespace(
-            id=10,
-            context_limit_chars=6_000,
-            story_llm_model="z-ai/glm-5",
-            memory_optimization_mode="standard",
-        )
-
         with (
-            patch.object(
-                story_memory_pipeline,
-                "_list_story_memory_blocks",
-                side_effect=lambda _db, _game_id: list(blocks),
-            ),
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget()),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
             patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
-            patch.object(story_memory_pipeline, "_get_story_main_hero_name_for_memory", return_value="Hero"),
-            patch.object(story_memory_pipeline, "_list_story_known_character_names_for_memory", return_value=["Hero"]),
             patch.object(
                 story_memory_pipeline,
                 "_compress_story_memory_block_with_model",
-                return_value=("compressed old turn", "compressed old turn content"),
+                return_value=("Подробная память", "detailed old turn"),
             ),
             patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
         ):
-            story_memory_pipeline._rebalance_story_memory_layers(
-                db=FakeSession(),
-                game=game,
-                max_model_requests=1,
-            )
+            story_memory_pipeline._rebalance_story_memory_layers(db=_FakeSession(blocks), game=_game(), max_model_requests=1)
 
-        raw_blocks = [block for block in blocks if block.layer == "raw"]
-        compressed_blocks = [block for block in blocks if block.layer == "compressed"]
-        self.assertEqual([block.assistant_message_id for block in raw_blocks], [102])
-        self.assertEqual([block.assistant_message_id for block in compressed_blocks], [101])
+        latest_blocks = [block for block in blocks if block.layer == "latest_full"]
+        fresh_blocks = [block for block in blocks if block.layer == "fresh_detailed"]
+        self.assertEqual([block.assistant_message_id for block in latest_blocks], [102])
+        self.assertEqual([(block.assistant_message_id, block.content) for block in fresh_blocks], [(101, "detailed old turn")])
 
-    def test_rebalance_keeps_raw_block_when_model_compaction_fails(self) -> None:
+    def test_rebalance_marks_raw_pending_when_model_compaction_fails(self) -> None:
         blocks = [
-            SimpleNamespace(
-                id=1,
-                game_id=10,
-                assistant_message_id=101,
-                layer="raw",
-                title="old full turn",
-                content="old full turn content",
-                token_count=10,
-            ),
-            SimpleNamespace(
-                id=2,
-                game_id=10,
-                assistant_message_id=102,
-                layer="raw",
-                title="latest full turn",
-                content="latest full turn content",
-                token_count=10,
-            ),
+            _block(1, 101, "latest_full", "old full turn content"),
+            _block(2, 102, "latest_full", "latest full turn content"),
         ]
 
-        class FakeNestedTransaction:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, traceback):
-                return False
-
-        class FakeSession:
-            def begin_nested(self):
-                return FakeNestedTransaction()
-
-            def get(self, _model, block_id):
-                return next((block for block in blocks if block.id == block_id), None)
-
-            def delete(self, block):
-                blocks.remove(block)
-
-            def flush(self):
-                return None
-
-            def commit(self):
-                return None
-
-        game = SimpleNamespace(
-            id=10,
-            context_limit_chars=6_000,
-            story_llm_model="z-ai/glm-5",
-            memory_optimization_mode="standard",
-        )
-
         with (
-            patch.object(
-                story_memory_pipeline,
-                "_list_story_memory_blocks",
-                side_effect=lambda _db, _game_id: list(blocks),
-            ),
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget()),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
             patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
-            patch.object(story_memory_pipeline, "_get_story_main_hero_name_for_memory", return_value="Hero"),
-            patch.object(story_memory_pipeline, "_list_story_known_character_names_for_memory", return_value=["Hero"]),
             patch.object(
                 story_memory_pipeline,
                 "_compress_story_memory_block_with_model",
@@ -173,309 +126,161 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
             ) as compress_mock,
             patch.object(story_memory_pipeline, "_create_story_memory_block") as create_mock,
         ):
-            story_memory_pipeline._rebalance_story_memory_layers(
-                db=FakeSession(),
-                game=game,
-                max_model_requests=1,
-            )
+            story_memory_pipeline._rebalance_story_memory_layers(db=_FakeSession(blocks), game=_game(), max_model_requests=1)
 
-        raw_blocks = [block for block in blocks if block.layer == "raw"]
-        compressed_blocks = [block for block in blocks if block.layer == "compressed"]
-        self.assertEqual([block.assistant_message_id for block in raw_blocks], [101, 102])
-        self.assertEqual(compressed_blocks, [])
+        pending_blocks = [block for block in blocks if block.layer == "raw_pending"]
+        latest_blocks = [block for block in blocks if block.layer == "latest_full"]
+        self.assertEqual([block.assistant_message_id for block in pending_blocks], [101])
+        self.assertEqual([block.content for block in pending_blocks], ["old full turn content"])
+        self.assertEqual([block.assistant_message_id for block in latest_blocks], [102])
         self.assertEqual(compress_mock.call_count, 1)
         create_mock.assert_not_called()
 
     def test_strict_rebalance_raises_when_model_compaction_fails(self) -> None:
         blocks = [
-            SimpleNamespace(
-                id=1,
-                game_id=10,
-                assistant_message_id=101,
-                layer="raw",
-                title="old full turn",
-                content="old full turn content",
-                token_count=10,
-            ),
-            SimpleNamespace(
-                id=2,
-                game_id=10,
-                assistant_message_id=102,
-                layer="raw",
-                title="latest full turn",
-                content="latest full turn content",
-                token_count=10,
-            ),
+            _block(1, 101, "latest_full", "old full turn content"),
+            _block(2, 102, "latest_full", "latest full turn content"),
         ]
 
-        class FakeNestedTransaction:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, traceback):
-                return False
-
-        class FakeSession:
-            def begin_nested(self):
-                return FakeNestedTransaction()
-
-            def get(self, _model, block_id):
-                return next((block for block in blocks if block.id == block_id), None)
-
-            def delete(self, block):
-                blocks.remove(block)
-
-            def flush(self):
-                return None
-
-            def commit(self):
-                return None
-
-        game = SimpleNamespace(
-            id=10,
-            context_limit_chars=6_000,
-            story_llm_model="z-ai/glm-5",
-            memory_optimization_mode="standard",
-        )
-
         with (
-            patch.object(
-                story_memory_pipeline,
-                "_list_story_memory_blocks",
-                side_effect=lambda _db, _game_id: list(blocks),
-            ),
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget()),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
             patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
-            patch.object(story_memory_pipeline, "_get_story_main_hero_name_for_memory", return_value="Hero"),
-            patch.object(story_memory_pipeline, "_list_story_known_character_names_for_memory", return_value=["Hero"]),
             patch.object(
                 story_memory_pipeline,
                 "_compress_story_memory_block_with_model",
                 side_effect=RuntimeError("model down"),
             ),
-            patch.object(story_memory_pipeline, "_create_story_memory_block") as create_mock,
         ):
             with self.assertRaisesRegex(RuntimeError, "model down"):
                 story_memory_pipeline._rebalance_story_memory_layers(
-                    db=FakeSession(),
-                    game=game,
+                    db=_FakeSession(blocks),
+                    game=_game(),
                     max_model_requests=1,
                     require_model_compaction=True,
                 )
-            stale_blocks = story_memory_pipeline._get_story_stale_raw_memory_blocks(
-                db=FakeSession(),
-                game=game,
-            )
 
-        self.assertEqual([block.assistant_message_id for block in stale_blocks], [101])
-        create_mock.assert_not_called()
+        self.assertEqual([block.layer for block in blocks], ["latest_full", "latest_full"])
 
-    def test_rebalance_prioritizes_newest_stale_raw_block(self) -> None:
+    def test_rebalance_retries_raw_pending_and_replaces_it_with_fresh_detailed(self) -> None:
         blocks = [
-            SimpleNamespace(
-                id=1,
-                game_id=10,
-                assistant_message_id=100,
-                layer="raw",
-                title="old stale turn",
-                content="old stale full turn content",
-                token_count=10,
-            ),
-            SimpleNamespace(
-                id=2,
-                game_id=10,
-                assistant_message_id=101,
-                layer="raw",
-                title="new stale turn",
-                content="new stale full turn content",
-                token_count=10,
-            ),
-            SimpleNamespace(
-                id=3,
-                game_id=10,
-                assistant_message_id=102,
-                layer="raw",
-                title="latest full turn",
-                content="latest full turn content",
-                token_count=10,
-            ),
+            _block(1, 101, "raw_pending", "old full turn awaiting retry"),
+            _block(2, 102, "latest_full", "latest full turn content"),
         ]
 
-        class FakeNestedTransaction:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, traceback):
-                return False
-
-        class FakeSession:
-            def begin_nested(self):
-                return FakeNestedTransaction()
-
-            def get(self, _model, block_id):
-                return next((block for block in blocks if block.id == block_id), None)
-
-            def delete(self, block):
-                blocks.remove(block)
-
-            def flush(self):
-                return None
-
-            def commit(self):
-                return None
-
         def create_memory_block(**kwargs):
-            block = SimpleNamespace(
-                id=max(item.id for item in blocks) + 1,
-                game_id=kwargs["game_id"],
-                assistant_message_id=kwargs["assistant_message_id"],
-                layer=kwargs["layer"],
-                title=kwargs["title"],
-                content=kwargs["content"],
+            block = _block(
+                max(item.id for item in blocks) + 1,
+                kwargs["assistant_message_id"],
+                kwargs["layer"],
+                kwargs["content"],
                 token_count=5,
             )
+            block.title = kwargs["title"]
             blocks.append(block)
             return block
 
-        game = SimpleNamespace(
-            id=10,
-            context_limit_chars=6_000,
-            story_llm_model="z-ai/glm-5",
-            memory_optimization_mode="standard",
-        )
-
         with (
-            patch.object(
-                story_memory_pipeline,
-                "_list_story_memory_blocks",
-                side_effect=lambda _db, _game_id: list(blocks),
-            ),
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget()),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
             patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
-            patch.object(story_memory_pipeline, "_get_story_main_hero_name_for_memory", return_value="Hero"),
-            patch.object(story_memory_pipeline, "_list_story_known_character_names_for_memory", return_value=["Hero"]),
             patch.object(
                 story_memory_pipeline,
                 "_compress_story_memory_block_with_model",
-                return_value=("compressed new stale", "compressed new stale content"),
+                return_value=("Detailed memory", "compressed pending turn"),
             ) as compress_mock,
             patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
         ):
             story_memory_pipeline._rebalance_story_memory_layers(
-                db=FakeSession(),
-                game=game,
+                db=_FakeSession(blocks),
+                game=_game(),
                 max_model_requests=1,
             )
 
-        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "new stale full turn content")
-        raw_blocks = [block for block in blocks if block.layer == "raw"]
-        compressed_blocks = [block for block in blocks if block.layer == "compressed"]
-        self.assertEqual([block.assistant_message_id for block in raw_blocks], [100, 102])
-        self.assertEqual([block.assistant_message_id for block in compressed_blocks], [101])
+        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "old full turn awaiting retry")
+        self.assertEqual([block.layer for block in blocks], ["latest_full", "fresh_detailed"])
+        self.assertEqual(
+            [block.content for block in blocks if block.layer == "fresh_detailed"],
+            ["compressed pending turn"],
+        )
 
-    def test_compact_backfill_does_not_steal_raw_compaction_budget(self) -> None:
+    def test_rebalance_can_prioritize_newest_stale_latest_full_block(self) -> None:
         blocks = [
-            SimpleNamespace(
-                id=1,
-                game_id=10,
-                assistant_message_id=90,
-                layer="compressed",
-                title="old full text compact",
-                content="Ход игрока (полный текст):\nold compact content",
-                token_count=10,
-            ),
-            SimpleNamespace(
-                id=2,
-                game_id=10,
-                assistant_message_id=101,
-                layer="raw",
-                title="stale full turn",
-                content="stale raw content for model",
-                token_count=10,
-            ),
-            SimpleNamespace(
-                id=3,
-                game_id=10,
-                assistant_message_id=102,
-                layer="raw",
-                title="latest full turn",
-                content="latest full turn content",
-                token_count=10,
-            ),
+            _block(1, 100, "latest_full", "old stale turn"),
+            _block(2, 101, "latest_full", "new stale turn"),
+            _block(3, 102, "latest_full", "latest turn"),
         ]
 
-        class FakeNestedTransaction:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, traceback):
-                return False
-
-        class FakeSession:
-            def begin_nested(self):
-                return FakeNestedTransaction()
-
-            def get(self, _model, block_id):
-                return next((block for block in blocks if block.id == block_id), None)
-
-            def delete(self, block):
-                blocks.remove(block)
-
-            def flush(self):
-                return None
-
-            def commit(self):
-                return None
-
         def create_memory_block(**kwargs):
-            block = SimpleNamespace(
-                id=max(item.id for item in blocks) + 1,
-                game_id=kwargs["game_id"],
-                assistant_message_id=kwargs["assistant_message_id"],
-                layer=kwargs["layer"],
-                title=kwargs["title"],
-                content=kwargs["content"],
+            block = _block(
+                max(item.id for item in blocks) + 1,
+                kwargs["assistant_message_id"],
+                kwargs["layer"],
+                kwargs["content"],
                 token_count=5,
             )
+            block.title = kwargs["title"]
             blocks.append(block)
             return block
 
-        game = SimpleNamespace(
-            id=10,
-            context_limit_chars=6_000,
-            story_llm_model="z-ai/glm-5",
-            memory_optimization_mode="standard",
-        )
-
         with (
-            patch.object(
-                story_memory_pipeline,
-                "_list_story_memory_blocks",
-                side_effect=lambda _db, _game_id: list(blocks),
-            ),
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget()),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
             patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
-            patch.object(story_memory_pipeline, "_get_story_main_hero_name_for_memory", return_value="Hero"),
-            patch.object(story_memory_pipeline, "_list_story_known_character_names_for_memory", return_value=["Hero"]),
             patch.object(
                 story_memory_pipeline,
                 "_compress_story_memory_block_with_model",
-                return_value=("compressed stale raw", "compressed stale raw content"),
+                return_value=("Подробная память", "fresh recent stale"),
             ) as compress_mock,
             patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
         ):
             story_memory_pipeline._rebalance_story_memory_layers(
-                db=FakeSession(),
-                game=game,
+                db=_FakeSession(blocks),
+                game=_game(),
                 max_model_requests=1,
-                backfill_existing_compact_layers=True,
+                prioritize_recent_transitions=True,
             )
 
-        self.assertEqual(compress_mock.call_count, 1)
-        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "stale raw content for model")
-        compact_block = next(block for block in blocks if block.id == 1)
-        self.assertEqual(compact_block.content, "Ход игрока (полный текст):\nold compact content")
-        raw_blocks = [block for block in blocks if block.layer == "raw"]
-        compressed_blocks = [block for block in blocks if block.layer == "compressed"]
-        self.assertEqual([block.assistant_message_id for block in raw_blocks], [102])
-        self.assertEqual([block.assistant_message_id for block in compressed_blocks], [90, 101])
+        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "new stale turn")
+        self.assertEqual([block.assistant_message_id for block in blocks if block.layer == "latest_full"], [100, 102])
+        self.assertEqual([block.assistant_message_id for block in blocks if block.layer == "fresh_detailed"], [101])
+
+    def test_fresh_over_budget_promotes_detailed_blocks_to_compressed(self) -> None:
+        blocks = [
+            _block(1, 101, "fresh_detailed", "fresh turn one", token_count=50),
+            _block(2, 102, "latest_full", "latest turn", token_count=5),
+        ]
+
+        with (
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget(fresh=10)),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
+            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
+            patch.object(story_memory_pipeline, "_promote_blocks", return_value=(True, 0)) as promote_mock,
+        ):
+            story_memory_pipeline._rebalance_story_memory_layers(db=_FakeSession(blocks), game=_game(), max_model_requests=1)
+
+        self.assertEqual(promote_mock.call_count, 1)
+        self.assertEqual(
+            [block.layer for block in promote_mock.call_args.kwargs["source_blocks"]],
+            ["fresh_detailed"],
+        )
+        self.assertEqual(promote_mock.call_args.kwargs["target_layer"], "compressed")
+
+    def test_optimize_memory_state_accepts_legacy_endpoint_kwargs(self) -> None:
+        with patch.object(story_memory_pipeline, "_rebalance_story_memory_layers", return_value=True) as rebalance_mock:
+            result = story_memory_pipeline._optimize_story_memory_state(
+                db=SimpleNamespace(),
+                game=_game(),
+                starting_assistant_message_id=77,
+                max_assistant_messages=48,
+                max_model_requests=1,
+                require_model_compaction=False,
+            )
+
+        self.assertTrue(result)
+        self.assertEqual(rebalance_mock.call_args.kwargs["max_model_requests"], 1)
+        self.assertNotIn("starting_assistant_message_id", rebalance_mock.call_args.kwargs)
+        self.assertNotIn("max_assistant_messages", rebalance_mock.call_args.kwargs)
 
 
 if __name__ == "__main__":

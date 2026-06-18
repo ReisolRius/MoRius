@@ -66,7 +66,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
 
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
 
-    def test_accelerated_game_routes_service_call_to_paid_model_pair(self) -> None:
+    def test_accelerated_flag_is_ignored_by_service_model_pair(self) -> None:
         game = SimpleNamespace(accelerated_service_enabled=True)
 
         with patch.object(monolith_main, "_request_polza_story_text", return_value="{}") as request_mock:
@@ -79,11 +79,11 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
 
         self.assertEqual(
             request_mock.call_args.kwargs["model_name"],
-            "google/gemini-2.5-flash-lite",
+            "google/gemini-2.5-flash",
         )
         self.assertEqual(
             request_mock.call_args.kwargs["fallback_model_names"],
-            ["openai/gpt-oss-120b"],
+            ["nex-agi/nex-n2-pro:free"],
         )
 
     def test_standard_game_uses_gemini_flash_service_model_pair(self) -> None:
@@ -144,7 +144,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             ],
         )
 
-    def test_accelerated_service_fallback_uses_exactly_two_http_requests(self) -> None:
+    def test_explicit_service_fallback_uses_exactly_two_http_requests(self) -> None:
         rate_limited = _FakeResponse(429, {"error": {"message": "rate limited"}})
         success = _FakeResponse(
             200,
@@ -154,8 +154,8 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         with patch.object(monolith_main.HTTP_SESSION, "post", side_effect=[rate_limited, success]) as post_mock:
             result = monolith_main._request_polza_story_text(
                 [{"role": "user", "content": "test"}],
-                model_name="google/gemini-2.5-flash-lite",
-                fallback_model_names=["openai/gpt-oss-120b"],
+                model_name="google/gemini-2.5-flash",
+                fallback_model_names=["nex-agi/nex-n2-pro:free"],
                 allow_service_fallback=False,
                 retry_on_rate_limit=False,
             )
@@ -164,7 +164,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(post_mock.call_count, 2)
         self.assertEqual(
             [call.kwargs["json"]["model"] for call in post_mock.call_args_list],
-            ["google/gemini-2.5-flash-lite", "openai/gpt-oss-120b"],
+            ["google/gemini-2.5-flash", "nex-agi/nex-n2-pro:free"],
         )
 
     def test_turn_service_http_budget_blocks_fourth_request(self) -> None:
@@ -216,7 +216,11 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             patch.object(
                 story_memory_pipeline,
                 "_request_polza_story_text",
-                return_value='{"auto_npcs":[]}',
+                return_value=(
+                    '{"location":{"should_update":false},'
+                    '"auto_state":{"character_updates":[]},'
+                    '"npc_cards":{"actions":[]}}'
+                ),
             ) as request_mock,
         ):
             payload = story_memory_pipeline._extract_story_postprocess_memory_payload(
@@ -234,11 +238,12 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
                 auto_npc_cards_enabled=True,
             )
 
-        self.assertEqual(payload, {"auto_npcs": []})
+        self.assertEqual(payload["npc_cards"]["actions"], [])
+        self.assertEqual(payload["auto_npcs"], [])
         self.assertEqual(request_mock.call_count, 1)
         self.assertFalse(request_mock.call_args.kwargs["retry_on_rate_limit"])
-        system_prompt = request_mock.call_args.args[0][0]["content"]
-        self.assertIn("Enabled sections: auto_npcs", system_prompt)
+        user_prompt = request_mock.call_args.args[0][1]["content"]
+        self.assertIn('"npc_cards"', user_prompt)
 
     def test_auto_npc_override_never_starts_separate_model_request(self) -> None:
         game = SimpleNamespace(id=7, auto_npc_cards_enabled=True)
@@ -260,10 +265,10 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(created, [])
         request_mock.assert_not_called()
 
-    def test_memory_compression_uses_one_request_without_retry(self) -> None:
-        valid_memory_text = (
-            "Alex \u0432\u043e\u0448\u0435\u043b \u0432 \u0437\u0430\u043b "
-            "\u0438 \u0437\u0430\u043a\u0440\u044b\u043b \u0434\u0432\u0435\u0440\u044c."
+    def test_memory_compression_uses_one_request_when_primary_returns_valid_json(self) -> None:
+        valid_memory_json = (
+            '{"summary":"Alex вошел в зал и закрыл дверь.",'
+            '"important_entities":[],"state_changes":[],"open_threads":[]}'
         )
         with (
             patch.object(
@@ -274,11 +279,11 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             patch.object(
                 story_memory_pipeline,
                 "_request_polza_story_text",
-                return_value=valid_memory_text,
+                return_value=valid_memory_json,
             ) as request_mock,
         ):
             _, content = story_memory_pipeline._compress_story_memory_block_with_model(
-                raw_content=valid_memory_text,
+                raw_content="PLAYER_TURN:\nAlex enters.\n\nNARRATOR_RESPONSE:\nAlex вошел в зал.",
                 model_name="google/gemma-4-31b-it:free",
                 fallback_model_names=[],
                 super_mode=False,
@@ -286,10 +291,36 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
                 known_character_names=["Alex"],
             )
 
-        self.assertEqual(content, valid_memory_text)
+        self.assertEqual(content, "Alex вошел в зал и закрыл дверь.")
         self.assertEqual(request_mock.call_count, 1)
+        self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL)
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
         self.assertFalse(request_mock.call_args.kwargs["retry_on_rate_limit"])
+
+    def test_memory_compression_uses_fallback_after_invalid_primary_json(self) -> None:
+        valid_memory_json = (
+            '{"summary":"Alex entered the hall.",'
+            '"important_entities":[],"state_changes":[],"open_threads":[]}'
+        )
+
+        with patch.object(
+            story_memory_pipeline,
+            "_request_polza_story_text",
+            side_effect=["not json", valid_memory_json],
+        ) as request_mock:
+            _, content = story_memory_pipeline._compress_story_memory_block_with_model(
+                raw_content="PLAYER_TURN:\nAlex enters.\n\nNARRATOR_RESPONSE:\nAlex entered the hall.",
+            )
+
+        self.assertEqual(content, "Alex entered the hall.")
+        self.assertEqual(request_mock.call_count, 2)
+        self.assertEqual(
+            [call.kwargs["model_name"] for call in request_mock.call_args_list],
+            [
+                story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL,
+                story_memory_pipeline.settings.polza_service_fallback_model,
+            ],
+        )
 
 
 if __name__ == "__main__":

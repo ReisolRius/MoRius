@@ -1176,7 +1176,7 @@ def story_game_summary_to_out(
             int(getattr(game, "active_main_hero_card_id", 0) or 0) or None
         ),
         auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
-        accelerated_service_enabled=bool(getattr(game, "accelerated_service_enabled", False)),
+        accelerated_service_enabled=False,
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         display_mode=normalize_story_display_mode(getattr(game, "display_mode", None)),
         character_state_enabled=normalize_story_character_state_enabled(
@@ -1327,7 +1327,7 @@ def story_game_summary_to_compact_out(
             int(getattr(game, "active_main_hero_card_id", 0) or 0) or None
         ),
         auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
-        accelerated_service_enabled=bool(getattr(game, "accelerated_service_enabled", False)),
+        accelerated_service_enabled=False,
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         display_mode=normalize_story_display_mode(getattr(game, "display_mode", None)),
         character_state_enabled=normalize_story_character_state_enabled(

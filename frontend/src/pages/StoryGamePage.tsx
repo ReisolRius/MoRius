@@ -172,6 +172,7 @@ import type {
   StoryInstructionTemplate,
   StoryImageModelId,
   StoryMemoryBlock,
+  StoryMemoryLayer,
   StoryMemoryOptimizationMode,
   StoryMessage,
   StoryNarratorModelId,
@@ -2071,6 +2072,20 @@ const AI_MEMORY_LAYER_LABEL: Record<'raw' | 'compressed' | 'super', string> = {
   raw: 'Свежие блоки · 50%',
   compressed: 'Сжатые блоки · 30%',
   super: 'Суперсжатые блоки · 20%',
+}
+type StoryMemoryDevLayer = 'raw' | 'compressed' | 'super'
+
+function getStoryMemoryDevLayer(layer: StoryMemoryLayer): StoryMemoryDevLayer | null {
+  if (layer === 'raw' || layer === 'latest_full' || layer === 'fresh_detailed' || layer === 'raw_pending') {
+    return 'raw'
+  }
+  if (layer === 'compressed') {
+    return 'compressed'
+  }
+  if (layer === 'super' || layer === 'facts') {
+    return 'super'
+  }
+  return null
 }
 const STORY_MEMORY_OPTIMIZATION_MODE_OPTIONS: Array<{
   value: StoryMemoryOptimizationMode
@@ -6001,7 +6016,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [showGgThoughts, setShowGgThoughts] = useState(false)
   const [showNpcThoughts, setShowNpcThoughts] = useState(false)
   const [autoNpcCardsEnabled, setAutoNpcCardsEnabled] = useState(false)
-  const [acceleratedServiceEnabled, setAcceleratedServiceEnabled] = useState(false)
   const [ambientEnabled, setAmbientEnabled] = useState(false)
   const [characterStateEnabled, setCharacterStateEnabled] = useState(false)
   const [appearanceBackgroundMode, setAppearanceBackgroundMode] = useState<StoryAppearanceBackgroundMode>(
@@ -6080,7 +6094,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isSavingShowGgThoughts = false
   const [isSavingShowNpcThoughts, setIsSavingShowNpcThoughts] = useState(false)
   const [isSavingAutoNpcCardsEnabled, setIsSavingAutoNpcCardsEnabled] = useState(false)
-  const [isSavingAcceleratedServiceEnabled, setIsSavingAcceleratedServiceEnabled] = useState(false)
   const [isSavingAmbientEnabled, setIsSavingAmbientEnabled] = useState(false)
   const [isSavingCharacterStateEnabled, setIsSavingCharacterStateEnabled] = useState(false)
   const [isSavingStoryAppearance, setIsSavingStoryAppearance] = useState(false)
@@ -6117,7 +6130,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const turnImageAbortControllersRef = useRef<Map<number, AbortController>>(new Map())
   const imageStylePromptByGameRef = useRef<Record<number, string>>({})
   const activeGameIdRef = useRef<number | null>(null)
-  const acceleratedServicePendingRef = useRef<{ gameId: number; value: boolean } | null>(null)
   const rightPanelResizingRef = useRef(false)
   const instructionDialogGameIdRef = useRef<number | null>(null)
   const plotCardDialogGameIdRef = useRef<number | null>(null)
@@ -6582,12 +6594,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
   const applyStoryGameSettings = useCallback((game: StoryGameSummary) => {
     const runtimeGame = game as Partial<StoryGameSummary>
-    const pendingAcceleratedService = acceleratedServicePendingRef.current
-    setAcceleratedServiceEnabled(
-      pendingAcceleratedService?.gameId === game.id
-        ? pendingAcceleratedService.value
-        : Boolean(runtimeGame.accelerated_service_enabled),
-    )
     const normalizedRuntimeStoryModel = normalizeStoryNarratorModelId(runtimeGame.story_llm_model)
     const override = storySettingsOverridesRef.current[game.id]
     const effectiveContextModel = override ? normalizeStoryNarratorModelId(override.storyLlmModel) : normalizedRuntimeStoryModel
@@ -6966,16 +6972,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [dismissedPlotCardEventIds, plotCardEvents],
   )
   const aiMemoryBlocksByLayer = useMemo(() => {
-    const nextMap = new Map<'raw' | 'compressed' | 'super', StoryMemoryBlock[]>()
+    const nextMap = new Map<StoryMemoryDevLayer, StoryMemoryBlock[]>()
     nextMap.set('raw', [])
     nextMap.set('compressed', [])
     nextMap.set('super', [])
     aiMemoryBlocks.forEach((block) => {
-      if (block.layer === 'raw' || block.layer === 'compressed' || block.layer === 'super') {
-        const currentItems = nextMap.get(block.layer) ?? []
-        currentItems.push(block)
-        nextMap.set(block.layer, currentItems)
+      const devLayer = getStoryMemoryDevLayer(block.layer)
+      if (!devLayer) {
+        return
       }
+      const currentItems = nextMap.get(devLayer) ?? []
+      currentItems.push(block)
+      nextMap.set(devLayer, currentItems)
     })
     nextMap.forEach((blocks, layer) => {
       nextMap.set(
@@ -7064,8 +7072,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const layerWeight: Record<string, number> = {
       key: -1,
       super: 0,
+      facts: 0,
       compressed: 1,
-      raw: 2,
+      fresh_detailed: 2,
+      raw: 3,
+      raw_pending: 3,
+      latest_full: 4,
     }
     const orderedBlocks = [...aiMemoryBlocks].sort((a, b) => {
       const layerDiff = (layerWeight[a.layer] ?? 99) - (layerWeight[b.layer] ?? 99)
@@ -7215,15 +7227,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [normalizedAiMemoryCardsForContext],
   )
   const rawMemoryCardsForContext = useMemo(
-    () => normalizedAiMemoryCardsForContext.filter((block) => block.layer === 'raw'),
+    () => normalizedAiMemoryCardsForContext.filter((block) => getStoryMemoryDevLayer(block.layer) === 'raw'),
     [normalizedAiMemoryCardsForContext],
   )
   const compressedMemoryCardsForContext = useMemo(
-    () => normalizedAiMemoryCardsForContext.filter((block) => block.layer === 'compressed'),
+    () => normalizedAiMemoryCardsForContext.filter((block) => getStoryMemoryDevLayer(block.layer) === 'compressed'),
     [normalizedAiMemoryCardsForContext],
   )
   const superMemoryCardsForContext = useMemo(
-    () => normalizedAiMemoryCardsForContext.filter((block) => block.layer === 'super'),
+    () => normalizedAiMemoryCardsForContext.filter((block) => getStoryMemoryDevLayer(block.layer) === 'super'),
     [normalizedAiMemoryCardsForContext],
   )
   const rawPlotContextTokensUsed = useMemo(
@@ -7347,9 +7359,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         storyLlmModel,
         effectiveAmbientEnabled,
         effectiveEmotionVisualizationEnabled,
-      ) + (acceleratedServiceEnabled ? 1 : 0),
+      ),
     [
-      acceleratedServiceEnabled,
       cardsContextCharsUsed,
       contextLimitChars,
       effectiveAmbientEnabled,
@@ -7399,7 +7410,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingStorySampling ||
     isSavingThoughtVisibility ||
     isSavingAutoNpcCardsEnabled ||
-    isSavingAcceleratedServiceEnabled ||
     isSavingAmbientEnabled ||
     isSavingCharacterStateEnabled ||
     isSavingStoryAppearance ||
@@ -13975,52 +13985,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingStorySettings,
   ])
 
-  const toggleAcceleratedServiceEnabled = useCallback(async () => {
-    const targetGameId = activeGameId
-    if (!targetGameId || isSavingStorySettings || isGenerating) {
-      return
-    }
-
-    const previousValue = acceleratedServiceEnabled
-    const nextValue = !previousValue
-    acceleratedServicePendingRef.current = { gameId: targetGameId, value: nextValue }
-    setAcceleratedServiceEnabled(nextValue)
-    setErrorMessage('')
-    setIsSavingAcceleratedServiceEnabled(true)
-    try {
-      const updatedGame = await updateStoryGameSettings({
-        token: authToken,
-        gameId: targetGameId,
-        acceleratedServiceEnabled: nextValue,
-      })
-      const persistedValue = Boolean(updatedGame.accelerated_service_enabled)
-      acceleratedServicePendingRef.current = { gameId: targetGameId, value: persistedValue }
-      if (activeGameIdRef.current === targetGameId) {
-        setAcceleratedServiceEnabled(persistedValue)
-      }
-      applyUpdatedGameSummary(updatedGame)
-    } catch (error) {
-      acceleratedServicePendingRef.current = { gameId: targetGameId, value: previousValue }
-      if (activeGameIdRef.current === targetGameId) {
-        setAcceleratedServiceEnabled(previousValue)
-      }
-      const detail = error instanceof Error ? error.message : 'Не удалось обновить ускоренный сервис'
-      setErrorMessage(detail)
-    } finally {
-      if (acceleratedServicePendingRef.current?.gameId === targetGameId) {
-        acceleratedServicePendingRef.current = null
-      }
-      setIsSavingAcceleratedServiceEnabled(false)
-    }
-  }, [
-    acceleratedServiceEnabled,
-    activeGameId,
-    applyUpdatedGameSummary,
-    authToken,
-    isGenerating,
-    isSavingStorySettings,
-  ])
-
   const toggleCharacterStateEnabled = useCallback(async () => {
     const targetGameId = activeGameId
     if (
@@ -19827,35 +19791,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             checked={advancedRegenerationEnabled}
                             onChange={toggleAdvancedRegenerationEnabled}
                             disabled={isGenerating}
-                            sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: 'var(--morius-accent)',
-                              },
-                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                backgroundColor: switchCheckedTrackColor,
-                                opacity: 1,
-                              },
-                              '& .MuiSwitch-track': {
-                                backgroundColor: switchTrackColor,
-                                opacity: 1,
-                              },
-                            }}
-                          />
-                        </Stack>
-
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                          <Stack direction="row" spacing={0.45} alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                              Ускоренный сервис
-                            </Typography>
-                            <SettingsInfoTooltipIcon text="Переключает оптимизацию памяти, модули, авто-карточки и авто состояние на google/gemini-2.5-flash-lite с fallback openai/gpt-oss-120b. Стоимость каждого хода увеличивается на 1 сол." />
-                          </Stack>
-                          <Switch
-                            checked={acceleratedServiceEnabled}
-                            onChange={() => {
-                              void toggleAcceleratedServiceEnabled()
-                            }}
-                            disabled={isSavingStorySettings || isGenerating}
                             sx={{
                               '& .MuiSwitch-switchBase.Mui-checked': {
                                 color: 'var(--morius-accent)',

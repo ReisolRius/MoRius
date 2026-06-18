@@ -172,14 +172,14 @@ def _apply_polza_story_reasoning_preferences(
         "z-ai/glm-4.7-flash",
         "z-ai/glm-4.7",
         STORY_SERVICE_TEXT_MODEL,
-        STORY_ACCELERATED_SERVICE_TEXT_MODEL,
+        POLZA_GEMINI_25_FLASH_LITE_MODEL,
     }:
         payload["reasoning"] = {
             "effort": "none",
             "exclude": True,
         }
         return
-    if normalized_model_name == STORY_ACCELERATED_SERVICE_FALLBACK_MODEL:
+    if normalized_model_name == "openai/gpt-oss-120b":
         payload["reasoning"] = {
             "effort": "low",
             "exclude": True,

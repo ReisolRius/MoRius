@@ -134,7 +134,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
 
         self.assertEqual(cost, 10)
 
-    def test_accelerated_service_adds_one_sol_to_runtime_turn_cost(self) -> None:
+    def test_accelerated_service_flag_does_not_change_runtime_turn_cost(self) -> None:
         cost = _calculate_story_turn_cost_tokens(
             get_story_turn_cost_tokens=lambda _context_usage_tokens, _model_name: 10,
             context_limit_tokens=32_000,
@@ -147,7 +147,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             accelerated_service_enabled=True,
         )
 
-        self.assertEqual(cost, 11)
+        self.assertEqual(cost, 10)
 
     def test_runtime_turn_cost_is_capped_by_selected_context_limit(self) -> None:
         cost = _calculate_story_turn_cost_tokens(

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -13,101 +12,86 @@ from app.services import story_memory_pipeline  # noqa: E402
 
 
 class StoryMemoryCompressionTests(unittest.TestCase):
-    def test_raw_memory_preserves_latest_full_text_speakers_without_markup(self) -> None:
-        content = story_memory_pipeline._build_story_raw_memory_block_content(
-            latest_user_prompt="Я открываю дверь и показываю Марине знак ждать у входа.",
-            latest_assistant_text=(
-                "[[NPC:Марина]] Стой, я слышу шаги за стеной.\n\n"
-                "Марина поднимает фонарь, а JRius остается у двери."
-            ),
-            player_turn_label="JRius",
-            known_character_names=["JRius", "Марина"],
-            preserve_user_text=True,
-            preserve_assistant_text=True,
-        )
-
-        self.assertIn("полный текст", content.casefold())
-        self.assertNotIn("подробный пересказ", content)
-        self.assertNotIn("[[", content)
-        self.assertIn("JRius:", content)
-        self.assertIn("Марина:", content)
-
-    def test_raw_memory_preserves_full_text_even_without_preserve_flags(self) -> None:
+    def test_latest_full_memory_preserves_player_and_narrator_text_without_manual_summary(self) -> None:
         user_tail = "Финальный приказ игрока должен остаться в памяти целиком."
         assistant_tail = "Финальная реплика рассказчика должна остаться без обрезки."
         content = story_memory_pipeline._build_story_raw_memory_block_content(
-            latest_user_prompt=(
-                "Алекс долго объясняет план отхода через северные ворота. " * 20
-                + user_tail
-            ),
+            latest_user_prompt=("Алекс объясняет план отхода через северные ворота. " * 20) + user_tail,
             latest_assistant_text=(
-                "Алисия внимательно слушает и отмечает, что стража уже меняет караул. " * 30
-                + assistant_tail
-            ),
-            player_turn_label="Алекс",
-            known_character_names=["Алекс", "Алисия"],
+                "[[NPC:Марина]] Алисия отмечает, что стража уже меняет караул. " * 20
+            )
+            + assistant_tail,
             preserve_user_text=False,
             preserve_assistant_text=False,
         )
 
-        self.assertIn("полный текст", content.casefold())
-        self.assertNotIn("подробный пересказ", content)
+        self.assertIn("PLAYER_TURN:\n", content)
+        self.assertIn("NARRATOR_RESPONSE:\n", content)
         self.assertIn(user_tail, content)
         self.assertIn(assistant_tail, content)
+        self.assertNotIn("подробный пересказ", content.casefold())
+        self.assertNotIn("[[NPC:", content)
 
-    def test_local_summary_keeps_latin_speaker_name(self) -> None:
-        summary = story_memory_pipeline._build_story_memory_summary_without_truncation(
-            "JRius: Я беру меч и закрываю дверь. Марина: Стой у входа и слушай шаги.",
-            super_mode=False,
-            player_name="JRius",
-            known_character_names=["JRius", "Марина"],
-            max_lines=4,
-            max_chars=400,
+    def test_model_compression_requires_strict_json_and_formats_detailed_memory(self) -> None:
+        raw_content = story_memory_pipeline._build_story_raw_memory_block_content(
+            latest_user_prompt="Alex входит в зал и закрывает дверь.",
+            latest_assistant_text="Марина остается у входа и слушает шаги за стеной.",
+        )
+        llm_payload = (
+            '{"summary":"Alex вошел в зал, закрыл дверь, а Марина осталась слушать шаги.",'
+            '"important_entities":[{"name":"Марина","type":"npc","note":"ждет у входа"}],'
+            '"state_changes":["дверь закрыта"],'
+            '"open_threads":["за стеной слышны шаги"]}'
         )
 
-        self.assertIn("JRius:", summary)
-        self.assertIn("Марина:", summary)
-
-    def test_model_compression_falls_back_after_unusable_primary_payload(self) -> None:
-        source_text = (
-            "Alex вошел в зал и закрыл дверь. "
-            "Марина осталась у входа и слушала шаги за стеной. "
-        ) * 12
-        fallback_text = "Alex вошел в зал и закрыл дверь, а Марина осталась у входа слушать шаги."
-
-        with (
-            patch.object(
-                story_memory_pipeline,
-                "settings",
-                SimpleNamespace(polza_api_key="test-key"),
-            ),
-            patch.object(
-                story_memory_pipeline,
-                "_request_polza_story_text",
-                side_effect=[source_text, fallback_text],
-            ) as request_mock,
-        ):
-            _, content = story_memory_pipeline._compress_story_memory_block_with_model(
-                raw_content=source_text,
-                model_name="primary-model",
-                fallback_model_names=["fallback-model"],
+        with patch.object(
+            story_memory_pipeline,
+            "_request_polza_story_text",
+            return_value=llm_payload,
+        ) as request_mock:
+            title, content = story_memory_pipeline._compress_story_memory_block_with_model(
+                raw_content=raw_content,
+                model_name="ignored-old-model",
+                fallback_model_names=["ignored-old-fallback"],
                 super_mode=False,
                 player_name="Alex",
                 known_character_names=["Alex", "Марина"],
             )
 
-        self.assertEqual(content, fallback_text)
-        self.assertEqual(request_mock.call_count, 2)
-        self.assertEqual(
-            [call.kwargs["model_name"] for call in request_mock.call_args_list],
-            ["primary-model", "fallback-model"],
-        )
-        self.assertEqual(
-            [call.kwargs["fallback_model_names"] for call in request_mock.call_args_list],
-            [[], []],
-        )
-        self.assertTrue(all(call.kwargs["request_timeout"][1] <= 30 for call in request_mock.call_args_list))
-        self.assertTrue(all(call.kwargs["retry_on_rate_limit"] is False for call in request_mock.call_args_list))
+        self.assertEqual(title, "Подробная память")
+        self.assertIn("Alex вошел в зал", content)
+        self.assertIn("Марина (npc)", content)
+        self.assertIn("дверь закрыта", content)
+        self.assertEqual(request_mock.call_count, 1)
+        self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL)
+        self.assertFalse(request_mock.call_args.kwargs["retry_on_rate_limit"])
+        self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
+
+    def test_invalid_model_payload_raises_without_local_summary_fallback(self) -> None:
+        with patch.object(
+            story_memory_pipeline,
+            "_request_polza_story_text",
+            return_value="not json",
+        ):
+            with self.assertRaisesRegex(RuntimeError, "LLM JSON call failed"):
+                story_memory_pipeline._compress_story_memory_block_with_model(
+                    raw_content="PLAYER_TURN:\nI enter.\n\nNARRATOR_RESPONSE:\nThe room is quiet.",
+                )
+
+    def test_super_mode_formats_fact_memory_from_strict_json(self) -> None:
+        with patch.object(
+            story_memory_pipeline,
+            "_request_polza_story_text",
+            return_value='{"facts":["Alex owns a brass key"],"persistent_state":["door is locked"],"open_threads":[]}',
+        ):
+            title, content = story_memory_pipeline._compress_story_memory_block_with_model(
+                raw_content="compressed source",
+                super_mode=True,
+            )
+
+        self.assertEqual(title, "Факты памяти")
+        self.assertIn("Alex owns a brass key", content)
+        self.assertIn("door is locked", content)
 
 
 if __name__ == "__main__":

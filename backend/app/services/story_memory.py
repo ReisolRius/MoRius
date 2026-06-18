@@ -10,15 +10,23 @@ from app.schemas import StoryMemoryBlockOut
 from app.services.text_encoding import sanitize_likely_utf8_mojibake
 
 STORY_MEMORY_LAYER_RAW = "raw"
+STORY_MEMORY_LAYER_LATEST_FULL = "latest_full"
+STORY_MEMORY_LAYER_FRESH_DETAILED = "fresh_detailed"
 STORY_MEMORY_LAYER_COMPRESSED = "compressed"
 STORY_MEMORY_LAYER_SUPER = "super"
+STORY_MEMORY_LAYER_FACTS = "facts"
+STORY_MEMORY_LAYER_RAW_PENDING = "raw_pending"
 STORY_MEMORY_LAYER_KEY = "key"
 STORY_MEMORY_LAYER_LOCATION = "location"
 STORY_MEMORY_LAYER_WEATHER = "weather"
 STORY_MEMORY_LAYERS = {
     STORY_MEMORY_LAYER_RAW,
+    STORY_MEMORY_LAYER_LATEST_FULL,
+    STORY_MEMORY_LAYER_FRESH_DETAILED,
     STORY_MEMORY_LAYER_COMPRESSED,
     STORY_MEMORY_LAYER_SUPER,
+    STORY_MEMORY_LAYER_FACTS,
+    STORY_MEMORY_LAYER_RAW_PENDING,
     STORY_MEMORY_LAYER_KEY,
     STORY_MEMORY_LAYER_LOCATION,
     STORY_MEMORY_LAYER_WEATHER,
@@ -90,6 +98,17 @@ def strip_story_location_time_context(value: str) -> str:
 
 def normalize_story_memory_layer(value: str | None) -> str:
     normalized = value.strip().lower() if isinstance(value, str) else ""
+    aliases = {
+        "latest": STORY_MEMORY_LAYER_LATEST_FULL,
+        "latest_full_turn": STORY_MEMORY_LAYER_LATEST_FULL,
+        "detailed": STORY_MEMORY_LAYER_FRESH_DETAILED,
+        "fresh": STORY_MEMORY_LAYER_FRESH_DETAILED,
+        "compressed_summary": STORY_MEMORY_LAYER_COMPRESSED,
+        "fact": STORY_MEMORY_LAYER_FACTS,
+        "pending_retry": STORY_MEMORY_LAYER_RAW_PENDING,
+    }
+    if normalized in aliases:
+        return aliases[normalized]
     if normalized in STORY_MEMORY_LAYERS:
         return normalized
     return STORY_MEMORY_LAYER_RAW
@@ -138,8 +157,12 @@ def story_memory_block_to_out(block: StoryMemoryBlock) -> StoryMemoryBlockOut:
     normalized_content = sanitize_likely_utf8_mojibake(str(block.content or ""))
     if layer_value in {
         STORY_MEMORY_LAYER_RAW,
+        STORY_MEMORY_LAYER_LATEST_FULL,
+        STORY_MEMORY_LAYER_FRESH_DETAILED,
         STORY_MEMORY_LAYER_COMPRESSED,
         STORY_MEMORY_LAYER_SUPER,
+        STORY_MEMORY_LAYER_FACTS,
+        STORY_MEMORY_LAYER_RAW_PENDING,
         STORY_MEMORY_LAYER_KEY,
     }:
         normalized_title = _replace_markup_with_names(normalized_title)
