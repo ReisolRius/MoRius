@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import main  # noqa: E402
 from app.models import StoryGame, StoryMessage  # noqa: E402
 from app.services import story_memory_pipeline  # noqa: E402
+from app.services.story_llm_modules import GameStateAnalysisPayload  # noqa: E402
 from app.services.story_service_budget import (  # noqa: E402
     StoryServiceHttpRequestBudget,
     consume_story_service_http_request,
@@ -20,6 +21,150 @@ from app.services.story_service_budget import (  # noqa: E402
 
 
 class StoryPostprocessFallbackTests(unittest.TestCase):
+    def test_gemini_postprocess_uses_complete_character_list_and_returns_only_requested_module(self) -> None:
+        active_card = SimpleNamespace(
+            id=1,
+            game_id=42,
+            title="Alex",
+            content="Player",
+            race="",
+            triggers="[]",
+            kind="main_hero",
+        )
+        inactive_card = SimpleNamespace(
+            id=2,
+            game_id=42,
+            title="Mira",
+            content="Important NPC",
+            race="human",
+            triggers='["Mira"]',
+            kind="npc",
+        )
+        game = SimpleNamespace(
+            id=42,
+            current_location_label="",
+            character_state_payload="[]",
+        )
+
+        class FakeLlmService:
+            def call_json(self, **kwargs):
+                return (
+                    GameStateAnalysisPayload.model_validate(
+                        {
+                            "auto_state": {
+                                "character_updates": [
+                                    {
+                                        "character_ref": {"id": 2, "name": "Mira"},
+                                        "health": {
+                                            "value": "normal",
+                                            "source": "default",
+                                            "should_update": True,
+                                        },
+                                    }
+                                ]
+                            }
+                        }
+                    ),
+                    {},
+                )
+
+        with (
+            patch.object(
+                story_memory_pipeline,
+                "list_story_world_cards",
+                return_value=[active_card, inactive_card],
+            ),
+            patch.object(
+                story_memory_pipeline,
+                "build_game_state_analysis_messages",
+                return_value=[],
+            ) as prompt_mock,
+            patch.object(story_memory_pipeline, "_llm_service", return_value=FakeLlmService()),
+        ):
+            payload = story_memory_pipeline._extract_story_postprocess_memory_payload(
+                db=SimpleNamespace(),
+                game=game,
+                current_location_content="",
+                latest_user_prompt="I greet Mira.",
+                previous_assistant_text="",
+                latest_assistant_text="Mira answers.",
+                location_enabled=False,
+                character_state_enabled=True,
+                auto_npc_cards_enabled=False,
+                world_cards=[active_card],
+            )
+
+        character_names = {
+            card["name"]
+            for card in prompt_mock.call_args.kwargs["existing_character_cards"]
+        }
+        self.assertEqual(character_names, {"Alex", "Mira"})
+        self.assertIn("character_state", payload)
+        self.assertNotIn("location", payload)
+        self.assertNotIn("auto_npcs", payload)
+
+    def test_turn_postprocess_splits_auto_state_and_auto_npcs_into_independent_gemini_calls(self) -> None:
+        game = SimpleNamespace(id=42)
+        assistant_message = SimpleNamespace(id=9, game_id=42, role="assistant")
+        calls: list[tuple[bool, bool, bool]] = []
+
+        def fake_extract(**kwargs):
+            call = (
+                bool(kwargs["location_enabled"]),
+                bool(kwargs["character_state_enabled"]),
+                bool(kwargs["auto_npc_cards_enabled"]),
+            )
+            calls.append(call)
+            if call == (True, False, False):
+                return {"location": {"content": "Current place"}, "call_count": 1}
+            if call == (False, True, False):
+                return {"character_state": {"character_updates": []}, "call_count": 1}
+            if call == (False, False, True):
+                return {"auto_npcs": [], "call_count": 1}
+            raise AssertionError(f"Unexpected grouped postprocess call: {call}")
+
+        with (
+            patch.object(
+                story_memory_pipeline,
+                "_get_story_latest_location_memory_content",
+                return_value="Previous place",
+            ),
+            patch.object(
+                story_memory_pipeline,
+                "_extract_story_postprocess_memory_payload",
+                side_effect=fake_extract,
+            ),
+            patch(
+                "app.services.story_character_state_fields.sync_story_character_state_payload_from_world_cards",
+                return_value=False,
+            ),
+        ):
+            payload = main._resolve_story_turn_postprocess_payload(
+                db=SimpleNamespace(),
+                game=game,
+                assistant_message=assistant_message,
+                latest_user_prompt="Turn",
+                latest_assistant_text="Response",
+                previous_assistant_text="Previous response",
+                world_cards=[],
+                location_enabled=True,
+                environment_enabled=False,
+                character_state_enabled=True,
+                auto_npc_cards_enabled=True,
+            )
+
+        self.assertEqual(
+            calls,
+            [
+                (True, False, False),
+                (False, True, False),
+                (False, False, True),
+            ],
+        )
+        self.assertIn("location", payload)
+        self.assertIn("character_state", payload)
+        self.assertIn("auto_npcs", payload)
+
     def test_player_turn_location_fallback_is_disabled(self) -> None:
         payload = story_memory_pipeline._build_story_location_fallback_payload_from_player_turn(
             latest_user_prompt=(
@@ -100,8 +245,8 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
 
         self.assertEqual(request_mock.call_count, 1)
         self.assertFalse(payload["location"]["should_update"])
-        self.assertEqual(payload["auto_state"]["character_updates"], [])
-        self.assertEqual(payload["npc_cards"]["actions"], [])
+        self.assertNotIn("auto_state", payload)
+        self.assertNotIn("npc_cards", payload)
 
     def test_unified_postprocess_treats_changed_location_as_update(self) -> None:
         game = SimpleNamespace(
@@ -338,6 +483,55 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
 
         self.assertEqual(changed, [])
         self.assertEqual(session.added, [])
+
+    def test_auto_npc_create_card_persists_new_gemini_card(self) -> None:
+        game = SimpleNamespace(id=10, auto_npc_cards_enabled=True)
+
+        class FakeSession:
+            def __init__(self) -> None:
+                self.added: list[object] = []
+
+            def get(self, _model, _item_id):
+                return None
+
+            def add(self, item):
+                self.added.append(item)
+
+            def flush(self):
+                for index, item in enumerate(self.added, start=1):
+                    if getattr(item, "id", None) is None:
+                        item.id = 100 + index
+
+        session = FakeSession()
+
+        with patch.object(story_memory_pipeline, "list_story_world_cards", return_value=[]):
+            changed = story_memory_pipeline._sync_story_auto_npc_cards_for_assistant_message(
+                db=session,
+                game=game,
+                assistant_message=SimpleNamespace(id=20),
+                latest_user_prompt="I ask Captain Mira for help.",
+                latest_assistant_text="Captain Mira promises to return after the siege.",
+                resolved_payload_override=[
+                    {
+                        "type": "create_card",
+                        "new_card": {
+                            "name": "Captain Mira",
+                            "race": "human",
+                            "description": "Commander of the city guard.",
+                            "personality": "Decisive and loyal.",
+                            "triggers": ["Captain Mira", "Mira"],
+                            "importance_reason": "Will return after the siege.",
+                        },
+                    }
+                ],
+            )
+
+        self.assertEqual(changed, session.added)
+        self.assertEqual(len(changed), 1)
+        self.assertEqual(changed[0].title, "Captain Mira")
+        self.assertEqual(changed[0].kind, "npc")
+        self.assertEqual(changed[0].source, "ai")
+        self.assertIn("Commander of the city guard.", changed[0].content)
 
     def test_missing_unified_payload_delegates_location_to_ai_module_without_local_override(self) -> None:
         game = StoryGame(id=10, user_id=1, title="Test")

@@ -121,6 +121,8 @@ POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
     (StoryGame.__tablename__, "show_gg_thoughts"): False,
     (StoryGame.__tablename__, "show_npc_thoughts"): False,
     (StoryGame.__tablename__, "auto_npc_cards_enabled"): False,
+    (StoryGame.__tablename__, "character_state_enabled"): False,
+    (StoryGame.__tablename__, "character_state_monitor_inactive_always"): True,
     (StoryGame.__tablename__, "accelerated_service_enabled"): False,
     (StoryGame.__tablename__, "ambient_enabled"): False,
     (StoryGame.__tablename__, "appearance_gradient_enabled"): True,
@@ -482,6 +484,21 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN auto_npc_cards_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+    if "character_state_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN character_state_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+    if "character_state_monitor_inactive_always" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN character_state_monitor_inactive_always INTEGER NOT NULL DEFAULT 1"
+        )
+    if "character_state_payload" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN character_state_payload TEXT NOT NULL DEFAULT ''"
         )
     if "accelerated_service_enabled" not in existing_columns:
         alter_statements.append(

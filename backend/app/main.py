@@ -7160,7 +7160,7 @@ def _resolve_story_turn_postprocess_payload(
             if value is not None:
                 target[key] = value
 
-    split_heavy_modules = False
+    split_heavy_modules = bool(character_state_enabled or auto_npc_cards_enabled)
     if not split_heavy_modules:
         payload = safe_request_postprocess_group(
             module_name="unified_postprocess",
@@ -7188,6 +7188,7 @@ def _resolve_story_turn_postprocess_payload(
             current_location_content_override=current_location_content,
             raw_memory=raw_memory_enabled,
             location=location_enabled,
+            environment=resolved_environment_enabled,
             important_event=important_event_enabled,
             ambient=ambient_enabled,
             scene_emotion=emotion_visualization_enabled,
@@ -7205,18 +7206,17 @@ def _resolve_story_turn_postprocess_payload(
     merge_payload(
         merged_payload,
         safe_request_postprocess_group(
-            module_name="character_postprocess",
+            module_name="character_state",
             current_location_content_override=effective_location_content,
             character_state=character_state_enabled,
-            auto_npcs=auto_npc_cards_enabled,
         ),
     )
     merge_payload(
         merged_payload,
         safe_request_postprocess_group(
-            module_name="environment_postprocess",
+            module_name="auto_npcs",
             current_location_content_override=effective_location_content,
-            environment=resolved_environment_enabled,
+            auto_npcs=auto_npc_cards_enabled,
         ),
     )
     if failed_modules:

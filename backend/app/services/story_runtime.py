@@ -1329,7 +1329,7 @@ def _stream_story_response(
     unified_postprocess_payload: dict[str, Any] | None = None
     # Hard cap for post-generation service calls. Heavy module combinations may
     # split post-processing into location, NPC/state, environment, and memory.
-    service_request_budget = StoryServiceHttpRequestBudget(max_requests=4)
+    service_request_budget = StoryServiceHttpRequestBudget(max_requests=10)
     if not aborted and response_has_content:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "postprocess"})
         try:

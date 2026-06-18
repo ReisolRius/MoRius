@@ -39,12 +39,14 @@ def world_card_to_character_payload(card: Any) -> dict[str, Any] | None:
         content = str(card.get("content") or "").strip()
         race = str(card.get("race") or "").strip()
         triggers = parse_json_list(card.get("triggers"))
+        ai_edit_enabled = bool(card.get("ai_edit_enabled", True))
     else:
         card_id = getattr(card, "id", None)
         title = str(getattr(card, "title", "") or "").strip()
         content = str(getattr(card, "content", "") or "").strip()
         race = str(getattr(card, "race", "") or "").strip()
         triggers = parse_json_list(getattr(card, "triggers", "[]"))
+        ai_edit_enabled = bool(getattr(card, "ai_edit_enabled", True))
     if not title and not content:
         return None
     return {
@@ -54,6 +56,7 @@ def world_card_to_character_payload(card: Any) -> dict[str, Any] | None:
         "race": race or None,
         "description": content,
         "triggers": [str(item).strip() for item in triggers if str(item or "").strip()],
+        "ai_edit_enabled": ai_edit_enabled,
     }
 
 

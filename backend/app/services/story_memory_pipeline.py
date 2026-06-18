@@ -15,6 +15,7 @@ from app.models import StoryGame, StoryMemoryBlock, StoryMessage, StoryWorldCard
 from app.services.story_game_state_analysis import (
     NpcCardDedupService,
     build_world_card_context,
+    normalize_match_text,
     parse_json_list,
     world_card_to_character_payload,
 )
@@ -930,6 +931,8 @@ def _ensure_story_character_state_cards_include_world_cards(
         kind = str(getattr(card, "kind", "") or "").strip().lower()
         if kind not in {"main_hero", "npc"}:
             continue
+        if not bool(getattr(card, "ai_edit_enabled", True)):
+            continue
         card_id = int(getattr(card, "id", 0) or 0)
         if card_id <= 0 or card_id in seen_ids:
             continue
@@ -996,8 +999,14 @@ def _sync_story_character_state_cards(
         if not isinstance(updates, list):
             return False
         next_cards = [dict(card) for card in existing_cards]
-        by_name = {str(card.get("name") or "").casefold(): card for card in next_cards}
+        by_name = {
+            normalize_match_text(card.get("name")): card
+            for card in next_cards
+            if normalize_match_text(card.get("name"))
+        }
         by_id = {str(card.get("world_card_id") or card.get("id") or ""): card for card in next_cards}
+        applied_updates = 0
+        skipped_updates = 0
         for update in updates:
             if not isinstance(update, dict):
                 continue
@@ -1006,9 +1015,19 @@ def _sync_story_character_state_cards(
             ref_name = str(character_ref.get("name") or "").strip()
             card = by_id.get(ref_id) if ref_id else None
             if card is None and ref_name:
-                card = by_name.get(ref_name.casefold())
+                card = by_name.get(normalize_match_text(ref_name))
             if card is None:
+                skipped_updates += 1
+                logger.warning(
+                    "Story character-state update skipped because Gemini reference did not match a tracked card: "
+                    "game_id=%s assistant_message_id=%s character_id=%s character_name=%s",
+                    game.id,
+                    assistant_message.id,
+                    ref_id,
+                    ref_name,
+                )
                 continue
+            applied_updates += 1
             clothing = update.get("clothing") if isinstance(update.get("clothing"), dict) else {}
             if clothing.get("should_update") and str(clothing.get("source") or "") != "unchanged":
                 card["clothing"] = str(clothing.get("value") or "").strip()
@@ -1028,9 +1047,29 @@ def _sync_story_character_state_cards(
                     if item:
                         change_lines.append(" ".join(part for part in (action, item, details) if part).strip())
                 if change_lines:
-                    card["equipment"] = "; ".join(part for part in [current_equipment, *change_lines] if part)
+                    existing_change_lines = {
+                        normalize_match_text(part)
+                        for part in current_equipment.split(";")
+                        if normalize_match_text(part)
+                    }
+                    unique_change_lines = [
+                        line
+                        for line in change_lines
+                        if normalize_match_text(line) not in existing_change_lines
+                    ]
+                    card["equipment"] = "; ".join(
+                        part for part in [current_equipment, *unique_change_lines] if part
+                    )
             if current_location_content and not str(card.get("location") or "").strip():
                 card["location"] = _state_location_from_content(current_location_content)
+        logger.info(
+            "Story character-state Gemini actions processed: game_id=%s assistant_message_id=%s "
+            "applied=%s skipped=%s",
+            game.id,
+            assistant_message.id,
+            applied_updates,
+            skipped_updates,
+        )
     next_payload = _serialize_story_character_state_cards_payload(next_cards)
     if str(getattr(game, "character_state_payload", "") or "") == next_payload:
         return False
@@ -1084,6 +1123,11 @@ def _sync_story_auto_npc_cards_for_assistant_message(
         payload = extracted.get("npc_cards", {}).get("actions") if isinstance(extracted, dict) else None
     actions = payload.get("actions") if isinstance(payload, dict) else payload
     if not isinstance(actions, list):
+        logger.warning(
+            "Story auto-NPC Gemini payload has no actions list: game_id=%s assistant_message_id=%s",
+            game.id,
+            assistant_message.id,
+        )
         return []
     candidates = _NPC_DEDUP_SERVICE.build_candidates(
         cards=existing_cards,
@@ -1101,6 +1145,15 @@ def _sync_story_auto_npc_cards_for_assistant_message(
         target_card = db.get(StoryWorldCard, existing_id) if existing_id > 0 else None
         if target_card is not None and int(getattr(target_card, "game_id", 0) or 0) != int(game.id):
             target_card = None
+        if target_card is not None and not bool(getattr(target_card, "ai_edit_enabled", True)):
+            logger.info(
+                "Story auto-NPC update ignored for AI-locked card: game_id=%s assistant_message_id=%s "
+                "existing_card_id=%s",
+                game.id,
+                assistant_message.id,
+                existing_id,
+            )
+            continue
         if action_type == "create_card":
             new_card = action.get("new_card") if isinstance(action.get("new_card"), dict) else {}
             name = str(new_card.get("name") or "").strip()
@@ -1143,6 +1196,19 @@ def _sync_story_auto_npc_cards_for_assistant_message(
                     extra={"gameId": game.id, "turnId": assistant_message.id, "npcDedupDecision": "create_card"},
                 )
                 continue
+        if (
+            action_type == "update_existing_card"
+            and target_card is not None
+            and not bool(getattr(target_card, "ai_edit_enabled", True))
+        ):
+            logger.info(
+                "Story auto-NPC dedup matched an AI-locked card; update ignored: "
+                "game_id=%s assistant_message_id=%s existing_card_id=%s",
+                game.id,
+                assistant_message.id,
+                getattr(target_card, "id", None),
+            )
+            continue
         if action_type == "update_existing_card" and target_card is not None:
             update = action.get("update_existing") if isinstance(action.get("update_existing"), dict) else {}
             add_triggers = [str(item).strip() for item in update.get("add_triggers", []) if str(item or "").strip()]
@@ -1164,6 +1230,14 @@ def _sync_story_auto_npc_cards_for_assistant_message(
                     "Story NPC dedup decision",
                     extra={"gameId": game.id, "turnId": assistant_message.id, "npcDedupDecision": "update_existing_card"},
                 )
+        elif action_type == "update_existing_card":
+            logger.warning(
+                "Story auto-NPC update skipped because Gemini did not provide a valid existing card id: "
+                "game_id=%s assistant_message_id=%s existing_card_id=%s",
+                game.id,
+                assistant_message.id,
+                action.get("existing_card_id"),
+            )
     return changed_cards
 
 
@@ -1206,12 +1280,18 @@ def _extract_story_postprocess_memory_payload(
         requested_modules.append("npc_cards")
     if not requested_modules:
         return None
-    source_world_cards: list[Any] = list(world_cards or [])
-    if not source_world_cards:
-        try:
-            source_world_cards = list(list_story_world_cards(db, game.id))
-        except Exception:
-            source_world_cards = []
+    # Character state and NPC deduplication must see every persisted character,
+    # not only the cards selected for the current storyteller prompt.
+    try:
+        source_world_cards: list[Any] = list(list_story_world_cards(db, game.id))
+    except Exception:
+        logger.warning(
+            "Failed to load complete world-card context for Gemini post-process: game_id=%s",
+            game.id,
+            exc_info=True,
+        )
+        source_world_cards = list(world_cards or [])
+    world_context_cards = list(world_cards or source_world_cards)
     existing_character_cards = _build_existing_character_cards(db, game, source_world_cards)
     candidates = _NPC_DEDUP_SERVICE.build_candidates(
         cards=source_world_cards,
@@ -1227,7 +1307,7 @@ def _extract_story_postprocess_memory_payload(
     }
     messages = build_game_state_analysis_messages(
         requested_modules=requested_modules,
-        world_card=build_world_card_context(source_world_cards),
+        world_card=build_world_card_context(world_context_cards),
         previous_location=previous_location,
         player_character_card=main_hero_card,
         existing_character_cards=existing_character_cards,
@@ -1244,16 +1324,31 @@ def _extract_story_postprocess_memory_payload(
         max_tokens=1_400,
         max_attempts=2,
     )
-    result = payload.model_dump(mode="json")
-    location = result.get("location") if isinstance(result.get("location"), dict) else {}
-    if location:
-        if bool(location.get("changed")) and not bool(location.get("should_update")):
-            location["should_update"] = True
-        location["content"] = _location_payload_to_content(location)
-    result["location"] = location
-    result["character_state"] = result.get("auto_state", {"character_updates": []})
-    result["auto_npcs"] = (result.get("npc_cards") or {}).get("actions", [])
-    result["call_count"] = 1
+    model_result = payload.model_dump(mode="json")
+    result: dict[str, Any] = {"call_count": 1}
+    if location_enabled:
+        location = model_result.get("location") if isinstance(model_result.get("location"), dict) else {}
+        if location:
+            if bool(location.get("changed")) and not bool(location.get("should_update")):
+                location["should_update"] = True
+            location["content"] = _location_payload_to_content(location)
+        result["location"] = location
+    if character_state_enabled:
+        auto_state = (
+            model_result.get("auto_state")
+            if isinstance(model_result.get("auto_state"), dict)
+            else {"character_updates": []}
+        )
+        result["auto_state"] = auto_state
+        result["character_state"] = auto_state
+    if auto_npc_cards_enabled:
+        npc_cards = (
+            model_result.get("npc_cards")
+            if isinstance(model_result.get("npc_cards"), dict)
+            else {"actions": []}
+        )
+        result["npc_cards"] = npc_cards
+        result["auto_npcs"] = npc_cards.get("actions", [])
     return result
 
 

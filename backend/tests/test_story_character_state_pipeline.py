@@ -11,6 +11,9 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services import story_memory_pipeline  # noqa: E402
+from app.services.story_character_state_fields import (  # noqa: E402
+    apply_story_character_state_payload_to_world_cards,
+)
 
 
 class StoryCharacterStatePipelineTests(unittest.TestCase):
@@ -175,6 +178,104 @@ class StoryCharacterStatePipelineTests(unittest.TestCase):
         cards = json.loads(game.character_state_payload)
         self.assertIn("old key", cards[0]["equipment"])
         self.assertIn("gained silver coin from Mira", cards[0]["equipment"])
+
+    def test_auto_state_matches_structured_character_name_after_normalization(self) -> None:
+        game = SimpleNamespace(
+            id=10,
+            character_state_enabled=True,
+            character_state_payload=json.dumps(
+                [
+                    {
+                        "world_card_id": 1,
+                        "name": "Алёна Ветрова",
+                        "kind": "npc",
+                        "is_active": True,
+                        "status": "",
+                        "clothing": "",
+                        "location": "",
+                        "equipment": "",
+                        "mood": "",
+                        "attitude_to_hero": "",
+                        "personality": "",
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+        )
+        payload = {
+            "character_updates": [
+                {
+                    "character_ref": {"id": None, "name": "алена  ветрова"},
+                    "clothing": {
+                        "value": "серый дорожный плащ",
+                        "source": "explicit",
+                        "should_update": True,
+                    },
+                }
+            ]
+        }
+
+        class FakeSession:
+            def flush(self):
+                return None
+
+        with patch.object(
+            story_memory_pipeline,
+            "_ensure_story_character_state_cards_include_world_cards",
+            return_value=False,
+        ):
+            changed = story_memory_pipeline._sync_story_character_state_cards(
+                db=FakeSession(),
+                game=game,
+                assistant_message=SimpleNamespace(id=20),
+                resolved_payload_override=payload,
+            )
+
+        cards = json.loads(game.character_state_payload)
+        self.assertTrue(changed)
+        self.assertEqual(cards[0]["clothing"], "серый дорожный плащ")
+
+    def test_auto_state_payload_is_applied_to_editable_world_card_fields(self) -> None:
+        world_card = SimpleNamespace(
+            id=1,
+            game_id=10,
+            title="Mira",
+            kind="npc",
+            ai_edit_enabled=True,
+            health_status="",
+            clothing="",
+            inventory="",
+        )
+        game = SimpleNamespace(
+            id=10,
+            character_state_payload=json.dumps(
+                [
+                    {
+                        "world_card_id": 1,
+                        "name": "Mira",
+                        "kind": "npc",
+                        "status": "Ранен: порез ладони",
+                        "clothing": "синий плащ",
+                        "equipment": "серебряный ключ",
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+        )
+
+        with patch(
+            "app.services.story_character_state_fields.list_story_world_cards",
+            return_value=[world_card],
+        ):
+            changed = apply_story_character_state_payload_to_world_cards(
+                db=SimpleNamespace(),
+                game=game,
+            )
+
+        self.assertTrue(changed)
+        self.assertEqual(world_card.health_status, "Ранен: порез ладони")
+        self.assertEqual(world_card.clothing, "синий плащ")
+        self.assertEqual(world_card.inventory, "серебряный ключ")
 
 
 if __name__ == "__main__":
