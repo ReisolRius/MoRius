@@ -76,6 +76,7 @@ from app.routers.story_turn_image import router as story_turn_image_router
 from app.routers.story_undo import router as story_undo_router
 from app.routers.story_world_cards import router as story_world_cards_router
 from app.services.story_service_budget import consume_story_service_http_request
+from app.services.sqlite_write_guard import commit_with_retry
 from app.schemas import (
     StoryCharacterAvatarGenerateOut,
     StoryCharacterAvatarGenerateRequest,
@@ -7084,6 +7085,50 @@ def _resolve_story_turn_postprocess_payload(
             scene_emotion_allowed_emotions=sorted(_STORY_CHARACTER_EMOTION_IDS),
         )
 
+    failed_modules: list[str] = []
+
+    def safe_request_postprocess_group(*, module_name: str, **kwargs: Any) -> dict[str, Any] | None:
+        requested_sections = [
+            section_name
+            for section_name, enabled in (
+                ("raw_memory", kwargs.get("raw_memory")),
+                ("location", kwargs.get("location")),
+                ("environment", kwargs.get("environment")),
+                ("character_state", kwargs.get("character_state")),
+                ("important_event", kwargs.get("important_event")),
+                ("ambient", kwargs.get("ambient")),
+                ("scene_emotion", kwargs.get("scene_emotion")),
+                ("auto_npcs", kwargs.get("auto_npcs")),
+            )
+            if bool(enabled)
+        ]
+        if not requested_sections:
+            return None
+        try:
+            payload = request_postprocess_group(**kwargs)
+        except Exception as exc:
+            logger.warning(
+                "Story unified post-process group failed: game_id=%s assistant_message_id=%s module=%s sections=%s error=%s",
+                game.id,
+                assistant_message.id,
+                module_name,
+                ",".join(requested_sections),
+                exc,
+            )
+            failed_modules.append(module_name)
+            return None
+        if not isinstance(payload, dict) or not payload:
+            logger.warning(
+                "Story unified post-process group returned no usable payload: game_id=%s assistant_message_id=%s module=%s sections=%s",
+                game.id,
+                assistant_message.id,
+                module_name,
+                ",".join(requested_sections),
+            )
+            failed_modules.append(module_name)
+            return None
+        return payload
+
     def merge_payload(target: dict[str, Any], source: dict[str, Any] | None) -> None:
         if not isinstance(source, dict):
             return
@@ -7092,65 +7137,67 @@ def _resolve_story_turn_postprocess_payload(
                 target[key] = value
 
     split_heavy_modules = bool(resolved_environment_enabled or character_state_enabled or auto_npc_cards_enabled)
-    try:
-        if not split_heavy_modules:
-            return request_postprocess_group(
-                current_location_content_override=current_location_content,
-                raw_memory=raw_memory_enabled,
-                location=location_enabled,
-                environment=resolved_environment_enabled,
-                character_state=character_state_enabled,
-                important_event=important_event_enabled,
-                ambient=ambient_enabled,
-                scene_emotion=emotion_visualization_enabled,
-                auto_npcs=auto_npc_cards_enabled,
-            )
+    if not split_heavy_modules:
+        payload = safe_request_postprocess_group(
+            module_name="unified_postprocess",
+            current_location_content_override=current_location_content,
+            raw_memory=raw_memory_enabled,
+            location=location_enabled,
+            environment=resolved_environment_enabled,
+            character_state=character_state_enabled,
+            important_event=important_event_enabled,
+            ambient=ambient_enabled,
+            scene_emotion=emotion_visualization_enabled,
+            auto_npcs=auto_npc_cards_enabled,
+        )
+        if isinstance(payload, dict) and failed_modules:
+            payload["_postprocess_failed_modules"] = list(dict.fromkeys(failed_modules))
+        if payload is None and failed_modules:
+            return {"_postprocess_failed_modules": list(dict.fromkeys(failed_modules))}
+        return payload
 
-        merged_payload: dict[str, Any] = {}
-        merge_payload(
-            merged_payload,
-            request_postprocess_group(
-                current_location_content_override=current_location_content,
-                raw_memory=raw_memory_enabled,
-                location=location_enabled,
-                important_event=important_event_enabled,
-                ambient=ambient_enabled,
-                scene_emotion=emotion_visualization_enabled,
-            ),
+    merged_payload: dict[str, Any] = {}
+    merge_payload(
+        merged_payload,
+        safe_request_postprocess_group(
+            module_name="core_memory_postprocess",
+            current_location_content_override=current_location_content,
+            raw_memory=raw_memory_enabled,
+            location=location_enabled,
+            important_event=important_event_enabled,
+            ambient=ambient_enabled,
+            scene_emotion=emotion_visualization_enabled,
+        ),
+    )
+    effective_location_content = current_location_content
+    location_payload = merged_payload.get("location")
+    if isinstance(location_payload, dict):
+        normalized_location_content = story_memory_pipeline._normalize_story_location_memory_content(
+            str(location_payload.get("content") or "")
         )
-        effective_location_content = current_location_content
-        location_payload = merged_payload.get("location")
-        if isinstance(location_payload, dict):
-            normalized_location_content = story_memory_pipeline._normalize_story_location_memory_content(
-                str(location_payload.get("content") or "")
-            )
-            if normalized_location_content:
-                effective_location_content = normalized_location_content
+        if normalized_location_content:
+            effective_location_content = normalized_location_content
 
-        merge_payload(
-            merged_payload,
-            request_postprocess_group(
-                current_location_content_override=effective_location_content,
-                character_state=character_state_enabled,
-                auto_npcs=auto_npc_cards_enabled,
-            ),
-        )
-        merge_payload(
-            merged_payload,
-            request_postprocess_group(
-                current_location_content_override=effective_location_content,
-                environment=resolved_environment_enabled,
-            ),
-        )
-        return merged_payload or None
-    except Exception as exc:
-        logger.warning(
-            "Story unified post-process failed: game_id=%s assistant_message_id=%s error=%s",
-            game.id,
-            assistant_message.id,
-            exc,
-        )
-        return None
+    merge_payload(
+        merged_payload,
+        safe_request_postprocess_group(
+            module_name="character_postprocess",
+            current_location_content_override=effective_location_content,
+            character_state=character_state_enabled,
+            auto_npcs=auto_npc_cards_enabled,
+        ),
+    )
+    merge_payload(
+        merged_payload,
+        safe_request_postprocess_group(
+            module_name="environment_postprocess",
+            current_location_content_override=effective_location_content,
+            environment=resolved_environment_enabled,
+        ),
+    )
+    if failed_modules:
+        merged_payload["_postprocess_failed_modules"] = list(dict.fromkeys(failed_modules))
+    return merged_payload or None
 
 
 def _build_story_world_card_extraction_messages(
@@ -9237,6 +9284,7 @@ def _rebalance_story_memory_layers(
     max_model_requests: int | None = None,
     backfill_existing_compact_layers: bool = False,
     prioritize_recent_transitions: bool = True,
+    commit_each_model_compaction: bool = False,
 ) -> None:
     from app.services import story_memory_pipeline as unified_memory_pipeline
 
@@ -9249,6 +9297,7 @@ def _rebalance_story_memory_layers(
         max_model_requests=max_model_requests,
         backfill_existing_compact_layers=backfill_existing_compact_layers,
         prioritize_recent_transitions=prioritize_recent_transitions,
+        commit_each_model_compaction=commit_each_model_compaction,
     )
 
 
@@ -9715,6 +9764,13 @@ def _upsert_story_plot_memory_card(
         previous_assistant_text = ""
     important_payload = None
     key_memory_created_any = False
+    postprocess_failed_modules: list[str] = []
+
+    def _record_postprocess_failure(module_name: str) -> None:
+        normalized_module = " ".join(str(module_name or "").replace("\r\n", " ").split()).strip()
+        if normalized_module and normalized_module not in postprocess_failed_modules:
+            postprocess_failed_modules.append(normalized_module)
+
     latest_assistant_message_ids = _list_story_latest_assistant_message_ids(
         db,
         game.id,
@@ -9767,9 +9823,11 @@ def _upsert_story_plot_memory_card(
                         db=db,
                         game=game,
                         additional_assistant_message_ids=[int(assistant_message.id)],
+                        run_rebalance=False,
                     )
                 )
         except Exception as exc:
+            _record_postprocess_failure("raw_memory")
             logger.warning(
                 "Raw story memory sync failed: game_id=%s assistant_message_id=%s error=%s",
                 game.id,
@@ -9838,6 +9896,17 @@ def _upsert_story_plot_memory_card(
                     assistant_message.id,
                     exc,
                 )
+                _record_postprocess_failure("unified_postprocess")
+
+        if isinstance(postprocess_payload, dict):
+            raw_failed_modules = postprocess_payload.get("_postprocess_failed_modules")
+            if isinstance(raw_failed_modules, list):
+                for failed_module in raw_failed_modules:
+                    _record_postprocess_failure(str(failed_module or ""))
+            elif isinstance(raw_failed_modules, str):
+                _record_postprocess_failure(raw_failed_modules)
+        elif allow_model_postprocess_request and not has_postprocess_payload_override:
+            _record_postprocess_failure("unified_postprocess")
 
         location_payload_for_sync = None
         if isinstance(postprocess_payload, dict) and isinstance(postprocess_payload.get("location"), dict):
@@ -9862,29 +9931,25 @@ def _upsert_story_plot_memory_card(
             and isinstance(postprocess_payload.get("important_event"), tuple)
             else important_payload
         )
-        if important_payload is None and not has_postprocess_payload_override:
-            try:
-                important_payload = story_memory_pipeline._extract_story_important_plot_card_payload_locally(
-                    latest_user_prompt=latest_user_prompt,
-                    latest_assistant_text=latest_assistant_text,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Story important-event local fallback failed: game_id=%s assistant_message_id=%s error=%s",
-                    game.id,
-                    assistant_message.id,
-                    exc,
-                )
 
-        story_memory_pipeline._upsert_story_location_memory_block(
-            db=db,
-            game=game,
-            assistant_message=assistant_message,
-            latest_user_prompt=latest_user_prompt,
-            latest_assistant_text=latest_assistant_text,
-            previous_assistant_text=previous_assistant_text,
-            resolved_payload_override=location_payload_for_sync,
-        )
+        try:
+            story_memory_pipeline._upsert_story_location_memory_block(
+                db=db,
+                game=game,
+                assistant_message=assistant_message,
+                latest_user_prompt=latest_user_prompt,
+                latest_assistant_text=latest_assistant_text,
+                previous_assistant_text=previous_assistant_text,
+                resolved_payload_override=location_payload_for_sync,
+            )
+        except Exception as exc:
+            _record_postprocess_failure("location")
+            logger.warning(
+                "Story location post-process failed: game_id=%s assistant_message_id=%s error=%s",
+                game.id,
+                assistant_message.id,
+                exc,
+            )
         current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
             db=db,
             game_id=game.id,
@@ -9914,6 +9979,7 @@ def _upsert_story_plot_memory_card(
                 if created_auto_npc_cards:
                     should_force_memory_rebalance = True
             except Exception as exc:
+                _record_postprocess_failure("auto_npcs")
                 logger.warning(
                     "Story auto-NPC post-process failed: game_id=%s assistant_message_id=%s error=%s",
                     game.id,
@@ -9947,6 +10013,7 @@ def _upsert_story_plot_memory_card(
                     game=game,
                 )
             except Exception as exc:
+                _record_postprocess_failure("character_state")
                 logger.warning(
                     "Story character-state post-process failed: game_id=%s assistant_message_id=%s error=%s",
                     game.id,
@@ -9968,6 +10035,7 @@ def _upsert_story_plot_memory_card(
                     allow_model_request=False,
                 )
             except Exception as exc:
+                _record_postprocess_failure("environment")
                 logger.warning(
                     "Story environment post-process failed: game_id=%s assistant_message_id=%s error=%s",
                     game.id,
@@ -9975,6 +10043,7 @@ def _upsert_story_plot_memory_card(
                     exc,
                 )
     except Exception as exc:
+        _record_postprocess_failure("postprocess_apply")
         logger.warning(
             "Story location post-process bootstrap failed: game_id=%s assistant_message_id=%s error=%s",
             game.id,
@@ -9999,6 +10068,7 @@ def _upsert_story_plot_memory_card(
                     )
                 )
         except Exception as exc:
+            _record_postprocess_failure("important_event")
             logger.warning(
                 "Key story memory sync failed: game_id=%s assistant_message_id=%s error=%s",
                 game.id,
@@ -10009,10 +10079,21 @@ def _upsert_story_plot_memory_card(
             key_memory_created_any = True
             should_force_memory_rebalance = True
 
+    _touch_story_game(game)
+    commit_with_retry(db)
+
     if should_force_memory_rebalance:
         try:
-            _rebalance_story_memory_layers(db=db, game=game, max_model_requests=1)
+            _rebalance_story_memory_layers(
+                db=db,
+                game=game,
+                max_model_requests=1,
+                commit_each_model_compaction=True,
+            )
+            commit_with_retry(db)
         except Exception as exc:
+            db.rollback()
+            _record_postprocess_failure("memory_rebalance")
             logger.warning(
                 "Final story memory rebalance failed: game_id=%s assistant_message_id=%s error=%s",
                 game.id,
@@ -10020,9 +10101,21 @@ def _upsert_story_plot_memory_card(
                 exc,
             )
 
-    _touch_story_game(game)
-    db.commit()
-    return (key_memory_created_any, [])
+    postprocess_failed = bool(postprocess_failed_modules)
+    return (
+        key_memory_created_any,
+        [],
+        {
+            "postprocess_pending": postprocess_failed,
+            "postprocess_failed": postprocess_failed,
+            "postprocess_status": (
+                "storyteller_succeeded_postprocessing_failed_retryable"
+                if postprocess_failed
+                else "storyteller_succeeded_committed"
+            ),
+            "postprocess_failed_modules": postprocess_failed_modules,
+        },
+    )
 
 
 def _normalize_basic_auth_header(raw_value: str) -> str:

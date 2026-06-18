@@ -1221,7 +1221,7 @@ def _fallback_upsert_story_plot_memory_card(
     resolved_postprocess_payload_override: dict[str, Any] | None = None,
     memory_optimization_enabled: bool = True,
     allow_model_postprocess_request: bool = False,
-) -> tuple[bool, list[Any]]:
+) -> tuple[bool, list[Any], dict[str, Any]]:
     memory_optimization_enabled = True
     try:
         from app import main as monolith_main
@@ -1233,7 +1233,7 @@ def _fallback_upsert_story_plot_memory_card(
 
     if callable(monolith_upsert):
         try:
-            return monolith_upsert(
+            result = monolith_upsert(
                 db=db,
                 game=game,
                 assistant_message=assistant_message,
@@ -1243,6 +1243,19 @@ def _fallback_upsert_story_plot_memory_card(
                 memory_optimization_enabled=memory_optimization_enabled,
                 allow_model_postprocess_request=allow_model_postprocess_request,
             )
+            if isinstance(result, tuple) and len(result) >= 3 and isinstance(result[2], dict):
+                return result
+            if isinstance(result, tuple):
+                return (
+                    bool(result[0]) if len(result) >= 1 else False,
+                    list(result[1]) if len(result) >= 2 and isinstance(result[1], list) else [],
+                    {
+                        "postprocess_pending": False,
+                        "postprocess_failed": False,
+                        "postprocess_status": "storyteller_succeeded_committed",
+                        "postprocess_failed_modules": [],
+                    },
+                )
         except Exception:
             logger.exception(
                 "Fallback runtime failed to delegate memory upsert to monolith: game_id=%s assistant_message_id=%s",
@@ -1250,7 +1263,7 @@ def _fallback_upsert_story_plot_memory_card(
                 assistant_message.id,
             )
             db.rollback()
-    _fallback_sync_story_memory_and_environment(
+    synced = _fallback_sync_story_memory_and_environment(
         db=db,
         game=game,
         assistant_message=assistant_message,
@@ -1260,7 +1273,20 @@ def _fallback_upsert_story_plot_memory_card(
         memory_optimization_enabled=memory_optimization_enabled,
         allow_model_postprocess_request=allow_model_postprocess_request,
     )
-    return (False, [])
+    return (
+        False,
+        [],
+        {
+            "postprocess_pending": not bool(synced),
+            "postprocess_failed": not bool(synced),
+            "postprocess_status": (
+                "storyteller_succeeded_committed"
+                if synced
+                else "storyteller_succeeded_postprocessing_failed_retryable"
+            ),
+            "postprocess_failed_modules": [] if synced else ["fallback_memory_sync"],
+        },
+    )
 
 
 def _fallback_build_story_runtime_deps() -> StoryRuntimeDeps:

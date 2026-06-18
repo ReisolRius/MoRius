@@ -80,7 +80,10 @@ from app.services.story_visual_novel import (
 
 logger = logging.getLogger(__name__)
 STORY_MEMORY_SOURCE_EN_MODEL_IDS: set[str] = set()
-STORY_SQLITE_BUSY_DETAIL = "Story storage is still finalizing. Please retry the request."
+STORY_SQLITE_BUSY_DETAIL = STORY_GAME_OPERATION_BUSY_DETAIL
+STORY_POSTPROCESS_STATUS_COMMITTED = "storyteller_succeeded_committed"
+STORY_POSTPROCESS_STATUS_FAILED_RETRYABLE = "storyteller_succeeded_postprocessing_failed_retryable"
+STORY_POSTPROCESS_STATUS_PENDING = "storyteller_succeeded_postprocessing_pending"
 STORY_GENERATE_LOCK_WAIT_SECONDS = 15.0
 STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 20.0
 STORY_CONTINUE_MODEL_PROMPT = (
@@ -148,7 +151,7 @@ class StoryRuntimeDeps:
     spend_user_tokens_if_sufficient: Callable[[Session, int, int], bool]
     add_user_tokens: Callable[[Session, int, int], None]
     stream_story_provider_chunks: Callable[..., Any]
-    upsert_story_plot_memory_card: Callable[..., tuple[bool, list[Any]]]
+    upsert_story_plot_memory_card: Callable[..., Any]
     list_story_prompt_memory_cards: Callable[[Session, StoryGame, bool, list[StoryMessage] | None], list[dict[str, str]]]
     list_story_memory_blocks: Callable[[Session, int], list[Any]]
     seed_opening_scene_memory_block: Callable[..., bool]
@@ -211,6 +214,25 @@ def _safe_dump_stream_item(item: Any) -> dict[str, Any] | None:
             return None
         return dumped if isinstance(dumped, dict) else None
     return item if isinstance(item, dict) else None
+
+
+def _normalize_story_postprocess_result(value: Any) -> tuple[bool, list[Any], dict[str, Any]]:
+    if isinstance(value, tuple):
+        plot_card_created = bool(value[0]) if len(value) >= 1 else False
+        raw_events = value[1] if len(value) >= 2 else []
+        events = list(raw_events) if isinstance(raw_events, list) else []
+        raw_meta = value[2] if len(value) >= 3 else {}
+        meta = dict(raw_meta) if isinstance(raw_meta, dict) else {}
+        return (plot_card_created, events, meta)
+    if isinstance(value, dict):
+        raw_events = value.get("plot_card_events")
+        events = list(raw_events) if isinstance(raw_events, list) else []
+        return (
+            bool(value.get("plot_card_created")),
+            events,
+            dict(value),
+        )
+    return (False, [], {})
 
 
 def _public_story_error_detail(exc: Exception) -> str:
@@ -539,6 +561,114 @@ def _order_story_world_cards_for_active_main_hero(
         return (0, card_id)
 
     return sorted(list(world_cards), key=_rank)
+
+
+def _checkpoint_story_raw_turn_memory(
+    *,
+    deps: StoryRuntimeDeps,
+    db: Session,
+    game: StoryGame,
+    assistant_message: StoryMessage,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+    memory_optimization_enabled: bool,
+) -> bool:
+    if not memory_optimization_enabled:
+        return False
+
+    try:
+        from app.services import story_memory_pipeline
+    except Exception:
+        logger.exception(
+            "Story raw-memory checkpoint import failed: game_id=%s assistant_message_id=%s",
+            game.id,
+            assistant_message.id,
+        )
+        return False
+
+    try:
+        changed = False
+        if not bool(getattr(game, "memory_optimization_enabled", True)):
+            game.memory_optimization_enabled = True
+            changed = True
+
+        keep_turns = max(
+            1,
+            int(
+                getattr(
+                    story_memory_pipeline,
+                    "STORY_MEMORY_RAW_KEEP_LATEST_ASSISTANT_FULL_TURNS",
+                    1,
+                )
+                or 1
+            ),
+        )
+        latest_assistant_ids = set(
+            story_memory_pipeline._list_story_latest_assistant_message_ids(
+                db,
+                game.id,
+                limit=keep_turns,
+            )
+        )
+        preserve_full_text = int(getattr(assistant_message, "id", 0) or 0) in latest_assistant_ids
+        changed = bool(
+            story_memory_pipeline._upsert_story_raw_memory_block(
+                db=db,
+                game=game,
+                assistant_message=assistant_message,
+                latest_user_prompt=latest_user_prompt,
+                latest_assistant_text=latest_assistant_text,
+                preserve_user_text=preserve_full_text,
+                preserve_assistant_text=preserve_full_text,
+            )
+        ) or changed
+
+        raw_memory_resync_fn = getattr(story_memory_pipeline, "_sync_story_raw_memory_blocks_for_recent_turns", None)
+        if callable(raw_memory_resync_fn):
+            changed = bool(
+                raw_memory_resync_fn(
+                    db=db,
+                    game=game,
+                    additional_assistant_message_ids=[int(getattr(assistant_message, "id", 0) or 0)],
+                    run_rebalance=False,
+                )
+            ) or changed
+
+        has_raw_checkpoint = any(
+            int(getattr(block, "assistant_message_id", 0) or 0) == int(getattr(assistant_message, "id", 0) or 0)
+            and str(getattr(block, "layer", "") or "").strip().lower() == "raw"
+            for block in story_memory_pipeline._list_story_memory_blocks(db, game.id)
+        )
+
+        if changed:
+            deps.touch_story_game(game)
+            commit_with_retry(db)
+            try:
+                db.refresh(game)
+            except Exception:
+                pass
+            try:
+                db.refresh(assistant_message)
+            except Exception:
+                pass
+            has_raw_checkpoint = True
+
+        if has_raw_checkpoint:
+            logger.info(
+                "Story raw-memory checkpoint ready: game_id=%s assistant_message_id=%s changed=%s",
+                game.id,
+                assistant_message.id,
+                changed,
+            )
+        return has_raw_checkpoint
+    except Exception:
+        logger.exception(
+            "Story raw-memory checkpoint failed: game_id=%s assistant_message_id=%s",
+            game.id,
+            assistant_message.id,
+        )
+        db.rollback()
+        return False
 
 
 def _best_effort_sync_story_turn_memory_and_environment(
@@ -1163,6 +1293,24 @@ def _stream_story_response(
             if raw_output_candidate:
                 assistant_text_for_memory = raw_output_candidate
 
+    raw_memory_checkpointed = False
+    if not aborted and response_has_content:
+        raw_memory_checkpointed = _checkpoint_story_raw_turn_memory(
+            deps=deps,
+            db=db,
+            game=game,
+            assistant_message=assistant_message,
+            latest_user_prompt=prompt,
+            latest_assistant_text=assistant_text_for_memory,
+            memory_optimization_enabled=memory_optimization_enabled,
+        )
+        if memory_optimization_enabled and not raw_memory_checkpointed:
+            logger.warning(
+                "Story raw-memory checkpoint unavailable before post-process: game_id=%s assistant_message_id=%s",
+                game.id,
+                assistant_message.id,
+            )
+
     assistant_triggered_world_cards: list[dict[str, Any]] = []
     if not aborted and response_has_content:
         try:
@@ -1293,6 +1441,8 @@ def _stream_story_response(
         plot_card_created = False
         postprocess_pending = False
         postprocess_failed = False
+        postprocess_status = STORY_POSTPROCESS_STATUS_COMMITTED
+        postprocess_failed_modules: list[str] = []
 
         def _assistant_has_memory_block(items: list[Any]) -> bool:
             for item in items:
@@ -1310,7 +1460,7 @@ def _stream_story_response(
 
         try:
             with use_story_service_http_request_budget(service_request_budget):
-                plot_card_created, _generated_plot_events = deps.upsert_story_plot_memory_card(
+                postprocess_result = deps.upsert_story_plot_memory_card(
                     db=db,
                     game=game,
                     assistant_message=assistant_message,
@@ -1320,7 +1470,24 @@ def _stream_story_response(
                     memory_optimization_enabled=memory_optimization_enabled,
                     allow_model_postprocess_request=True,
                 )
-            db.commit()
+                plot_card_created, _generated_plot_events, postprocess_meta = _normalize_story_postprocess_result(
+                    postprocess_result
+                )
+                raw_failed_modules = postprocess_meta.get("postprocess_failed_modules")
+                if isinstance(raw_failed_modules, list):
+                    postprocess_failed_modules.extend(
+                        str(module_name)
+                        for module_name in raw_failed_modules
+                        if str(module_name or "").strip()
+                    )
+                elif isinstance(raw_failed_modules, str) and raw_failed_modules.strip():
+                    postprocess_failed_modules.append(raw_failed_modules.strip())
+                postprocess_failed = bool(postprocess_meta.get("postprocess_failed")) or bool(postprocess_failed_modules)
+                postprocess_pending = bool(postprocess_meta.get("postprocess_pending")) or postprocess_failed
+                raw_postprocess_status = str(postprocess_meta.get("postprocess_status") or "").strip()
+                if raw_postprocess_status:
+                    postprocess_status = raw_postprocess_status
+            commit_with_retry(db)
             try:
                 db.refresh(game)
             except Exception:
@@ -1361,6 +1528,9 @@ def _stream_story_response(
             logger.exception("Failed to update story plot memory card")
             db.rollback()
             postprocess_failed = True
+            postprocess_pending = True
+            postprocess_failed_modules.append("memory_sync")
+            postprocess_status = STORY_POSTPROCESS_STATUS_FAILED_RETRYABLE
 
         memory_blocks_after_postprocess = deps.list_story_memory_blocks(db, game.id)
         needs_baseline_sync = postprocess_failed or (
@@ -1385,6 +1555,14 @@ def _stream_story_response(
                 game.id,
                 assistant_message.id,
             )
+        if postprocess_failed:
+            postprocess_pending = True
+            if postprocess_status == STORY_POSTPROCESS_STATUS_COMMITTED:
+                postprocess_status = STORY_POSTPROCESS_STATUS_FAILED_RETRYABLE
+        elif postprocess_pending and postprocess_status == STORY_POSTPROCESS_STATUS_COMMITTED:
+            postprocess_status = STORY_POSTPROCESS_STATUS_PENDING
+
+        postprocess_failed_modules = sorted({module for module in postprocess_failed_modules if module})
 
         ai_memory_blocks_payload = _safe_dump_stream_items(
             [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
@@ -1412,6 +1590,10 @@ def _stream_story_response(
             ),
             "plot_card_created": plot_card_created,
             "postprocess_pending": postprocess_pending,
+            "postprocess_failed": postprocess_failed,
+            "postprocess_status": postprocess_status,
+            "postprocess_failed_modules": postprocess_failed_modules,
+            "raw_memory_checkpointed": raw_memory_checkpointed,
             "assistant_triggered_world_card_ids": [
                 int(card.get("id"))
                 for card in assistant_triggered_world_cards
@@ -1839,12 +2021,23 @@ def _generate_story_response_locked(
                 clear_canonical_state_payload(game)
                 if action_label != "reroll":
                     deps.touch_story_game(game)
-                db.commit()
+                commit_with_retry(db)
             except HTTPException:
                 db.rollback()
                 raise
             except Exception as exc:
                 db.rollback()
+                if is_database_busy_session_error(exc):
+                    logger.warning(
+                        "Story %s delayed by busy storage after retries: game_id=%s assistant_message_id=%s",
+                        action_label,
+                        game.id,
+                        last_message.id,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=STORY_GAME_OPERATION_BUSY_DETAIL,
+                    ) from exc
                 logger.exception(
                     "Failed to prepare %s for game_id=%s assistant_message_id=%s",
                     action_label,
@@ -1936,9 +2129,19 @@ def _generate_story_response_locked(
             )
             if action_label != "reroll":
                 deps.touch_story_game(game)
-            db.commit()
+            commit_with_retry(db)
         except Exception as exc:
             db.rollback()
+            if is_database_busy_session_error(exc):
+                logger.warning(
+                    "Story purge undone delayed by busy storage after retries: game_id=%s action=%s",
+                    game.id,
+                    action_label,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=STORY_GAME_OPERATION_BUSY_DETAIL,
+                ) from exc
             logger.exception(
                 "Failed to purge undone story steps for %s: game_id=%s",
                 action_label,
