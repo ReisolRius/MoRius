@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import logging
 import secrets
@@ -388,6 +389,24 @@ def _build_vk_id_frontend_redirect(
     return f"{settings.vk_id_frontend_url}{return_path}{suffix}"
 
 
+def _vk_id_provider_error_code(exc: VKIDOAuthError) -> str:
+    raw_code = str(getattr(exc, "code", "") or "").strip().lower()
+    allowed_codes = {
+        "invalid_request",
+        "invalid_grant",
+        "invalid_scope",
+        "invalid_client",
+        "access_denied",
+        "state_mismatch",
+        "missing_access_token",
+        "user_info_rejected",
+        "invalid_user_info",
+        "missing_user_id",
+        "missing_email",
+    }
+    return raw_code if raw_code in allowed_codes else "provider_error"
+
+
 def _decode_yandex_token(value: str | None, *, purpose: str) -> dict[str, Any]:
     payload = safe_decode_access_token(str(value or "").strip())
     if not isinstance(payload, dict) or payload.get("purpose") != purpose:
@@ -400,6 +419,95 @@ def _decode_vk_id_token(value: str | None, *, purpose: str) -> dict[str, Any]:
     if not isinstance(payload, dict) or payload.get("purpose") != purpose:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VK ID OAuth session is invalid or expired")
     return payload
+
+
+def _base64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _base64url_decode(value: str) -> bytes:
+    normalized = str(value or "").strip()
+    padding = "=" * (-len(normalized) % 4)
+    return base64.urlsafe_b64decode(f"{normalized}{padding}".encode("ascii"))
+
+
+def _sign_vk_id_state(payload: str) -> str:
+    return _base64url_encode(
+        hmac.new(
+            settings.jwt_secret_key.encode("utf-8"),
+            f"vk-id-oauth-state:{payload}".encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    )
+
+
+def _encode_vk_id_state(
+    *,
+    nonce: str,
+    action: str,
+    provider: str,
+    user_id: int | None,
+    return_path: str,
+) -> str:
+    expires_at = int((_utcnow() + timedelta(minutes=VK_ID_OAUTH_STATE_TTL_MINUTES)).timestamp())
+    state_payload: dict[str, Any] = {
+        "a": "l" if action == "link" else "g",
+        "e": expires_at,
+        "n": nonce,
+        "p": "m" if provider == "mail" else "v",
+        "r": return_path,
+    }
+    if user_id is not None:
+        state_payload["u"] = int(user_id)
+    encoded_payload = _base64url_encode(
+        json.dumps(state_payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    return f"v1.{encoded_payload}.{_sign_vk_id_state(encoded_payload)}"
+
+
+def _decode_vk_id_state(value: str | None) -> dict[str, Any]:
+    raw_value = str(value or "").strip()
+    if raw_value.startswith("v1."):
+        try:
+            _version, encoded_payload, signature = raw_value.split(".", 2)
+            expected_signature = _sign_vk_id_state(encoded_payload)
+            if not secrets.compare_digest(signature, expected_signature):
+                raise ValueError("VK ID compact state signature mismatch")
+            payload = json.loads(_base64url_decode(encoded_payload).decode("utf-8"))
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="VK ID OAuth session is invalid or expired",
+            ) from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VK ID OAuth session is invalid or expired")
+        expires_at = payload.get("e")
+        if not isinstance(expires_at, int) or expires_at <= int(_utcnow().timestamp()):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VK ID OAuth session is invalid or expired")
+        nonce = str(payload.get("n") or "").strip()
+        if not nonce:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VK ID OAuth session is invalid or expired")
+        return {
+            "purpose": VK_ID_OAUTH_PURPOSE_STATE,
+            "nonce": nonce,
+            "action": "link" if payload.get("a") == "l" else "login",
+            "provider": "mail" if payload.get("p") == "m" else "vk",
+            "user_id": payload.get("u"),
+            "return_path": str(payload.get("r") or ""),
+        }
+    return _decode_vk_id_token(raw_value, purpose=VK_ID_OAUTH_PURPOSE_STATE)
+
+
+def _build_vk_id_code_verifier(nonce: str) -> str:
+    normalized_nonce = str(nonce or "").strip()
+    if not normalized_nonce:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VK ID OAuth session is invalid or expired")
+    digest = hmac.new(
+        settings.jwt_secret_key.encode("utf-8"),
+        f"vk-id-oauth-pkce:{normalized_nonce}".encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 def _resolve_yandex_login_user(db: Session, identity: YandexIdentity) -> tuple[User, bool]:
@@ -472,9 +580,19 @@ def _link_yandex_identity(db: Session, *, user_id: int, identity: YandexIdentity
     return user
 
 
+def _vk_id_identity_email(identity: VKIDIdentity) -> str:
+    return normalize_email(str(identity.email or ""))
+
+
+def _vk_id_placeholder_email(identity: VKIDIdentity) -> str:
+    digest = hashlib.sha256(f"{identity.provider}:{identity.subject}".encode("utf-8")).hexdigest()[:24]
+    return f"{identity.provider}-{digest}@vkid.morius-ai.ru"
+
+
 def _resolve_vk_id_login_user(db: Session, identity: VKIDIdentity) -> tuple[User, bool]:
+    identity_email = _vk_id_identity_email(identity)
     user_by_subject = db.scalar(select(User).where(User.vk_id_sub == identity.subject))
-    user_by_email = find_user_by_email_case_insensitive(db, identity.email)
+    user_by_email = find_user_by_email_case_insensitive(db, identity_email) if identity_email else None
     if user_by_subject and user_by_email and int(user_by_subject.id) != int(user_by_email.id):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -484,9 +602,10 @@ def _resolve_vk_id_login_user(db: Session, identity: VKIDIdentity) -> tuple[User
     user = user_by_subject or user_by_email
     is_new_user = user is None
     if user is None:
+        user_email = identity_email or _vk_id_placeholder_email(identity)
         user = User(
-            email=normalize_email(identity.email),
-            display_name=coerce_display_name(identity.display_name, fallback_email=identity.email),
+            email=user_email,
+            display_name=coerce_display_name(identity.display_name, fallback_email=user_email),
             avatar_url=identity.avatar_url,
             vk_id_sub=identity.subject,
             vk_id_provider=identity.provider,
@@ -496,11 +615,12 @@ def _resolve_vk_id_login_user(db: Session, identity: VKIDIdentity) -> tuple[User
         db.add(user)
         return user, True
 
-    user, _ = merge_users_for_email_into_target(
-        db,
-        identity.email,
-        target_user=user,
-    )
+    if identity_email:
+        user, _ = merge_users_for_email_into_target(
+            db,
+            identity_email,
+            target_user=user,
+        )
     if user.vk_id_sub and user.vk_id_sub != identity.subject:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -517,6 +637,7 @@ def _resolve_vk_id_login_user(db: Session, identity: VKIDIdentity) -> tuple[User
 
 
 def _link_vk_id_identity(db: Session, *, user_id: int, identity: VKIDIdentity) -> User:
+    identity_email = _vk_id_identity_email(identity)
     user = db.scalar(select(User).where(User.id == int(user_id)))
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile was not found")
@@ -528,11 +649,12 @@ def _link_vk_id_identity(db: Session, *, user_id: int, identity: VKIDIdentity) -
             detail="VK ID account is already linked to another profile",
         )
 
-    user, _ = merge_users_for_email_into_target(
-        db,
-        identity.email,
-        target_user=user,
-    )
+    if identity_email:
+        user, _ = merge_users_for_email_into_target(
+            db,
+            identity_email,
+            target_user=user,
+        )
     user.password_hash = None
     user.google_sub = None
     user.yandex_sub = None
@@ -887,35 +1009,21 @@ def start_vk_id_oauth(
 
     return_path = _normalize_vk_id_return_path(payload.return_path, action=payload.action)
     nonce = secrets.token_urlsafe(24)
-    code_verifier = secrets.token_urlsafe(64)
+    code_verifier = _build_vk_id_code_verifier(nonce)
     code_challenge = base64.urlsafe_b64encode(
         hashlib.sha256(code_verifier.encode("ascii")).digest()
     ).decode("ascii").rstrip("=")
-    state_token = create_access_token(
-        subject="vk-id-oauth-state",
-        claims={
-            "purpose": VK_ID_OAUTH_PURPOSE_STATE,
-            "nonce": nonce,
-            "action": payload.action,
-            "provider": payload.provider,
-            "user_id": user_id,
-            "return_path": return_path,
-        },
-        expires_delta=timedelta(minutes=VK_ID_OAUTH_STATE_TTL_MINUTES),
-    )
-    flow_token = create_access_token(
-        subject="vk-id-oauth-flow",
-        claims={
-            "purpose": VK_ID_OAUTH_PURPOSE_FLOW,
-            "nonce": nonce,
-            "code_verifier": code_verifier,
-        },
-        expires_delta=timedelta(minutes=VK_ID_OAUTH_STATE_TTL_MINUTES),
+    state_token = _encode_vk_id_state(
+        nonce=nonce,
+        action=payload.action,
+        provider=payload.provider,
+        user_id=user_id,
+        return_path=return_path,
     )
     _set_vk_id_cookie(
         response,
         key=VK_ID_OAUTH_FLOW_COOKIE,
-        value=flow_token,
+        value=state_token,
         max_age_seconds=VK_ID_OAUTH_STATE_TTL_MINUTES * 60,
         path="/api/auth/callback/vk",
     )
@@ -960,16 +1068,36 @@ def vk_id_oauth_callback(
         or ""
     ).strip()
 
-    state_payload = _decode_vk_id_token(resolved_state, purpose=VK_ID_OAUTH_PURPOSE_STATE)
+    state_for_exchange = resolved_state
+    try:
+        state_payload = _decode_vk_id_state(resolved_state)
+    except HTTPException:
+        try:
+            state_payload = _decode_vk_id_state(flow_cookie)
+            state_for_exchange = str(flow_cookie or "").strip()
+        except HTTPException:
+            logger.warning(
+                "VK ID OAuth state decode failed: has_state=%s state_len=%s has_payload=%s payload_len=%s has_flow_cookie=%s",
+                bool(resolved_state),
+                len(resolved_state),
+                bool(payload),
+                len(str(payload or "")),
+                bool(flow_cookie),
+            )
+            redirect = RedirectResponse(
+                _build_vk_id_frontend_redirect(return_path="/auth", error="session_expired"),
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+            _delete_vk_id_cookie(
+                redirect,
+                key=VK_ID_OAUTH_FLOW_COOKIE,
+                path="/api/auth/callback/vk",
+            )
+            return redirect
     action = "link" if state_payload.get("action") == "link" else "login"
     provider = "mail" if state_payload.get("provider") == "mail" else "vk"
     return_path = _normalize_vk_id_return_path(state_payload.get("return_path"), action=action)
-    flow_payload = _decode_vk_id_token(flow_cookie, purpose=VK_ID_OAUTH_PURPOSE_FLOW)
-    if not secrets.compare_digest(
-        str(state_payload.get("nonce") or ""),
-        str(flow_payload.get("nonce") or ""),
-    ):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VK ID OAuth state mismatch")
+    code_verifier = _build_vk_id_code_verifier(str(state_payload.get("nonce") or ""))
 
     if resolved_error:
         redirect = RedirectResponse(
@@ -993,9 +1121,9 @@ def vk_id_oauth_callback(
             client_id=settings.vk_id_client_id,
             redirect_uri=settings.vk_id_redirect_uri,
             code=resolved_code,
-            code_verifier=str(flow_payload.get("code_verifier") or ""),
+            code_verifier=code_verifier,
             device_id=resolved_device_id,
-            state=resolved_state,
+            state=state_for_exchange,
         )
         identity = fetch_vk_id_identity(
             access_token=access_token,
@@ -1043,9 +1171,10 @@ def vk_id_oauth_callback(
         ) from exc
     except VKIDOAuthError as exc:
         db.rollback()
-        logger.warning("VK ID OAuth provider error: %s", exc)
+        error_code = _vk_id_provider_error_code(exc)
+        logger.warning("VK ID OAuth provider error: code=%s detail=%s", error_code, exc)
         redirect = RedirectResponse(
-            _build_vk_id_frontend_redirect(return_path=return_path, error="provider_error"),
+            _build_vk_id_frontend_redirect(return_path=return_path, error=error_code),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         _delete_vk_id_cookie(
