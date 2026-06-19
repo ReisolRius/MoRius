@@ -220,6 +220,9 @@ class Settings:
     cors_origins: list[str]
     cors_origin_regex: str
     google_client_id: str
+    yandex_client_id: str
+    yandex_redirect_uri: str
+    yandex_frontend_url: str
     email_verification_code_ttl_minutes: int
     email_verification_max_attempts: int
     email_verification_resend_cooldown_seconds: int
@@ -329,6 +332,12 @@ settings = Settings(
         )
     ),
     google_client_id=os.getenv("GOOGLE_CLIENT_ID", "").strip(),
+    yandex_client_id=os.getenv("YANDEX_CLIENT_ID", "").strip(),
+    yandex_redirect_uri=os.getenv(
+        "YANDEX_REDIRECT_URI",
+        "https://morius-ai.ru/api/auth/callback/yandex",
+    ).strip(),
+    yandex_frontend_url=os.getenv("YANDEX_FRONTEND_URL", "https://morius-ai.ru").strip().rstrip("/"),
     email_verification_code_ttl_minutes=int(os.getenv("EMAIL_VERIFICATION_CODE_TTL_MINUTES", "10")),
     email_verification_max_attempts=int(os.getenv("EMAIL_VERIFICATION_MAX_ATTEMPTS", "5")),
     email_verification_resend_cooldown_seconds=int(

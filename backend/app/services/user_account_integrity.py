@@ -87,9 +87,6 @@ def repair_duplicate_users_for_email(
 
     changed = False
     target_user = _choose_merge_target(db, matched_users, preferred_user_id=preferred_user_id)
-    if normalize_email_casefold(target_user.email) != normalized_email or target_user.email != normalized_email:
-        target_user.email = normalized_email
-        changed = True
 
     for source_user in matched_users:
         if int(source_user.id) == int(target_user.id):
@@ -101,6 +98,14 @@ def repair_duplicate_users_for_email(
             source_user.id,
         )
         _merge_user_into_target(db, target_user=target_user, source_user=source_user, normalized_email=normalized_email)
+        # Free the normalized email before assigning it to the preserved account.
+        # Without this explicit flush, a query-triggered autoflush may update the target first
+        # and violate the unique email constraint while the duplicate still owns that address.
+        db.flush([source_user])
+        changed = True
+
+    if normalize_email_casefold(target_user.email) != normalized_email or target_user.email != normalized_email:
+        target_user.email = normalized_email
         changed = True
 
     return target_user, changed
@@ -145,7 +150,11 @@ def _build_merge_priority(db: Session, user: User) -> tuple[int, int, int, int, 
     template_count = _count_rows(db, StoryInstructionTemplate, StoryInstructionTemplate.user_id, int(user.id))
     purchase_count = _count_rows(db, CoinPurchase, CoinPurchase.user_id, int(user.id))
     privilege_score = _ROLE_PRIORITY.get(str(user.role or "").strip().lower(), 0)
-    credential_score = int(bool((user.password_hash or "").strip())) + int(bool((user.google_sub or "").strip()))
+    credential_score = (
+        int(bool((user.password_hash or "").strip()))
+        + int(bool((user.google_sub or "").strip()))
+        + int(bool((getattr(user, "yandex_sub", None) or "").strip()))
+    )
     return (
         game_count,
         character_count + template_count,
@@ -312,6 +321,20 @@ def _merge_user_profile(*, target_user: User, source_user: User, normalized_emai
             )
         source_user.google_sub = None
 
+    source_yandex_sub = (getattr(source_user, "yandex_sub", None) or "").strip()
+    target_yandex_sub = (getattr(target_user, "yandex_sub", None) or "").strip()
+    if source_yandex_sub:
+        if not target_yandex_sub:
+            target_user.yandex_sub = source_yandex_sub
+        elif target_yandex_sub != source_yandex_sub:
+            logger.warning(
+                "Merging duplicate users with conflicting yandex_sub values for normalized_email=%s target_user_id=%s source_user_id=%s",
+                normalized_email,
+                target_user.id,
+                source_user.id,
+            )
+        source_user.yandex_sub = None
+
     target_user.auth_provider = _provider_union(target_user.auth_provider, source_user.auth_provider)
     target_user.role = _prefer_role(target_user.role, source_user.role)
     target_user.level = max(int(target_user.level or 1), int(source_user.level or 1))
@@ -337,9 +360,6 @@ def _merge_user_profile(*, target_user: User, source_user: User, normalized_emai
         target_user.onboarding_guide_state = source_user.onboarding_guide_state
     if str(target_user.theme_preferences or "").strip() in {"", "{}"} and str(source_user.theme_preferences or "").strip() not in {"", "{}"}:
         target_user.theme_preferences = source_user.theme_preferences
-
-    target_user.email = normalized_email
-
 
 def _provider_union(current_provider: str | None, next_provider: str | None) -> str:
     providers = {
@@ -435,6 +455,7 @@ def _reassign_follow_references(db: Session, *, source_user_id: int, target_user
 def _archive_merged_user(*, source_user: User, normalized_email: str) -> None:
     source_user.email = _build_archived_email(source_user_id=int(source_user.id), normalized_email=normalized_email)
     source_user.google_sub = None
+    source_user.yandex_sub = None
     source_user.coins = 0
     source_user.auth_provider = MERGED_AUTH_PROVIDER
 

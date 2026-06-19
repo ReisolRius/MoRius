@@ -19,6 +19,7 @@ import {
   loginWithGoogleAccessToken,
   registerWithEmail,
   requestPasswordReset,
+  startYandexOAuth,
   verifyEmailRegistration,
   verifyPasswordReset,
 } from '../services/authApi'
@@ -346,6 +347,42 @@ function GoogleAuthButton({
   )
 }
 
+function YandexAuthButton({
+  disabled,
+  onClick,
+}: {
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <Button
+      type="button"
+      fullWidth
+      disabled={disabled}
+      onClick={onClick}
+      sx={{
+        minHeight: 52,
+        borderRadius: '10px',
+        border: `1px solid ${BORDER_COLOR}`,
+        color: INPUT_TEXT,
+        backgroundColor: 'transparent',
+        fontFamily: '"Nunito Sans", sans-serif',
+        fontSize: '1rem',
+        fontWeight: 700,
+        textTransform: 'none',
+        gap: 1.2,
+        '&:hover': {
+          backgroundColor: '#171a1d',
+          borderColor: '#fc3f1d',
+        },
+      }}
+    >
+      <ProviderGlyph provider="yandex" />
+      Войти через Яндекс
+    </Button>
+  )
+}
+
 export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: AuthPageProps) {
   const [mode, setMode] = useState<AuthPageMode>(initialMode)
   const [registerStep, setRegisterStep] = useState<'credentials' | 'verify'>('credentials')
@@ -361,6 +398,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
   const [infoMessage, setInfoMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false)
+  const [isYandexSubmitting, setIsYandexSubmitting] = useState(false)
   const [isAuthHeroLoaded, setIsAuthHeroLoaded] = useState(false)
   const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0)
 
@@ -631,6 +669,25 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
       await submitResetCode()
     } else {
       await submitResetEmail()
+    }
+  }
+
+  const handleYandexAuth = async () => {
+    if (isSubmitting || isGoogleSubmitting || isYandexSubmitting) {
+      return
+    }
+    setErrorMessage('')
+    setInfoMessage('')
+    setIsYandexSubmitting(true)
+    try {
+      const response = await startYandexOAuth({
+        action: 'login',
+        return_path: '/auth',
+      })
+      window.location.assign(response.authorization_url)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Не удалось начать вход через Яндекс.')
+      setIsYandexSubmitting(false)
     }
   }
 
@@ -952,7 +1009,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
               <Button
                 type="submit"
                 fullWidth
-                disabled={isSubmitting || isGoogleSubmitting || isRegisterSubmitBlocked}
+                disabled={isSubmitting || isGoogleSubmitting || isYandexSubmitting || isRegisterSubmitBlocked}
                 sx={{
                   mt: { xs: 0.7, md: 1.2 },
                   minHeight: 57,
@@ -985,7 +1042,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                   </Typography>
                   {hasGoogleClientId ? (
                     <GoogleAuthButton
-                      disabled={isSubmitting || isGoogleSubmitting}
+                      disabled={isSubmitting || isGoogleSubmitting || isYandexSubmitting}
                       onStart={() => {
                         setErrorMessage('')
                         setInfoMessage('')
@@ -1003,14 +1060,19 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                     </Alert>
                   )}
                   <Stack spacing={1}>
+                    <YandexAuthButton
+                      disabled={isSubmitting || isGoogleSubmitting || isYandexSubmitting}
+                      onClick={() => void handleYandexAuth()}
+                    />
                     <DisabledProviderButton provider="vk">Войти через VK</DisabledProviderButton>
-                    <DisabledProviderButton provider="yandex">Войти через Yandex</DisabledProviderButton>
                     <DisabledProviderButton provider="mail">Войти через Mail</DisabledProviderButton>
                   </Stack>
-                  {isGoogleSubmitting ? (
+                  {isGoogleSubmitting || isYandexSubmitting ? (
                     <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
                       <CircularProgress size={16} />
-                      <Typography sx={{ color: MUTED_TEXT, fontSize: '0.86rem' }}>Проверяем Google аккаунт...</Typography>
+                      <Typography sx={{ color: MUTED_TEXT, fontSize: '0.86rem' }}>
+                        {isYandexSubmitting ? 'Переходим в Яндекс...' : 'Проверяем Google аккаунт...'}
+                      </Typography>
                     </Stack>
                   ) : null}
                 </Stack>

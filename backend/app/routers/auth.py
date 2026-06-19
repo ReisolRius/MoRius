@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Response, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 try:
     from google.auth.transport import requests as google_requests
@@ -24,6 +28,7 @@ from app.database import get_db
 from app.models import EmailVerification, PasswordResetVerification, User
 from app.schemas import (
     AuthResponse,
+    AuthMethodPasswordRequest,
     AvatarUpdateRequest,
     GoogleAuthRequest,
     LoginRequest,
@@ -39,6 +44,9 @@ from app.schemas import (
     UserNotificationOut,
     UserNotificationUnreadCountOut,
     UserOut,
+    YandexOAuthCompleteResponse,
+    YandexOAuthStartRequest,
+    YandexOAuthStartResponse,
 )
 try:
     from app.schemas import (
@@ -80,7 +88,7 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
         active_theme_id: str
         story: dict[str, Any] = Field(default_factory=dict)
         custom_themes: list[dict[str, Any]] = Field(default_factory=list)
-from app.security import hash_password, verify_password
+from app.security import create_access_token, hash_password, safe_decode_access_token, verify_password
 from app.services.auth_identity import (
     build_user_name,
     coerce_display_name,
@@ -94,6 +102,7 @@ from app.services.auth_identity import (
     parse_google_client_ids,
     provider_union,
     serialize_user_out,
+    sync_auth_provider,
     sync_user_access_state,
 )
 from app.services.media import normalize_avatar_value, normalize_media_scale, validate_avatar_url
@@ -203,6 +212,17 @@ from app.services.cosmetics import (
     normalize_avatar_frame_selection_for_user,
     normalize_profile_banner_selection_for_user,
 )
+from app.services.user_account_integrity import (
+    find_user_by_email_case_insensitive,
+    repair_duplicate_users_for_email,
+)
+from app.services.yandex_oauth import (
+    YandexIdentity,
+    YandexOAuthError,
+    build_yandex_authorization_url,
+    exchange_yandex_code,
+    fetch_yandex_identity,
+)
 
 GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
 GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
@@ -219,6 +239,13 @@ ONBOARDING_GUIDE_ALLOWED_STATUSES = {"pending", "completed", "skipped"}
 ONBOARDING_GUIDE_STEP_ID_MAX_LENGTH = 120
 PASSWORD_RESET_COOLDOWN_PREFIX = "password-reset:"
 PASSWORD_RESET_SUCCESS_MESSAGE = "If an account with this email exists, password reset code was sent"
+YANDEX_OAUTH_FLOW_COOKIE = "morius_yandex_oauth_flow"
+YANDEX_OAUTH_COMPLETION_COOKIE = "morius_yandex_oauth_completion"
+YANDEX_OAUTH_STATE_TTL_MINUTES = 10
+YANDEX_OAUTH_COMPLETION_TTL_MINUTES = 5
+YANDEX_OAUTH_PURPOSE_STATE = "yandex_oauth_state"
+YANDEX_OAUTH_PURPOSE_FLOW = "yandex_oauth_flow"
+YANDEX_OAUTH_PURPOSE_COMPLETION = "yandex_oauth_completion"
 
 
 def _utcnow() -> datetime:
@@ -229,6 +256,142 @@ def _to_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _is_secure_yandex_cookie() -> bool:
+    return settings.yandex_redirect_uri.lower().startswith("https://")
+
+
+def _set_yandex_cookie(
+    response: Response,
+    *,
+    key: str,
+    value: str,
+    max_age_seconds: int,
+    path: str,
+) -> None:
+    response.set_cookie(
+        key=key,
+        value=value,
+        max_age=max_age_seconds,
+        httponly=True,
+        secure=_is_secure_yandex_cookie(),
+        samesite="lax",
+        path=path,
+    )
+
+
+def _delete_yandex_cookie(response: Response, *, key: str, path: str) -> None:
+    response.delete_cookie(
+        key=key,
+        httponly=True,
+        secure=_is_secure_yandex_cookie(),
+        samesite="lax",
+        path=path,
+    )
+
+
+def _normalize_yandex_return_path(value: str | None, *, action: str) -> str:
+    fallback = "/profile" if action == "link" else "/auth"
+    normalized = str(value or "").strip()
+    if not normalized.startswith("/") or normalized.startswith("//"):
+        return fallback
+    if any(character in normalized for character in ("\r", "\n", "\\")):
+        return fallback
+    return normalized[:512]
+
+
+def _build_yandex_frontend_redirect(
+    *,
+    return_path: str,
+    complete: bool = False,
+    error: str | None = None,
+) -> str:
+    separator = "&" if "?" in return_path else "?"
+    query: dict[str, str] = {}
+    if complete:
+        query["yandex_oauth"] = "complete"
+    if error:
+        query["yandex_oauth_error"] = error[:160]
+    suffix = f"{separator}{urlencode(query)}" if query else ""
+    return f"{settings.yandex_frontend_url}{return_path}{suffix}"
+
+
+def _decode_yandex_token(value: str | None, *, purpose: str) -> dict[str, Any]:
+    payload = safe_decode_access_token(str(value or "").strip())
+    if not isinstance(payload, dict) or payload.get("purpose") != purpose:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Yandex OAuth session is invalid or expired")
+    return payload
+
+
+def _resolve_yandex_login_user(db: Session, identity: YandexIdentity) -> tuple[User, bool]:
+    user_by_subject = db.scalar(select(User).where(User.yandex_sub == identity.subject))
+    user_by_email = find_user_by_email_case_insensitive(db, identity.email)
+    if user_by_subject and user_by_email and int(user_by_subject.id) != int(user_by_email.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Yandex account is already linked to another profile",
+        )
+
+    user = user_by_subject or user_by_email
+    is_new_user = user is None
+    if user is None:
+        user = User(
+            email=normalize_email(identity.email),
+            display_name=coerce_display_name(identity.display_name, fallback_email=identity.email),
+            avatar_url=identity.avatar_url,
+            yandex_sub=identity.subject,
+            auth_provider="yandex",
+            coins=NEW_USER_STARTER_COINS,
+        )
+        db.add(user)
+        return user, True
+
+    if normalize_email(user.email) == normalize_email(identity.email):
+        repaired_user, _ = repair_duplicate_users_for_email(
+            db,
+            identity.email,
+            preferred_user_id=int(user.id),
+        )
+        user = repaired_user or user
+    if user.yandex_sub and user.yandex_sub != identity.subject:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This profile is linked to another Yandex account",
+        )
+    user.yandex_sub = identity.subject
+    if not (user.display_name or "").strip():
+        user.display_name = coerce_display_name(identity.display_name, fallback_email=user.email)
+    if identity.avatar_url and not (user.avatar_url or "").strip():
+        user.avatar_url = identity.avatar_url
+    sync_auth_provider(user)
+    return user, is_new_user
+
+
+def _link_yandex_identity(db: Session, *, user_id: int, identity: YandexIdentity) -> User:
+    user = db.scalar(select(User).where(User.id == int(user_id)))
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile was not found")
+
+    linked_user = db.scalar(select(User).where(User.yandex_sub == identity.subject))
+    if linked_user is not None and int(linked_user.id) != int(user.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Yandex account is already linked to another profile",
+        )
+
+    repaired_user, _ = repair_duplicate_users_for_email(
+        db,
+        user.email,
+        preferred_user_id=int(user.id),
+    )
+    user = repaired_user or user
+    user.google_sub = None
+    user.yandex_sub = identity.subject
+    if identity.avatar_url and not (user.avatar_url or "").strip():
+        user.avatar_url = identity.avatar_url
+    sync_auth_provider(user)
+    return user
 
 
 def _sync_user_display_name(user: User, *, fallback_email: str) -> bool:
@@ -551,6 +714,260 @@ def _is_google_token_claims_expired(token_data: dict[str, Any]) -> bool:
         return True
     now_timestamp = int(_utcnow().timestamp())
     return exp_timestamp <= now_timestamp
+
+
+@router.post("/api/auth/yandex/start", response_model=YandexOAuthStartResponse)
+def start_yandex_oauth(
+    payload: YandexOAuthStartRequest,
+    response: Response,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> YandexOAuthStartResponse:
+    client_id = settings.yandex_client_id.strip()
+    redirect_uri = settings.yandex_redirect_uri.strip()
+    if not client_id or not redirect_uri or not settings.yandex_frontend_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Yandex OAuth is not configured on server",
+        )
+
+    user_id: int | None = None
+    if payload.action == "link":
+        user_id = int(get_current_user(db, authorization).id)
+
+    return_path = _normalize_yandex_return_path(payload.return_path, action=payload.action)
+    nonce = secrets.token_urlsafe(24)
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode("ascii")).digest()
+    ).decode("ascii").rstrip("=")
+    state_token = create_access_token(
+        subject="yandex-oauth-state",
+        claims={
+            "purpose": YANDEX_OAUTH_PURPOSE_STATE,
+            "nonce": nonce,
+            "action": payload.action,
+            "user_id": user_id,
+            "return_path": return_path,
+        },
+        expires_delta=timedelta(minutes=YANDEX_OAUTH_STATE_TTL_MINUTES),
+    )
+    flow_token = create_access_token(
+        subject="yandex-oauth-flow",
+        claims={
+            "purpose": YANDEX_OAUTH_PURPOSE_FLOW,
+            "nonce": nonce,
+            "code_verifier": code_verifier,
+        },
+        expires_delta=timedelta(minutes=YANDEX_OAUTH_STATE_TTL_MINUTES),
+    )
+    _set_yandex_cookie(
+        response,
+        key=YANDEX_OAUTH_FLOW_COOKIE,
+        value=flow_token,
+        max_age_seconds=YANDEX_OAUTH_STATE_TTL_MINUTES * 60,
+        path="/api/auth/callback/yandex",
+    )
+    return YandexOAuthStartResponse(
+        authorization_url=build_yandex_authorization_url(
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            state=state_token,
+            code_challenge=code_challenge,
+            force_confirm=payload.action == "link",
+        )
+    )
+
+
+@router.get("/api/auth/callback/yandex", include_in_schema=False)
+def yandex_oauth_callback(
+    code: str | None = Query(default=None),
+    state_token: str | None = Query(default=None, alias="state"),
+    provider_error: str | None = Query(default=None, alias="error"),
+    flow_cookie: str | None = Cookie(default=None, alias=YANDEX_OAUTH_FLOW_COOKIE),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    state_payload = _decode_yandex_token(state_token, purpose=YANDEX_OAUTH_PURPOSE_STATE)
+    action = "link" if state_payload.get("action") == "link" else "login"
+    return_path = _normalize_yandex_return_path(state_payload.get("return_path"), action=action)
+    flow_payload = _decode_yandex_token(flow_cookie, purpose=YANDEX_OAUTH_PURPOSE_FLOW)
+    if not secrets.compare_digest(
+        str(state_payload.get("nonce") or ""),
+        str(flow_payload.get("nonce") or ""),
+    ):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Yandex OAuth state mismatch")
+
+    if provider_error:
+        redirect = RedirectResponse(
+            _build_yandex_frontend_redirect(return_path=return_path, error=str(provider_error)),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+        _delete_yandex_cookie(
+            redirect,
+            key=YANDEX_OAUTH_FLOW_COOKIE,
+            path="/api/auth/callback/yandex",
+        )
+        return redirect
+    if not code:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Yandex authorization code is missing")
+
+    try:
+        access_token = exchange_yandex_code(
+            client_id=settings.yandex_client_id,
+            code=code,
+            code_verifier=str(flow_payload.get("code_verifier") or ""),
+        )
+        identity = fetch_yandex_identity(
+            access_token=access_token,
+            expected_client_id=settings.yandex_client_id,
+        )
+        if action == "link":
+            raw_user_id = state_payload.get("user_id")
+            try:
+                user_id = int(str(raw_user_id))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Yandex account link target is invalid",
+                ) from exc
+            user = _link_yandex_identity(db, user_id=user_id, identity=identity)
+            is_new_user = False
+        else:
+            user, is_new_user = _resolve_yandex_login_user(db, identity)
+
+        _sync_user_display_name(user, fallback_email=user.email)
+        sync_user_access_state(user)
+        ensure_user_not_banned(user)
+        db.commit()
+        db.refresh(user)
+    except HTTPException as exc:
+        db.rollback()
+        logger.warning("Yandex OAuth account operation failed: status=%s detail=%s", exc.status_code, exc.detail)
+        error_code = "account_conflict" if exc.status_code == status.HTTP_409_CONFLICT else "account_error"
+        redirect = RedirectResponse(
+            _build_yandex_frontend_redirect(return_path=return_path, error=error_code),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+        _delete_yandex_cookie(
+            redirect,
+            key=YANDEX_OAUTH_FLOW_COOKIE,
+            path="/api/auth/callback/yandex",
+        )
+        return redirect
+    except (IntegrityError, SQLAlchemyError) as exc:
+        db.rollback()
+        logger.exception("Yandex OAuth database operation failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service is temporarily unavailable",
+        ) from exc
+    except YandexOAuthError as exc:
+        db.rollback()
+        logger.warning("Yandex OAuth provider error: %s", exc)
+        redirect = RedirectResponse(
+            _build_yandex_frontend_redirect(return_path=return_path, error="provider_error"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+        _delete_yandex_cookie(
+            redirect,
+            key=YANDEX_OAUTH_FLOW_COOKIE,
+            path="/api/auth/callback/yandex",
+        )
+        return redirect
+
+    completion_token = create_access_token(
+        subject=str(user.id),
+        claims={
+            "purpose": YANDEX_OAUTH_PURPOSE_COMPLETION,
+            "oauth_action": action,
+            "is_new_user": is_new_user,
+        },
+        expires_delta=timedelta(minutes=YANDEX_OAUTH_COMPLETION_TTL_MINUTES),
+    )
+    redirect = RedirectResponse(
+        _build_yandex_frontend_redirect(return_path=return_path, complete=True),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+    _delete_yandex_cookie(
+        redirect,
+        key=YANDEX_OAUTH_FLOW_COOKIE,
+        path="/api/auth/callback/yandex",
+    )
+    _set_yandex_cookie(
+        redirect,
+        key=YANDEX_OAUTH_COMPLETION_COOKIE,
+        value=completion_token,
+        max_age_seconds=YANDEX_OAUTH_COMPLETION_TTL_MINUTES * 60,
+        path="/api/auth/yandex/complete",
+    )
+    return redirect
+
+
+@router.post("/api/auth/yandex/complete", response_model=YandexOAuthCompleteResponse)
+def complete_yandex_oauth(
+    response: Response,
+    completion_cookie: str | None = Cookie(default=None, alias=YANDEX_OAUTH_COMPLETION_COOKIE),
+    db: Session = Depends(get_db),
+) -> YandexOAuthCompleteResponse:
+    completion_payload = _decode_yandex_token(
+        completion_cookie,
+        purpose=YANDEX_OAUTH_PURPOSE_COMPLETION,
+    )
+    try:
+        user_id = int(str(completion_payload.get("sub")))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Yandex OAuth result is invalid") from exc
+    user = db.scalar(select(User).where(User.id == user_id))
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile was not found")
+    sync_user_access_state(user)
+    ensure_user_not_banned(user)
+    auth_response = issue_auth_response(
+        user,
+        is_new_user=bool(completion_payload.get("is_new_user")),
+        db=db,
+    )
+    _delete_yandex_cookie(
+        response,
+        key=YANDEX_OAUTH_COMPLETION_COOKIE,
+        path="/api/auth/yandex/complete",
+    )
+    return YandexOAuthCompleteResponse(
+        **auth_response.model_dump(),
+        oauth_action="link" if completion_payload.get("oauth_action") == "link" else "login",
+    )
+
+
+@router.post("/api/auth/me/auth-method/password", response_model=UserOut)
+def replace_auth_method_with_password(
+    payload: AuthMethodPasswordRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> UserOut:
+    current_user = get_current_user(db, authorization)
+    repaired_user, _ = repair_duplicate_users_for_email(
+        db,
+        current_user.email,
+        preferred_user_id=int(current_user.id),
+    )
+    user = repaired_user or current_user
+    user.password_hash = hash_password(payload.password)
+    user.google_sub = None
+    user.yandex_sub = None
+    sync_auth_provider(user)
+    sync_user_access_state(user)
+    ensure_user_not_banned(user)
+    try:
+        db.commit()
+        db.refresh(user)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Failed to replace auth method with password for user_id=%s", int(current_user.id))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service is temporarily unavailable",
+        ) from exc
+    return serialize_user_out(user, db=db)
 
 
 @router.post("/api/auth/register", response_model=MessageResponse)

@@ -221,6 +221,8 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN publication_visibility_initialized INTEGER NOT NULL DEFAULT 0")
     if "google_sub" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN google_sub VARCHAR(255)")
+    if "yandex_sub" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN yandex_sub VARCHAR(255)")
     if "auth_provider" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN auth_provider VARCHAR(32) NOT NULL DEFAULT 'email'")
     if "role" not in user_columns:
@@ -272,12 +274,13 @@ def _ensure_user_account_columns_exist() -> None:
     if "referral_bonus_claimed_at" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN referral_bonus_claimed_at TIMESTAMP WITH TIME ZONE")
 
-    if not alter_statements:
-        return
-
     with engine.begin() as connection:
         for statement in alter_statements:
             _execute_schema_statement(connection, statement)
+        _execute_schema_statement(
+            connection,
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_yandex_sub ON users (yandex_sub)",
+        )
 
 
 def _ensure_auth_verification_schema() -> None:

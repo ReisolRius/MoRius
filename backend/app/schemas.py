@@ -301,6 +301,26 @@ class GoogleAuthRequest(BaseModel):
         return self
 
 
+class YandexOAuthStartRequest(BaseModel):
+    action: Literal["login", "link"] = "login"
+    return_path: str | None = Field(default=None, max_length=512)
+
+
+class YandexOAuthStartResponse(BaseModel):
+    authorization_url: str
+
+
+class AuthMethodPasswordRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=128)
+    confirm_password: str = Field(min_length=8, max_length=128)
+
+    @model_validator(mode="after")
+    def _passwords_should_match(self) -> "AuthMethodPasswordRequest":
+        if self.password != self.confirm_password:
+            raise ValueError("Passwords do not match")
+        return self
+
+
 class PasswordResetRequest(BaseModel):
     email: EmailStr
 
@@ -337,6 +357,10 @@ class AuthResponse(BaseModel):
     token_type: str = "bearer"
     user: UserOut
     is_new_user: bool = False
+
+
+class YandexOAuthCompleteResponse(AuthResponse):
+    oauth_action: Literal["login", "link"]
 
 
 class MessageResponse(BaseModel):

@@ -1,12 +1,14 @@
 ﻿import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import {
   applyReferralCode,
+  completeYandexOAuth,
   getCurrentUser,
   getCurrentUserThemeSettings,
   getMaintenanceSettings,
   type CurrentUserThemeSettings,
   type MaintenanceSettings,
 } from './services/authApi'
+import { Alert, Snackbar } from '@mui/material'
 import { PRIVACY_POLICY_TEXT, PUBLICATION_RULES_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
 import type { ReactNode } from 'react'
 import type { AuthResponse, AuthUser } from './types/auth'
@@ -322,7 +324,9 @@ function App() {
   const [pendingReferralCode, setPendingReferralCode] = useState(() => readPendingReferralCode())
   const [shouldOpenAiAssistantAfterAuth, setShouldOpenAiAssistantAfterAuth] = useState(false)
   const [maintenanceSettings, setMaintenanceSettings] = useState<MaintenanceSettings | null>(null)
+  const [authNotice, setAuthNotice] = useState<{ severity: 'success' | 'error'; message: string } | null>(null)
   const hasTrackedInitialRouteRef = useRef(false)
+  const yandexCompletionStartedRef = useRef(false)
   const isAuthenticated = Boolean(authToken && authUser)
   const currentUserRole = authUser?.role.trim().toLowerCase() ?? ''
   const canCurrentUserBypassMaintenance = currentUserRole === 'administrator' || currentUserRole === 'moderator'
@@ -463,6 +467,72 @@ function App() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     setPath(normalizedTarget.pathname)
   }, [])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const oauthError = params.get('yandex_oauth_error')
+    const shouldComplete = params.get('yandex_oauth') === 'complete'
+    if (!oauthError && !shouldComplete) {
+      return
+    }
+
+    if (oauthError) {
+      params.delete('yandex_oauth_error')
+      const nextSearch = params.toString()
+      window.history.replaceState(
+        {},
+        '',
+        `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`,
+      )
+      window.setTimeout(() => {
+        const message =
+          oauthError === 'access_denied'
+            ? 'Вход через Яндекс отменён.'
+            : oauthError === 'account_conflict'
+              ? 'Этот Яндекс-аккаунт уже привязан к другому профилю.'
+              : 'Не удалось завершить вход через Яндекс.'
+        setAuthNotice({
+          severity: 'error',
+          message,
+        })
+      }, 0)
+    }
+    if (!shouldComplete || yandexCompletionStartedRef.current) {
+      return
+    }
+
+    yandexCompletionStartedRef.current = true
+    window.setTimeout(() => setIsHydratingSession(true), 0)
+    void completeYandexOAuth()
+      .then((payload) => {
+        persistAuthSession(payload)
+        setAuthToken(payload.access_token)
+        setAuthUser(payload.user)
+        setShouldOpenAiAssistantAfterAuth(Boolean(payload.is_new_user))
+        if (payload.oauth_action === 'link') {
+          setAuthNotice({ severity: 'success', message: 'Аккаунт успешно перепривязан к Яндексу.' })
+          navigate('/profile', { replace: true })
+        } else {
+          navigate('/dashboard', { replace: true })
+        }
+      })
+      .catch((error) => {
+        setAuthNotice({
+          severity: 'error',
+          message: error instanceof Error ? error.message : 'Не удалось завершить вход через Яндекс.',
+        })
+        params.delete('yandex_oauth')
+        const nextSearch = params.toString()
+        window.history.replaceState(
+          {},
+          '',
+          `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`,
+        )
+      })
+      .finally(() => {
+        setIsHydratingSession(false)
+      })
+  }, [navigate])
 
   useEffect(() => {
     const referralCode = extractReferralCodeFromLocation(window.location)
@@ -852,6 +922,21 @@ function App() {
           onUserUpdate={handleUserUpdate}
         />
       ) : null}
+      <Snackbar
+        open={Boolean(authNotice)}
+        autoHideDuration={5000}
+        onClose={() => setAuthNotice(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert
+          severity={authNotice?.severity ?? 'success'}
+          onClose={() => setAuthNotice(null)}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {authNotice?.message ?? ''}
+        </Alert>
+      </Snackbar>
     </>
   )
 }

@@ -75,6 +75,21 @@ def provider_union(current_provider: str, next_provider: str) -> str:
     return "+".join(sorted(providers))
 
 
+def sync_auth_provider(user: User) -> bool:
+    providers: list[str] = []
+    if (user.password_hash or "").strip():
+        providers.append("email")
+    if (user.google_sub or "").strip():
+        providers.append("google")
+    if (getattr(user, "yandex_sub", None) or "").strip():
+        providers.append("yandex")
+    normalized_provider = "+".join(sorted(providers)) if providers else "email"
+    if user.auth_provider == normalized_provider:
+        return False
+    user.auth_provider = normalized_provider
+    return True
+
+
 def build_user_name(email: str) -> str:
     local_part = normalize_email(email).split("@", maxsplit=1)[0]
     compact_value = _compact_display_name(local_part)

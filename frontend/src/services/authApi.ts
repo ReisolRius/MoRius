@@ -816,6 +816,68 @@ export async function loginWithGoogleAccessToken(accessToken: string): Promise<A
   )
 }
 
+export type YandexOAuthAction = 'login' | 'link'
+
+export type YandexOAuthCompleteResponse = AuthResponse & {
+  oauth_action: YandexOAuthAction
+}
+
+export async function startYandexOAuth(payload: {
+  action: YandexOAuthAction
+  return_path?: string
+  token?: string
+}): Promise<{ authorization_url: string }> {
+  return requestJson<{ authorization_url: string }>(
+    '/api/auth/yandex/start',
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: payload.token
+        ? {
+            Authorization: `Bearer ${payload.token}`,
+          }
+        : undefined,
+      body: JSON.stringify({
+        action: payload.action,
+        return_path: payload.return_path,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function completeYandexOAuth(): Promise<YandexOAuthCompleteResponse> {
+  return requestJson<YandexOAuthCompleteResponse>(
+    '/api/auth/yandex/complete',
+    {
+      method: 'POST',
+      credentials: 'include',
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function replaceCurrentAuthWithPassword(payload: {
+  token: string
+  password: string
+  confirm_password: string
+}): Promise<AuthUser> {
+  return requestJson<AuthUser>(
+    '/api/auth/me/auth-method/password',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        password: payload.password,
+        confirm_password: payload.confirm_password,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
 export async function requestPasswordReset(payload: { email: string }): Promise<MessageResponse> {
   return requestJson<MessageResponse>(
     '/api/auth/password-reset',

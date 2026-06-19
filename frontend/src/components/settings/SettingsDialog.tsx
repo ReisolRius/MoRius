@@ -27,6 +27,8 @@ import {
   deleteCurrentUserCustomTheme,
   getShopCatalog,
   getCurrentUserThemeSettings,
+  replaceCurrentAuthWithPassword,
+  startYandexOAuth,
   updateCurrentUserCustomTheme,
   updateCurrentUserProfile,
   updateCurrentUserProfilePrivacy,
@@ -243,6 +245,12 @@ function SettingsDialog({
   const [editingThemeId, setEditingThemeId] = useState<string | null>(null)
   const [themeDeleteTarget, setThemeDeleteTarget] = useState<UserCustomTheme | null>(null)
   const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false)
+  const [isPasswordAuthDialogOpen, setIsPasswordAuthDialogOpen] = useState(false)
+  const [passwordAuthValue, setPasswordAuthValue] = useState('')
+  const [passwordAuthConfirmValue, setPasswordAuthConfirmValue] = useState('')
+  const [isReplacingAuthMethod, setIsReplacingAuthMethod] = useState(false)
+  const [isStartingYandexLink, setIsStartingYandexLink] = useState(false)
+  const [authMethodSuccess, setAuthMethodSuccess] = useState('')
   const [editingColorField, setEditingColorField] = useState<ColorFieldKey | null>(null)
   const [colorInputDraft, setColorInputDraft] = useState('')
   const [colorPickerAnchorEl, setColorPickerAnchorEl] = useState<HTMLElement | null>(null)
@@ -282,6 +290,10 @@ function SettingsDialog({
       return
     }
     setActiveTab('profile')
+    setAuthMethodSuccess('')
+    setPasswordAuthValue('')
+    setPasswordAuthConfirmValue('')
+    setIsPasswordAuthDialogOpen(false)
     setDisplayName(user.display_name ?? '')
     setProfileDescription(user.profile_description ?? '')
     setProfileBannerId(normalizeProfileBannerId(user.profile_banner_id))
@@ -536,6 +548,59 @@ function SettingsDialog({
       window.cancelAnimationFrame(colorSelectionFrameRef.current)
     }
   }, [])
+
+  const handleStartYandexLink = async () => {
+    if (isStartingYandexLink || isReplacingAuthMethod) {
+      return
+    }
+    setError('')
+    setAuthMethodSuccess('')
+    setIsStartingYandexLink(true)
+    try {
+      const response = await startYandexOAuth({
+        action: 'link',
+        return_path: '/profile',
+        token: authToken,
+      })
+      window.location.assign(response.authorization_url)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Не удалось начать перепривязку к Яндексу')
+      setIsStartingYandexLink(false)
+    }
+  }
+
+  const handleReplaceAuthWithPassword = async () => {
+    if (isReplacingAuthMethod) {
+      return
+    }
+    if (passwordAuthValue.length < 8) {
+      setError('Пароль должен быть не короче 8 символов')
+      return
+    }
+    if (passwordAuthValue !== passwordAuthConfirmValue) {
+      setError('Пароли не совпадают')
+      return
+    }
+    setError('')
+    setAuthMethodSuccess('')
+    setIsReplacingAuthMethod(true)
+    try {
+      const updatedUser = await replaceCurrentAuthWithPassword({
+        token: authToken,
+        password: passwordAuthValue,
+        confirm_password: passwordAuthConfirmValue,
+      })
+      onUserUpdate(updatedUser)
+      setPasswordAuthValue('')
+      setPasswordAuthConfirmValue('')
+      setIsPasswordAuthDialogOpen(false)
+      setAuthMethodSuccess(`Теперь вход выполняется по адресу ${updatedUser.email} и паролю.`)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Не удалось изменить способ входа')
+    } finally {
+      setIsReplacingAuthMethod(false)
+    }
+  }
 
   const handleSaveProfile = async () => {
     if (isSavingProfile) {
@@ -1255,14 +1320,66 @@ function SettingsDialog({
                     </Box>
                   </Stack>
 
-                  <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: 1.35, alignSelf: 'start' }}>
-                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800, mb: 1 }}>Уведомления</Typography>
-                    <Stack spacing={0.9}>
-                      {NOTIFICATION_FIELDS.map((item) => (
-                        <SettingsSwitchRow key={item.key} label={item.label} checked={notifications[item.key]} onChange={(checked) => setNotifications((previous) => ({ ...previous, [item.key]: checked }))} />
-                      ))}
-                    </Stack>
-                  </Box>
+                  <Stack spacing={1.4} sx={{ alignSelf: 'start' }}>
+                    <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: 1.35 }}>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800, mb: 1 }}>Уведомления</Typography>
+                      <Stack spacing={0.9}>
+                        {NOTIFICATION_FIELDS.map((item) => (
+                          <SettingsSwitchRow key={item.key} label={item.label} checked={notifications[item.key]} onChange={(checked) => setNotifications((previous) => ({ ...previous, [item.key]: checked }))} />
+                        ))}
+                      </Stack>
+                    </Box>
+
+                    <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: 1.35 }}>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800 }}>
+                        Перепривязать способ входа
+                      </Typography>
+                      <Typography sx={{ mt: 0.45, color: 'var(--morius-text-secondary)', fontSize: '0.88rem', lineHeight: 1.4 }}>
+                        Текущий способ: {user.auth_provider || 'email'}. Профиль, игры и покупки останутся на этом аккаунте.
+                      </Typography>
+                      {authMethodSuccess ? <Alert severity="success" sx={{ mt: 1.1, borderRadius: '12px' }}>{authMethodSuccess}</Alert> : null}
+                      <Stack spacing={0.8} sx={{ mt: 1.2 }}>
+                        <Button
+                          onClick={() => void handleStartYandexLink()}
+                          disabled={isStartingYandexLink || isReplacingAuthMethod}
+                          sx={{
+                            minHeight: 44,
+                            borderRadius: '12px',
+                            textTransform: 'none',
+                            color: 'var(--morius-title-text)',
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, #fc3f1d 60%, var(--morius-card-border))',
+                            backgroundColor: 'color-mix(in srgb, #fc3f1d 10%, var(--morius-card-bg))',
+                          }}
+                        >
+                          {isStartingYandexLink ? 'Переходим в Яндекс...' : 'Перепривязать к Яндексу'}
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setError('')
+                            setAuthMethodSuccess('')
+                            setIsPasswordAuthDialogOpen(true)
+                          }}
+                          disabled={isStartingYandexLink || isReplacingAuthMethod}
+                          sx={{
+                            minHeight: 44,
+                            borderRadius: '12px',
+                            textTransform: 'none',
+                            color: 'var(--morius-title-text)',
+                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                          }}
+                        >
+                          Gmail — вход по почте и паролю
+                        </Button>
+                        <Button disabled sx={{ minHeight: 42, borderRadius: '12px', textTransform: 'none' }}>
+                          Перепривязать к VK — скоро
+                        </Button>
+                        <Button disabled sx={{ minHeight: 42, borderRadius: '12px', textTransform: 'none' }}>
+                          Перепривязать к Mail — скоро
+                        </Button>
+                      </Stack>
+                    </Box>
+                  </Stack>
                 </Box>
               </Stack>
             ) : (
@@ -1637,6 +1754,83 @@ function SettingsDialog({
           />
         </Stack>
       </Popover>
+
+      <Dialog
+        open={isPasswordAuthDialogOpen}
+        onClose={() => {
+          if (!isReplacingAuthMethod) {
+            setIsPasswordAuthDialogOpen(false)
+          }
+        }}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            backgroundColor: 'var(--morius-card-bg)',
+            color: 'var(--morius-text-primary)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 800 }}>Вход по Gmail и паролю</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.2} sx={{ pt: 0.4 }}>
+            <Typography sx={{ color: 'var(--morius-text-secondary)', lineHeight: 1.45 }}>
+              Для аккаунта {user.email} будет включён вход по почте и паролю. Привязки Google и Яндекса будут заменены.
+            </Typography>
+            <TextField
+              label="Новый пароль"
+              type="password"
+              autoComplete="new-password"
+              value={passwordAuthValue}
+              onChange={(event) => setPasswordAuthValue(event.target.value)}
+              inputProps={{ maxLength: 128 }}
+            />
+            <TextField
+              label="Повторите пароль"
+              type="password"
+              autoComplete="new-password"
+              value={passwordAuthConfirmValue}
+              onChange={(event) => setPasswordAuthConfirmValue(event.target.value)}
+              inputProps={{ maxLength: 128 }}
+              error={Boolean(passwordAuthConfirmValue && passwordAuthValue !== passwordAuthConfirmValue)}
+              helperText={
+                passwordAuthConfirmValue && passwordAuthValue !== passwordAuthConfirmValue
+                  ? 'Пароли не совпадают'
+                  : 'Не менее 8 символов'
+              }
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button
+            onClick={() => setIsPasswordAuthDialogOpen(false)}
+            disabled={isReplacingAuthMethod}
+            sx={{ color: 'var(--morius-text-secondary)' }}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={() => void handleReplaceAuthWithPassword()}
+            disabled={
+              isReplacingAuthMethod
+              || passwordAuthValue.length < 8
+              || passwordAuthValue !== passwordAuthConfirmValue
+            }
+            sx={{
+              minHeight: 40,
+              px: 1.8,
+              borderRadius: '12px',
+              textTransform: 'none',
+              color: 'var(--morius-title-text)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg) 82%)',
+            }}
+          >
+            {isReplacingAuthMethod ? 'Сохраняем...' : 'Включить вход по паролю'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={Boolean(themeDeleteTarget)}
