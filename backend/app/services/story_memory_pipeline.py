@@ -122,6 +122,23 @@ def _normalize_story_assistant_text_for_memory(content: Any) -> str:
     return cleaned.strip() or normalized
 
 
+def _normalize_story_assistant_text_for_analysis(content: Any) -> str:
+    normalized = _normalize_story_message_content(content)
+    if not normalized:
+        return ""
+    with_speakers = re.sub(
+        r"\[\[\s*(?:NPC|GG|NPC_THOUGHT|GG_THOUGHT)\s*:\s*([^\]]+?)\s*\]\]",
+        lambda match: f"{' '.join(match.group(1).split()).strip()}: ",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\[\[\s*NARRATOR[^\]]*\]\]", " ", with_speakers, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\[\[[^\]]*$", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip() or normalized
+
+
 def _estimate_story_tokens(value: str) -> int:
     return _TOKEN_COUNTER.count_text(value, apply_margin=True)
 
@@ -179,11 +196,16 @@ def _request_polza_story_text(messages_payload: list[dict[str, str]], *args: Any
     return monolith_main._request_polza_story_text(repaired_messages, *args, **kwargs)
 
 
-def _llm_service() -> LlmModuleService:
+def _llm_service(*, gemini_only: bool = False) -> LlmModuleService:
     return LlmModuleService(
         _request_polza_story_text,
         primary_model=POLZA_GEMINI_25_FLASH_MODEL,
-        fallback_models=[str(getattr(settings, "polza_service_fallback_model", "") or "").strip()],
+        fallback_models=(
+            []
+            if gemini_only
+            else [str(getattr(settings, "polza_service_fallback_model", "") or "").strip()]
+        ),
+        include_configured_fallback=not gemini_only,
     )
 
 
@@ -865,14 +887,45 @@ def _normalize_story_character_state_status_template(value: Any) -> str:
     if not normalized:
         return ""
     lowered = normalized.casefold()
-    if lowered in {"normal", "healthy", "ok", "нормально", "здоров", "здорова"}:
-        return "Состояние нормальное"
-    if lowered.startswith("болен:") or lowered.startswith("больна:"):
-        tail = normalized.split(":", 1)[1].strip()
-        return f"Болен: {tail}" if tail else "Болен"
-    if lowered.startswith("ранен:") or lowered.startswith("ранена:"):
-        return normalized[:1].upper() + normalized[1:]
-    return f"Ранен: {normalized}"
+    if lowered in {
+        "normal",
+        "healthy",
+        "ok",
+        "нормально",
+        "нормальное",
+        "состояние нормальное",
+        "здоров",
+        "здорова",
+    }:
+        return "Нормальное"
+    for prefix in ("состояние:", "ранен:", "ранена:", "болен:", "больна:"):
+        if lowered.startswith(prefix):
+            normalized = normalized.split(":", 1)[1].strip()
+            break
+    if not normalized:
+        return "Нормальное"
+    return normalized[:1].upper() + normalized[1:]
+
+
+def _split_story_character_inventory_items(value: Any) -> list[str]:
+    normalized = str(value or "").replace("\r\n", "\n").strip()
+    if not normalized:
+        return []
+    raw_items = re.split(r"[,;\n]+", normalized)
+    items: list[str] = []
+    seen: set[str] = set()
+    for raw_item in raw_items:
+        item = " ".join(raw_item.split()).strip(" .")
+        key = normalize_match_text(item)
+        if not item or not key or key in seen:
+            continue
+        seen.add(key)
+        items.append(item)
+    return items
+
+
+def _normalize_story_character_inventory_list(value: Any) -> str:
+    return ", ".join(_split_story_character_inventory_items(value))
 
 
 def _state_location_from_content(content: str) -> str:
@@ -942,7 +995,7 @@ def _ensure_story_character_state_cards_include_world_cards(
                 "name": str(getattr(card, "title", "") or "").strip(),
                 "kind": kind,
                 "is_active": True,
-                "status": _normalize_story_character_state_status_template(getattr(card, "health_status", "") or "normal"),
+                "status": _normalize_story_character_state_status_template(getattr(card, "health_status", "")),
                 "clothing": str(getattr(card, "clothing", "") or "").strip(),
                 "location": location,
                 "equipment": str(getattr(card, "inventory", "") or "").strip(),
@@ -1032,34 +1085,11 @@ def _sync_story_character_state_cards(
             if clothing.get("should_update") and str(clothing.get("source") or "") != "unchanged":
                 card["clothing"] = str(clothing.get("value") or "").strip()
             health = update.get("health") if isinstance(update.get("health"), dict) else {}
-            if health.get("should_update") or (str(health.get("source") or "") == "default" and not card.get("status")):
-                card["status"] = _normalize_story_character_state_status_template(health.get("value") or "normal")
-            inventory_changes = update.get("inventory_changes")
-            if isinstance(inventory_changes, list) and inventory_changes:
-                current_equipment = str(card.get("equipment") or "").strip()
-                change_lines = []
-                for change in inventory_changes:
-                    if not isinstance(change, dict):
-                        continue
-                    item = str(change.get("item") or "").strip()
-                    action = str(change.get("action") or "").strip()
-                    details = str(change.get("details") or "").strip()
-                    if item:
-                        change_lines.append(" ".join(part for part in (action, item, details) if part).strip())
-                if change_lines:
-                    existing_change_lines = {
-                        normalize_match_text(part)
-                        for part in current_equipment.split(";")
-                        if normalize_match_text(part)
-                    }
-                    unique_change_lines = [
-                        line
-                        for line in change_lines
-                        if normalize_match_text(line) not in existing_change_lines
-                    ]
-                    card["equipment"] = "; ".join(
-                        part for part in [current_equipment, *unique_change_lines] if part
-                    )
+            if health.get("should_update") and str(health.get("source") or "") != "unchanged":
+                card["status"] = _normalize_story_character_state_status_template(health.get("value"))
+            inventory = update.get("inventory") if isinstance(update.get("inventory"), dict) else {}
+            if inventory.get("should_update") and str(inventory.get("source") or "") != "unchanged":
+                card["equipment"] = _normalize_story_character_inventory_list(inventory.get("value"))
             if current_location_content and not str(card.get("location") or "").strip():
                 card["location"] = _state_location_from_content(current_location_content)
         logger.info(
@@ -1138,6 +1168,7 @@ def _sync_story_auto_npc_cards_for_assistant_message(
     for action in actions:
         if not isinstance(action, dict):
             continue
+        dedup_triggers: list[str] = []
         action_type = str(action.get("type") or "").strip()
         if action_type == "no_action":
             continue
@@ -1157,7 +1188,16 @@ def _sync_story_auto_npc_cards_for_assistant_message(
         if action_type == "create_card":
             new_card = action.get("new_card") if isinstance(action.get("new_card"), dict) else {}
             name = str(new_card.get("name") or "").strip()
-            triggers = [str(item).strip() for item in new_card.get("triggers", []) if str(item or "").strip()]
+            raw_triggers = [name, *new_card.get("triggers", [])]
+            triggers: list[str] = []
+            seen_trigger_keys: set[str] = set()
+            for raw_trigger in raw_triggers:
+                trigger = str(raw_trigger or "").strip()
+                trigger_key = normalize_match_text(trigger)
+                if not trigger or not trigger_key or trigger_key in seen_trigger_keys:
+                    continue
+                seen_trigger_keys.add(trigger_key)
+                triggers.append(trigger)
             target_card = _NPC_DEDUP_SERVICE.find_existing_match(
                 cards=existing_cards,
                 name=name,
@@ -1166,23 +1206,19 @@ def _sync_story_auto_npc_cards_for_assistant_message(
             )
             if target_card is not None:
                 action_type = "update_existing_card"
+                dedup_triggers = triggers
             elif name:
-                content_parts = [
-                    str(new_card.get("description") or "").strip(),
-                    str(new_card.get("personality") or "").strip(),
-                    str(new_card.get("importance_reason") or "").strip(),
-                ]
-                content = "\n".join(part for part in content_parts if part).strip() or name
-                if name not in triggers:
-                    triggers.insert(0, name)
+                description = str(new_card.get("description") or "").strip()
+                personality = str(new_card.get("personality") or "").strip()
+                content = description or personality or name
                 created = StoryWorldCard(
                     game_id=game.id,
                     title=name,
                     content=content,
                     race=str(new_card.get("race") or "").strip(),
-                    clothing="",
-                    inventory="",
-                    health_status="normal",
+                    clothing=str(new_card.get("clothing") or "").strip(),
+                    inventory=_normalize_story_character_inventory_list(new_card.get("inventory")),
+                    health_status=_normalize_story_character_state_status_template(new_card.get("health_status")),
                     triggers=json.dumps(triggers, ensure_ascii=False),
                     kind="npc",
                     source="ai",
@@ -1211,9 +1247,20 @@ def _sync_story_auto_npc_cards_for_assistant_message(
             continue
         if action_type == "update_existing_card" and target_card is not None:
             update = action.get("update_existing") if isinstance(action.get("update_existing"), dict) else {}
-            add_triggers = [str(item).strip() for item in update.get("add_triggers", []) if str(item or "").strip()]
+            add_triggers = [
+                str(item).strip()
+                for item in [*dedup_triggers, *update.get("add_triggers", [])]
+                if str(item or "").strip()
+            ]
             current_triggers = [str(item).strip() for item in parse_json_list(getattr(target_card, "triggers", "[]")) if str(item or "").strip()]
-            merged_triggers = list(dict.fromkeys([*current_triggers, *add_triggers]))
+            merged_triggers: list[str] = []
+            seen_trigger_keys: set[str] = set()
+            for trigger in [*current_triggers, *add_triggers]:
+                trigger_key = normalize_match_text(trigger)
+                if not trigger_key or trigger_key in seen_trigger_keys:
+                    continue
+                seen_trigger_keys.add(trigger_key)
+                merged_triggers.append(trigger)
             notes = str(update.get("notes") or "").strip()
             changed = False
             next_triggers_json = json.dumps(merged_triggers, ensure_ascii=False)
@@ -1267,7 +1314,6 @@ def _extract_story_postprocess_memory_payload(
         important_event_enabled,
         ambient_enabled,
         scene_emotion_enabled,
-        previous_assistant_text,
         scene_emotion_active_cast_entries,
         scene_emotion_allowed_emotions,
     )
@@ -1314,14 +1360,21 @@ def _extract_story_postprocess_memory_payload(
         npc_dedup_candidates=candidates,
         current_character_states=current_states,
         player_turn=_normalize_story_message_content(latest_user_prompt),
-        narrator_response=_normalize_story_assistant_text_for_memory(latest_assistant_text),
+        previous_narrator_response=_normalize_story_assistant_text_for_analysis(previous_assistant_text),
+        narrator_response=_normalize_story_assistant_text_for_analysis(latest_assistant_text),
     )
-    payload, _meta = _llm_service().call_json(
+    if auto_npc_cards_enabled:
+        response_max_tokens = 3_200
+    elif character_state_enabled:
+        response_max_tokens = 2_400
+    else:
+        response_max_tokens = 1_400
+    payload, _meta = _llm_service(gemini_only=True).call_json(
         messages=messages,
         schema=GameStateAnalysisPayload,
         module=LLM_GAME_STATE_ANALYSIS_PROMPT_NAME,
         game_id=game.id,
-        max_tokens=1_400,
+        max_tokens=response_max_tokens,
         max_attempts=2,
     )
     model_result = payload.model_dump(mode="json")

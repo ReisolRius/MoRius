@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Any, Callable, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from app.config import POLZA_GEMINI_25_FLASH_MODEL, settings
 
@@ -91,20 +91,19 @@ class ClothingPayload(BaseModel):
     should_update: bool = False
 
 
-class InventoryChangePayload(BaseModel):
+class InventoryPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    action: str = "unknown_change"
-    item: str = ""
-    details: str = ""
-    confidence: str = "low"
+    value: str = ""
+    source: str = "unchanged"
+    should_update: bool = False
 
 
 class HealthPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    value: str = "normal"
-    source: str = "default"
+    value: str = ""
+    source: str = "unchanged"
     should_update: bool = False
 
 
@@ -113,7 +112,7 @@ class CharacterUpdatePayload(BaseModel):
 
     character_ref: CharacterRefPayload = Field(default_factory=CharacterRefPayload)
     clothing: ClothingPayload = Field(default_factory=ClothingPayload)
-    inventory_changes: list[InventoryChangePayload] = Field(default_factory=list)
+    inventory: InventoryPayload = Field(default_factory=InventoryPayload)
     health: HealthPayload = Field(default_factory=HealthPayload)
 
 
@@ -130,6 +129,9 @@ class NewNpcCardPayload(BaseModel):
     race: str | None = None
     description: str = ""
     personality: str = ""
+    clothing: str = ""
+    inventory: str = ""
+    health_status: str = ""
     triggers: list[str] = Field(default_factory=list)
     importance_reason: str = ""
 
@@ -149,6 +151,31 @@ class NpcCardActionPayload(BaseModel):
     new_card: NewNpcCardPayload | None = None
     update_existing: UpdateExistingNpcPayload | None = None
     evidence: str = ""
+
+    @model_validator(mode="after")
+    def _validate_action_payload(self) -> "NpcCardActionPayload":
+        action_type = str(self.type or "").strip()
+        if action_type == "create_card":
+            if self.new_card is None:
+                raise ValueError("create_card requires new_card")
+            required_values = {
+                "name": self.new_card.name,
+                "description": self.new_card.description,
+                "clothing": self.new_card.clothing,
+                "health_status": self.new_card.health_status,
+            }
+            missing_fields = [field_name for field_name, value in required_values.items() if not str(value or "").strip()]
+            if missing_fields:
+                raise ValueError(f"create_card missing required AI fields: {', '.join(missing_fields)}")
+            if not any(str(trigger or "").strip() for trigger in self.new_card.triggers):
+                raise ValueError("create_card requires at least one identity trigger")
+        elif action_type == "update_existing_card":
+            raw_id = str(self.existing_card_id or "").strip()
+            if not raw_id.isdigit() or int(raw_id) <= 0:
+                raise ValueError("update_existing_card requires a positive existing_card_id")
+        elif action_type != "no_action":
+            raise ValueError("npc card action type must be create_card, update_existing_card, or no_action")
+        return self
 
 
 class NpcCardsPayload(BaseModel):
@@ -198,12 +225,18 @@ class LlmModuleService:
         *,
         primary_model: str | None = None,
         fallback_models: list[str] | None = None,
+        include_configured_fallback: bool = True,
     ) -> None:
         configured_primary = str(primary_model or POLZA_GEMINI_25_FLASH_MODEL).strip()
         self.primary_model = configured_primary or POLZA_GEMINI_25_FLASH_MODEL
         configured_fallback = str(settings.polza_service_fallback_model or "").strip()
         resolved_fallbacks = [str(item or "").strip() for item in (fallback_models or []) if str(item or "").strip()]
-        if configured_fallback and configured_fallback != self.primary_model and configured_fallback not in resolved_fallbacks:
+        if (
+            include_configured_fallback
+            and configured_fallback
+            and configured_fallback != self.primary_model
+            and configured_fallback not in resolved_fallbacks
+        ):
             resolved_fallbacks.append(configured_fallback)
         self.fallback_models = resolved_fallbacks
         self._request_text = request_text

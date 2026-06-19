@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import sys
 import unittest
 from types import SimpleNamespace
@@ -102,6 +103,42 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
         self.assertIn("character_state", payload)
         self.assertNotIn("location", payload)
         self.assertNotIn("auto_npcs", payload)
+
+    def test_auto_npc_gemini_request_uses_previous_turn_and_extended_output_budget(self) -> None:
+        game = SimpleNamespace(id=42, current_location_label="", character_state_payload="[]")
+        captured_call: dict[str, object] = {}
+        captured_prompt: dict[str, object] = {}
+
+        class FakeLlmService:
+            def call_json(self, **kwargs):
+                captured_call.update(kwargs)
+                return GameStateAnalysisPayload.model_validate({"npc_cards": {"actions": []}}), {}
+
+        def fake_prompt(**kwargs):
+            captured_prompt.update(kwargs)
+            return []
+
+        with (
+            patch.object(story_memory_pipeline, "list_story_world_cards", return_value=[]),
+            patch.object(story_memory_pipeline, "build_game_state_analysis_messages", side_effect=fake_prompt),
+            patch.object(story_memory_pipeline, "_llm_service", return_value=FakeLlmService()),
+        ):
+            payload = story_memory_pipeline._extract_story_postprocess_memory_payload(
+                db=SimpleNamespace(),
+                game=game,
+                current_location_content="",
+                latest_user_prompt="Я отвечаю Кире.",
+                previous_assistant_text="[[NPC:Лина]] Первая бандитка усмехнулась.",
+                latest_assistant_text="[[NPC:Кира]] Вторая бандитка рассмеялась.",
+                location_enabled=False,
+                character_state_enabled=False,
+                auto_npc_cards_enabled=True,
+            )
+
+        self.assertEqual(captured_call["max_tokens"], 3_200)
+        self.assertIn("Лина", str(captured_prompt["previous_narrator_response"]))
+        self.assertIn("Кира", str(captured_prompt["narrator_response"]))
+        self.assertEqual(payload["auto_npcs"], [])
 
     def test_turn_postprocess_splits_auto_state_and_auto_npcs_into_independent_gemini_calls(self) -> None:
         game = SimpleNamespace(id=42)
@@ -483,6 +520,58 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
 
         self.assertEqual(changed, [])
         self.assertEqual(session.added, [])
+        self.assertEqual(json.loads(existing.triggers), ["Mira"])
+
+    def test_auto_npc_create_card_dedup_preserves_new_aliases_on_existing_card(self) -> None:
+        existing = SimpleNamespace(
+            id=1,
+            game_id=10,
+            title="Рен",
+            content="Возраст: около 30 лет. Внешность: шрам на щеке. Характер: резкий.",
+            triggers='["Рен", "бандит со шрамом"]',
+            kind="npc",
+        )
+        game = SimpleNamespace(id=10, auto_npc_cards_enabled=True)
+
+        class FakeSession:
+            added: list[object] = []
+
+            def get(self, _model, _item_id):
+                return None
+
+            def add(self, item):
+                self.added.append(item)
+
+            def flush(self):
+                return None
+
+        session = FakeSession()
+
+        with patch.object(story_memory_pipeline, "list_story_world_cards", return_value=[existing]):
+            changed = story_memory_pipeline._sync_story_auto_npc_cards_for_assistant_message(
+                db=session,
+                game=game,
+                assistant_message=SimpleNamespace(id=20),
+                latest_user_prompt="Я снова обращаюсь к бандиту со шрамом.",
+                latest_assistant_text="Главарь отвечает из темноты.",
+                resolved_payload_override=[
+                    {
+                        "type": "create_card",
+                        "new_card": {
+                            "name": "Рен",
+                            "description": existing.content,
+                            "triggers": ["бандит со шрамом", "главарь из темноты"],
+                        },
+                    }
+                ],
+            )
+
+        self.assertEqual(changed, [existing])
+        self.assertEqual(session.added, [])
+        self.assertEqual(
+            json.loads(existing.triggers),
+            ["Рен", "бандит со шрамом", "главарь из темноты"],
+        )
 
     def test_auto_npc_create_card_persists_new_gemini_card(self) -> None:
         game = SimpleNamespace(id=10, auto_npc_cards_enabled=True)
@@ -517,9 +606,15 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
                         "new_card": {
                             "name": "Captain Mira",
                             "race": "human",
-                            "description": "Commander of the city guard.",
+                            "description": (
+                                "Age: about 35. Appearance: tall, dark-haired, wearing a guard captain's uniform. "
+                                "Character: decisive and loyal."
+                            ),
                             "personality": "Decisive and loyal.",
-                            "triggers": ["Captain Mira", "Mira"],
+                            "clothing": "steel helmet, guard captain's uniform, leather boots",
+                            "inventory": "longsword, city seal",
+                            "health_status": "healthy",
+                            "triggers": ["city guard captain", "Mira"],
                             "importance_reason": "Will return after the siege.",
                         },
                     }
@@ -531,7 +626,75 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
         self.assertEqual(changed[0].title, "Captain Mira")
         self.assertEqual(changed[0].kind, "npc")
         self.assertEqual(changed[0].source, "ai")
-        self.assertIn("Commander of the city guard.", changed[0].content)
+        self.assertIn("Age: about 35.", changed[0].content)
+        self.assertNotIn("Will return after the siege.", changed[0].content)
+        self.assertEqual(
+            json.loads(changed[0].triggers),
+            ["Captain Mira", "city guard captain", "Mira"],
+        )
+        self.assertEqual(changed[0].clothing, "steel helmet, guard captain's uniform, leather boots")
+        self.assertEqual(changed[0].inventory, "longsword, city seal")
+        self.assertEqual(changed[0].health_status, "Нормальное")
+
+    def test_auto_npc_creates_every_card_returned_by_gemini_in_one_turn(self) -> None:
+        game = SimpleNamespace(id=10, auto_npc_cards_enabled=True)
+
+        class FakeSession:
+            def __init__(self) -> None:
+                self.added: list[object] = []
+
+            def get(self, _model, _item_id):
+                return None
+
+            def add(self, item):
+                self.added.append(item)
+
+            def flush(self):
+                for index, item in enumerate(self.added, start=1):
+                    if getattr(item, "id", None) is None:
+                        item.id = 200 + index
+
+        session = FakeSession()
+        actions = [
+            {
+                "type": "create_card",
+                "new_card": {
+                    "name": "Лина",
+                    "description": "Возраст: около 20 лет. Внешность: рыжие волосы. Характер: насмешливая.",
+                    "personality": "Насмешливая.",
+                    "clothing": "кожаная куртка, тёмные штаны, сапоги",
+                    "inventory": "меч",
+                    "health_status": "Нормальное",
+                    "triggers": ["темноволосая бандитка"],
+                },
+            },
+            {
+                "type": "create_card",
+                "new_card": {
+                    "name": "Кира",
+                    "description": "Возраст: около 22 лет. Внешность: короткие волосы. Характер: азартная.",
+                    "personality": "Азартная.",
+                    "clothing": "платок, дорожная рубаха, штаны, сапоги",
+                    "inventory": "кинжал",
+                    "health_status": "Нормальное",
+                    "triggers": ["вторая бандитка"],
+                },
+            },
+        ]
+
+        with patch.object(story_memory_pipeline, "list_story_world_cards", return_value=[]):
+            changed = story_memory_pipeline._sync_story_auto_npc_cards_for_assistant_message(
+                db=session,
+                game=game,
+                assistant_message=SimpleNamespace(id=20),
+                latest_user_prompt="Я отвечаю обеим.",
+                latest_assistant_text="Лина и Кира продолжают разговор.",
+                resolved_payload_override=actions,
+            )
+
+        self.assertEqual([card.title for card in changed], ["Лина", "Кира"])
+        self.assertEqual([card.inventory for card in changed], ["меч", "кинжал"])
+        self.assertEqual(len(session.added), 2)
 
     def test_missing_unified_payload_delegates_location_to_ai_module_without_local_override(self) -> None:
         game = StoryGame(id=10, user_id=1, title="Test")

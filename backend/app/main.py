@@ -7028,15 +7028,7 @@ def _resolve_story_turn_postprocess_payload(
             previous_assistant_content = _normalize_story_message_content(
                 getattr(previous_assistant_message, "content", None)
             )
-            resolved_previous_assistant_text = _normalize_story_message_content(
-                _strip_story_markup_for_memory_text(previous_assistant_content)
-            )
-            if not resolved_previous_assistant_text:
-                resolved_previous_assistant_text = _normalize_story_message_content(
-                    _normalize_story_markup_to_plain_text(previous_assistant_content)
-                )
-            if not resolved_previous_assistant_text:
-                resolved_previous_assistant_text = previous_assistant_content
+            resolved_previous_assistant_text = previous_assistant_content
 
     resolved_environment_enabled = (
         story_memory_pipeline._story_environment_any_enabled_for_game(game)

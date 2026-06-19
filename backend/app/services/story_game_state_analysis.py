@@ -38,6 +38,9 @@ def world_card_to_character_payload(card: Any) -> dict[str, Any] | None:
         title = str(card.get("title") or card.get("name") or "").strip()
         content = str(card.get("content") or "").strip()
         race = str(card.get("race") or "").strip()
+        clothing = str(card.get("clothing") or "").strip()
+        inventory = str(card.get("inventory") or "").strip()
+        health_status = str(card.get("health_status") or "").strip()
         triggers = parse_json_list(card.get("triggers"))
         ai_edit_enabled = bool(card.get("ai_edit_enabled", True))
     else:
@@ -45,6 +48,9 @@ def world_card_to_character_payload(card: Any) -> dict[str, Any] | None:
         title = str(getattr(card, "title", "") or "").strip()
         content = str(getattr(card, "content", "") or "").strip()
         race = str(getattr(card, "race", "") or "").strip()
+        clothing = str(getattr(card, "clothing", "") or "").strip()
+        inventory = str(getattr(card, "inventory", "") or "").strip()
+        health_status = str(getattr(card, "health_status", "") or "").strip()
         triggers = parse_json_list(getattr(card, "triggers", "[]"))
         ai_edit_enabled = bool(getattr(card, "ai_edit_enabled", True))
     if not title and not content:
@@ -55,6 +61,9 @@ def world_card_to_character_payload(card: Any) -> dict[str, Any] | None:
         "kind": kind,
         "race": race or None,
         "description": content,
+        "clothing": clothing,
+        "inventory": inventory,
+        "health_status": health_status,
         "triggers": [str(item).strip() for item in triggers if str(item or "").strip()],
         "ai_edit_enabled": ai_edit_enabled,
     }
