@@ -223,6 +223,10 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN google_sub VARCHAR(255)")
     if "yandex_sub" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN yandex_sub VARCHAR(255)")
+    if "vk_id_sub" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN vk_id_sub VARCHAR(255)")
+    if "vk_id_provider" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN vk_id_provider VARCHAR(16)")
     if "auth_provider" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN auth_provider VARCHAR(32) NOT NULL DEFAULT 'email'")
     if "role" not in user_columns:
@@ -280,6 +284,10 @@ def _ensure_user_account_columns_exist() -> None:
         _execute_schema_statement(
             connection,
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_yandex_sub ON users (yandex_sub)",
+        )
+        _execute_schema_statement(
+            connection,
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_vk_id_sub ON users (vk_id_sub)",
         )
 
 

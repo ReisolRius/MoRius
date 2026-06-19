@@ -857,6 +857,50 @@ export async function completeYandexOAuth(): Promise<YandexOAuthCompleteResponse
   )
 }
 
+export type VKIDOAuthProvider = 'vk' | 'mail'
+
+export type VKIDOAuthCompleteResponse = AuthResponse & {
+  oauth_action: YandexOAuthAction
+  oauth_provider: VKIDOAuthProvider
+}
+
+export async function startVKIDOAuth(payload: {
+  action: YandexOAuthAction
+  provider: VKIDOAuthProvider
+  return_path?: string
+  token?: string
+}): Promise<{ authorization_url: string }> {
+  return requestJson<{ authorization_url: string }>(
+    '/api/auth/vk/start',
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: payload.token
+        ? {
+            Authorization: `Bearer ${payload.token}`,
+          }
+        : undefined,
+      body: JSON.stringify({
+        action: payload.action,
+        provider: payload.provider,
+        return_path: payload.return_path,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function completeVKIDOAuth(): Promise<VKIDOAuthCompleteResponse> {
+  return requestJson<VKIDOAuthCompleteResponse>(
+    '/api/auth/vk/complete',
+    {
+      method: 'POST',
+      credentials: 'include',
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
 export async function replaceCurrentAuthWithPassword(payload: {
   token: string
   password: string

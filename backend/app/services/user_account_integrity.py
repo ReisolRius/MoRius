@@ -111,6 +111,41 @@ def repair_duplicate_users_for_email(
     return target_user, changed
 
 
+def merge_users_for_email_into_target(
+    db: Session,
+    email: str,
+    *,
+    target_user: User,
+) -> tuple[User, bool]:
+    normalized_email = normalize_email_casefold(email)
+    if not normalized_email:
+        return target_user, False
+
+    changed = False
+    for source_user in list_users_by_email_case_insensitive(db, normalized_email):
+        if int(source_user.id) == int(target_user.id):
+            continue
+        logger.warning(
+            "Merging user account into preferred target for normalized_email=%s target_user_id=%s source_user_id=%s",
+            normalized_email,
+            target_user.id,
+            source_user.id,
+        )
+        _merge_user_into_target(
+            db,
+            target_user=target_user,
+            source_user=source_user,
+            normalized_email=normalized_email,
+        )
+        db.flush([source_user])
+        changed = True
+
+    if target_user.email != normalized_email:
+        target_user.email = normalized_email
+        changed = True
+    return target_user, changed
+
+
 def repair_all_user_accounts(db: Session) -> int:
     normalized_email_expression = func.lower(func.trim(User.email))
     normalized_emails = [
@@ -154,6 +189,7 @@ def _build_merge_priority(db: Session, user: User) -> tuple[int, int, int, int, 
         int(bool((user.password_hash or "").strip()))
         + int(bool((user.google_sub or "").strip()))
         + int(bool((getattr(user, "yandex_sub", None) or "").strip()))
+        + int(bool((getattr(user, "vk_id_sub", None) or "").strip()))
     )
     return (
         game_count,
@@ -335,6 +371,22 @@ def _merge_user_profile(*, target_user: User, source_user: User, normalized_emai
             )
         source_user.yandex_sub = None
 
+    source_vk_id_sub = (getattr(source_user, "vk_id_sub", None) or "").strip()
+    target_vk_id_sub = (getattr(target_user, "vk_id_sub", None) or "").strip()
+    if source_vk_id_sub:
+        if not target_vk_id_sub:
+            target_user.vk_id_sub = source_vk_id_sub
+            target_user.vk_id_provider = source_user.vk_id_provider
+        elif target_vk_id_sub != source_vk_id_sub:
+            logger.warning(
+                "Merging duplicate users with conflicting vk_id_sub values for normalized_email=%s target_user_id=%s source_user_id=%s",
+                normalized_email,
+                target_user.id,
+                source_user.id,
+            )
+        source_user.vk_id_sub = None
+        source_user.vk_id_provider = None
+
     target_user.auth_provider = _provider_union(target_user.auth_provider, source_user.auth_provider)
     target_user.role = _prefer_role(target_user.role, source_user.role)
     target_user.level = max(int(target_user.level or 1), int(source_user.level or 1))
@@ -456,6 +508,8 @@ def _archive_merged_user(*, source_user: User, normalized_email: str) -> None:
     source_user.email = _build_archived_email(source_user_id=int(source_user.id), normalized_email=normalized_email)
     source_user.google_sub = None
     source_user.yandex_sub = None
+    source_user.vk_id_sub = None
+    source_user.vk_id_provider = None
     source_user.coins = 0
     source_user.auth_provider = MERGED_AUTH_PROVIDER
 

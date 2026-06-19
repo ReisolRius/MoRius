@@ -121,6 +121,7 @@ def test_linking_yandex_replaces_google_on_existing_profile() -> None:
         assert linked.google_sub is None
         assert linked.yandex_sub == "yandex-user-2"
         assert linked.auth_provider == "yandex"
+        assert linked.email == "another-address@yandex.ru"
     finally:
         db.close()
 
@@ -133,6 +134,8 @@ def test_password_relink_keeps_profile_and_removes_oauth_bindings() -> None:
             display_name="Owner",
             google_sub="google-user-2",
             yandex_sub="yandex-user-3",
+            vk_id_sub="vk-id-user-1",
+            vk_id_provider="mail",
             auth_provider="google+yandex",
         )
         db.add(user)
@@ -161,6 +164,8 @@ def test_password_relink_keeps_profile_and_removes_oauth_bindings() -> None:
         assert stored.password_hash
         assert stored.google_sub is None
         assert stored.yandex_sub is None
+        assert stored.vk_id_sub is None
+        assert stored.vk_id_provider is None
         active_same_email_count = db.scalar(
             select(func.count(User.id)).where(func.lower(User.email) == "owner@gmail.com")
         )

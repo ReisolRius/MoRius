@@ -83,6 +83,9 @@ def sync_auth_provider(user: User) -> bool:
         providers.append("google")
     if (getattr(user, "yandex_sub", None) or "").strip():
         providers.append("yandex")
+    if (getattr(user, "vk_id_sub", None) or "").strip():
+        vk_id_provider = str(getattr(user, "vk_id_provider", None) or "").strip().lower()
+        providers.append(vk_id_provider if vk_id_provider in {"vk", "mail"} else "vk")
     normalized_provider = "+".join(sorted(providers)) if providers else "email"
     if user.auth_provider == normalized_provider:
         return False

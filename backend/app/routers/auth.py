@@ -44,6 +44,9 @@ from app.schemas import (
     UserNotificationOut,
     UserNotificationUnreadCountOut,
     UserOut,
+    VKIDOAuthCompleteResponse,
+    VKIDOAuthStartRequest,
+    VKIDOAuthStartResponse,
     YandexOAuthCompleteResponse,
     YandexOAuthStartRequest,
     YandexOAuthStartResponse,
@@ -214,7 +217,15 @@ from app.services.cosmetics import (
 )
 from app.services.user_account_integrity import (
     find_user_by_email_case_insensitive,
+    merge_users_for_email_into_target,
     repair_duplicate_users_for_email,
+)
+from app.services.vk_id_oauth import (
+    VKIDIdentity,
+    VKIDOAuthError,
+    build_vk_id_authorization_url,
+    exchange_vk_id_code,
+    fetch_vk_id_identity,
 )
 from app.services.yandex_oauth import (
     YandexIdentity,
@@ -246,6 +257,13 @@ YANDEX_OAUTH_COMPLETION_TTL_MINUTES = 5
 YANDEX_OAUTH_PURPOSE_STATE = "yandex_oauth_state"
 YANDEX_OAUTH_PURPOSE_FLOW = "yandex_oauth_flow"
 YANDEX_OAUTH_PURPOSE_COMPLETION = "yandex_oauth_completion"
+VK_ID_OAUTH_FLOW_COOKIE = "morius_vk_id_oauth_flow"
+VK_ID_OAUTH_COMPLETION_COOKIE = "morius_vk_id_oauth_completion"
+VK_ID_OAUTH_STATE_TTL_MINUTES = 10
+VK_ID_OAUTH_COMPLETION_TTL_MINUTES = 5
+VK_ID_OAUTH_PURPOSE_STATE = "vk_id_oauth_state"
+VK_ID_OAUTH_PURPOSE_FLOW = "vk_id_oauth_flow"
+VK_ID_OAUTH_PURPOSE_COMPLETION = "vk_id_oauth_completion"
 
 
 def _utcnow() -> datetime:
@@ -291,6 +309,39 @@ def _delete_yandex_cookie(response: Response, *, key: str, path: str) -> None:
     )
 
 
+def _is_secure_vk_id_cookie() -> bool:
+    return settings.vk_id_redirect_uri.lower().startswith("https://")
+
+
+def _set_vk_id_cookie(
+    response: Response,
+    *,
+    key: str,
+    value: str,
+    max_age_seconds: int,
+    path: str,
+) -> None:
+    response.set_cookie(
+        key=key,
+        value=value,
+        max_age=max_age_seconds,
+        httponly=True,
+        secure=_is_secure_vk_id_cookie(),
+        samesite="lax",
+        path=path,
+    )
+
+
+def _delete_vk_id_cookie(response: Response, *, key: str, path: str) -> None:
+    response.delete_cookie(
+        key=key,
+        httponly=True,
+        secure=_is_secure_vk_id_cookie(),
+        samesite="lax",
+        path=path,
+    )
+
+
 def _normalize_yandex_return_path(value: str | None, *, action: str) -> str:
     fallback = "/profile" if action == "link" else "/auth"
     normalized = str(value or "").strip()
@@ -299,6 +350,10 @@ def _normalize_yandex_return_path(value: str | None, *, action: str) -> str:
     if any(character in normalized for character in ("\r", "\n", "\\")):
         return fallback
     return normalized[:512]
+
+
+def _normalize_vk_id_return_path(value: str | None, *, action: str) -> str:
+    return _normalize_yandex_return_path(value, action=action)
 
 
 def _build_yandex_frontend_redirect(
@@ -317,10 +372,33 @@ def _build_yandex_frontend_redirect(
     return f"{settings.yandex_frontend_url}{return_path}{suffix}"
 
 
+def _build_vk_id_frontend_redirect(
+    *,
+    return_path: str,
+    complete: bool = False,
+    error: str | None = None,
+) -> str:
+    separator = "&" if "?" in return_path else "?"
+    query: dict[str, str] = {}
+    if complete:
+        query["vk_id_oauth"] = "complete"
+    if error:
+        query["vk_id_oauth_error"] = error[:160]
+    suffix = f"{separator}{urlencode(query)}" if query else ""
+    return f"{settings.vk_id_frontend_url}{return_path}{suffix}"
+
+
 def _decode_yandex_token(value: str | None, *, purpose: str) -> dict[str, Any]:
     payload = safe_decode_access_token(str(value or "").strip())
     if not isinstance(payload, dict) or payload.get("purpose") != purpose:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Yandex OAuth session is invalid or expired")
+    return payload
+
+
+def _decode_vk_id_token(value: str | None, *, purpose: str) -> dict[str, Any]:
+    payload = safe_decode_access_token(str(value or "").strip())
+    if not isinstance(payload, dict) or payload.get("purpose") != purpose:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VK ID OAuth session is invalid or expired")
     return payload
 
 
@@ -347,13 +425,11 @@ def _resolve_yandex_login_user(db: Session, identity: YandexIdentity) -> tuple[U
         db.add(user)
         return user, True
 
-    if normalize_email(user.email) == normalize_email(identity.email):
-        repaired_user, _ = repair_duplicate_users_for_email(
-            db,
-            identity.email,
-            preferred_user_id=int(user.id),
-        )
-        user = repaired_user or user
+    user, _ = merge_users_for_email_into_target(
+        db,
+        identity.email,
+        target_user=user,
+    )
     if user.yandex_sub and user.yandex_sub != identity.subject:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -380,14 +456,88 @@ def _link_yandex_identity(db: Session, *, user_id: int, identity: YandexIdentity
             detail="Yandex account is already linked to another profile",
         )
 
-    repaired_user, _ = repair_duplicate_users_for_email(
+    user, _ = merge_users_for_email_into_target(
         db,
-        user.email,
-        preferred_user_id=int(user.id),
+        identity.email,
+        target_user=user,
     )
-    user = repaired_user or user
+    user.password_hash = None
     user.google_sub = None
+    user.vk_id_sub = None
+    user.vk_id_provider = None
     user.yandex_sub = identity.subject
+    if identity.avatar_url and not (user.avatar_url or "").strip():
+        user.avatar_url = identity.avatar_url
+    sync_auth_provider(user)
+    return user
+
+
+def _resolve_vk_id_login_user(db: Session, identity: VKIDIdentity) -> tuple[User, bool]:
+    user_by_subject = db.scalar(select(User).where(User.vk_id_sub == identity.subject))
+    user_by_email = find_user_by_email_case_insensitive(db, identity.email)
+    if user_by_subject and user_by_email and int(user_by_subject.id) != int(user_by_email.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="VK ID account is already linked to another profile",
+        )
+
+    user = user_by_subject or user_by_email
+    is_new_user = user is None
+    if user is None:
+        user = User(
+            email=normalize_email(identity.email),
+            display_name=coerce_display_name(identity.display_name, fallback_email=identity.email),
+            avatar_url=identity.avatar_url,
+            vk_id_sub=identity.subject,
+            vk_id_provider=identity.provider,
+            auth_provider=identity.provider,
+            coins=NEW_USER_STARTER_COINS,
+        )
+        db.add(user)
+        return user, True
+
+    user, _ = merge_users_for_email_into_target(
+        db,
+        identity.email,
+        target_user=user,
+    )
+    if user.vk_id_sub and user.vk_id_sub != identity.subject:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This profile is linked to another VK ID account",
+        )
+    user.vk_id_sub = identity.subject
+    user.vk_id_provider = identity.provider
+    if not (user.display_name or "").strip():
+        user.display_name = coerce_display_name(identity.display_name, fallback_email=user.email)
+    if identity.avatar_url and not (user.avatar_url or "").strip():
+        user.avatar_url = identity.avatar_url
+    sync_auth_provider(user)
+    return user, is_new_user
+
+
+def _link_vk_id_identity(db: Session, *, user_id: int, identity: VKIDIdentity) -> User:
+    user = db.scalar(select(User).where(User.id == int(user_id)))
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile was not found")
+
+    linked_user = db.scalar(select(User).where(User.vk_id_sub == identity.subject))
+    if linked_user is not None and int(linked_user.id) != int(user.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="VK ID account is already linked to another profile",
+        )
+
+    user, _ = merge_users_for_email_into_target(
+        db,
+        identity.email,
+        target_user=user,
+    )
+    user.password_hash = None
+    user.google_sub = None
+    user.yandex_sub = None
+    user.vk_id_sub = identity.subject
+    user.vk_id_provider = identity.provider
     if identity.avatar_url and not (user.avatar_url or "").strip():
         user.avatar_url = identity.avatar_url
     sync_auth_provider(user)
@@ -716,6 +866,260 @@ def _is_google_token_claims_expired(token_data: dict[str, Any]) -> bool:
     return exp_timestamp <= now_timestamp
 
 
+@router.post("/api/auth/vk/start", response_model=VKIDOAuthStartResponse)
+def start_vk_id_oauth(
+    payload: VKIDOAuthStartRequest,
+    response: Response,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> VKIDOAuthStartResponse:
+    client_id = settings.vk_id_client_id.strip()
+    redirect_uri = settings.vk_id_redirect_uri.strip()
+    if not client_id or not client_id.isdigit() or not redirect_uri or not settings.vk_id_frontend_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="VK ID OAuth is not configured on server",
+        )
+
+    user_id: int | None = None
+    if payload.action == "link":
+        user_id = int(get_current_user(db, authorization).id)
+
+    return_path = _normalize_vk_id_return_path(payload.return_path, action=payload.action)
+    nonce = secrets.token_urlsafe(24)
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode("ascii")).digest()
+    ).decode("ascii").rstrip("=")
+    state_token = create_access_token(
+        subject="vk-id-oauth-state",
+        claims={
+            "purpose": VK_ID_OAUTH_PURPOSE_STATE,
+            "nonce": nonce,
+            "action": payload.action,
+            "provider": payload.provider,
+            "user_id": user_id,
+            "return_path": return_path,
+        },
+        expires_delta=timedelta(minutes=VK_ID_OAUTH_STATE_TTL_MINUTES),
+    )
+    flow_token = create_access_token(
+        subject="vk-id-oauth-flow",
+        claims={
+            "purpose": VK_ID_OAUTH_PURPOSE_FLOW,
+            "nonce": nonce,
+            "code_verifier": code_verifier,
+        },
+        expires_delta=timedelta(minutes=VK_ID_OAUTH_STATE_TTL_MINUTES),
+    )
+    _set_vk_id_cookie(
+        response,
+        key=VK_ID_OAUTH_FLOW_COOKIE,
+        value=flow_token,
+        max_age_seconds=VK_ID_OAUTH_STATE_TTL_MINUTES * 60,
+        path="/api/auth/callback/vk",
+    )
+    return VKIDOAuthStartResponse(
+        authorization_url=build_vk_id_authorization_url(
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            state=state_token,
+            code_challenge=code_challenge,
+            provider=payload.provider,
+            force_login=payload.action == "link",
+        )
+    )
+
+
+@router.get("/api/auth/callback/vk", include_in_schema=False)
+def vk_id_oauth_callback(
+    payload: str | None = Query(default=None),
+    code: str | None = Query(default=None),
+    state_token: str | None = Query(default=None, alias="state"),
+    device_id: str | None = Query(default=None),
+    provider_error: str | None = Query(default=None, alias="error"),
+    flow_cookie: str | None = Cookie(default=None, alias=VK_ID_OAUTH_FLOW_COOKIE),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    callback_payload: dict[str, Any] = {}
+    if payload:
+        try:
+            parsed_payload = json.loads(payload)
+        except (TypeError, ValueError):
+            parsed_payload = {}
+        if isinstance(parsed_payload, dict):
+            callback_payload = parsed_payload
+
+    resolved_code = str(code or callback_payload.get("code") or "").strip()
+    resolved_state = str(state_token or callback_payload.get("state") or "").strip()
+    resolved_device_id = str(device_id or callback_payload.get("device_id") or "").strip()
+    resolved_error = str(
+        provider_error
+        or callback_payload.get("error")
+        or callback_payload.get("error_description")
+        or ""
+    ).strip()
+
+    state_payload = _decode_vk_id_token(resolved_state, purpose=VK_ID_OAUTH_PURPOSE_STATE)
+    action = "link" if state_payload.get("action") == "link" else "login"
+    provider = "mail" if state_payload.get("provider") == "mail" else "vk"
+    return_path = _normalize_vk_id_return_path(state_payload.get("return_path"), action=action)
+    flow_payload = _decode_vk_id_token(flow_cookie, purpose=VK_ID_OAUTH_PURPOSE_FLOW)
+    if not secrets.compare_digest(
+        str(state_payload.get("nonce") or ""),
+        str(flow_payload.get("nonce") or ""),
+    ):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VK ID OAuth state mismatch")
+
+    if resolved_error:
+        redirect = RedirectResponse(
+            _build_vk_id_frontend_redirect(return_path=return_path, error=resolved_error),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+        _delete_vk_id_cookie(
+            redirect,
+            key=VK_ID_OAUTH_FLOW_COOKIE,
+            path="/api/auth/callback/vk",
+        )
+        return redirect
+    if not resolved_code or not resolved_device_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="VK ID authorization response is incomplete",
+        )
+
+    try:
+        access_token = exchange_vk_id_code(
+            client_id=settings.vk_id_client_id,
+            redirect_uri=settings.vk_id_redirect_uri,
+            code=resolved_code,
+            code_verifier=str(flow_payload.get("code_verifier") or ""),
+            device_id=resolved_device_id,
+            state=resolved_state,
+        )
+        identity = fetch_vk_id_identity(
+            access_token=access_token,
+            client_id=settings.vk_id_client_id,
+            provider=provider,
+        )
+        if action == "link":
+            try:
+                user_id = int(str(state_payload.get("user_id")))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="VK ID account link target is invalid",
+                ) from exc
+            user = _link_vk_id_identity(db, user_id=user_id, identity=identity)
+            is_new_user = False
+        else:
+            user, is_new_user = _resolve_vk_id_login_user(db, identity)
+
+        _sync_user_display_name(user, fallback_email=user.email)
+        sync_user_access_state(user)
+        ensure_user_not_banned(user)
+        db.commit()
+        db.refresh(user)
+    except HTTPException as exc:
+        db.rollback()
+        logger.warning("VK ID OAuth account operation failed: status=%s detail=%s", exc.status_code, exc.detail)
+        error_code = "account_conflict" if exc.status_code == status.HTTP_409_CONFLICT else "account_error"
+        redirect = RedirectResponse(
+            _build_vk_id_frontend_redirect(return_path=return_path, error=error_code),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+        _delete_vk_id_cookie(
+            redirect,
+            key=VK_ID_OAUTH_FLOW_COOKIE,
+            path="/api/auth/callback/vk",
+        )
+        return redirect
+    except (IntegrityError, SQLAlchemyError) as exc:
+        db.rollback()
+        logger.exception("VK ID OAuth database operation failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service is temporarily unavailable",
+        ) from exc
+    except VKIDOAuthError as exc:
+        db.rollback()
+        logger.warning("VK ID OAuth provider error: %s", exc)
+        redirect = RedirectResponse(
+            _build_vk_id_frontend_redirect(return_path=return_path, error="provider_error"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+        _delete_vk_id_cookie(
+            redirect,
+            key=VK_ID_OAUTH_FLOW_COOKIE,
+            path="/api/auth/callback/vk",
+        )
+        return redirect
+
+    completion_token = create_access_token(
+        subject=str(user.id),
+        claims={
+            "purpose": VK_ID_OAUTH_PURPOSE_COMPLETION,
+            "oauth_action": action,
+            "oauth_provider": provider,
+            "is_new_user": is_new_user,
+        },
+        expires_delta=timedelta(minutes=VK_ID_OAUTH_COMPLETION_TTL_MINUTES),
+    )
+    redirect = RedirectResponse(
+        _build_vk_id_frontend_redirect(return_path=return_path, complete=True),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+    _delete_vk_id_cookie(
+        redirect,
+        key=VK_ID_OAUTH_FLOW_COOKIE,
+        path="/api/auth/callback/vk",
+    )
+    _set_vk_id_cookie(
+        redirect,
+        key=VK_ID_OAUTH_COMPLETION_COOKIE,
+        value=completion_token,
+        max_age_seconds=VK_ID_OAUTH_COMPLETION_TTL_MINUTES * 60,
+        path="/api/auth/vk/complete",
+    )
+    return redirect
+
+
+@router.post("/api/auth/vk/complete", response_model=VKIDOAuthCompleteResponse)
+def complete_vk_id_oauth(
+    response: Response,
+    completion_cookie: str | None = Cookie(default=None, alias=VK_ID_OAUTH_COMPLETION_COOKIE),
+    db: Session = Depends(get_db),
+) -> VKIDOAuthCompleteResponse:
+    completion_payload = _decode_vk_id_token(
+        completion_cookie,
+        purpose=VK_ID_OAUTH_PURPOSE_COMPLETION,
+    )
+    try:
+        user_id = int(str(completion_payload.get("sub")))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VK ID OAuth result is invalid") from exc
+    user = db.scalar(select(User).where(User.id == user_id))
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile was not found")
+    sync_user_access_state(user)
+    ensure_user_not_banned(user)
+    auth_response = issue_auth_response(
+        user,
+        is_new_user=bool(completion_payload.get("is_new_user")),
+        db=db,
+    )
+    _delete_vk_id_cookie(
+        response,
+        key=VK_ID_OAUTH_COMPLETION_COOKIE,
+        path="/api/auth/vk/complete",
+    )
+    return VKIDOAuthCompleteResponse(
+        **auth_response.model_dump(),
+        oauth_action="link" if completion_payload.get("oauth_action") == "link" else "login",
+        oauth_provider="mail" if completion_payload.get("oauth_provider") == "mail" else "vk",
+    )
+
+
 @router.post("/api/auth/yandex/start", response_model=YandexOAuthStartResponse)
 def start_yandex_oauth(
     payload: YandexOAuthStartRequest,
@@ -954,6 +1358,8 @@ def replace_auth_method_with_password(
     user.password_hash = hash_password(payload.password)
     user.google_sub = None
     user.yandex_sub = None
+    user.vk_id_sub = None
+    user.vk_id_provider = None
     sync_auth_provider(user)
     sync_user_access_state(user)
     ensure_user_not_banned(user)

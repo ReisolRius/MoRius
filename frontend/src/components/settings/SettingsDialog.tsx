@@ -28,6 +28,7 @@ import {
   getShopCatalog,
   getCurrentUserThemeSettings,
   replaceCurrentAuthWithPassword,
+  startVKIDOAuth,
   startYandexOAuth,
   updateCurrentUserCustomTheme,
   updateCurrentUserProfile,
@@ -76,6 +77,7 @@ type EditableTheme = {
 type PaletteFieldKey = keyof EditableTheme['palette']
 type StoryFieldKey = keyof Pick<EditableTheme['story'], 'corrected_text_color' | 'player_text_color' | 'assistant_text_color'>
 type ColorFieldKey = PaletteFieldKey | StoryFieldKey
+type AccountAuthProvider = 'email' | 'google' | 'yandex' | 'vk' | 'mail'
 
 const PROFILE_DESCRIPTION_MAX = 4000
 const DISPLAY_NAME_MAX = 120
@@ -116,6 +118,23 @@ const PRIVACY_FIELDS = [
   { key: 'show_public_characters', label: 'Показывать персонажей' },
   { key: 'show_public_instruction_templates', label: 'Показывать инструкции' },
 ] as const
+
+function resolveActiveAuthProvider(value: string): AccountAuthProvider {
+  const providers = new Set(value.split('+').map((item) => item.trim().toLowerCase()).filter(Boolean))
+  if (providers.has('mail')) return 'mail'
+  if (providers.has('vk')) return 'vk'
+  if (providers.has('yandex')) return 'yandex'
+  if (providers.has('email')) return 'email'
+  return providers.has('google') ? 'google' : 'email'
+}
+
+const AUTH_PROVIDER_LABELS: Record<AccountAuthProvider, string> = {
+  email: 'Почта и пароль',
+  google: 'Google',
+  yandex: 'Яндекс',
+  vk: 'VK',
+  mail: 'Mail',
+}
 
 function createCustomThemeId() {
   return `custom-${Date.now().toString(36)}`
@@ -250,6 +269,7 @@ function SettingsDialog({
   const [passwordAuthConfirmValue, setPasswordAuthConfirmValue] = useState('')
   const [isReplacingAuthMethod, setIsReplacingAuthMethod] = useState(false)
   const [isStartingYandexLink, setIsStartingYandexLink] = useState(false)
+  const [vkIDLinkProvider, setVKIDLinkProvider] = useState<'vk' | 'mail' | null>(null)
   const [authMethodSuccess, setAuthMethodSuccess] = useState('')
   const [editingColorField, setEditingColorField] = useState<ColorFieldKey | null>(null)
   const [colorInputDraft, setColorInputDraft] = useState('')
@@ -264,6 +284,8 @@ function SettingsDialog({
     [editingThemeId, savedCustomThemes],
   )
   const canCreateMoreCustomThemes = savedCustomThemes.length < CURRENT_USER_CUSTOM_THEME_LIMIT
+  const activeAuthProvider = resolveActiveAuthProvider(user.auth_provider || 'email')
+  const isAuthMethodBusy = isStartingYandexLink || vkIDLinkProvider !== null || isReplacingAuthMethod
 
   const applyResolvedTheme = useCallback((settings: CurrentUserThemeSettings | null) => {
     if (!settings) {
@@ -294,6 +316,7 @@ function SettingsDialog({
     setPasswordAuthValue('')
     setPasswordAuthConfirmValue('')
     setIsPasswordAuthDialogOpen(false)
+    setVKIDLinkProvider(null)
     setDisplayName(user.display_name ?? '')
     setProfileDescription(user.profile_description ?? '')
     setProfileBannerId(normalizeProfileBannerId(user.profile_banner_id))
@@ -550,7 +573,7 @@ function SettingsDialog({
   }, [])
 
   const handleStartYandexLink = async () => {
-    if (isStartingYandexLink || isReplacingAuthMethod) {
+    if (isAuthMethodBusy || activeAuthProvider === 'yandex') {
       return
     }
     setError('')
@@ -569,8 +592,30 @@ function SettingsDialog({
     }
   }
 
+  const handleStartVKIDLink = async (provider: 'vk' | 'mail') => {
+    if (isAuthMethodBusy || activeAuthProvider === provider) {
+      return
+    }
+    setError('')
+    setAuthMethodSuccess('')
+    setVKIDLinkProvider(provider)
+    try {
+      const response = await startVKIDOAuth({
+        action: 'link',
+        provider,
+        return_path: '/profile',
+        token: authToken,
+      })
+      window.location.assign(response.authorization_url)
+    } catch (requestError) {
+      const providerLabel = provider === 'mail' ? 'Mail' : 'VK'
+      setError(requestError instanceof Error ? requestError.message : `Не удалось начать перепривязку к ${providerLabel}`)
+      setVKIDLinkProvider(null)
+    }
+  }
+
   const handleReplaceAuthWithPassword = async () => {
-    if (isReplacingAuthMethod) {
+    if (isAuthMethodBusy || activeAuthProvider === 'email') {
       return
     }
     if (passwordAuthValue.length < 8) {
@@ -1335,13 +1380,13 @@ function SettingsDialog({
                         Перепривязать способ входа
                       </Typography>
                       <Typography sx={{ mt: 0.45, color: 'var(--morius-text-secondary)', fontSize: '0.88rem', lineHeight: 1.4 }}>
-                        Текущий способ: {user.auth_provider || 'email'}. Профиль, игры и покупки останутся на этом аккаунте.
+                        Текущий способ: {AUTH_PROVIDER_LABELS[activeAuthProvider]}. Профиль, игры и покупки останутся на этом аккаунте.
                       </Typography>
                       {authMethodSuccess ? <Alert severity="success" sx={{ mt: 1.1, borderRadius: '12px' }}>{authMethodSuccess}</Alert> : null}
                       <Stack spacing={0.8} sx={{ mt: 1.2 }}>
                         <Button
                           onClick={() => void handleStartYandexLink()}
-                          disabled={isStartingYandexLink || isReplacingAuthMethod}
+                          disabled={isAuthMethodBusy || activeAuthProvider === 'yandex'}
                           sx={{
                             minHeight: 44,
                             borderRadius: '12px',
@@ -1351,7 +1396,11 @@ function SettingsDialog({
                             backgroundColor: 'color-mix(in srgb, #fc3f1d 10%, var(--morius-card-bg))',
                           }}
                         >
-                          {isStartingYandexLink ? 'Переходим в Яндекс...' : 'Перепривязать к Яндексу'}
+                          {activeAuthProvider === 'yandex'
+                            ? 'Подключено: Яндекс'
+                            : isStartingYandexLink
+                              ? 'Переходим в Яндекс...'
+                              : 'Перепривязать к Яндексу'}
                         </Button>
                         <Button
                           onClick={() => {
@@ -1359,7 +1408,7 @@ function SettingsDialog({
                             setAuthMethodSuccess('')
                             setIsPasswordAuthDialogOpen(true)
                           }}
-                          disabled={isStartingYandexLink || isReplacingAuthMethod}
+                          disabled={isAuthMethodBusy || activeAuthProvider === 'email'}
                           sx={{
                             minHeight: 44,
                             borderRadius: '12px',
@@ -1369,13 +1418,29 @@ function SettingsDialog({
                             backgroundColor: 'var(--morius-elevated-bg)',
                           }}
                         >
-                          Gmail — вход по почте и паролю
+                          {activeAuthProvider === 'email' ? 'Подключено: почта и пароль' : 'Gmail — вход по почте и паролю'}
                         </Button>
-                        <Button disabled sx={{ minHeight: 42, borderRadius: '12px', textTransform: 'none' }}>
-                          Перепривязать к VK — скоро
+                        <Button
+                          onClick={() => void handleStartVKIDLink('vk')}
+                          disabled={isAuthMethodBusy || activeAuthProvider === 'vk'}
+                          sx={{ minHeight: 42, borderRadius: '12px', textTransform: 'none' }}
+                        >
+                          {activeAuthProvider === 'vk'
+                            ? 'Подключено: VK'
+                            : vkIDLinkProvider === 'vk'
+                              ? 'Переходим в VK ID...'
+                              : 'Перепривязать к VK'}
                         </Button>
-                        <Button disabled sx={{ minHeight: 42, borderRadius: '12px', textTransform: 'none' }}>
-                          Перепривязать к Mail — скоро
+                        <Button
+                          onClick={() => void handleStartVKIDLink('mail')}
+                          disabled={isAuthMethodBusy || activeAuthProvider === 'mail'}
+                          sx={{ minHeight: 42, borderRadius: '12px', textTransform: 'none' }}
+                        >
+                          {activeAuthProvider === 'mail'
+                            ? 'Подключено: Mail'
+                            : vkIDLinkProvider === 'mail'
+                              ? 'Переходим в Mail через VK ID...'
+                              : 'Перепривязать к Mail'}
                         </Button>
                       </Stack>
                     </Box>

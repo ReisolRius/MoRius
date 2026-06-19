@@ -363,6 +363,21 @@ class YandexOAuthCompleteResponse(AuthResponse):
     oauth_action: Literal["login", "link"]
 
 
+class VKIDOAuthStartRequest(BaseModel):
+    action: Literal["login", "link"] = "login"
+    provider: Literal["vk", "mail"] = "vk"
+    return_path: str | None = Field(default=None, max_length=512)
+
+
+class VKIDOAuthStartResponse(BaseModel):
+    authorization_url: str
+
+
+class VKIDOAuthCompleteResponse(AuthResponse):
+    oauth_action: Literal["login", "link"]
+    oauth_provider: Literal["vk", "mail"]
+
+
 class MessageResponse(BaseModel):
     message: str
 

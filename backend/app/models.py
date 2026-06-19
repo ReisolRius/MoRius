@@ -29,6 +29,8 @@ class User(Base):
     publication_visibility_initialized: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     yandex_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    vk_id_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    vk_id_provider: Mapped[str | None] = mapped_column(String(16), nullable=True)
     auth_provider: Mapped[str] = mapped_column(String(32), default="email", nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user", server_default="user")
     level: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")

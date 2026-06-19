@@ -8,7 +8,6 @@ import {
   CircularProgress,
   Stack,
   TextField,
-  Tooltip,
   Typography,
 } from '@mui/material'
 import { brandLogo } from '../assets'
@@ -19,6 +18,7 @@ import {
   loginWithGoogleAccessToken,
   registerWithEmail,
   requestPasswordReset,
+  startVKIDOAuth,
   startYandexOAuth,
   verifyEmailRegistration,
   verifyPasswordReset,
@@ -246,47 +246,6 @@ function ProviderGlyph({ provider }: { provider: 'vk' | 'yandex' | 'mail' }) {
   )
 }
 
-function DisabledProviderButton({
-  provider,
-  children,
-}: {
-  provider: 'vk' | 'yandex' | 'mail'
-  children: ReactNode
-}) {
-  return (
-    <Tooltip title="Скоро" placement="left" arrow>
-      <Box component="span" sx={{ display: 'block', width: '100%', cursor: 'not-allowed' }}>
-        <Button
-          type="button"
-          fullWidth
-          disabled
-          sx={{
-            minHeight: 52,
-            borderRadius: '10px',
-            border: `1px solid ${BORDER_COLOR}`,
-            color: `${INPUT_TEXT} !important`,
-            backgroundColor: 'rgba(255,255,255,0.018)',
-            fontFamily: '"Nunito Sans", sans-serif',
-            fontSize: '0.96rem',
-            fontWeight: 700,
-            textTransform: 'none',
-            gap: 1.2,
-            opacity: 0.48,
-            '&.Mui-disabled': {
-              color: `${INPUT_TEXT} !important`,
-              borderColor: BORDER_COLOR,
-              backgroundColor: 'rgba(255,255,255,0.018)',
-            },
-          }}
-        >
-          <ProviderGlyph provider={provider} />
-          {children}
-        </Button>
-      </Box>
-    </Tooltip>
-  )
-}
-
 function GoogleAuthButton({
   disabled,
   onStart,
@@ -347,13 +306,18 @@ function GoogleAuthButton({
   )
 }
 
-function YandexAuthButton({
+function ProviderAuthButton({
+  provider,
+  label,
   disabled,
   onClick,
 }: {
+  provider: 'vk' | 'yandex' | 'mail'
+  label: string
   disabled: boolean
   onClick: () => void
 }) {
+  const hoverColor = provider === 'yandex' ? '#fc3f1d' : provider === 'vk' ? '#2787f5' : '#168de2'
   return (
     <Button
       type="button"
@@ -373,12 +337,12 @@ function YandexAuthButton({
         gap: 1.2,
         '&:hover': {
           backgroundColor: '#171a1d',
-          borderColor: '#fc3f1d',
+          borderColor: hoverColor,
         },
       }}
     >
-      <ProviderGlyph provider="yandex" />
-      Войти через Яндекс
+      <ProviderGlyph provider={provider} />
+      {label}
     </Button>
   )
 }
@@ -399,6 +363,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false)
   const [isYandexSubmitting, setIsYandexSubmitting] = useState(false)
+  const [vkIDSubmittingProvider, setVKIDSubmittingProvider] = useState<'vk' | 'mail' | null>(null)
   const [isAuthHeroLoaded, setIsAuthHeroLoaded] = useState(false)
   const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0)
 
@@ -417,6 +382,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
     confirmPassword.length > 0 &&
     password !== confirmPassword
   const isRegisterSubmitBlocked = isRegisterMode && registerStep === 'credentials' && (!acceptedTerms || !acceptedAge)
+  const isExternalAuthSubmitting = isGoogleSubmitting || isYandexSubmitting || vkIDSubmittingProvider !== null
 
   useEffect(() => {
     const rootElement = document.getElementById('root')
@@ -673,7 +639,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
   }
 
   const handleYandexAuth = async () => {
-    if (isSubmitting || isGoogleSubmitting || isYandexSubmitting) {
+    if (isSubmitting || isExternalAuthSubmitting) {
       return
     }
     setErrorMessage('')
@@ -688,6 +654,27 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Не удалось начать вход через Яндекс.')
       setIsYandexSubmitting(false)
+    }
+  }
+
+  const handleVKIDAuth = async (provider: 'vk' | 'mail') => {
+    if (isSubmitting || isExternalAuthSubmitting) {
+      return
+    }
+    setErrorMessage('')
+    setInfoMessage('')
+    setVKIDSubmittingProvider(provider)
+    try {
+      const response = await startVKIDOAuth({
+        action: 'login',
+        provider,
+        return_path: '/auth',
+      })
+      window.location.assign(response.authorization_url)
+    } catch (error) {
+      const providerLabel = provider === 'mail' ? 'Mail' : 'VK'
+      setErrorMessage(error instanceof Error ? error.message : `Не удалось начать вход через ${providerLabel}.`)
+      setVKIDSubmittingProvider(null)
     }
   }
 
@@ -1009,7 +996,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
               <Button
                 type="submit"
                 fullWidth
-                disabled={isSubmitting || isGoogleSubmitting || isYandexSubmitting || isRegisterSubmitBlocked}
+                disabled={isSubmitting || isExternalAuthSubmitting || isRegisterSubmitBlocked}
                 sx={{
                   mt: { xs: 0.7, md: 1.2 },
                   minHeight: 57,
@@ -1042,7 +1029,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                   </Typography>
                   {hasGoogleClientId ? (
                     <GoogleAuthButton
-                      disabled={isSubmitting || isGoogleSubmitting || isYandexSubmitting}
+                      disabled={isSubmitting || isExternalAuthSubmitting}
                       onStart={() => {
                         setErrorMessage('')
                         setInfoMessage('')
@@ -1060,18 +1047,36 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                     </Alert>
                   )}
                   <Stack spacing={1}>
-                    <YandexAuthButton
-                      disabled={isSubmitting || isGoogleSubmitting || isYandexSubmitting}
+                    <ProviderAuthButton
+                      provider="yandex"
+                      label="Войти через Яндекс"
+                      disabled={isSubmitting || isExternalAuthSubmitting}
                       onClick={() => void handleYandexAuth()}
                     />
-                    <DisabledProviderButton provider="vk">Войти через VK</DisabledProviderButton>
-                    <DisabledProviderButton provider="mail">Войти через Mail</DisabledProviderButton>
+                    <ProviderAuthButton
+                      provider="vk"
+                      label="Войти через VK"
+                      disabled={isSubmitting || isExternalAuthSubmitting}
+                      onClick={() => void handleVKIDAuth('vk')}
+                    />
+                    <ProviderAuthButton
+                      provider="mail"
+                      label="Войти через Mail"
+                      disabled={isSubmitting || isExternalAuthSubmitting}
+                      onClick={() => void handleVKIDAuth('mail')}
+                    />
                   </Stack>
-                  {isGoogleSubmitting || isYandexSubmitting ? (
+                  {isExternalAuthSubmitting ? (
                     <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
                       <CircularProgress size={16} />
                       <Typography sx={{ color: MUTED_TEXT, fontSize: '0.86rem' }}>
-                        {isYandexSubmitting ? 'Переходим в Яндекс...' : 'Проверяем Google аккаунт...'}
+                        {isYandexSubmitting
+                          ? 'Переходим в Яндекс...'
+                          : vkIDSubmittingProvider === 'mail'
+                            ? 'Переходим в Mail через VK ID...'
+                            : vkIDSubmittingProvider === 'vk'
+                              ? 'Переходим в VK ID...'
+                              : 'Проверяем Google аккаунт...'}
                       </Typography>
                     </Stack>
                   ) : null}

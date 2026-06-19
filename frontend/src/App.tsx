@@ -1,6 +1,7 @@
 ﻿import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import {
   applyReferralCode,
+  completeVKIDOAuth,
   completeYandexOAuth,
   getCurrentUser,
   getCurrentUserThemeSettings,
@@ -326,6 +327,7 @@ function App() {
   const [maintenanceSettings, setMaintenanceSettings] = useState<MaintenanceSettings | null>(null)
   const [authNotice, setAuthNotice] = useState<{ severity: 'success' | 'error'; message: string } | null>(null)
   const hasTrackedInitialRouteRef = useRef(false)
+  const vkIDCompletionStartedRef = useRef(false)
   const yandexCompletionStartedRef = useRef(false)
   const isAuthenticated = Boolean(authToken && authUser)
   const currentUserRole = authUser?.role.trim().toLowerCase() ?? ''
@@ -522,6 +524,70 @@ function App() {
           message: error instanceof Error ? error.message : 'Не удалось завершить вход через Яндекс.',
         })
         params.delete('yandex_oauth')
+        const nextSearch = params.toString()
+        window.history.replaceState(
+          {},
+          '',
+          `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`,
+        )
+      })
+      .finally(() => {
+        setIsHydratingSession(false)
+      })
+  }, [navigate])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const oauthError = params.get('vk_id_oauth_error')
+    const shouldComplete = params.get('vk_id_oauth') === 'complete'
+    if (!oauthError && !shouldComplete) {
+      return
+    }
+
+    if (oauthError) {
+      params.delete('vk_id_oauth_error')
+      const nextSearch = params.toString()
+      window.history.replaceState(
+        {},
+        '',
+        `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`,
+      )
+      window.setTimeout(() => {
+        const message =
+          oauthError === 'access_denied'
+            ? 'Вход через VK ID отменён.'
+            : oauthError === 'account_conflict'
+              ? 'Этот VK ID уже привязан к другому профилю.'
+              : 'Не удалось завершить вход через VK ID.'
+        setAuthNotice({ severity: 'error', message })
+      }, 0)
+    }
+    if (!shouldComplete || vkIDCompletionStartedRef.current) {
+      return
+    }
+
+    vkIDCompletionStartedRef.current = true
+    window.setTimeout(() => setIsHydratingSession(true), 0)
+    void completeVKIDOAuth()
+      .then((payload) => {
+        persistAuthSession(payload)
+        setAuthToken(payload.access_token)
+        setAuthUser(payload.user)
+        setShouldOpenAiAssistantAfterAuth(Boolean(payload.is_new_user))
+        if (payload.oauth_action === 'link') {
+          const providerLabel = payload.oauth_provider === 'mail' ? 'Mail' : 'VK'
+          setAuthNotice({ severity: 'success', message: `Аккаунт успешно перепривязан к ${providerLabel}.` })
+          navigate('/profile', { replace: true })
+        } else {
+          navigate('/dashboard', { replace: true })
+        }
+      })
+      .catch((error) => {
+        setAuthNotice({
+          severity: 'error',
+          message: error instanceof Error ? error.message : 'Не удалось завершить вход через VK ID.',
+        })
+        params.delete('vk_id_oauth')
         const nextSearch = params.toString()
         window.history.replaceState(
           {},

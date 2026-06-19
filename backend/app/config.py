@@ -223,6 +223,9 @@ class Settings:
     yandex_client_id: str
     yandex_redirect_uri: str
     yandex_frontend_url: str
+    vk_id_client_id: str
+    vk_id_redirect_uri: str
+    vk_id_frontend_url: str
     email_verification_code_ttl_minutes: int
     email_verification_max_attempts: int
     email_verification_resend_cooldown_seconds: int
@@ -338,6 +341,12 @@ settings = Settings(
         "https://morius-ai.ru/api/auth/callback/yandex",
     ).strip(),
     yandex_frontend_url=os.getenv("YANDEX_FRONTEND_URL", "https://morius-ai.ru").strip().rstrip("/"),
+    vk_id_client_id=os.getenv("VK_ID_CLIENT_ID", "").strip(),
+    vk_id_redirect_uri=os.getenv(
+        "VK_ID_REDIRECT_URI",
+        "https://morius-ai.ru/api/auth/callback/vk",
+    ).strip(),
+    vk_id_frontend_url=os.getenv("VK_ID_FRONTEND_URL", "https://morius-ai.ru").strip().rstrip("/"),
     email_verification_code_ttl_minutes=int(os.getenv("EMAIL_VERIFICATION_CODE_TTL_MINUTES", "10")),
     email_verification_max_attempts=int(os.getenv("EMAIL_VERIFICATION_MAX_ATTEMPTS", "5")),
     email_verification_resend_cooldown_seconds=int(
