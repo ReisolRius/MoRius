@@ -2,6 +2,7 @@
   forwardRef,
   Fragment,
   lazy,
+  startTransition,
   Suspense,
   useCallback,
   useEffect,
@@ -844,6 +845,9 @@ const COMPOSER_TOP_ACTION_BUTTON_SIZE = 46
 const COMPOSER_SEND_BUTTON_SIZE = 36
 const COMPOSER_INPUT_MIN_HEIGHT = 44
 const COMPOSER_INPUT_MAX_HEIGHT = 184
+const STORY_COMPOSER_FALLBACK_HEIGHT = 152
+const STORY_MESSAGES_VIEWPORT_FALLBACK_BOTTOM =
+  STORY_COMPOSER_FALLBACK_HEIGHT + moriusThemeTokens.layout.interfaceGap + 40
 const STORY_CONTINUE_PROMPT = 'Продолжай'
 const STORY_CHARACTER_EMOTION_IDS: StoryCharacterEmotionId[] = [
   'calm',
@@ -5800,7 +5804,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isLoadingOlderStoryMessages, setIsLoadingOlderStoryMessages] = useState(false)
   const [visibleAssistantTurns, setVisibleAssistantTurns] = useState(STORY_VISIBLE_ASSISTANT_TURNS_INITIAL)
   const [ambientByAssistantMessageId, setAmbientByAssistantMessageId] = useState<Record<number, StoryAmbientProfile>>({})
-  const [inputValue, setInputValue] = useState('')
+  const [hasPromptText, setHasPromptText] = useState(false)
   const [isMobileComposer, setIsMobileComposer] = useState<boolean>(() => isMobileComposerViewport())
   const [isComposerAiMenuOpen, setIsComposerAiMenuOpen] = useState(false)
   const [isVoiceInputActive, setIsVoiceInputActive] = useState(false)
@@ -6147,6 +6151,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const composerAiMenuRef = useRef<HTMLDivElement | null>(null)
   const composerContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
+  const composerDraftRef = useRef('')
+  const hasPromptTextRef = useRef(false)
+  const inputLengthIndicatorRef = useRef<HTMLSpanElement | null>(null)
+  const inputHeightFrameRef = useRef<number | null>(null)
   const isAutoScrollPausedRef = useRef(isAutoScrollPaused)
   const streamingAutoScrollFrameRef = useRef<number | null>(null)
   const messagesTouchYRef = useRef<number | null>(null)
@@ -6165,7 +6173,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const characterAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const worldCardAvatarInputRef = useRef<HTMLInputElement | null>(null)
-  const [composerHeight, setComposerHeight] = useState(0)
   const [emotionStageHeightPx, setEmotionStageHeightPx] = useState<number | null>(null)
 
   const activeDisplayTitle = useMemo(
@@ -6423,11 +6430,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }),
     [],
   )
-  const messagesViewportBottomPadding = useMemo(() => {
-    const fallbackComposerHeight = 152
-    const measuredComposerHeight = composerHeight > 0 ? composerHeight : fallbackComposerHeight
-    return measuredComposerHeight + moriusThemeTokens.layout.interfaceGap + 40
-  }, [composerHeight])
   const getEmotionStageHeightBounds = useCallback(() => {
     const viewportHeight = Math.max(
       540,
@@ -7400,7 +7402,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       : INITIAL_INPUT_PLACEHOLDER
   const speechRecognitionCtor = useMemo(() => resolveSpeechRecognitionCtor(), [])
   const voiceInputSupported = speechRecognitionCtor !== null
-  const hasPromptText = inputValue.trim().length > 0
   const showMicAction = voiceInputEnabled && !isVisualNovelInputLocked && !isStoryTurnBusy && (!hasPromptText || isVoiceInputActive)
   const canUseVoiceInput =
     voiceInputEnabled &&
@@ -8837,20 +8838,53 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     node.style.height = 'auto'
-    const computedStyle = window.getComputedStyle(node)
-    const lineHeight = Number.parseFloat(computedStyle.lineHeight)
-    const paddingTop = Number.parseFloat(computedStyle.paddingTop)
-    const paddingBottom = Number.parseFloat(computedStyle.paddingBottom)
-    const computedSingleLineHeight = Math.ceil(
-      (Number.isFinite(lineHeight) ? lineHeight : 0)
-      + (Number.isFinite(paddingTop) ? paddingTop : 0)
-      + (Number.isFinite(paddingBottom) ? paddingBottom : 0),
-    )
-    const minHeight = Math.max(COMPOSER_INPUT_MIN_HEIGHT, computedSingleLineHeight)
-    const nextHeight = Math.min(Math.max(node.scrollHeight, minHeight), COMPOSER_INPUT_MAX_HEIGHT)
+    const contentHeight = node.scrollHeight
+    const nextHeight = Math.min(Math.max(contentHeight, COMPOSER_INPUT_MIN_HEIGHT), COMPOSER_INPUT_MAX_HEIGHT)
     node.style.height = `${nextHeight}px`
-    node.style.overflowY = node.scrollHeight > COMPOSER_INPUT_MAX_HEIGHT ? 'auto' : 'hidden'
+    node.style.overflowY = contentHeight > COMPOSER_INPUT_MAX_HEIGHT ? 'auto' : 'hidden'
   }, [])
+
+  const scheduleAdjustInputHeight = useCallback(() => {
+    if (inputHeightFrameRef.current !== null) {
+      return
+    }
+    inputHeightFrameRef.current = window.requestAnimationFrame(() => {
+      inputHeightFrameRef.current = null
+      adjustInputHeight()
+    })
+  }, [adjustInputHeight])
+
+  const syncComposerDraft = useCallback(
+    (rawValue: string, options?: { updateDom?: boolean }) => {
+      const nextValue = rawValue.slice(0, STORY_PROMPT_MAX_LENGTH)
+      composerDraftRef.current = nextValue
+      if (options?.updateDom !== false && textAreaRef.current && textAreaRef.current.value !== nextValue) {
+        textAreaRef.current.value = nextValue
+      }
+      if (inputLengthIndicatorRef.current) {
+        inputLengthIndicatorRef.current.textContent = `${nextValue.length}/${STORY_PROMPT_MAX_LENGTH}`
+      }
+      const nextHasPromptText = nextValue.trim().length > 0
+      if (hasPromptTextRef.current !== nextHasPromptText) {
+        hasPromptTextRef.current = nextHasPromptText
+        startTransition(() => setHasPromptText(nextHasPromptText))
+      }
+      scheduleAdjustInputHeight()
+      return nextValue
+    },
+    [scheduleAdjustInputHeight],
+  )
+
+  const handleComposerInputChange = useCallback(
+    (event: ChangeEvent<HTMLTextAreaElement>) => {
+      const nextValue = event.currentTarget.value.slice(0, STORY_PROMPT_MAX_LENGTH)
+      if (event.currentTarget.value !== nextValue) {
+        event.currentTarget.value = nextValue
+      }
+      syncComposerDraft(nextValue, { updateDom: false })
+    },
+    [syncComposerDraft],
+  )
 
   const applyUpdatedGameSummary = useCallback((updatedGame: StoryGameSummary) => {
     setActiveGameSummary(updatedGame)
@@ -10743,6 +10777,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         window.cancelAnimationFrame(streamingAutoScrollFrameRef.current)
         streamingAutoScrollFrameRef.current = null
       }
+      if (inputHeightFrameRef.current !== null) {
+        window.cancelAnimationFrame(inputHeightFrameRef.current)
+        inputHeightFrameRef.current = null
+      }
     }
   }, [])
 
@@ -10868,12 +10906,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       }
 
-      setInputValue('')
+      syncComposerDraft('')
       localStorage.removeItem(QUICK_START_WORLD_STORAGE_KEY)
     } catch {
       localStorage.removeItem(QUICK_START_WORLD_STORAGE_KEY)
     }
-  }, [activeGameId, isLoadingGameMessages, messages.length])
+  }, [activeGameId, isLoadingGameMessages, messages.length, syncComposerDraft])
 
   useEffect(() => {
     if (!activeGameId) {
@@ -10888,14 +10926,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [activeGameId, handleOpenCharacterManager])
 
   useEffect(() => {
-    adjustInputHeight()
-  }, [adjustInputHeight, inputValue])
-
-  useEffect(() => {
-    const handleResize = () => adjustInputHeight()
+    scheduleAdjustInputHeight()
+    const handleResize = () => scheduleAdjustInputHeight()
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
-  }, [adjustInputHeight])
+  }, [scheduleAdjustInputHeight])
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -10953,7 +10988,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     const measureComposerHeight = () => {
       const nextHeight = Math.ceil(composerNode.getBoundingClientRect().height)
-      setComposerHeight((previous) => (previous === nextHeight ? previous : nextHeight))
+      const viewport = messagesViewportRef.current
+      if (viewport) {
+        const nextBottom = nextHeight + moriusThemeTokens.layout.interfaceGap + 40
+        const nextBottomValue = `${nextBottom}px`
+        if (viewport.style.bottom !== nextBottomValue) {
+          viewport.style.bottom = nextBottomValue
+        }
+      }
     }
 
     measureComposerHeight()
@@ -11103,7 +11145,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
     viewport.scrollTop = viewport.scrollHeight
-  }, [messages, isAutoScrollPaused, isGenerating, messagesViewportBottomPadding])
+  }, [messages, isAutoScrollPaused, isGenerating])
 
   const scheduleStreamingAutoScroll = useCallback(() => {
     if (isAutoScrollPausedRef.current || streamingAutoScrollFrameRef.current !== null) {
@@ -15732,7 +15774,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать ответ'
         const generationInterrupted = isStoryGenerationInterruptionDetail(detail)
         if (!streamStarted && options.prompt && !options.rerollLastResponse && !(options.discardLastAssistantSteps ?? 0)) {
-          setInputValue((currentValue) => currentValue || options.prompt!.slice(0, STORY_PROMPT_MAX_LENGTH))
+          if (!composerDraftRef.current) {
+            syncComposerDraft(options.prompt!.slice(0, STORY_PROMPT_MAX_LENGTH))
+          }
         }
         if (generationCancelledByUser) {
           setErrorMessage('')
@@ -15933,6 +15977,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       storyTopK,
       storyTopR,
       setIsRerollTurnPendingReplacement,
+      syncComposerDraft,
     ],
   )
 
@@ -15962,7 +16007,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const recognition = new speechRecognitionCtor()
     voiceRecognitionRef.current = recognition
     hasVoiceTranscriptRef.current = false
-    voiceBasePromptRef.current = inputValue.replace(/\r\n/g, '\n').trim()
+    voiceBasePromptRef.current = composerDraftRef.current.replace(/\r\n/g, '\n').trim()
     voiceFinalTranscriptRef.current = ''
 
     recognition.lang = 'ru-RU'
@@ -16004,7 +16049,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         .join(' ')
         .replace(/\s+/g, ' ')
         .trim()
-      setInputValue(combinedTranscript.slice(0, STORY_PROMPT_MAX_LENGTH))
+      syncComposerDraft(combinedTranscript)
     }
     recognition.onerror = (event: Event) => {
       const errorCode = String((event as Event & { error?: string }).error ?? '').trim().toLowerCase()
@@ -16041,7 +16086,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setIsVoiceInputActive(false)
       setErrorMessage('Не удалось запустить голосовой ввод.')
     }
-  }, [canUseVoiceInput, hasPromptText, inputValue, isCreatingGame, isGenerating, isVoiceInputActive, hasInsufficientTokensForTurn, speechRecognitionCtor])
+  }, [canUseVoiceInput, hasPromptText, isCreatingGame, isGenerating, isVoiceInputActive, hasInsufficientTokensForTurn, speechRecognitionCtor, syncComposerDraft])
 
   const sendStoryPrompt = useCallback(
     async (
@@ -16125,7 +16170,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         hiddenContinueTempUserMessageIdRef.current = null
       }
       if (options?.clearComposer) {
-        setInputValue('')
+        syncComposerDraft('')
       }
 
       return runStoryGeneration({
@@ -16151,6 +16196,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isStoryTurnBusy,
       onNavigate,
       runStoryGeneration,
+      syncComposerDraft,
     ],
   )
 
@@ -16181,7 +16227,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
 
-    const normalizedPrompt = inputValue.replace(/\r\n/g, '\n').trim()
+    const normalizedPrompt = composerDraftRef.current.replace(/\r\n/g, '\n').trim()
     if (!normalizedPrompt) {
       return
     }
@@ -16229,14 +16275,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         updated_at: now,
       },
     ])
-    setInputValue('')
+    syncComposerDraft('')
     setIsComposerAiMenuOpen(false)
     await runStoryGeneration({
       gameId: targetGameId,
       prompt: normalizedPrompt,
       instructionCards,
     })
-  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, inputValue, instructionCards, isStoryTurnBusy, isVisualNovelInputLocked, isVoiceInputActive, onNavigate, runStoryGeneration])
+  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, instructionCards, isStoryTurnBusy, isVisualNovelInputLocked, isVoiceInputActive, onNavigate, runStoryGeneration, syncComposerDraft])
 
   const handleStopStoryGeneration = useCallback(async () => {
     const activeRequest = generationRequestRef.current
@@ -21798,7 +21844,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           top: 'var(--morius-header-menu-top)',
           left: 0,
           right: 0,
-          bottom: `${messagesViewportBottomPadding}px`,
+          bottom: `${STORY_MESSAGES_VIEWPORT_FALLBACK_BOTTOM}px`,
           px: 'var(--morius-interface-gap)',
           pb: 'var(--morius-interface-gap)',
           display: 'flex',
@@ -23500,11 +23546,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               component="textarea"
               ref={textAreaRef}
               rows={1}
-              value={inputValue}
+              defaultValue={composerDraftRef.current}
               placeholder={inputPlaceholder}
               maxLength={STORY_PROMPT_MAX_LENGTH}
               disabled={isVisualNovelInputLocked || isStoryTurnBusy || hasInsufficientTokensForTurn}
-              onChange={(event) => setInputValue(event.target.value.slice(0, STORY_PROMPT_MAX_LENGTH))}
+              onChange={handleComposerInputChange}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') {
                   return
@@ -23676,16 +23722,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             ) : null}
           </Box>
 
-          <TextLimitIndicator
-            currentLength={inputValue.length}
-            maxLength={STORY_PROMPT_MAX_LENGTH}
+          <Typography
+            ref={inputLengthIndicatorRef}
+            component="span"
             sx={{
-              width: 'auto',
-              minWidth: 0,
               alignSelf: 'flex-end',
               mr: 0.3,
+              color: 'var(--morius-text-secondary)',
+              fontSize: '0.74rem',
+              lineHeight: 1.35,
+              textAlign: 'right',
+              whiteSpace: 'nowrap',
             }}
-          />
+          >
+            {composerDraftRef.current.length}/{STORY_PROMPT_MAX_LENGTH}
+          </Typography>
         </Stack>
       </Box>
 
