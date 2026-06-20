@@ -9,6 +9,11 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services import story_memory_pipeline  # noqa: E402
+from app.services.story_service_budget import (  # noqa: E402
+    StoryServiceHttpRequestBudget,
+    consume_story_service_http_request,
+    use_story_service_http_request_budget,
+)
 
 
 class StoryMemoryCompressionTests(unittest.TestCase):
@@ -77,6 +82,39 @@ class StoryMemoryCompressionTests(unittest.TestCase):
                 story_memory_pipeline._compress_story_memory_block_with_model(
                     raw_content="PLAYER_TURN:\nI enter.\n\nNARRATOR_RESPONSE:\nThe room is quiet.",
                 )
+
+    def test_memory_compression_has_reserved_gemini_budget_after_postprocess_budget_is_exhausted(self) -> None:
+        valid_memory_json = (
+            '{"summary":"Alex entered the hall.",'
+            '"important_entities":[],"state_changes":[],"open_threads":[]}'
+        )
+        outer_budget = StoryServiceHttpRequestBudget(max_requests=1)
+
+        def request_with_budget(*_args, **_kwargs):
+            consume_story_service_http_request()
+            return valid_memory_json
+
+        with (
+            patch.object(
+                story_memory_pipeline,
+                "_request_polza_story_text",
+                side_effect=request_with_budget,
+            ) as request_mock,
+            use_story_service_http_request_budget(outer_budget),
+        ):
+            consume_story_service_http_request()
+            _, content = story_memory_pipeline._compress_story_memory_block_with_model(
+                raw_content="PLAYER_TURN:\nAlex enters.\n\nNARRATOR_RESPONSE:\nAlex entered the hall.",
+            )
+
+        self.assertEqual(content, "Alex entered the hall.")
+        self.assertEqual(outer_budget.used_requests, 1)
+        self.assertEqual(request_mock.call_count, 1)
+        self.assertEqual(
+            request_mock.call_args.kwargs["model_name"],
+            story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL,
+        )
+        self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
 
     def test_super_mode_formats_fact_memory_from_strict_json(self) -> None:
         with patch.object(

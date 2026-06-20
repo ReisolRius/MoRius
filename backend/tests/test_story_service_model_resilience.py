@@ -297,7 +297,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
         self.assertFalse(request_mock.call_args.kwargs["retry_on_rate_limit"])
 
-    def test_memory_compression_uses_fallback_after_invalid_primary_json(self) -> None:
+    def test_memory_compression_retries_gemini_after_invalid_json(self) -> None:
         valid_memory_json = (
             '{"summary":"Alex entered the hall.",'
             '"important_entities":[],"state_changes":[],"open_threads":[]}'
@@ -318,9 +318,10 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             [call.kwargs["model_name"] for call in request_mock.call_args_list],
             [
                 story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL,
-                story_memory_pipeline.settings.polza_service_fallback_model,
+                story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL,
             ],
         )
+        self.assertTrue(all(call.kwargs["fallback_model_names"] == [] for call in request_mock.call_args_list))
 
 
 if __name__ == "__main__":

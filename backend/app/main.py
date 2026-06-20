@@ -10119,6 +10119,7 @@ def _upsert_story_plot_memory_card(
                 max_model_requests=3,
                 require_model_compaction=True,
                 commit_each_model_compaction=True,
+                prioritize_recent_transitions=True,
             )
             if rebalance_memory_pipeline._has_story_stale_raw_memory_blocks(db=db, game=game):
                 _record_postprocess_failure("memory_compression_not_applied")

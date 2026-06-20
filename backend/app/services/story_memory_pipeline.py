@@ -48,6 +48,10 @@ from app.services.story_memory_prompts import (
     build_game_state_analysis_messages,
 )
 from app.services.story_queries import list_story_instruction_cards, list_story_plot_cards, list_story_world_cards
+from app.services.story_service_budget import (
+    StoryServiceHttpRequestBudget,
+    use_story_service_http_request_budget,
+)
 from app.services.story_games import (
     deserialize_story_environment_datetime as _story_games_deserialize_environment_datetime,
     deserialize_story_environment_weather as _story_games_deserialize_environment_weather,
@@ -94,6 +98,7 @@ STORY_DEFAULT_MEMORY_TOKEN_LIMIT = 30_000
 _TOKEN_COUNTER = TokenCounter()
 _TOKEN_BUDGET_SERVICE = TokenBudgetService(_TOKEN_COUNTER)
 _NPC_DEDUP_SERVICE = NpcCardDedupService()
+STORY_MEMORY_MODEL_MAX_ATTEMPTS = 2
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -454,25 +459,27 @@ def _compress_story_memory_block_with_model(
     content = _normalize_story_message_content(raw_content)
     if not content:
         raise ValueError("Cannot compress empty memory block")
-    service = _llm_service()
-    if super_mode:
+    service = _llm_service(gemini_only=True)
+    reserved_budget = StoryServiceHttpRequestBudget(max_requests=STORY_MEMORY_MODEL_MAX_ATTEMPTS)
+    with use_story_service_http_request_budget(reserved_budget):
+        if super_mode:
+            payload, _meta = service.call_json(
+                messages=build_fact_memory_messages(compressed_blocks=[{"content": content}]),
+                schema=FactMemoryPayload,
+                module=LLM_FACT_MEMORY_PROMPT_NAME,
+                max_tokens=900,
+                max_attempts=STORY_MEMORY_MODEL_MAX_ATTEMPTS,
+            )
+            result_content = _format_fact_memory_content(payload)
+            return "Факты памяти", result_content
+        player_turn, narrator_response = _parse_full_turn_content(content)
         payload, _meta = service.call_json(
-            messages=build_fact_memory_messages(compressed_blocks=[{"content": content}]),
-            schema=FactMemoryPayload,
-            module=LLM_FACT_MEMORY_PROMPT_NAME,
-            max_tokens=900,
-            max_attempts=2,
+            messages=build_detailed_memory_messages(player_turn=player_turn, narrator_response=narrator_response),
+            schema=DetailedMemoryPayload,
+            module=LLM_DETAILED_MEMORY_PROMPT_NAME,
+            max_tokens=1_100,
+            max_attempts=STORY_MEMORY_MODEL_MAX_ATTEMPTS,
         )
-        result_content = _format_fact_memory_content(payload)
-        return "Факты памяти", result_content
-    player_turn, narrator_response = _parse_full_turn_content(content)
-    payload, _meta = service.call_json(
-        messages=build_detailed_memory_messages(player_turn=player_turn, narrator_response=narrator_response),
-        schema=DetailedMemoryPayload,
-        module=LLM_DETAILED_MEMORY_PROMPT_NAME,
-        max_tokens=1_100,
-        max_attempts=2,
-    )
     result_content = _format_detailed_memory_content(payload)
     return "Подробная память", result_content
 
@@ -567,7 +574,7 @@ def _promote_blocks(
 ) -> tuple[bool, int]:
     if not source_blocks or max_model_requests_left <= 0:
         return False, max_model_requests_left
-    service = _llm_service()
+    service = _llm_service(gemini_only=True)
     block_payloads = [
         {
             "id": int(getattr(block, "id", 0) or 0),
@@ -576,28 +583,30 @@ def _promote_blocks(
         }
         for block in source_blocks
     ]
-    if prompt_name == LLM_COMPRESSED_MEMORY_PROMPT_NAME:
-        payload, _meta = service.call_json(
-            messages=build_compressed_memory_messages(detailed_blocks=block_payloads),
-            schema=CompressedMemoryPayload,
-            module=prompt_name,
-            game_id=game.id,
-            max_tokens=1_100,
-            max_attempts=1,
-        )
-        content = _format_compressed_memory_content(payload)
-        title = "Сжатая память"
-    else:
-        payload, _meta = service.call_json(
-            messages=build_fact_memory_messages(compressed_blocks=block_payloads),
-            schema=FactMemoryPayload,
-            module=prompt_name,
-            game_id=game.id,
-            max_tokens=900,
-            max_attempts=1,
-        )
-        content = _format_fact_memory_content(payload)
-        title = "Факты памяти"
+    reserved_budget = StoryServiceHttpRequestBudget(max_requests=STORY_MEMORY_MODEL_MAX_ATTEMPTS)
+    with use_story_service_http_request_budget(reserved_budget):
+        if prompt_name == LLM_COMPRESSED_MEMORY_PROMPT_NAME:
+            payload, _meta = service.call_json(
+                messages=build_compressed_memory_messages(detailed_blocks=block_payloads),
+                schema=CompressedMemoryPayload,
+                module=prompt_name,
+                game_id=game.id,
+                max_tokens=1_100,
+                max_attempts=STORY_MEMORY_MODEL_MAX_ATTEMPTS,
+            )
+            content = _format_compressed_memory_content(payload)
+            title = "Сжатая память"
+        else:
+            payload, _meta = service.call_json(
+                messages=build_fact_memory_messages(compressed_blocks=block_payloads),
+                schema=FactMemoryPayload,
+                module=prompt_name,
+                game_id=game.id,
+                max_tokens=900,
+                max_attempts=STORY_MEMORY_MODEL_MAX_ATTEMPTS,
+            )
+            content = _format_fact_memory_content(payload)
+            title = "Факты памяти"
 
     if not content:
         raise RuntimeError(f"{prompt_name} returned empty content")
@@ -642,32 +651,33 @@ def _rebalance_story_memory_layers(
     budget = _calculate_memory_budget(db, game)
     requests_left = max(int(max_model_requests or 0), 0)
     changed = False
+    successful_raw_compactions = 0
+    raw_compaction_failures: list[Exception] = []
 
     stale_latest = _get_story_stale_raw_memory_blocks(db=db, game=game)
-    if prioritize_recent_transitions:
-        stale_latest = list(reversed(stale_latest))
+    stale_latest = sorted(
+        stale_latest,
+        key=lambda item: (
+            1
+            if _normalize_story_memory_layer(getattr(item, "layer", ""))
+            == STORY_MEMORY_LAYER_RAW_PENDING
+            else 0,
+            (
+                -int(getattr(item, "id", 0) or 0)
+                if prioritize_recent_transitions
+                else int(getattr(item, "id", 0) or 0)
+            ),
+        ),
+    )
     for block in list(stale_latest):
         if requests_left <= 0:
             break
         block_id = int(getattr(block, "id", 0) or 0)
         try:
             title, content = _compress_story_memory_block_with_model(raw_content=str(block.content or ""))
-            _create_story_memory_block(
-                db=db,
-                game_id=game.id,
-                assistant_message_id=getattr(block, "assistant_message_id", None),
-                layer=STORY_MEMORY_LAYER_FRESH_DETAILED,
-                title=title,
-                content=content,
-            )
-            db.delete(block)
-            db.flush()
-            requests_left -= 1
-            changed = True
-            if commit_each_model_compaction:
-                db.commit()
         except Exception as exc:
             requests_left -= 1
+            raw_compaction_failures.append(exc)
             logger.warning(
                 "Story latest_full->fresh_detailed compression failed",
                 extra={
@@ -678,8 +688,6 @@ def _rebalance_story_memory_layers(
                     "memoryBlockTokenCounts": {"source": max(_TOKEN_BUDGET_SERVICE.count_block_tokens(block), 1)},
                 },
             )
-            if require_model_compaction:
-                raise
             current = db.get(StoryMemoryBlock, block_id)
             if current is not None:
                 current.layer = STORY_MEMORY_LAYER_RAW_PENDING
@@ -687,6 +695,39 @@ def _rebalance_story_memory_layers(
                 current.token_count = max(_estimate_story_tokens(str(current.content or "")), 1)
                 db.flush()
                 changed = True
+                if commit_each_model_compaction:
+                    db.commit()
+            continue
+
+        requests_left -= 1
+        try:
+            _create_story_memory_block(
+                db=db,
+                game_id=game.id,
+                assistant_message_id=getattr(block, "assistant_message_id", None),
+                layer=STORY_MEMORY_LAYER_FRESH_DETAILED,
+                title=title,
+                content=content,
+            )
+            db.delete(block)
+            db.flush()
+            changed = True
+            successful_raw_compactions += 1
+            if commit_each_model_compaction:
+                db.commit()
+        except Exception:
+            logger.exception(
+                "Story memory compression result could not be persisted: game_id=%s block_id=%s",
+                game.id,
+                block_id,
+            )
+            raise
+
+    if raw_compaction_failures and require_model_compaction and successful_raw_compactions <= 0:
+        first_failure = raw_compaction_failures[0]
+        raise RuntimeError(
+            f"Gemini memory compression failed for all attempted blocks: {first_failure}"
+        ) from first_failure
 
     fresh_blocks = sorted(
         _layer_blocks(
