@@ -1231,6 +1231,8 @@ class StoryGraphNode(Base):
     collapsed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     color: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
     created_by: Mapped[str] = mapped_column(String(16), nullable=False, default="user", server_default="user")
+    source_turn_id: Mapped[int | None] = mapped_column(ForeignKey("story_messages.id"), nullable=True, index=True)
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -1260,6 +1262,7 @@ class StoryGraphEdge(Base):
     created_by: Mapped[str] = mapped_column(String(16), nullable=False, default="user", server_default="user")
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_turn_id: Mapped[int | None] = mapped_column(ForeignKey("story_messages.id"), nullable=True, index=True)
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -1279,6 +1282,7 @@ class StoryGraphSuggestion(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_turn_id: Mapped[int | None] = mapped_column(ForeignKey("story_messages.id"), nullable=True, index=True)
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

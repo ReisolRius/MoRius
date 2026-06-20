@@ -24342,7 +24342,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             worldCards={worldCards}
             instructionCards={instructionCards}
             plotCards={plotCards}
-            memoryBlocks={aiMemoryBlocks}
+            memoryBlocks={importantMemoryBlocks}
             disabled={isStoryTurnBusy || isCreatingGame}
             onClose={() => setStoryGraphDialogOpen(false)}
             onGameUpdated={applyUpdatedGameSummary}

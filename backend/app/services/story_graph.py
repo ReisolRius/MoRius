@@ -102,6 +102,36 @@ GRAPH_ANALYSIS_MAX_EDGES = 260
 GRAPH_LLM_MODULE_NAME = "story_graph_analysis"
 GRAPH_ANALYSIS_MAX_OUTPUT_TOKENS = 10_000
 GRAPH_ANALYSIS_MAX_TURN_CHARS = 30_000
+GRAPH_DANGLING_RELATION_WORDS = {
+    "about",
+    "at",
+    "by",
+    "for",
+    "from",
+    "in",
+    "of",
+    "on",
+    "to",
+    "with",
+    "без",
+    "в",
+    "для",
+    "до",
+    "за",
+    "из",
+    "к",
+    "на",
+    "о",
+    "об",
+    "от",
+    "по",
+    "под",
+    "при",
+    "про",
+    "с",
+    "со",
+    "у",
+}
 
 
 class _GraphAnalysisPayload(BaseModel):
@@ -193,6 +223,31 @@ def _normalize_importance(value: Any) -> int:
     except (TypeError, ValueError):
         return 3
     return max(1, min(numeric, 5))
+
+
+def _validate_ai_relationship_copy(
+    *,
+    label: Any,
+    description: Any,
+    require_label: bool,
+    require_description: bool,
+) -> str | None:
+    normalized_label = _compact_text(label, max_chars=160)
+    normalized_description = _compact_text(description, max_chars=4_000)
+    if require_label and not normalized_label:
+        return "relationship label is missing"
+    if normalized_label:
+        label_words = re.findall(r"[^\W_]+", normalized_label.casefold(), flags=re.UNICODE)
+        if normalized_label.endswith(("-", "—", "–", ":", ",", ";", "/")):
+            return "relationship label is unfinished"
+        if label_words and label_words[-1] in GRAPH_DANGLING_RELATION_WORDS:
+            return "relationship label ends with a dangling preposition"
+    if require_description and not normalized_description:
+        return "relationship description is missing"
+    if normalized_description:
+        if re.search(r"[.!?…](?:[\"'»”)\]]*)$", normalized_description) is None:
+            return "relationship description is not a complete sentence"
+    return None
 
 
 def _normalize_card_type(value: Any) -> str:
@@ -420,7 +475,11 @@ def _list_card_summaries(db: Session, game_id: int) -> list[StoryGraphCardSummar
     ).all()
     memory_blocks = db.scalars(
         select(StoryMemoryBlock)
-        .where(StoryMemoryBlock.game_id == int(game_id), StoryMemoryBlock.undone_at.is_(None))
+        .where(
+            StoryMemoryBlock.game_id == int(game_id),
+            StoryMemoryBlock.layer == "key",
+            StoryMemoryBlock.undone_at.is_(None),
+        )
         .order_by(StoryMemoryBlock.id.asc())
     ).all()
     return [
@@ -484,6 +543,7 @@ def _list_card_summaries_for_keys(
                 select(StoryMemoryBlock).where(
                     StoryMemoryBlock.game_id == int(game_id),
                     StoryMemoryBlock.id.in_(memory_block_ids),
+                    StoryMemoryBlock.layer == "key",
                     StoryMemoryBlock.undone_at.is_(None),
                 )
             ).all()
@@ -524,6 +584,7 @@ def _get_card_summary_or_404(db: Session, game_id: int, card_type: str, card_id:
             select(StoryMemoryBlock).where(
                 StoryMemoryBlock.game_id == int(game_id),
                 StoryMemoryBlock.id == normalized_id,
+                StoryMemoryBlock.layer == "key",
                 StoryMemoryBlock.undone_at.is_(None),
             )
         )
@@ -580,6 +641,18 @@ def _edge_to_out(edge: StoryGraphEdge) -> StoryGraphEdgeOut:
     )
 
 
+def _graph_edge_snapshot(edge: StoryGraphEdge) -> dict[str, Any]:
+    return {
+        "relation_type": _normalize_relation_type(edge.relation_type),
+        "label": str(edge.label or ""),
+        "description": str(edge.description or ""),
+        "direction": _normalize_direction(edge.direction),
+        "scope": _normalize_scope(edge.scope),
+        "importance": _normalize_importance(edge.importance),
+        "active": bool(edge.active),
+    }
+
+
 def _suggestion_to_out(suggestion: StoryGraphSuggestion) -> StoryGraphSuggestionOut:
     return StoryGraphSuggestionOut(
         id=int(suggestion.id),
@@ -598,15 +671,44 @@ def _suggestion_to_out(suggestion: StoryGraphSuggestion) -> StoryGraphSuggestion
 def get_story_graph(db: Session, game: StoryGame) -> StoryGraphOut:
     cards = _list_card_summaries(db, int(game.id))
     card_by_key = _card_summary_map(cards)
-    nodes = db.scalars(
-        select(StoryGraphNode).where(StoryGraphNode.game_id == int(game.id)).order_by(StoryGraphNode.id.asc())
+    stored_nodes = db.scalars(
+        select(StoryGraphNode)
+        .where(
+            StoryGraphNode.game_id == int(game.id),
+            StoryGraphNode.undone_at.is_(None),
+        )
+        .order_by(StoryGraphNode.id.asc())
     ).all()
-    edges = db.scalars(
-        select(StoryGraphEdge).where(StoryGraphEdge.game_id == int(game.id)).order_by(StoryGraphEdge.id.asc())
-    ).all()
+    nodes = [
+        node
+        for node in stored_nodes
+        if _card_key(node.card_type, int(node.card_id)) in card_by_key
+    ]
+    visible_node_ids = {int(node.id) for node in nodes}
+    edges = (
+        db.scalars(
+            select(StoryGraphEdge)
+            .where(
+                StoryGraphEdge.game_id == int(game.id),
+                StoryGraphEdge.undone_at.is_(None),
+            )
+            .order_by(StoryGraphEdge.id.asc())
+        ).all()
+        if visible_node_ids
+        else []
+    )
+    edges = [
+        edge
+        for edge in edges
+        if int(edge.source_node_id) in visible_node_ids and int(edge.target_node_id) in visible_node_ids
+    ]
     suggestions = db.scalars(
         select(StoryGraphSuggestion)
-        .where(StoryGraphSuggestion.game_id == int(game.id), StoryGraphSuggestion.status == GRAPH_SUGGESTION_PENDING)
+        .where(
+            StoryGraphSuggestion.game_id == int(game.id),
+            StoryGraphSuggestion.status == GRAPH_SUGGESTION_PENDING,
+            StoryGraphSuggestion.undone_at.is_(None),
+        )
         .order_by(StoryGraphSuggestion.id.desc())
         .limit(100)
     ).all()
@@ -616,6 +718,13 @@ def get_story_graph(db: Session, game: StoryGame) -> StoryGraphOut:
         for card in cards
         if _card_key(card.card_type, card.card_id) not in used_card_keys
     ]
+    available_cards.sort(
+        key=lambda card: (
+            0 if card.kind == "main_hero" else 1,
+            _compact_text(card.title).casefold(),
+            int(card.card_id),
+        )
+    )
     return StoryGraphOut(
         game_id=int(game.id),
         nodes=[_node_to_out(node, card_by_key=card_by_key) for node in nodes],
@@ -628,7 +737,15 @@ def get_story_graph(db: Session, game: StoryGame) -> StoryGraphOut:
 
 def _next_node_position(db: Session, game_id: int) -> tuple[float, float]:
     count_value = int(
-        db.scalar(select(func.count()).select_from(StoryGraphNode).where(StoryGraphNode.game_id == int(game_id))) or 0
+        db.scalar(
+            select(func.count())
+            .select_from(StoryGraphNode)
+            .where(
+                StoryGraphNode.game_id == int(game_id),
+                StoryGraphNode.undone_at.is_(None),
+            )
+        )
+        or 0
     )
     column = count_value % 4
     row = count_value // 4
@@ -642,6 +759,7 @@ def ensure_graph_node_for_card(
     card_type: str,
     card_id: int,
     created_by: str = "system",
+    source_turn_id: int | None = None,
 ) -> StoryGraphNode:
     normalized_type = _normalize_card_type(card_type)
     normalized_id = int(card_id)
@@ -653,6 +771,11 @@ def ensure_graph_node_for_card(
         )
     )
     if existing is not None:
+        if existing.undone_at is not None:
+            existing.undone_at = None
+            existing.source_turn_id = int(source_turn_id) if source_turn_id else None
+            existing.created_by = _normalize_created_by(created_by)
+            db.flush()
         return existing
     card = _get_card_summary_or_404(db, int(game.id), normalized_type, normalized_id)
     x, y = _next_node_position(db, int(game.id))
@@ -667,6 +790,7 @@ def ensure_graph_node_for_card(
         collapsed=False,
         color=_default_node_color(card),
         created_by=_normalize_created_by(created_by),
+        source_turn_id=int(source_turn_id) if source_turn_id else None,
     )
     db.add(node)
     db.flush()
@@ -689,6 +813,10 @@ def create_story_graph_node(
         )
     )
     if existing is not None:
+        if existing.undone_at is not None:
+            existing.undone_at = None
+            existing.source_turn_id = None
+            existing.created_by = _normalize_created_by(created_by)
         if payload.x is not None:
             existing.x = _safe_float(payload.x, existing.x)
         if payload.y is not None:
@@ -727,7 +855,13 @@ def update_story_graph_node_layout(
     node_id: int,
     payload: StoryGraphNodeLayoutUpdateRequest,
 ) -> StoryGraphNodeOut:
-    node = db.scalar(select(StoryGraphNode).where(StoryGraphNode.game_id == int(game.id), StoryGraphNode.id == int(node_id)))
+    node = db.scalar(
+        select(StoryGraphNode).where(
+            StoryGraphNode.game_id == int(game.id),
+            StoryGraphNode.id == int(node_id),
+            StoryGraphNode.undone_at.is_(None),
+        )
+    )
     if node is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Graph node not found")
     if payload.x is not None:
@@ -748,13 +882,20 @@ def update_story_graph_node_layout(
 
 
 def delete_story_graph_node(db: Session, game: StoryGame, node_id: int, *, delete_edges: bool) -> int:
-    node = db.scalar(select(StoryGraphNode).where(StoryGraphNode.game_id == int(game.id), StoryGraphNode.id == int(node_id)))
+    node = db.scalar(
+        select(StoryGraphNode).where(
+            StoryGraphNode.game_id == int(game.id),
+            StoryGraphNode.id == int(node_id),
+            StoryGraphNode.undone_at.is_(None),
+        )
+    )
     if node is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Graph node not found")
     connected_edges_count = int(
         db.scalar(
             select(func.count()).select_from(StoryGraphEdge).where(
                 StoryGraphEdge.game_id == int(game.id),
+                StoryGraphEdge.undone_at.is_(None),
                 or_(StoryGraphEdge.source_node_id == int(node.id), StoryGraphEdge.target_node_id == int(node.id)),
             )
         )
@@ -796,6 +937,7 @@ def _find_duplicate_edge(
         StoryGraphEdge.target_card_type == _normalize_card_type(target_card_type),
         StoryGraphEdge.target_card_id == int(target_card_id),
         StoryGraphEdge.relation_type == _normalize_relation_type(relation_type),
+        StoryGraphEdge.undone_at.is_(None),
     )
     if exclude_edge_id is not None:
         query = query.where(StoryGraphEdge.id != int(exclude_edge_id))
@@ -819,10 +961,18 @@ def create_story_graph_edge(
     if int(payload.source_node_id) == int(payload.target_node_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot connect a node to itself")
     source_node = db.scalar(
-        select(StoryGraphNode).where(StoryGraphNode.game_id == int(game.id), StoryGraphNode.id == int(payload.source_node_id))
+        select(StoryGraphNode).where(
+            StoryGraphNode.game_id == int(game.id),
+            StoryGraphNode.id == int(payload.source_node_id),
+            StoryGraphNode.undone_at.is_(None),
+        )
     )
     target_node = db.scalar(
-        select(StoryGraphNode).where(StoryGraphNode.game_id == int(game.id), StoryGraphNode.id == int(payload.target_node_id))
+        select(StoryGraphNode).where(
+            StoryGraphNode.game_id == int(game.id),
+            StoryGraphNode.id == int(payload.target_node_id),
+            StoryGraphNode.undone_at.is_(None),
+        )
     )
     if source_node is None or target_node is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Graph node not found")
@@ -858,6 +1008,7 @@ def create_story_graph_edge(
         created_by=_normalize_created_by(created_by),
         confidence=_normalize_confidence(confidence),
         source_turn_id=int(source_turn_id) if source_turn_id else None,
+        undone_at=None,
     )
     db.add(edge)
     db.flush()
@@ -869,8 +1020,16 @@ def update_story_graph_edge(
     game: StoryGame,
     edge_id: int,
     payload: StoryGraphEdgeUpdateRequest,
+    *,
+    source_turn_id: int | None = None,
 ) -> StoryGraphEdgeOut:
-    edge = db.scalar(select(StoryGraphEdge).where(StoryGraphEdge.game_id == int(game.id), StoryGraphEdge.id == int(edge_id)))
+    edge = db.scalar(
+        select(StoryGraphEdge).where(
+            StoryGraphEdge.game_id == int(game.id),
+            StoryGraphEdge.id == int(edge_id),
+            StoryGraphEdge.undone_at.is_(None),
+        )
+    )
     if edge is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Graph edge not found")
     next_relation_type = _normalize_relation_type(payload.relation_type) if payload.relation_type is not None else edge.relation_type
@@ -888,6 +1047,7 @@ def update_story_graph_edge(
     )
     if duplicate is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Similar graph edge already exists")
+    before_snapshot = _graph_edge_snapshot(edge) if source_turn_id else None
     edge.relation_type = next_relation_type
     edge.label = next_label
     if payload.description is not None:
@@ -901,11 +1061,30 @@ def update_story_graph_edge(
     if payload.active is not None:
         edge.active = bool(payload.active)
     db.flush()
+    if source_turn_id and before_snapshot != _graph_edge_snapshot(edge):
+        _record_graph_event(
+            db,
+            game,
+            event_type="edge_updated",
+            message="Gemini updated an existing graph relationship",
+            payload={
+                "edge_id": int(edge.id),
+                "before": before_snapshot,
+                "after": _graph_edge_snapshot(edge),
+            },
+            assistant_message_id=source_turn_id,
+        )
     return _edge_to_out(edge)
 
 
 def delete_story_graph_edge(db: Session, game: StoryGame, edge_id: int) -> None:
-    edge = db.scalar(select(StoryGraphEdge).where(StoryGraphEdge.game_id == int(game.id), StoryGraphEdge.id == int(edge_id)))
+    edge = db.scalar(
+        select(StoryGraphEdge).where(
+            StoryGraphEdge.game_id == int(game.id),
+            StoryGraphEdge.id == int(edge_id),
+            StoryGraphEdge.undone_at.is_(None),
+        )
+    )
     if edge is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Graph edge not found")
     db.delete(edge)
@@ -916,8 +1095,18 @@ def auto_layout_story_graph(db: Session, game: StoryGame) -> StoryGraphOut:
     cards = _list_card_summaries(db, int(game.id))
     card_by_key = _card_summary_map(cards)
     nodes = db.scalars(
-        select(StoryGraphNode).where(StoryGraphNode.game_id == int(game.id)).order_by(StoryGraphNode.id.asc())
+        select(StoryGraphNode)
+        .where(
+            StoryGraphNode.game_id == int(game.id),
+            StoryGraphNode.undone_at.is_(None),
+        )
+        .order_by(StoryGraphNode.id.asc())
     ).all()
+    nodes = [
+        node
+        for node in nodes
+        if _card_key(node.card_type, int(node.card_id)) in card_by_key
+    ]
     if not nodes:
         return get_story_graph(db, game)
     main_nodes = [
@@ -990,6 +1179,7 @@ def _suggestion_exists(db: Session, game: StoryGame, *, kind: str, payload: dict
             StoryGraphSuggestion.kind == kind,
             StoryGraphSuggestion.status == GRAPH_SUGGESTION_PENDING,
             StoryGraphSuggestion.payload == rendered_payload,
+            StoryGraphSuggestion.undone_at.is_(None),
         )
     )
     return existing_id is not None
@@ -1395,18 +1585,35 @@ def _build_graph_analysis_messages(
             "role": "system",
             "content": (
                 "You analyze a text RPG turn for a card relationship graph. Return strict JSON only. "
+                "All user-visible card names, relationship labels, and relationship descriptions in your JSON are final copy: "
+                "the application will display them as written and will not rewrite or complete them. "
                 "Use Gemini-level semantic judgment, but never invent relationships that are not stated or clearly earned by the current scene. "
                 "Create missing cards for any important named entity required by a new relationship, including characters, "
                 "organizations, factions, guilds, locations, items, world details, rules, plots, and memories. "
                 "Extract every durable fact and relationship explicitly revealed in the turn, even when it is background information "
                 "rather than a newly performed action: memberships, ranks, jobs, alliances, rivalries, ownership, residence, location, "
                 "knowledge, obligations, history, discoveries, and named items all belong in the graph. "
+                "A graph edge must express a durable semantic relationship between its source and target, not merely repeat a one-time action "
+                "from the scene. A gift, warning, conversation, rescue, order, or piece of advice is not by itself a relationship. "
+                "Create an edge only when that event reveals or changes a lasting state such as acquaintance, friendship, trust, mentorship, "
+                "loyalty, rivalry, debt, membership, ownership, knowledge, protection, residence, or another persistent connection. "
+                "Put the durable relationship in label; put the scene event that revealed or changed it in description as supporting context. "
+                "For example, prefer relationship predicates such as 'longtime allies', 'trusts their judgment', or 'serves as mentor' "
+                "over event summaries such as 'received advice from', 'gave an item to', or 'spoke with'. "
+                "Write label as a concise, complete relational predicate that reads naturally between source and target, normally 2-8 words. "
+                "Never leave a dangling preposition, unfinished clause, placeholder, or sentence fragment. "
+                "Write description as one or two complete, specific sentences explaining the durable relationship and why the current turn matters. "
+                "Use the language of the current turn for every user-visible field. Check grammar, names, direction, and who relates to whom. "
+                "Use undirected for genuinely mutual relationships such as acquaintance, friendship, alliance, rivalry, or kinship; "
+                "use directed only when the relationship is asymmetric. "
                 "A single turn may produce many cards and many edges; return all supported changes without an arbitrary count limit. "
                 "For a relationship directly stated by the player or narrator, use confidence 0.95 or higher. "
                 "Every action must include evidence copied verbatim as a short exact quote from latestUserPrompt or latestAssistantText. "
                 "Keep entity names in the same spelling and language used by the current turn. "
                 "Every newly created entity that belongs on the graph must be referenced by addNodes and/or createEdges. "
                 "If a similar card or edge already exists, reference it or return updateEdges instead of duplicate createEdges. "
+                "If the turn contains only transient interactions and no durable relationship or graph fact, return no edge action and explain why "
+                "in doNothingReason. "
                 "Do not use markdown. Confidence must be 0..1."
             ),
         },
@@ -1666,9 +1873,17 @@ def _apply_graph_analysis_payload(
                         StoryGraphNode.game_id == int(game.id),
                         StoryGraphNode.card_type == key[0],
                         StoryGraphNode.card_id == key[1],
+                        StoryGraphNode.undone_at.is_(None),
                     )
                 )
-                ensure_graph_node_for_card(db, game, card_type=key[0], card_id=key[1], created_by="ai")
+                ensure_graph_node_for_card(
+                    db,
+                    game,
+                    card_type=key[0],
+                    card_id=key[1],
+                    created_by="ai",
+                    source_turn_id=source_turn_id,
+                )
                 if existing_node_id is None:
                     result["applied_nodes"] += 1
             elif skip_reason:
@@ -1704,9 +1919,17 @@ def _apply_graph_analysis_payload(
                     StoryGraphNode.game_id == int(game.id),
                     StoryGraphNode.card_type == card_ref[0],
                     StoryGraphNode.card_id == card_ref[1],
+                    StoryGraphNode.undone_at.is_(None),
                 )
             )
-            ensure_graph_node_for_card(db, game, card_type=card_ref[0], card_id=card_ref[1], created_by="ai")
+            ensure_graph_node_for_card(
+                db,
+                game,
+                card_type=card_ref[0],
+                card_id=card_ref[1],
+                created_by="ai",
+                source_turn_id=source_turn_id,
+            )
             if existing_node_id is None:
                 result["applied_nodes"] += 1
         elif confirm_low_confidence and _create_suggestion(
@@ -1736,6 +1959,16 @@ def _apply_graph_analysis_payload(
             continue
         relation_type = _normalize_relation_type(raw_edge.get("relationType"))
         label = _compact_text(raw_edge.get("label"), max_chars=160)
+        description = _compact_text(raw_edge.get("description"), max_chars=4_000)
+        copy_error = _validate_ai_relationship_copy(
+            label=label,
+            description=description,
+            require_label=True,
+            require_description=True,
+        )
+        if copy_error:
+            add_skip(copy_error)
+            continue
         duplicate = _find_duplicate_edge(
             db,
             game,
@@ -1759,6 +1992,7 @@ def _apply_graph_analysis_payload(
                     StoryGraphNode.game_id == int(game.id),
                     StoryGraphNode.card_type == source_ref[0],
                     StoryGraphNode.card_id == source_ref[1],
+                    StoryGraphNode.undone_at.is_(None),
                 )
             )
             target_node_id = db.scalar(
@@ -1766,10 +2000,25 @@ def _apply_graph_analysis_payload(
                     StoryGraphNode.game_id == int(game.id),
                     StoryGraphNode.card_type == target_ref[0],
                     StoryGraphNode.card_id == target_ref[1],
+                    StoryGraphNode.undone_at.is_(None),
                 )
             )
-            source_node = ensure_graph_node_for_card(db, game, card_type=source_ref[0], card_id=source_ref[1], created_by="ai")
-            target_node = ensure_graph_node_for_card(db, game, card_type=target_ref[0], card_id=target_ref[1], created_by="ai")
+            source_node = ensure_graph_node_for_card(
+                db,
+                game,
+                card_type=source_ref[0],
+                card_id=source_ref[1],
+                created_by="ai",
+                source_turn_id=source_turn_id,
+            )
+            target_node = ensure_graph_node_for_card(
+                db,
+                game,
+                card_type=target_ref[0],
+                card_id=target_ref[1],
+                created_by="ai",
+                source_turn_id=source_turn_id,
+            )
             if source_node_id is None:
                 result["applied_nodes"] += 1
             if target_node_id is None and target_ref != source_ref:
@@ -1782,7 +2031,7 @@ def _apply_graph_analysis_payload(
                     target_node_id=int(target_node.id),
                     relation_type=relation_type,
                     label=label,
-                    description=_compact_text(raw_edge.get("description"), max_chars=4_000),
+                    description=description,
                     direction=_normalize_direction(raw_edge.get("direction")),
                     scope=_normalize_scope(raw_edge.get("scope")),
                     importance=_normalize_importance(raw_edge.get("importance")),
@@ -1817,9 +2066,26 @@ def _apply_graph_analysis_payload(
         if edge_id <= 0:
             add_skip("update edge id missing")
             continue
-        edge = db.scalar(select(StoryGraphEdge).where(StoryGraphEdge.game_id == int(game.id), StoryGraphEdge.id == edge_id))
+        edge = db.scalar(
+            select(StoryGraphEdge).where(
+                StoryGraphEdge.game_id == int(game.id),
+                StoryGraphEdge.id == edge_id,
+                StoryGraphEdge.undone_at.is_(None),
+            )
+        )
         if edge is None:
             add_skip("update edge not found")
+            continue
+        raw_label = raw_update.get("label")
+        raw_description = raw_update.get("description")
+        copy_error = _validate_ai_relationship_copy(
+            label=raw_label,
+            description=raw_description,
+            require_label=raw_label is not None,
+            require_description=raw_description is not None,
+        )
+        if copy_error:
+            add_skip(copy_error)
             continue
         confidence = _normalize_confidence(raw_update.get("confidence"))
         if _should_apply_ai_action(
@@ -1836,6 +2102,7 @@ def _apply_graph_analysis_payload(
                     description=_compact_text(raw_update.get("description"), max_chars=4_000) or edge.description,
                     importance=_normalize_importance(raw_update.get("importance") or edge.importance),
                 ),
+                source_turn_id=source_turn_id,
             )
             result["updated_edges"] += 1
         elif confirm_low_confidence and _create_suggestion(
@@ -1876,11 +2143,33 @@ def analyze_story_graph_after_turn(
     )
     cards = _list_card_summaries(db, int(game.id))
     nodes = db.scalars(
-        select(StoryGraphNode).where(StoryGraphNode.game_id == int(game.id)).order_by(StoryGraphNode.id.asc())
+        select(StoryGraphNode)
+        .where(
+            StoryGraphNode.game_id == int(game.id),
+            StoryGraphNode.undone_at.is_(None),
+        )
+        .order_by(StoryGraphNode.id.asc())
     ).all()
     edges = db.scalars(
-        select(StoryGraphEdge).where(StoryGraphEdge.game_id == int(game.id)).order_by(StoryGraphEdge.id.asc())
+        select(StoryGraphEdge)
+        .where(
+            StoryGraphEdge.game_id == int(game.id),
+            StoryGraphEdge.undone_at.is_(None),
+        )
+        .order_by(StoryGraphEdge.id.asc())
     ).all()
+    card_keys = set(_card_summary_map(cards))
+    nodes = [
+        node
+        for node in nodes
+        if _card_key(node.card_type, int(node.card_id)) in card_keys
+    ]
+    visible_node_ids = {int(node.id) for node in nodes}
+    edges = [
+        edge
+        for edge in edges
+        if int(edge.source_node_id) in visible_node_ids and int(edge.target_node_id) in visible_node_ids
+    ]
     payload = resolved_payload_override if isinstance(resolved_payload_override, dict) else None
     if payload is None and allow_model_request:
         logger.info(
@@ -2096,6 +2385,7 @@ def apply_story_graph_suggestions(
             StoryGraphSuggestion.game_id == int(game.id),
             StoryGraphSuggestion.status == GRAPH_SUGGESTION_PENDING,
             StoryGraphSuggestion.id.in_([int(item) for item in suggestion_ids if int(item) > 0]),
+            StoryGraphSuggestion.undone_at.is_(None),
         )
     ).all()
     for suggestion in suggestions:
@@ -2154,6 +2444,7 @@ def decline_story_graph_suggestion(db: Session, game: StoryGame, suggestion_id: 
             StoryGraphSuggestion.game_id == int(game.id),
             StoryGraphSuggestion.id == int(suggestion_id),
             StoryGraphSuggestion.status == GRAPH_SUGGESTION_PENDING,
+            StoryGraphSuggestion.undone_at.is_(None),
         )
     )
     if suggestion is None:
@@ -2173,7 +2464,11 @@ def build_story_graph_context_instruction(
 ) -> str:
     edges = db.scalars(
         select(StoryGraphEdge)
-        .where(StoryGraphEdge.game_id == int(game.id), StoryGraphEdge.active.is_(True))
+        .where(
+            StoryGraphEdge.game_id == int(game.id),
+            StoryGraphEdge.active.is_(True),
+            StoryGraphEdge.undone_at.is_(None),
+        )
         .order_by(StoryGraphEdge.importance.desc(), StoryGraphEdge.updated_at.desc(), StoryGraphEdge.id.desc())
     ).all()
     if not edges:

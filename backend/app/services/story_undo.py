@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete as sa_delete, select, update as sa_update
+from sqlalchemy import delete as sa_delete, or_, select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -13,6 +14,7 @@ from app.models import (
     StoryGame,
     StoryGraphEdge,
     StoryGraphEvent,
+    StoryGraphNode,
     StoryGraphSuggestion,
     StoryMemoryBlock,
     StoryMessage,
@@ -86,12 +88,38 @@ def purge_story_graph_turn_references(
     if not message_ids:
         return
 
+    for message_id in reversed(message_ids):
+        _restore_story_graph_edge_updates(
+            db=db,
+            game_id=int(game_id),
+            assistant_message_id=message_id,
+            use_after=False,
+        )
+
+    node_ids = [
+        int(node_id)
+        for node_id in db.scalars(
+            select(StoryGraphNode.id).where(
+                StoryGraphNode.game_id == int(game_id),
+                StoryGraphNode.source_turn_id.in_(message_ids),
+            )
+        ).all()
+    ]
+
     # Graph rows reference story_messages without ON DELETE CASCADE. They must
     # be removed before reroll permanently deletes the source assistant turn.
+    edge_delete_filters = [StoryGraphEdge.source_turn_id.in_(message_ids)]
+    if node_ids:
+        edge_delete_filters.extend(
+            [
+                StoryGraphEdge.source_node_id.in_(node_ids),
+                StoryGraphEdge.target_node_id.in_(node_ids),
+            ]
+        )
     db.execute(
         sa_delete(StoryGraphEdge).where(
             StoryGraphEdge.game_id == int(game_id),
-            StoryGraphEdge.source_turn_id.in_(message_ids),
+            or_(*edge_delete_filters),
         )
     )
     db.execute(
@@ -105,6 +133,157 @@ def purge_story_graph_turn_references(
             StoryGraphEvent.game_id == int(game_id),
             StoryGraphEvent.assistant_message_id.in_(message_ids),
         )
+    )
+    db.execute(
+        sa_delete(StoryGraphNode).where(
+            StoryGraphNode.game_id == int(game_id),
+            StoryGraphNode.source_turn_id.in_(message_ids),
+        )
+    )
+
+
+def _graph_event_payload(event: StoryGraphEvent) -> dict[str, Any]:
+    try:
+        payload = json.loads(str(event.payload or "") or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _apply_story_graph_edge_snapshot(edge: StoryGraphEdge, snapshot: dict[str, Any]) -> None:
+    relation_type = snapshot.get("relation_type")
+    label = snapshot.get("label")
+    description = snapshot.get("description")
+    direction = snapshot.get("direction")
+    scope = snapshot.get("scope")
+    importance = snapshot.get("importance")
+    active = snapshot.get("active")
+    if isinstance(relation_type, str):
+        edge.relation_type = relation_type
+    if isinstance(label, str):
+        edge.label = label
+    if isinstance(description, str):
+        edge.description = description
+    if isinstance(direction, str):
+        edge.direction = direction
+    if isinstance(scope, str):
+        edge.scope = scope
+    if isinstance(importance, int) and not isinstance(importance, bool):
+        edge.importance = max(1, min(importance, 5))
+    if isinstance(active, bool):
+        edge.active = active
+
+
+def _restore_story_graph_edge_updates(
+    *,
+    db: Session,
+    game_id: int,
+    assistant_message_id: int,
+    use_after: bool,
+) -> None:
+    events = db.scalars(
+        select(StoryGraphEvent)
+        .where(
+            StoryGraphEvent.game_id == int(game_id),
+            StoryGraphEvent.assistant_message_id == int(assistant_message_id),
+            StoryGraphEvent.event_type == "edge_updated",
+        )
+        .order_by(StoryGraphEvent.id.asc() if use_after else StoryGraphEvent.id.desc())
+    ).all()
+    snapshot_key = "after" if use_after else "before"
+    for event in events:
+        payload = _graph_event_payload(event)
+        edge_id = payload.get("edge_id")
+        snapshot = payload.get(snapshot_key)
+        if not isinstance(edge_id, int) or not isinstance(snapshot, dict):
+            continue
+        edge = db.scalar(
+            select(StoryGraphEdge).where(
+                StoryGraphEdge.game_id == int(game_id),
+                StoryGraphEdge.id == edge_id,
+            )
+        )
+        if edge is not None:
+            _apply_story_graph_edge_snapshot(edge, snapshot)
+
+
+def _undo_story_graph_turn_changes(
+    *,
+    db: Session,
+    game_id: int,
+    assistant_message_id: int,
+    undone_at: datetime,
+) -> None:
+    _restore_story_graph_edge_updates(
+        db=db,
+        game_id=int(game_id),
+        assistant_message_id=int(assistant_message_id),
+        use_after=False,
+    )
+    db.execute(
+        sa_update(StoryGraphEdge)
+        .where(
+            StoryGraphEdge.game_id == int(game_id),
+            StoryGraphEdge.source_turn_id == int(assistant_message_id),
+            StoryGraphEdge.undone_at.is_(None),
+        )
+        .values(undone_at=undone_at)
+    )
+    db.execute(
+        sa_update(StoryGraphNode)
+        .where(
+            StoryGraphNode.game_id == int(game_id),
+            StoryGraphNode.source_turn_id == int(assistant_message_id),
+            StoryGraphNode.undone_at.is_(None),
+        )
+        .values(undone_at=undone_at)
+    )
+    db.execute(
+        sa_update(StoryGraphSuggestion)
+        .where(
+            StoryGraphSuggestion.game_id == int(game_id),
+            StoryGraphSuggestion.source_turn_id == int(assistant_message_id),
+            StoryGraphSuggestion.undone_at.is_(None),
+        )
+        .values(undone_at=undone_at)
+    )
+
+
+def _redo_story_graph_turn_changes(
+    *,
+    db: Session,
+    game_id: int,
+    assistant_message_id: int,
+) -> None:
+    db.execute(
+        sa_update(StoryGraphNode)
+        .where(
+            StoryGraphNode.game_id == int(game_id),
+            StoryGraphNode.source_turn_id == int(assistant_message_id),
+        )
+        .values(undone_at=None)
+    )
+    db.execute(
+        sa_update(StoryGraphEdge)
+        .where(
+            StoryGraphEdge.game_id == int(game_id),
+            StoryGraphEdge.source_turn_id == int(assistant_message_id),
+        )
+        .values(undone_at=None)
+    )
+    db.execute(
+        sa_update(StoryGraphSuggestion)
+        .where(
+            StoryGraphSuggestion.game_id == int(game_id),
+            StoryGraphSuggestion.source_turn_id == int(assistant_message_id),
+        )
+        .values(undone_at=None)
+    )
+    _restore_story_graph_edge_updates(
+        db=db,
+        game_id=int(game_id),
+        assistant_message_id=int(assistant_message_id),
+        use_after=True,
     )
 
 
@@ -761,6 +940,13 @@ def rollback_story_card_events_for_assistant_message(
             )
         ).all():
             db.delete(snapshot)
+    else:
+        _undo_story_graph_turn_changes(
+            db=db,
+            game_id=int(game.id),
+            assistant_message_id=int(assistant_message_id),
+            undone_at=now,
+        )
 
     restore_story_character_state_from_latest_snapshot(db=db, game=game)
 
@@ -825,6 +1011,12 @@ def reapply_story_card_events_for_assistant_message(
         )
     ).all():
         snapshot.undone_at = None
+
+    _redo_story_graph_turn_changes(
+        db=db,
+        game_id=int(game.id),
+        assistant_message_id=int(assistant_message_id),
+    )
 
     restore_story_character_state_from_latest_snapshot(db=db, game=game)
 

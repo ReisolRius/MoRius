@@ -1370,6 +1370,37 @@ def _ensure_story_soft_undo_columns_exist() -> None:
             _execute_schema_statement(connection, statement)
 
 
+def _ensure_story_graph_undo_columns_exist() -> None:
+    inspector = inspect(engine)
+    table_column_specs: dict[str, tuple[tuple[str, str], ...]] = {
+        StoryGraphNode.__tablename__: (
+            ("source_turn_id", "source_turn_id INTEGER"),
+            ("undone_at", "undone_at TIMESTAMP WITH TIME ZONE"),
+        ),
+        StoryGraphEdge.__tablename__: (
+            ("undone_at", "undone_at TIMESTAMP WITH TIME ZONE"),
+        ),
+        StoryGraphSuggestion.__tablename__: (
+            ("undone_at", "undone_at TIMESTAMP WITH TIME ZONE"),
+        ),
+    }
+    alter_statements: list[str] = []
+    for table_name, column_specs in table_column_specs.items():
+        if not inspector.has_table(table_name):
+            continue
+        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        for column_name, column_sql in column_specs:
+            if column_name not in existing_columns:
+                alter_statements.append(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
+
+    if not alter_statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in alter_statements:
+            _execute_schema_statement(connection, statement)
+
+
 def _ensure_story_memory_block_schema() -> None:
     inspector = inspect(engine)
     if not inspector.has_table(StoryMemoryBlock.__tablename__):
@@ -1502,8 +1533,12 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryGraphNode.__tablename__} (game_id, card_type, card_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_graph_nodes_game_id "
         f"ON {StoryGraphNode.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_graph_nodes_game_turn_undone_id "
+        f"ON {StoryGraphNode.__tablename__} (game_id, source_turn_id, undone_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_graph_edges_game_active_id "
         f"ON {StoryGraphEdge.__tablename__} (game_id, active, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_graph_edges_game_turn_undone_id "
+        f"ON {StoryGraphEdge.__tablename__} (game_id, source_turn_id, undone_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_graph_edges_game_source "
         f"ON {StoryGraphEdge.__tablename__} (game_id, source_card_type, source_card_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_graph_edges_game_target "
@@ -1512,6 +1547,8 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryGraphEdge.__tablename__} (game_id, relation_type, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_graph_suggestions_game_status_id "
         f"ON {StoryGraphSuggestion.__tablename__} (game_id, status, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_graph_suggestions_game_turn_undone_id "
+        f"ON {StoryGraphSuggestion.__tablename__} (game_id, source_turn_id, undone_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_graph_events_game_created_id "
         f"ON {StoryGraphEvent.__tablename__} (game_id, created_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_cards_game_id_id "
@@ -1835,6 +1872,7 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     _ensure_shop_schema_columns_exist()
     _ensure_shop_system_cosmetics()
     _ensure_story_soft_undo_columns_exist()
+    _ensure_story_graph_undo_columns_exist()
     _ensure_story_memory_block_schema()
     _repair_legacy_story_avatar_media_tokens()
     _ensure_performance_indexes_exist()

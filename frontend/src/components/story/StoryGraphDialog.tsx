@@ -167,6 +167,16 @@ function formatCardType(value: StoryGraphCardSummary['card_type']): string {
   return 'Мир'
 }
 
+function formatCardSummaryType(card: StoryGraphCardSummary): string {
+  if (card.kind === 'main_hero') {
+    return 'Главный герой'
+  }
+  if (card.kind === 'npc') {
+    return 'Персонаж'
+  }
+  return formatCardType(card.card_type)
+}
+
 function getCardTypeFilter(card: StoryGraphCardSummary): CardTypeFilter {
   if (card.card_type === 'instruction_card') {
     return 'rules'
@@ -291,17 +301,51 @@ export default function StoryGraphDialog({
   const selectedCardKeysSet = useMemo(() => new Set(selectedCardKeys), [selectedCardKeys])
   const availableCards = useMemo(() => {
     const normalizedSearch = cardSearch.trim().toLowerCase()
-    return graphPayload.available_cards
+    const cardsByKey = new Map(
+      graphPayload.available_cards.map((card) => [`${card.card_type}:${card.card_id}`, card]),
+    )
+    worldCards
+      .filter((card) => card.kind === 'main_hero')
+      .forEach((card) => {
+        const key = `world_card:${card.id}`
+        if (!cardsByKey.has(key)) {
+          cardsByKey.set(key, {
+            card_type: 'world_card',
+            card_id: card.id,
+            title: card.title,
+            description: card.content,
+            kind: card.kind,
+            detail_type: card.detail_type,
+            avatar_url: card.avatar_url,
+            avatar_original_url: card.avatar_original_url ?? null,
+            avatar_scale: card.avatar_scale,
+            race: card.race,
+            memory_turns: card.memory_turns,
+            active: !card.is_locked,
+            source: card.source,
+            updated_at: card.updated_at,
+          })
+        }
+      })
+    return [...cardsByKey.values()]
       .filter((card) => !cardKeySet.has(`${card.card_type}:${card.card_id}`))
       .filter((card) => cardTypeFilter === 'all' || getCardTypeFilter(card) === cardTypeFilter)
       .filter((card) => {
         if (!normalizedSearch) {
           return true
         }
-        return `${card.title} ${card.description} ${formatCardType(card.card_type)}`.toLowerCase().includes(normalizedSearch)
+        return `${card.title} ${card.description} ${formatCardSummaryType(card)}`.toLowerCase().includes(normalizedSearch)
       })
-      .sort((left, right) => left.title.localeCompare(right.title, 'ru', { sensitivity: 'base' }))
-  }, [cardKeySet, cardSearch, cardTypeFilter, graphPayload.available_cards])
+      .sort((left, right) => {
+        if (left.kind === 'main_hero' && right.kind !== 'main_hero') {
+          return -1
+        }
+        if (right.kind === 'main_hero' && left.kind !== 'main_hero') {
+          return 1
+        }
+        return left.title.localeCompare(right.title, 'ru', { sensitivity: 'base' })
+      })
+  }, [cardKeySet, cardSearch, cardTypeFilter, graphPayload.available_cards, worldCards])
   const activeConfidence = clamp(game?.graph_auto_apply_confidence ?? 0.78, 0, 1)
 
   const worldCardsById = useMemo(() => new Map(worldCards.map((card) => [card.id, card])), [worldCards])
@@ -667,7 +711,7 @@ export default function StoryGraphDialog({
     setIsMutating(true)
     setErrorMessage('')
     try {
-      const label = edgeDraft.label.trim() || formatRelationType(edgeDraft.relationType)
+      const label = edgeDraft.label.trim()
       const description = edgeDraft.description.trim()
       if (edgeDraft.id === null) {
         mergeEdge(
@@ -1326,7 +1370,7 @@ export default function StoryGraphDialog({
                           {renderCardAvatar(card)}
                           <Stack spacing={0.1} sx={{ minWidth: 0, flex: 1 }}>
                             <Typography sx={cardRowTitleSx}>{card.title || `#${card.card_id}`}</Typography>
-                            <Typography sx={cardRowMetaSx}>{formatCardType(card.card_type)}</Typography>
+                            <Typography sx={cardRowMetaSx}>{formatCardSummaryType(card)}</Typography>
                           </Stack>
                           <Button onClick={() => void handleAddCardNode(card)} disabled={isMutating} sx={tinyButtonSx}>
                             +
