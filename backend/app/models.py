@@ -353,6 +353,30 @@ class StoryGame(Base):
         default=False,
         server_default="0",
     )
+    auto_graph_nodes_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+    auto_graph_edges_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+    graph_confirm_low_confidence: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
+    graph_auto_apply_confidence: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.78,
+        server_default="0.78",
+    )
     accelerated_service_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -1188,6 +1212,91 @@ class StoryMemoryBlock(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class StoryGraphNode(Base):
+    __tablename__ = "story_graph_nodes"
+    __table_args__ = (
+        UniqueConstraint("game_id", "card_type", "card_id", name="uq_story_graph_nodes_game_card"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    card_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    card_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    x: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
+    y: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
+    width: Mapped[float] = mapped_column(Float, nullable=False, default=260.0, server_default="260")
+    height: Mapped[float] = mapped_column(Float, nullable=False, default=140.0, server_default="140")
+    collapsed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    color: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
+    created_by: Mapped[str] = mapped_column(String(16), nullable=False, default="user", server_default="user")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryGraphEdge(Base):
+    __tablename__ = "story_graph_edges"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    source_node_id: Mapped[int] = mapped_column(ForeignKey("story_graph_nodes.id"), nullable=False, index=True)
+    target_node_id: Mapped[int] = mapped_column(ForeignKey("story_graph_nodes.id"), nullable=False, index=True)
+    source_card_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source_card_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    target_card_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    target_card_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    relation_type: Mapped[str] = mapped_column(String(40), nullable=False, default="custom", server_default="custom")
+    label: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    direction: Mapped[str] = mapped_column(String(16), nullable=False, default="directed", server_default="directed")
+    scope: Mapped[str] = mapped_column(String(32), nullable=False, default="both", server_default="both")
+    importance: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1", index=True)
+    created_by: Mapped[str] = mapped_column(String(16), nullable=False, default="user", server_default="user")
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source_turn_id: Mapped[int | None] = mapped_column(ForeignKey("story_messages.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryGraphSuggestion(Base):
+    __tablename__ = "story_graph_suggestions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending", index=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}", server_default="{}")
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source_turn_id: Mapped[int | None] = mapped_column(ForeignKey("story_messages.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryGraphEvent(Base):
+    __tablename__ = "story_graph_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    assistant_message_id: Mapped[int | None] = mapped_column(ForeignKey("story_messages.id"), nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}", server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class StoryPlotCardChangeEvent(Base):

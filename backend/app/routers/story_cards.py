@@ -33,6 +33,7 @@ from app.services.story_cards import (
     story_plot_card_to_out,
 )
 from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC, refresh_story_game_public_card_snapshots
+from app.services.story_graph import delete_story_graph_card_references
 from app.services.story_queries import (
     get_user_story_game_or_404,
     list_story_instruction_cards,
@@ -157,6 +158,12 @@ def delete_story_instruction_card(
     if instruction_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instruction card not found")
 
+    delete_story_graph_card_references(
+        db,
+        game_id=int(game.id),
+        card_type="instruction_card",
+        card_id=int(instruction_card.id),
+    )
     db.delete(instruction_card)
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)
@@ -353,6 +360,12 @@ def delete_story_plot_card(
             StoryPlotCardChangeEvent.plot_card_id == plot_card.id,
         )
         .values(plot_card_id=None)
+    )
+    delete_story_graph_card_references(
+        db,
+        game_id=int(game.id),
+        card_type="plot_card",
+        card_id=int(plot_card.id),
     )
     db.delete(plot_card)
     touch_story_game(game)

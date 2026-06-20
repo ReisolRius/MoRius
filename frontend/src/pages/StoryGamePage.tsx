@@ -1,6 +1,8 @@
 ﻿import {
   forwardRef,
   Fragment,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -187,6 +189,7 @@ import type {
   SmartRegenerationMode,
   SmartRegenerationOption,
 } from '../types/story'
+
 import { rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
 import {
   createSmoothStreamingTextController,
@@ -210,6 +213,8 @@ import {
   resolveSmartRegenerationOptionSelection,
 } from '../utils/advancedRegeneration'
 import { moriusThemeTokens, useMoriusThemeController } from '../theme'
+
+const StoryGraphDialog = lazy(() => import('../components/story/StoryGraphDialog'))
 
 type StoryGamePageProps = {
   user: AuthUser
@@ -6101,6 +6106,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSavingStoryDisplayMode, setIsSavingStoryDisplayMode] = useState(false)
   const [isSavingCanonicalStatePipeline, setIsSavingCanonicalStatePipeline] = useState(false)
   const [isSavingCanonicalStateSafeFallback, setIsSavingCanonicalStateSafeFallback] = useState(false)
+  const [storyGraphDialogOpen, setStoryGraphDialogOpen] = useState(false)
   const [cardMenuAnchorEl, setCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [cardMenuType, setCardMenuType] = useState<PanelCardMenuType | null>(null)
   const [cardMenuCardId, setCardMenuCardId] = useState<number | null>(null)
@@ -6823,6 +6829,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   )
   const isStoryTurnBusy = isGenerating || isFinalizingStoryTurn
   const isAdministrator = user.role.trim().toLowerCase() === 'administrator'
+  const canUseStoryGraph = isAdministrator || user.role.trim().toLowerCase() === 'moderator'
   const effectiveAmbientEnabled = isAdministrator && ambientEnabled
   const effectiveEmotionVisualizationEnabled = isAdministrator && emotionVisualizationEnabled
   const effectiveStoryDisplayMode: StoryDisplayMode = isAdministrator ? storyDisplayMode : 'text'
@@ -17141,6 +17148,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <ThemedSvgIcon markup={cardsWorldTabIconMarkup} size={18} sx={{ color: 'inherit' }} />
               Окружение
             </Button>
+            {canUseStoryGraph ? (
+              <Button
+                onClick={() => setStoryGraphDialogOpen(true)}
+                disabled={!activeGameId}
+                sx={{
+                  ...storySettingsTabButtonSx(storyGraphDialogOpen),
+                  minHeight: 38,
+                  px: 0.85,
+                  justifyContent: 'flex-start',
+                }}
+              >
+                <Box sx={{ fontSize: 17, lineHeight: 1, color: 'inherit' }}>◎</Box>
+                Ноды
+              </Button>
+            ) : null}
           </Stack>
         </Stack>
 
@@ -24309,6 +24331,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           ) : null}
         </Stack>
       </BaseDialog>
+
+      {canUseStoryGraph && storyGraphDialogOpen ? (
+        <Suspense fallback={null}>
+          <StoryGraphDialog
+            open
+            token={authToken}
+            game={activeGameSummary}
+            userRole={user.role}
+            worldCards={worldCards}
+            instructionCards={instructionCards}
+            plotCards={plotCards}
+            memoryBlocks={aiMemoryBlocks}
+            disabled={isStoryTurnBusy || isCreatingGame}
+            onClose={() => setStoryGraphDialogOpen(false)}
+            onGameUpdated={applyUpdatedGameSummary}
+            onOpenWorldCard={handleOpenEditWorldCardDialog}
+            onOpenInstructionCard={handleOpenEditInstructionDialog}
+            onOpenPlotCard={handleOpenEditPlotCardDialog}
+            onOpenMemoryBlock={handleOpenEditMemoryBlockDialog}
+          />
+        </Suspense>
+      ) : null}
 
       <BaseDialog
         open={Boolean(deletionPrompt)}

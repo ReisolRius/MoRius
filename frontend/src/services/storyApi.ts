@@ -19,6 +19,16 @@
   StoryGamePayload,
   StoryGameSummary,
   StoryGameVisibility,
+  StoryGraphAiAnalyzeResult,
+  StoryGraphApplySuggestionsResult,
+  StoryGraphCardSummary,
+  StoryGraphDirection,
+  StoryGraphEdge,
+  StoryGraphNode,
+  StoryGraphPayload,
+  StoryGraphRelationType,
+  StoryGraphScope,
+  StoryGraphSuggestion,
   StoryDisplayMode,
   StoryImageModelId,
   StoryMemoryOptimizationMode,
@@ -530,6 +540,13 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
         ? Math.trunc(game.active_main_hero_card_id)
         : null,
     auto_npc_cards_enabled: Boolean(game.auto_npc_cards_enabled),
+    auto_graph_nodes_enabled: Boolean(game.auto_graph_nodes_enabled),
+    auto_graph_edges_enabled: Boolean(game.auto_graph_edges_enabled),
+    graph_confirm_low_confidence: game.graph_confirm_low_confidence !== false,
+    graph_auto_apply_confidence:
+      typeof game.graph_auto_apply_confidence === 'number' && Number.isFinite(game.graph_auto_apply_confidence)
+        ? Math.max(0, Math.min(1, game.graph_auto_apply_confidence))
+        : 0.78,
     accelerated_service_enabled: Boolean(game.accelerated_service_enabled),
     ambient_enabled: Boolean(game.ambient_enabled),
     display_mode: normalizeStoryDisplayMode(game.display_mode),
@@ -2058,6 +2075,10 @@ export async function updateStoryGameSettings(payload: {
   showNpcThoughts?: boolean
   activeMainHeroCardId?: number | null
   autoNpcCardsEnabled?: boolean
+  autoGraphNodesEnabled?: boolean
+  autoGraphEdgesEnabled?: boolean
+  graphConfirmLowConfidence?: boolean
+  graphAutoApplyConfidence?: number
   ambientEnabled?: boolean
   displayMode?: StoryDisplayMode
   characterStateEnabled?: boolean
@@ -2130,6 +2151,18 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.autoNpcCardsEnabled === 'boolean') {
     requestPayload.auto_npc_cards_enabled = payload.autoNpcCardsEnabled
+  }
+  if (typeof payload.autoGraphNodesEnabled === 'boolean') {
+    requestPayload.auto_graph_nodes_enabled = payload.autoGraphNodesEnabled
+  }
+  if (typeof payload.autoGraphEdgesEnabled === 'boolean') {
+    requestPayload.auto_graph_edges_enabled = payload.autoGraphEdgesEnabled
+  }
+  if (typeof payload.graphConfirmLowConfidence === 'boolean') {
+    requestPayload.graph_confirm_low_confidence = payload.graphConfirmLowConfidence
+  }
+  if (typeof payload.graphAutoApplyConfidence === 'number') {
+    requestPayload.graph_auto_apply_confidence = payload.graphAutoApplyConfidence
   }
   if (typeof payload.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = payload.ambientEnabled
@@ -3067,6 +3100,386 @@ export async function deleteStoryWorldCard(payload: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
+}
+
+function normalizeStoryGraphCardType(value: unknown): StoryGraphCardSummary['card_type'] {
+  return value === 'instruction_card' || value === 'plot_card' || value === 'memory_block' ? value : 'world_card'
+}
+
+function normalizeStoryGraphRelationType(value: unknown): StoryGraphRelationType {
+  const allowed = new Set<StoryGraphRelationType>([
+    'acquaintance',
+    'friend',
+    'enemy',
+    'member_of',
+    'leader_of',
+    'works_for',
+    'owns',
+    'located_in',
+    'knows_about',
+    'rule_applies_to',
+    'plot_about',
+    'backstory_for',
+    'future_arc_for',
+    'memory_about',
+    'custom',
+  ])
+  return typeof value === 'string' && allowed.has(value as StoryGraphRelationType) ? (value as StoryGraphRelationType) : 'custom'
+}
+
+function normalizeStoryGraphDirection(value: unknown): StoryGraphDirection {
+  return value === 'undirected' ? 'undirected' : 'directed'
+}
+
+function normalizeStoryGraphScope(value: unknown): StoryGraphScope {
+  const allowed = new Set<StoryGraphScope>([
+    'global',
+    'source_only',
+    'target_only',
+    'both',
+    'character_specific',
+    'location_specific',
+    'organization_specific',
+    'custom',
+  ])
+  return typeof value === 'string' && allowed.has(value as StoryGraphScope) ? (value as StoryGraphScope) : 'both'
+}
+
+function normalizeStoryGraphCardSummary(rawCard: unknown): StoryGraphCardSummary {
+  const card = rawCard as Partial<StoryGraphCardSummary>
+  return {
+    card_type: normalizeStoryGraphCardType(card?.card_type),
+    card_id: typeof card?.card_id === 'number' && Number.isFinite(card.card_id) ? Math.trunc(card.card_id) : 0,
+    title: typeof card?.title === 'string' ? card.title : '',
+    description: typeof card?.description === 'string' ? card.description : '',
+    kind: typeof card?.kind === 'string' ? card.kind : '',
+    detail_type: typeof card?.detail_type === 'string' ? card.detail_type : '',
+    avatar_url: typeof card?.avatar_url === 'string' ? card.avatar_url : null,
+    avatar_original_url: typeof card?.avatar_original_url === 'string' ? card.avatar_original_url : null,
+    avatar_scale: typeof card?.avatar_scale === 'number' && Number.isFinite(card.avatar_scale) ? card.avatar_scale : 1,
+    race: typeof card?.race === 'string' ? card.race : '',
+    memory_turns: typeof card?.memory_turns === 'number' && Number.isFinite(card.memory_turns) ? Math.trunc(card.memory_turns) : null,
+    active: card?.active !== false,
+    source: typeof card?.source === 'string' ? card.source : 'user',
+    updated_at: typeof card?.updated_at === 'string' ? card.updated_at : null,
+  }
+}
+
+function normalizeStoryGraphNode(rawNode: unknown): StoryGraphNode {
+  const node = rawNode as Partial<StoryGraphNode>
+  const fallbackCard = node?.card ? normalizeStoryGraphCardSummary(node.card) : null
+  return {
+    id: typeof node?.id === 'number' && Number.isFinite(node.id) ? Math.trunc(node.id) : 0,
+    game_id: typeof node?.game_id === 'number' && Number.isFinite(node.game_id) ? Math.trunc(node.game_id) : 0,
+    card_type: normalizeStoryGraphCardType(node?.card_type),
+    card_id: typeof node?.card_id === 'number' && Number.isFinite(node.card_id) ? Math.trunc(node.card_id) : 0,
+    x: typeof node?.x === 'number' && Number.isFinite(node.x) ? node.x : 0,
+    y: typeof node?.y === 'number' && Number.isFinite(node.y) ? node.y : 0,
+    width: typeof node?.width === 'number' && Number.isFinite(node.width) ? node.width : 260,
+    height: typeof node?.height === 'number' && Number.isFinite(node.height) ? node.height : 140,
+    collapsed: Boolean(node?.collapsed),
+    color: typeof node?.color === 'string' ? node.color : '',
+    created_by: typeof node?.created_by === 'string' ? node.created_by : 'user',
+    card: fallbackCard,
+    created_at: typeof node?.created_at === 'string' ? node.created_at : new Date(0).toISOString(),
+    updated_at: typeof node?.updated_at === 'string' ? node.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStoryGraphEdge(rawEdge: unknown): StoryGraphEdge {
+  const edge = rawEdge as Partial<StoryGraphEdge>
+  return {
+    id: typeof edge?.id === 'number' && Number.isFinite(edge.id) ? Math.trunc(edge.id) : 0,
+    game_id: typeof edge?.game_id === 'number' && Number.isFinite(edge.game_id) ? Math.trunc(edge.game_id) : 0,
+    source_node_id:
+      typeof edge?.source_node_id === 'number' && Number.isFinite(edge.source_node_id) ? Math.trunc(edge.source_node_id) : 0,
+    target_node_id:
+      typeof edge?.target_node_id === 'number' && Number.isFinite(edge.target_node_id) ? Math.trunc(edge.target_node_id) : 0,
+    source_card_type: normalizeStoryGraphCardType(edge?.source_card_type),
+    source_card_id:
+      typeof edge?.source_card_id === 'number' && Number.isFinite(edge.source_card_id) ? Math.trunc(edge.source_card_id) : 0,
+    target_card_type: normalizeStoryGraphCardType(edge?.target_card_type),
+    target_card_id:
+      typeof edge?.target_card_id === 'number' && Number.isFinite(edge.target_card_id) ? Math.trunc(edge.target_card_id) : 0,
+    relation_type: normalizeStoryGraphRelationType(edge?.relation_type),
+    label: typeof edge?.label === 'string' ? edge.label : '',
+    description: typeof edge?.description === 'string' ? edge.description : '',
+    direction: normalizeStoryGraphDirection(edge?.direction),
+    scope: normalizeStoryGraphScope(edge?.scope),
+    importance: typeof edge?.importance === 'number' && Number.isFinite(edge.importance) ? Math.max(1, Math.min(5, Math.trunc(edge.importance))) : 3,
+    active: edge?.active !== false,
+    created_by: typeof edge?.created_by === 'string' ? edge.created_by : 'user',
+    confidence: typeof edge?.confidence === 'number' && Number.isFinite(edge.confidence) ? edge.confidence : null,
+    source_turn_id:
+      typeof edge?.source_turn_id === 'number' && Number.isFinite(edge.source_turn_id) ? Math.trunc(edge.source_turn_id) : null,
+    created_at: typeof edge?.created_at === 'string' ? edge.created_at : new Date(0).toISOString(),
+    updated_at: typeof edge?.updated_at === 'string' ? edge.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStoryGraphSuggestion(rawSuggestion: unknown): StoryGraphSuggestion {
+  const suggestion = rawSuggestion as Partial<StoryGraphSuggestion>
+  return {
+    id: typeof suggestion?.id === 'number' && Number.isFinite(suggestion.id) ? Math.trunc(suggestion.id) : 0,
+    game_id: typeof suggestion?.game_id === 'number' && Number.isFinite(suggestion.game_id) ? Math.trunc(suggestion.game_id) : 0,
+    kind: typeof suggestion?.kind === 'string' ? suggestion.kind : '',
+    status: suggestion?.status === 'accepted' || suggestion?.status === 'declined' ? suggestion.status : 'pending',
+    payload:
+      suggestion?.payload && typeof suggestion.payload === 'object' && !Array.isArray(suggestion.payload)
+        ? (suggestion.payload as Record<string, unknown>)
+        : {},
+    reason: typeof suggestion?.reason === 'string' ? suggestion.reason : '',
+    confidence: typeof suggestion?.confidence === 'number' && Number.isFinite(suggestion.confidence) ? suggestion.confidence : null,
+    source_turn_id:
+      typeof suggestion?.source_turn_id === 'number' && Number.isFinite(suggestion.source_turn_id)
+        ? Math.trunc(suggestion.source_turn_id)
+        : null,
+    created_at: typeof suggestion?.created_at === 'string' ? suggestion.created_at : new Date(0).toISOString(),
+    updated_at: typeof suggestion?.updated_at === 'string' ? suggestion.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStoryGraphPayload(rawGraph: unknown): StoryGraphPayload {
+  const graph = rawGraph as Partial<StoryGraphPayload>
+  return {
+    game_id: typeof graph?.game_id === 'number' && Number.isFinite(graph.game_id) ? Math.trunc(graph.game_id) : 0,
+    nodes: Array.isArray(graph?.nodes) ? graph.nodes.map(normalizeStoryGraphNode) : [],
+    edges: Array.isArray(graph?.edges) ? graph.edges.map(normalizeStoryGraphEdge) : [],
+    available_cards: Array.isArray(graph?.available_cards) ? graph.available_cards.map(normalizeStoryGraphCardSummary) : [],
+    suggestions: Array.isArray(graph?.suggestions) ? graph.suggestions.map(normalizeStoryGraphSuggestion) : [],
+    can_edit: graph?.can_edit !== false,
+  }
+}
+
+function normalizeStoryGraphAnalyzeResult(rawResult: unknown): StoryGraphAiAnalyzeResult {
+  const result = rawResult as Partial<StoryGraphAiAnalyzeResult>
+  return {
+    applied_cards: typeof result?.applied_cards === 'number' ? Math.trunc(result.applied_cards) : 0,
+    applied_nodes: typeof result?.applied_nodes === 'number' ? Math.trunc(result.applied_nodes) : 0,
+    applied_edges: typeof result?.applied_edges === 'number' ? Math.trunc(result.applied_edges) : 0,
+    updated_edges: typeof result?.updated_edges === 'number' ? Math.trunc(result.updated_edges) : 0,
+    suggestions_created: typeof result?.suggestions_created === 'number' ? Math.trunc(result.suggestions_created) : 0,
+    skipped: Array.isArray(result?.skipped) ? result.skipped.filter((item): item is string => typeof item === 'string') : [],
+    graph: normalizeStoryGraphPayload(result?.graph),
+  }
+}
+
+export async function getStoryGraph(payload: { token: string; gameId: number; signal?: AbortSignal }): Promise<StoryGraphPayload> {
+  const response = await request<StoryGraphPayload>(`/api/story/games/${payload.gameId}/graph`, {
+    signal: payload.signal,
+    headers: { Authorization: `Bearer ${payload.token}` },
+  })
+  return normalizeStoryGraphPayload(response)
+}
+
+export async function createStoryGraphNode(payload: {
+  token: string
+  gameId: number
+  cardType: StoryGraphCardSummary['card_type']
+  cardId: number
+  x?: number
+  y?: number
+}): Promise<StoryGraphNode> {
+  const response = await request<StoryGraphNode>(`/api/story/games/${payload.gameId}/graph/nodes`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({
+      card_type: payload.cardType,
+      card_id: payload.cardId,
+      x: payload.x,
+      y: payload.y,
+    }),
+  })
+  return normalizeStoryGraphNode(response)
+}
+
+export async function updateStoryGraphNodeLayout(payload: {
+  token: string
+  gameId: number
+  nodeId: number
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  collapsed?: boolean
+  color?: string
+}): Promise<StoryGraphNode> {
+  const response = await request<StoryGraphNode>(`/api/story/games/${payload.gameId}/graph/nodes/${payload.nodeId}/layout`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({
+      x: payload.x,
+      y: payload.y,
+      width: payload.width,
+      height: payload.height,
+      collapsed: payload.collapsed,
+      color: payload.color,
+    }),
+  })
+  return normalizeStoryGraphNode(response)
+}
+
+export async function deleteStoryGraphNode(payload: {
+  token: string
+  gameId: number
+  nodeId: number
+  deleteEdges?: boolean
+}): Promise<void> {
+  await request(`/api/story/games/${payload.gameId}/graph/nodes/${payload.nodeId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({ delete_edges: Boolean(payload.deleteEdges) }),
+  })
+}
+
+export async function createStoryGraphEdge(payload: {
+  token: string
+  gameId: number
+  sourceNodeId: number
+  targetNodeId: number
+  relationType: StoryGraphRelationType
+  label: string
+  description: string
+  direction: StoryGraphDirection
+  scope: StoryGraphScope
+  importance: number
+  active: boolean
+}): Promise<StoryGraphEdge> {
+  const response = await request<StoryGraphEdge>(`/api/story/games/${payload.gameId}/graph/edges`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({
+      source_node_id: payload.sourceNodeId,
+      target_node_id: payload.targetNodeId,
+      relation_type: payload.relationType,
+      label: payload.label,
+      description: payload.description,
+      direction: payload.direction,
+      scope: payload.scope,
+      importance: payload.importance,
+      active: payload.active,
+    }),
+  })
+  return normalizeStoryGraphEdge(response)
+}
+
+export async function updateStoryGraphEdge(payload: {
+  token: string
+  gameId: number
+  edgeId: number
+  relationType?: StoryGraphRelationType
+  label?: string
+  description?: string
+  direction?: StoryGraphDirection
+  scope?: StoryGraphScope
+  importance?: number
+  active?: boolean
+}): Promise<StoryGraphEdge> {
+  const response = await request<StoryGraphEdge>(`/api/story/games/${payload.gameId}/graph/edges/${payload.edgeId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({
+      relation_type: payload.relationType,
+      label: payload.label,
+      description: payload.description,
+      direction: payload.direction,
+      scope: payload.scope,
+      importance: payload.importance,
+      active: payload.active,
+    }),
+  })
+  return normalizeStoryGraphEdge(response)
+}
+
+export async function deleteStoryGraphEdge(payload: { token: string; gameId: number; edgeId: number }): Promise<void> {
+  await request(`/api/story/games/${payload.gameId}/graph/edges/${payload.edgeId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${payload.token}` },
+  })
+}
+
+export async function autoLayoutStoryGraph(payload: { token: string; gameId: number }): Promise<StoryGraphPayload> {
+  const response = await request<StoryGraphPayload>(`/api/story/games/${payload.gameId}/graph/auto-layout`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+  })
+  return normalizeStoryGraphPayload(response)
+}
+
+export async function suggestStoryGraphRelations(payload: {
+  token: string
+  gameId: number
+  latestUserPrompt?: string
+  latestAssistantText?: string
+  assistantMessageId?: number | null
+}): Promise<StoryGraphAiAnalyzeResult> {
+  const response = await request<StoryGraphAiAnalyzeResult>(`/api/story/games/${payload.gameId}/graph/ai/suggest-graph-relations`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({
+      assistant_message_id: payload.assistantMessageId ?? null,
+      latest_user_prompt: payload.latestUserPrompt ?? null,
+      latest_assistant_text: payload.latestAssistantText ?? null,
+      apply_high_confidence: false,
+    }),
+  })
+  return normalizeStoryGraphAnalyzeResult(response)
+}
+
+export async function analyzeStoryGraphAfterTurn(payload: {
+  token: string
+  gameId: number
+  latestUserPrompt?: string
+  latestAssistantText?: string
+  assistantMessageId?: number | null
+  applyHighConfidence?: boolean
+}): Promise<StoryGraphAiAnalyzeResult> {
+  const response = await request<StoryGraphAiAnalyzeResult>(`/api/story/games/${payload.gameId}/graph/ai/analyze-after-turn`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({
+      assistant_message_id: payload.assistantMessageId ?? null,
+      latest_user_prompt: payload.latestUserPrompt ?? null,
+      latest_assistant_text: payload.latestAssistantText ?? null,
+      apply_high_confidence: payload.applyHighConfidence !== false,
+    }),
+  })
+  return normalizeStoryGraphAnalyzeResult(response)
+}
+
+export async function applyStoryGraphSuggestions(payload: {
+  token: string
+  gameId: number
+  suggestionIds: number[]
+  editsById?: Record<number, Record<string, unknown>>
+}): Promise<StoryGraphApplySuggestionsResult> {
+  const response = await request<StoryGraphApplySuggestionsResult>(`/api/story/games/${payload.gameId}/graph/ai/apply-graph-suggestions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({
+      suggestion_ids: payload.suggestionIds,
+      edits_by_id: payload.editsById ?? {},
+    }),
+  })
+  const result = response as Partial<StoryGraphApplySuggestionsResult>
+  return {
+    applied: typeof result.applied === 'number' ? Math.trunc(result.applied) : 0,
+    declined: typeof result.declined === 'number' ? Math.trunc(result.declined) : 0,
+    skipped: Array.isArray(result.skipped) ? result.skipped.filter((item): item is string => typeof item === 'string') : [],
+    graph: normalizeStoryGraphPayload(result.graph),
+  }
+}
+
+export async function declineStoryGraphSuggestion(payload: {
+  token: string
+  gameId: number
+  suggestionId: number
+}): Promise<StoryGraphPayload> {
+  const response = await request<StoryGraphPayload>(`/api/story/games/${payload.gameId}/graph/ai/suggestions/${payload.suggestionId}/decline`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+  })
+  return normalizeStoryGraphPayload(response)
 }
 
 export async function undoStoryWorldCardEvent(payload: {

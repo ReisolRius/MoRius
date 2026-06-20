@@ -9,6 +9,7 @@ from app.services.story_generation_cancel import (
     register_story_generation_response,
     unregister_story_generation_response,
 )
+from app.services.story_service_budget import consume_story_service_http_request
 from app.services.text_encoding import repair_likely_utf8_mojibake_deep
 
 
@@ -1091,6 +1092,7 @@ def _request_polza_story_text(
     top_p: float | None = None,
     max_tokens: int | None = None,
     request_timeout: tuple[int, int] | None = None,
+    retry_on_rate_limit: bool = True,
 ) -> str:
     headers = {
         "Authorization": f"Bearer {settings.polza_api_key}",
@@ -1118,8 +1120,9 @@ def _request_polza_story_text(
         messages_payload,
         translate_input=translate_input,
     )
+    retry_delays = POLZA_RETRY_DELAYS_SECONDS if retry_on_rate_limit else ()
     for candidate_model in candidate_models:
-        for attempt_index in range(len(POLZA_RETRY_DELAYS_SECONDS) + 1):
+        for attempt_index in range(len(retry_delays) + 1):
             payload = {
                 "model": candidate_model,
                 "messages": prepared_messages_payload,
@@ -1151,6 +1154,7 @@ def _request_polza_story_text(
                 provider_label,
                 attempt_index + 1,
             )
+            consume_story_service_http_request()
             try:
                 response = HTTP_SESSION.post(
                     settings.polza_chat_url,
@@ -1159,7 +1163,7 @@ def _request_polza_story_text(
                     timeout=timeout_value,
                 )
             except requests.RequestException as exc:
-                if attempt_index < len(POLZA_RETRY_DELAYS_SECONDS):
+                if attempt_index < len(retry_delays):
                     logger.warning(
                         "OpenRouter text transport failed; retrying: model=%s provider=%s attempt=%s error=%s",
                         candidate_model,
@@ -1182,15 +1186,19 @@ def _request_polza_story_text(
             if response.status_code >= 400:
                 detail = _extract_polza_chat_error_detail(response)
 
-                if _should_retry_polza_chat_request(
-                    status_code=response.status_code,
-                    detail=detail,
-                    attempt_index=attempt_index,
-                ) or _should_retry_polza_gemini_pro_turn_failure(
-                    model_name=candidate_model,
-                    attempt_index=attempt_index,
-                    status_code=response.status_code,
-                ):
+                should_retry = retry_on_rate_limit and (
+                    _should_retry_polza_chat_request(
+                        status_code=response.status_code,
+                        detail=detail,
+                        attempt_index=attempt_index,
+                    )
+                    or _should_retry_polza_gemini_pro_turn_failure(
+                        model_name=candidate_model,
+                        attempt_index=attempt_index,
+                        status_code=response.status_code,
+                    )
+                )
+                if should_retry:
                     logger.warning(
                         "OpenRouter text temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
                         candidate_model,

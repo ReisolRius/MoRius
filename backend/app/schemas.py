@@ -790,6 +790,10 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     show_npc_thoughts: bool | None = None
     active_main_hero_card_id: int | None = Field(default=None, ge=1)
     auto_npc_cards_enabled: bool | None = None
+    auto_graph_nodes_enabled: bool | None = None
+    auto_graph_edges_enabled: bool | None = None
+    graph_confirm_low_confidence: bool | None = None
+    graph_auto_apply_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     accelerated_service_enabled: bool | None = None
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
@@ -1654,6 +1658,10 @@ class StoryGameSummaryOut(BaseModel):
     show_npc_thoughts: bool
     active_main_hero_card_id: int | None = None
     auto_npc_cards_enabled: bool = False
+    auto_graph_nodes_enabled: bool = False
+    auto_graph_edges_enabled: bool = False
+    graph_confirm_low_confidence: bool = True
+    graph_auto_apply_confidence: float = 0.78
     accelerated_service_enabled: bool = False
     ambient_enabled: bool
     display_mode: Literal["text", "visual_novel"] = "text"
@@ -1797,6 +1805,195 @@ class StoryGameOut(BaseModel):
     world_cards: list[StoryWorldCardOut]
     world_card_events: list[StoryWorldCardChangeEventOut]
     can_redo_assistant_step: bool = False
+
+
+StoryGraphCardType = Literal["world_card", "instruction_card", "plot_card", "memory_block"]
+StoryGraphRelationType = Literal[
+    "acquaintance",
+    "friend",
+    "enemy",
+    "member_of",
+    "leader_of",
+    "works_for",
+    "owns",
+    "located_in",
+    "knows_about",
+    "rule_applies_to",
+    "plot_about",
+    "backstory_for",
+    "future_arc_for",
+    "memory_about",
+    "custom",
+]
+StoryGraphDirection = Literal["directed", "undirected"]
+StoryGraphScope = Literal[
+    "global",
+    "source_only",
+    "target_only",
+    "both",
+    "character_specific",
+    "location_specific",
+    "organization_specific",
+    "custom",
+]
+StoryGraphCreatedBy = Literal["user", "ai", "system"]
+StoryGraphSuggestionStatus = Literal["pending", "accepted", "declined"]
+
+
+class StoryGraphCardSummaryOut(BaseModel):
+    card_type: StoryGraphCardType
+    card_id: int
+    title: str
+    description: str = ""
+    kind: str = ""
+    detail_type: str = ""
+    avatar_url: str | None = None
+    avatar_original_url: str | None = None
+    avatar_scale: float = 1.0
+    race: str = ""
+    memory_turns: int | None = None
+    active: bool = True
+    source: str = "user"
+    updated_at: datetime | None = None
+
+
+class StoryGraphNodeOut(BaseModel):
+    id: int
+    game_id: int
+    card_type: StoryGraphCardType
+    card_id: int
+    x: float
+    y: float
+    width: float
+    height: float
+    collapsed: bool
+    color: str
+    created_by: str
+    card: StoryGraphCardSummaryOut | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryGraphEdgeOut(BaseModel):
+    id: int
+    game_id: int
+    source_node_id: int
+    target_node_id: int
+    source_card_type: StoryGraphCardType
+    source_card_id: int
+    target_card_type: StoryGraphCardType
+    target_card_id: int
+    relation_type: StoryGraphRelationType
+    label: str
+    description: str
+    direction: StoryGraphDirection
+    scope: StoryGraphScope
+    importance: int
+    active: bool
+    created_by: str
+    confidence: float | None = None
+    source_turn_id: int | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryGraphSuggestionOut(BaseModel):
+    id: int
+    game_id: int
+    kind: str
+    status: StoryGraphSuggestionStatus
+    payload: dict[str, Any]
+    reason: str
+    confidence: float | None = None
+    source_turn_id: int | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryGraphOut(BaseModel):
+    game_id: int
+    nodes: list[StoryGraphNodeOut]
+    edges: list[StoryGraphEdgeOut]
+    available_cards: list[StoryGraphCardSummaryOut]
+    suggestions: list[StoryGraphSuggestionOut] = Field(default_factory=list)
+    can_edit: bool = True
+
+
+class StoryGraphNodeCreateRequest(BaseModel):
+    card_type: StoryGraphCardType
+    card_id: int = Field(ge=1)
+    x: float | None = None
+    y: float | None = None
+    width: float | None = Field(default=None, ge=160, le=520)
+    height: float | None = Field(default=None, ge=80, le=320)
+    collapsed: bool = False
+    color: str | None = Field(default=None, max_length=16)
+
+
+class StoryGraphNodeLayoutUpdateRequest(BaseModel):
+    x: float | None = None
+    y: float | None = None
+    width: float | None = Field(default=None, ge=160, le=520)
+    height: float | None = Field(default=None, ge=80, le=320)
+    collapsed: bool | None = None
+    color: str | None = Field(default=None, max_length=16)
+
+
+class StoryGraphNodeDeleteRequest(BaseModel):
+    delete_edges: bool = False
+
+
+class StoryGraphEdgeCreateRequest(BaseModel):
+    source_node_id: int = Field(ge=1)
+    target_node_id: int = Field(ge=1)
+    relation_type: StoryGraphRelationType = "custom"
+    label: str = Field(default="", max_length=160)
+    description: str = Field(default="", max_length=4_000)
+    direction: StoryGraphDirection = "directed"
+    scope: StoryGraphScope = "both"
+    importance: int = Field(default=3, ge=1, le=5)
+    active: bool = True
+
+
+class StoryGraphEdgeUpdateRequest(BaseModel):
+    relation_type: StoryGraphRelationType | None = None
+    label: str | None = Field(default=None, max_length=160)
+    description: str | None = Field(default=None, max_length=4_000)
+    direction: StoryGraphDirection | None = None
+    scope: StoryGraphScope | None = None
+    importance: int | None = Field(default=None, ge=1, le=5)
+    active: bool | None = None
+
+
+class StoryGraphAiAnalyzeRequest(BaseModel):
+    assistant_message_id: int | None = Field(default=None, ge=1)
+    latest_user_prompt: str | None = Field(default=None, max_length=4_000)
+    latest_assistant_text: str | None = Field(default=None, max_length=30_000)
+    apply_high_confidence: bool = True
+    confidence_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    confirm_low_confidence: bool | None = None
+
+
+class StoryGraphAiAnalyzeOut(BaseModel):
+    applied_cards: int = 0
+    applied_nodes: int = 0
+    applied_edges: int = 0
+    updated_edges: int = 0
+    suggestions_created: int = 0
+    skipped: list[str] = Field(default_factory=list)
+    graph: StoryGraphOut
+
+
+class StoryGraphApplySuggestionsRequest(BaseModel):
+    suggestion_ids: list[int] = Field(default_factory=list, max_length=100)
+    edits_by_id: dict[int, dict[str, Any]] = Field(default_factory=dict)
+
+
+class StoryGraphApplySuggestionsOut(BaseModel):
+    applied: int = 0
+    declined: int = 0
+    skipped: list[str] = Field(default_factory=list)
+    graph: StoryGraphOut
 
 
 class AdminModerationAuthorOut(BaseModel):

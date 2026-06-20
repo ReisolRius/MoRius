@@ -11,6 +11,9 @@ from sqlalchemy.orm import Session
 from app.models import (
     StoryCharacterStateSnapshot,
     StoryGame,
+    StoryGraphEdge,
+    StoryGraphEvent,
+    StoryGraphSuggestion,
     StoryMemoryBlock,
     StoryMessage,
     StoryMessageSegment,
@@ -71,6 +74,38 @@ logger = logging.getLogger(__name__)
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def purge_story_graph_turn_references(
+    *,
+    db: Session,
+    game_id: int,
+    assistant_message_ids: list[int] | tuple[int, ...] | set[int],
+) -> None:
+    message_ids = sorted({int(message_id) for message_id in assistant_message_ids if int(message_id) > 0})
+    if not message_ids:
+        return
+
+    # Graph rows reference story_messages without ON DELETE CASCADE. They must
+    # be removed before reroll permanently deletes the source assistant turn.
+    db.execute(
+        sa_delete(StoryGraphEdge).where(
+            StoryGraphEdge.game_id == int(game_id),
+            StoryGraphEdge.source_turn_id.in_(message_ids),
+        )
+    )
+    db.execute(
+        sa_delete(StoryGraphSuggestion).where(
+            StoryGraphSuggestion.game_id == int(game_id),
+            StoryGraphSuggestion.source_turn_id.in_(message_ids),
+        )
+    )
+    db.execute(
+        sa_delete(StoryGraphEvent).where(
+            StoryGraphEvent.game_id == int(game_id),
+            StoryGraphEvent.assistant_message_id.in_(message_ids),
+        )
+    )
 
 
 def _extract_snapshot_card_id(snapshot: dict[str, object] | None) -> int | None:
@@ -692,6 +727,11 @@ def rollback_story_card_events_for_assistant_message(
             snapshot.undone_at = now
 
     if purge_events:
+        purge_story_graph_turn_references(
+            db=db,
+            game_id=int(game.id),
+            assistant_message_ids=[assistant_message_id],
+        )
         db.execute(sa_delete(StoryMessageSegment).where(StoryMessageSegment.message_id == assistant_message_id))
         for event in list_story_world_card_events(
             db,

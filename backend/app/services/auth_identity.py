@@ -26,6 +26,7 @@ MANUALLY_ASSIGNABLE_ROLES = {ROLE_USER, ROLE_MODERATOR}
 PRIVILEGED_ROLE_BY_EMAIL = {
     "alexunderstood8@gmail.com": ROLE_ADMINISTRATOR,
     "borisow.n2011@gmail.com": ROLE_MODERATOR,
+    "iltteam@yandex.ru": ROLE_ADMINISTRATOR,
 }
 
 

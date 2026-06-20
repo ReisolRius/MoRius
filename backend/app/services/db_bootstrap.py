@@ -38,6 +38,10 @@ from app.models import (
     StoryCommunityWorldRating,
     StoryCommunityWorldView,
     StoryGame,
+    StoryGraphEdge,
+    StoryGraphEvent,
+    StoryGraphNode,
+    StoryGraphSuggestion,
     StoryInstructionCard,
     StoryInstructionTemplate,
     StoryMemoryBlock,
@@ -75,6 +79,7 @@ DEFAULT_USER_ROLE = "user"
 PRIVILEGED_ROLE_BY_EMAIL = {
     "alexunderstood8@gmail.com": "administrator",
     "borisow.n2011@gmail.com": "moderator",
+    "iltteam@yandex.ru": "administrator",
 }
 SHOP_SYSTEM_COSMETICS = (
     {
@@ -121,6 +126,9 @@ POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
     (StoryGame.__tablename__, "show_gg_thoughts"): False,
     (StoryGame.__tablename__, "show_npc_thoughts"): False,
     (StoryGame.__tablename__, "auto_npc_cards_enabled"): False,
+    (StoryGame.__tablename__, "auto_graph_nodes_enabled"): False,
+    (StoryGame.__tablename__, "auto_graph_edges_enabled"): False,
+    (StoryGame.__tablename__, "graph_confirm_low_confidence"): True,
     (StoryGame.__tablename__, "character_state_enabled"): False,
     (StoryGame.__tablename__, "character_state_monitor_inactive_always"): True,
     (StoryGame.__tablename__, "accelerated_service_enabled"): False,
@@ -136,6 +144,8 @@ POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
     (StoryInstructionCard.__tablename__, "is_active"): True,
     (StoryPlotCard.__tablename__, "ai_edit_enabled"): True,
     (StoryPlotCard.__tablename__, "is_enabled"): True,
+    (StoryGraphNode.__tablename__, "collapsed"): False,
+    (StoryGraphEdge.__tablename__, "active"): True,
 }
 
 
@@ -495,6 +505,26 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN auto_npc_cards_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+    if "auto_graph_nodes_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN auto_graph_nodes_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+    if "auto_graph_edges_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN auto_graph_edges_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+    if "graph_confirm_low_confidence" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN graph_confirm_low_confidence INTEGER NOT NULL DEFAULT 1"
+        )
+    if "graph_auto_apply_confidence" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN graph_auto_apply_confidence FLOAT NOT NULL DEFAULT 0.78"
         )
     if "character_state_enabled" not in existing_columns:
         alter_statements.append(
@@ -1468,6 +1498,22 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryMemoryBlock.__tablename__} (game_id, undone_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_memory_blocks_assistant_id "
         f"ON {StoryMemoryBlock.__tablename__} (assistant_message_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_graph_nodes_game_card "
+        f"ON {StoryGraphNode.__tablename__} (game_id, card_type, card_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_graph_nodes_game_id "
+        f"ON {StoryGraphNode.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_graph_edges_game_active_id "
+        f"ON {StoryGraphEdge.__tablename__} (game_id, active, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_graph_edges_game_source "
+        f"ON {StoryGraphEdge.__tablename__} (game_id, source_card_type, source_card_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_graph_edges_game_target "
+        f"ON {StoryGraphEdge.__tablename__} (game_id, target_card_type, target_card_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_graph_edges_game_relation "
+        f"ON {StoryGraphEdge.__tablename__} (game_id, relation_type, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_graph_suggestions_game_status_id "
+        f"ON {StoryGraphSuggestion.__tablename__} (game_id, status, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_graph_events_game_created_id "
+        f"ON {StoryGraphEvent.__tablename__} (game_id, created_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_cards_game_id_id "
         f"ON {StoryWorldCard.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_cards_game_kind_id "

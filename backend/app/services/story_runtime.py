@@ -86,6 +86,8 @@ STORY_POSTPROCESS_STATUS_FAILED_RETRYABLE = "storyteller_succeeded_postprocessin
 STORY_POSTPROCESS_STATUS_PENDING = "storyteller_succeeded_postprocessing_pending"
 STORY_GENERATE_LOCK_WAIT_SECONDS = 15.0
 STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 20.0
+STORY_POSTPROCESS_MAX_SERVICE_REQUESTS = 3
+STORY_GRAPH_MAX_SERVICE_REQUESTS = 1
 STORY_CONTINUE_MODEL_PROMPT = (
     "Continue the current scene from exactly where the latest assistant response ended. "
     "Do not repeat or paraphrase the previous response. Advance events with a new action, reaction, consequence, "
@@ -1327,9 +1329,14 @@ def _stream_story_response(
             )
 
     unified_postprocess_payload: dict[str, Any] | None = None
-    # Hard cap for post-generation service calls. Heavy module combinations may
-    # split post-processing into location, NPC/state, environment, and memory.
-    service_request_budget = StoryServiceHttpRequestBudget(max_requests=10)
+    # One normal turn uses one storyteller request, at most three regular
+    # post-process requests and one separately reserved graph request.
+    service_request_budget = StoryServiceHttpRequestBudget(
+        max_requests=STORY_POSTPROCESS_MAX_SERVICE_REQUESTS
+    )
+    graph_request_budget = StoryServiceHttpRequestBudget(
+        max_requests=STORY_GRAPH_MAX_SERVICE_REQUESTS
+    )
     if not aborted and response_has_content:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "postprocess"})
         try:
@@ -1444,6 +1451,7 @@ def _stream_story_response(
         postprocess_failed = False
         postprocess_status = STORY_POSTPROCESS_STATUS_COMMITTED
         postprocess_failed_modules: list[str] = []
+        graph_analysis_result: dict[str, Any] | None = None
 
         def _assistant_has_memory_block(items: list[Any]) -> bool:
             for item in items:
@@ -1533,6 +1541,79 @@ def _stream_story_response(
             postprocess_failed_modules.append("memory_sync")
             postprocess_status = STORY_POSTPROCESS_STATUS_FAILED_RETRYABLE
 
+        graph_enabled = bool(getattr(game, "auto_graph_nodes_enabled", False)) or bool(
+            getattr(game, "auto_graph_edges_enabled", False)
+        )
+        if graph_enabled:
+            yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "graph_sync"})
+            try:
+                from app.services.story_graph import analyze_story_graph_after_turn
+
+                with use_story_service_http_request_budget(graph_request_budget):
+                    graph_analysis_result = analyze_story_graph_after_turn(
+                        db=db,
+                        game=game,
+                        latest_user_prompt=prompt,
+                        latest_assistant_text=assistant_text_for_postprocess,
+                        assistant_message_id=int(assistant_message.id),
+                        apply_high_confidence=True,
+                        confidence_threshold=getattr(game, "graph_auto_apply_confidence", None),
+                        confirm_low_confidence=getattr(game, "graph_confirm_low_confidence", None),
+                        allow_model_request=True,
+                        allow_node_actions=bool(getattr(game, "auto_graph_nodes_enabled", False)),
+                        allow_edge_actions=bool(getattr(game, "auto_graph_edges_enabled", False)),
+                    )
+                commit_with_retry(db)
+            except Exception as exc:
+                logger.exception(
+                    "Story graph post-process failed independently: game_id=%s assistant_message_id=%s",
+                    game.id,
+                    assistant_message.id,
+                )
+                db.rollback()
+                graph_analysis_result = {
+                    "applied_cards": 0,
+                    "applied_nodes": 0,
+                    "applied_edges": 0,
+                    "updated_edges": 0,
+                    "suggestions_created": 0,
+                    "skipped": ["graph analysis failed"],
+                    "error": str(exc).strip()[:500],
+                }
+                try:
+                    from app.models import StoryGraphEvent
+
+                    db.add(
+                        StoryGraphEvent(
+                            game_id=int(game.id),
+                            assistant_message_id=int(assistant_message.id),
+                            event_type="analysis_failed",
+                            message="Gemini graph analysis failed",
+                            payload=json.dumps(
+                                {"error": str(exc).strip()[:1_000]},
+                                ensure_ascii=False,
+                            ),
+                        )
+                    )
+                    commit_with_retry(db)
+                except Exception:
+                    logger.exception(
+                        "Failed to persist story graph error event: game_id=%s assistant_message_id=%s",
+                        game.id,
+                        assistant_message.id,
+                    )
+                    db.rollback()
+
+        logger.info(
+            "Story service request usage: game_id=%s assistant_message_id=%s regular=%s/%s graph=%s/%s",
+            game.id,
+            assistant_message.id,
+            service_request_budget.used_requests,
+            service_request_budget.max_requests,
+            graph_request_budget.used_requests,
+            graph_request_budget.max_requests,
+        )
+
         memory_blocks_after_postprocess = deps.list_story_memory_blocks(db, game.id)
         needs_baseline_sync = postprocess_failed or (
             memory_optimization_enabled and not _assistant_has_memory_block(memory_blocks_after_postprocess)
@@ -1601,6 +1682,8 @@ def _stream_story_response(
                 if isinstance(card, dict) and isinstance(card.get("id"), int)
             ],
         }
+        if graph_analysis_result is not None:
+            done_payload["graph_analysis"] = graph_analysis_result
         if visual_novel_enabled:
             done_payload["vn_beats"] = vn_beats_payload
         game_payload = _safe_dump_stream_item(deps.story_game_summary_to_out(game))
@@ -2062,6 +2145,13 @@ def _generate_story_response_locked(
             ).all()
 
             if undone_message_ids:
+                from app.services.story_undo import purge_story_graph_turn_references
+
+                purge_story_graph_turn_references(
+                    db=db,
+                    game_id=int(game.id),
+                    assistant_message_ids=undone_message_ids,
+                )
                 db.execute(
                     sa_delete(StoryMessageSegment).where(
                         StoryMessageSegment.message_id.in_(undone_message_ids),
@@ -2298,6 +2388,32 @@ def _generate_story_response_locked(
         visual_novel_instruction_card = build_visual_novel_instruction_card()
         effective_instruction_cards = [*effective_instruction_cards, visual_novel_instruction_card]
         billing_instruction_cards = [*billing_instruction_cards, visual_novel_instruction_card]
+    try:
+        from app.services.story_graph import build_story_graph_context_instruction
+
+        graph_context_instruction = build_story_graph_context_instruction(
+            db,
+            game,
+            context_messages=provider_context_messages,
+            world_cards=active_world_cards,
+            plot_cards=active_plot_cards,
+            instruction_cards=instruction_cards,
+        )
+        if graph_context_instruction:
+            graph_instruction_card = {
+                "title": "Граф связей карточек",
+                "content": graph_context_instruction,
+                "source_kind": "graph",
+            }
+            effective_instruction_cards = [*effective_instruction_cards, graph_instruction_card]
+            billing_instruction_cards = [*billing_instruction_cards, graph_instruction_card]
+            logger.info(
+                "Story graph context attached: game_id=%s chars=%s",
+                game.id,
+                len(graph_context_instruction),
+            )
+    except Exception:
+        logger.exception("Story graph context build failed; continuing without graph context: game_id=%s", game.id)
     turn_cost_tokens = _calculate_story_turn_cost_tokens(
         get_story_turn_cost_tokens=deps.get_story_turn_cost_tokens,
         context_limit_tokens=context_limit_chars,

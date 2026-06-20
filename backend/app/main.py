@@ -22,7 +22,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
@@ -66,6 +66,7 @@ from app.routers.referrals import router as referrals_router
 from app.routers.story_cards import router as story_cards_router
 from app.routers.story_characters import router as story_characters_router
 from app.routers.story_generate import router as story_generate_router
+from app.routers.story_graph import router as story_graph_router
 from app.routers.story_instruction_templates import router as story_instruction_templates_router
 from app.routers.story_messages import router as story_messages_router
 from app.routers.story_memory import router as story_memory_router
@@ -1707,6 +1708,7 @@ app.include_router(referrals_router)
 app.include_router(story_cards_router)
 app.include_router(story_characters_router)
 app.include_router(story_generate_router)
+app.include_router(story_graph_router)
 app.include_router(story_turn_image_router)
 app.include_router(story_messages_router)
 app.include_router(story_read_router)
@@ -14877,3 +14879,27 @@ def generate_story_turn_image_impl(
         image_data_url=persisted_turn_image.image_data_url,
         user=UserOut.model_validate(user),
     )
+
+
+FRONTEND_DIST_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+FRONTEND_ASSETS_DIR = FRONTEND_DIST_DIR / "assets"
+if FRONTEND_ASSETS_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_ASSETS_DIR)), name="frontend-assets")
+
+
+@app.get("/{frontend_path:path}", include_in_schema=False)
+def serve_frontend_spa(frontend_path: str) -> FileResponse:
+    if frontend_path.startswith("api/") or frontend_path.startswith("shop-assets/"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    frontend_index = FRONTEND_DIST_DIR / "index.html"
+    if not frontend_index.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Frontend build was not found")
+    requested_path = (FRONTEND_DIST_DIR / frontend_path).resolve()
+    dist_root = FRONTEND_DIST_DIR.resolve()
+    try:
+        requested_path.relative_to(dist_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found") from exc
+    if requested_path.is_file():
+        return FileResponse(requested_path)
+    return FileResponse(frontend_index)

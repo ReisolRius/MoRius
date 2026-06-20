@@ -32,6 +32,7 @@ _PREFIX_TO_ROUTER_MODULES: dict[str, tuple[str, ...]] = {
         "app.routers.story_cards",
         "app.routers.story_characters",
         "app.routers.story_generate",
+        "app.routers.story_graph",
         "app.routers.story_games",
         "app.routers.story_instruction_templates",
         "app.routers.story_map",

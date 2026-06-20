@@ -22,6 +22,7 @@ from app.services.story_game_operation_lock import (
     StoryGameOperationBusyError,
     acquire_story_game_operation_lock,
 )
+from app.services.story_graph import delete_story_graph_card_references
 from app.services.story_memory import (
     STORY_MEMORY_LAYER_KEY,
     normalize_story_memory_block_content,
@@ -216,6 +217,12 @@ def delete_story_memory_block(
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
     block = _get_key_memory_block_or_404(db, game.id, block_id)
+    delete_story_graph_card_references(
+        db,
+        game_id=int(game.id),
+        card_type="memory_block",
+        card_id=int(block.id),
+    )
     db.delete(block)
     touch_story_game(game)
     db.commit()

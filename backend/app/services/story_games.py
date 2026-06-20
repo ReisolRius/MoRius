@@ -17,6 +17,10 @@ from app.models import (
     StoryCommunityWorldReport,
     StoryCommunityWorldView,
     StoryGame,
+    StoryGraphEdge,
+    StoryGraphEvent,
+    StoryGraphNode,
+    StoryGraphSuggestion,
     StoryInstructionCard,
     StoryMapImage,
     StoryMemoryBlock,
@@ -673,6 +677,36 @@ def normalize_story_character_state_enabled(value: bool | None) -> bool:
     return bool(value)
 
 
+def normalize_story_auto_graph_nodes_enabled(value: bool | None) -> bool:
+    if value is None:
+        return False
+    return bool(value)
+
+
+def normalize_story_auto_graph_edges_enabled(value: bool | None) -> bool:
+    if value is None:
+        return False
+    return bool(value)
+
+
+def normalize_story_graph_confirm_low_confidence(value: bool | None) -> bool:
+    if value is None:
+        return True
+    return bool(value)
+
+
+def normalize_story_graph_auto_apply_confidence(value: float | None) -> float:
+    if value is None:
+        return 0.78
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return 0.78
+    if not math.isfinite(numeric_value):
+        return 0.78
+    return round(max(0.0, min(numeric_value, 1.0)), 2)
+
+
 def normalize_story_canonical_state_pipeline_enabled(value: bool | None) -> bool:
     if value is None:
         return True
@@ -1074,6 +1108,10 @@ def count_story_completed_turns(messages: list[StoryMessage]) -> int:
 
 
 def delete_story_game_with_relations(db: Session, *, game_id: int) -> StoryGame | None:
+    db.execute(sa_delete(StoryGraphEvent).where(StoryGraphEvent.game_id == game_id))
+    db.execute(sa_delete(StoryGraphSuggestion).where(StoryGraphSuggestion.game_id == game_id))
+    db.execute(sa_delete(StoryGraphEdge).where(StoryGraphEdge.game_id == game_id))
+    db.execute(sa_delete(StoryGraphNode).where(StoryGraphNode.game_id == game_id))
     db.execute(sa_delete(StoryWorldCardChangeEvent).where(StoryWorldCardChangeEvent.game_id == game_id))
     db.execute(sa_delete(StoryPlotCardChangeEvent).where(StoryPlotCardChangeEvent.game_id == game_id))
     db.execute(sa_delete(StoryMessageSegment).where(StoryMessageSegment.game_id == game_id))
@@ -1176,6 +1214,18 @@ def story_game_summary_to_out(
             int(getattr(game, "active_main_hero_card_id", 0) or 0) or None
         ),
         auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
+        auto_graph_nodes_enabled=normalize_story_auto_graph_nodes_enabled(
+            getattr(game, "auto_graph_nodes_enabled", None)
+        ),
+        auto_graph_edges_enabled=normalize_story_auto_graph_edges_enabled(
+            getattr(game, "auto_graph_edges_enabled", None)
+        ),
+        graph_confirm_low_confidence=normalize_story_graph_confirm_low_confidence(
+            getattr(game, "graph_confirm_low_confidence", None)
+        ),
+        graph_auto_apply_confidence=normalize_story_graph_auto_apply_confidence(
+            getattr(game, "graph_auto_apply_confidence", None)
+        ),
         accelerated_service_enabled=False,
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         display_mode=normalize_story_display_mode(getattr(game, "display_mode", None)),
@@ -1327,6 +1377,18 @@ def story_game_summary_to_compact_out(
             int(getattr(game, "active_main_hero_card_id", 0) or 0) or None
         ),
         auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
+        auto_graph_nodes_enabled=normalize_story_auto_graph_nodes_enabled(
+            getattr(game, "auto_graph_nodes_enabled", None)
+        ),
+        auto_graph_edges_enabled=normalize_story_auto_graph_edges_enabled(
+            getattr(game, "auto_graph_edges_enabled", None)
+        ),
+        graph_confirm_low_confidence=normalize_story_graph_confirm_low_confidence(
+            getattr(game, "graph_confirm_low_confidence", None)
+        ),
+        graph_auto_apply_confidence=normalize_story_graph_auto_apply_confidence(
+            getattr(game, "graph_auto_apply_confidence", None)
+        ),
         accelerated_service_enabled=False,
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         display_mode=normalize_story_display_mode(getattr(game, "display_mode", None)),

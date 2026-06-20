@@ -91,6 +91,8 @@ from app.services.story_games import (
     normalize_story_appearance_ui_style,
     normalize_story_canonical_state_pipeline_enabled,
     normalize_story_canonical_state_safe_fallback_enabled,
+    normalize_story_auto_graph_edges_enabled,
+    normalize_story_auto_graph_nodes_enabled,
     normalize_story_character_state_enabled,
     normalize_story_context_limit_chars,
     normalize_story_cover_image_url,
@@ -110,6 +112,8 @@ from app.services.story_games import (
     normalize_story_llm_model,
     normalize_story_memory_optimization_enabled,
     normalize_story_memory_optimization_mode,
+    normalize_story_graph_auto_apply_confidence,
+    normalize_story_graph_confirm_low_confidence,
     normalize_story_repetition_penalty,
     normalize_story_show_gg_thoughts,
     normalize_story_show_npc_thoughts,
@@ -3240,6 +3244,18 @@ def update_story_game_settings(
             game.active_main_hero_card_id = int(active_main_hero_card.id)
     if payload.auto_npc_cards_enabled is not None:
         game.auto_npc_cards_enabled = bool(payload.auto_npc_cards_enabled)
+    if payload.auto_graph_nodes_enabled is not None:
+        game.auto_graph_nodes_enabled = normalize_story_auto_graph_nodes_enabled(payload.auto_graph_nodes_enabled)
+    if payload.auto_graph_edges_enabled is not None:
+        game.auto_graph_edges_enabled = normalize_story_auto_graph_edges_enabled(payload.auto_graph_edges_enabled)
+    if payload.graph_confirm_low_confidence is not None:
+        game.graph_confirm_low_confidence = normalize_story_graph_confirm_low_confidence(
+            payload.graph_confirm_low_confidence
+        )
+    if payload.graph_auto_apply_confidence is not None:
+        game.graph_auto_apply_confidence = normalize_story_graph_auto_apply_confidence(
+            payload.graph_auto_apply_confidence
+        )
     if payload.accelerated_service_enabled is not None:
         game.accelerated_service_enabled = False
     if payload.ambient_enabled is not None and can_use_visual_novel_mode:

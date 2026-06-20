@@ -110,6 +110,10 @@ export type StoryGameSummary = {
   show_npc_thoughts: boolean
   active_main_hero_card_id?: number | null
   auto_npc_cards_enabled?: boolean
+  auto_graph_nodes_enabled?: boolean
+  auto_graph_edges_enabled?: boolean
+  graph_confirm_low_confidence?: boolean
+  graph_auto_apply_confidence?: number
   accelerated_service_enabled?: boolean
   ambient_enabled: boolean
   display_mode: StoryDisplayMode
@@ -453,6 +457,130 @@ export type StoryGamePayload = {
   world_cards: StoryWorldCard[]
   world_card_events: StoryWorldCardEvent[]
   can_redo_assistant_step: boolean
+}
+
+export type StoryGraphCardType = 'world_card' | 'instruction_card' | 'plot_card' | 'memory_block'
+export type StoryGraphRelationType =
+  | 'acquaintance'
+  | 'friend'
+  | 'enemy'
+  | 'member_of'
+  | 'leader_of'
+  | 'works_for'
+  | 'owns'
+  | 'located_in'
+  | 'knows_about'
+  | 'rule_applies_to'
+  | 'plot_about'
+  | 'backstory_for'
+  | 'future_arc_for'
+  | 'memory_about'
+  | 'custom'
+export type StoryGraphDirection = 'directed' | 'undirected'
+export type StoryGraphScope =
+  | 'global'
+  | 'source_only'
+  | 'target_only'
+  | 'both'
+  | 'character_specific'
+  | 'location_specific'
+  | 'organization_specific'
+  | 'custom'
+
+export type StoryGraphCardSummary = {
+  card_type: StoryGraphCardType
+  card_id: number
+  title: string
+  description: string
+  kind: string
+  detail_type: string
+  avatar_url: string | null
+  avatar_original_url?: string | null
+  avatar_scale: number
+  race: string
+  memory_turns: number | null
+  active: boolean
+  source: string
+  updated_at: string | null
+}
+
+export type StoryGraphNode = {
+  id: number
+  game_id: number
+  card_type: StoryGraphCardType
+  card_id: number
+  x: number
+  y: number
+  width: number
+  height: number
+  collapsed: boolean
+  color: string
+  created_by: string
+  card: StoryGraphCardSummary | null
+  created_at: string
+  updated_at: string
+}
+
+export type StoryGraphEdge = {
+  id: number
+  game_id: number
+  source_node_id: number
+  target_node_id: number
+  source_card_type: StoryGraphCardType
+  source_card_id: number
+  target_card_type: StoryGraphCardType
+  target_card_id: number
+  relation_type: StoryGraphRelationType
+  label: string
+  description: string
+  direction: StoryGraphDirection
+  scope: StoryGraphScope
+  importance: number
+  active: boolean
+  created_by: string
+  confidence: number | null
+  source_turn_id: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type StoryGraphSuggestion = {
+  id: number
+  game_id: number
+  kind: string
+  status: 'pending' | 'accepted' | 'declined'
+  payload: Record<string, unknown>
+  reason: string
+  confidence: number | null
+  source_turn_id: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type StoryGraphPayload = {
+  game_id: number
+  nodes: StoryGraphNode[]
+  edges: StoryGraphEdge[]
+  available_cards: StoryGraphCardSummary[]
+  suggestions: StoryGraphSuggestion[]
+  can_edit: boolean
+}
+
+export type StoryGraphAiAnalyzeResult = {
+  applied_cards: number
+  applied_nodes: number
+  applied_edges: number
+  updated_edges: number
+  suggestions_created: number
+  skipped: string[]
+  graph: StoryGraphPayload
+}
+
+export type StoryGraphApplySuggestionsResult = {
+  applied: number
+  declined: number
+  skipped: string[]
+  graph: StoryGraphPayload
 }
 
 export type StoryCommunityWorldSummary = {

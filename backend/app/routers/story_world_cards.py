@@ -35,6 +35,7 @@ from app.services.story_characters import (
     normalize_story_character_text_color,
 )
 from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC, refresh_story_game_public_card_snapshots
+from app.services.story_graph import delete_story_graph_card_references
 from app.services.story_character_state_fields import (
     apply_story_character_state_payload_to_world_cards,
     sync_story_character_state_payload_from_world_cards,
@@ -769,6 +770,12 @@ def delete_story_world_card(
             StoryWorldCardChangeEvent.world_card_id == world_card.id,
         )
         .values(world_card_id=None)
+    )
+    delete_story_graph_card_references(
+        db,
+        game_id=int(game.id),
+        card_type="world_card",
+        card_id=int(world_card.id),
     )
     db.delete(world_card)
     if int(getattr(game, "active_main_hero_card_id", 0) or 0) == int(card_id):
