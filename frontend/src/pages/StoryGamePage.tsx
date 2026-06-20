@@ -17,7 +17,9 @@
   type ReactElement,
   type ReactNode,
   type Ref,
+  type TouchEvent as ReactTouchEvent,
   type UIEvent as ReactUIEvent,
+  type WheelEvent as ReactWheelEvent,
 } from 'react'
 import Autocomplete, { createFilterOptions } from '@mui/material/Autocomplete'
 import {
@@ -6147,6 +6149,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
   const isAutoScrollPausedRef = useRef(isAutoScrollPaused)
   const streamingAutoScrollFrameRef = useRef<number | null>(null)
+  const messagesTouchYRef = useRef<number | null>(null)
   const isExpandingMessagesWindowRef = useRef(false)
   const pendingMessagesWindowAnchorRef = useRef<{ previousScrollHeight: number; previousScrollTop: number } | null>(null)
   const emotionStagePanelRef = useRef<HTMLDivElement | null>(null)
@@ -10967,15 +10970,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     return () => window.removeEventListener('resize', measureComposerHeight)
   }, [])
 
+  const setMessagesAutoScrollPaused = useCallback((paused: boolean) => {
+    if (isAutoScrollPausedRef.current === paused) {
+      return
+    }
+    isAutoScrollPausedRef.current = paused
+    if (paused && streamingAutoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(streamingAutoScrollFrameRef.current)
+      streamingAutoScrollFrameRef.current = null
+    }
+    setIsAutoScrollPaused(paused)
+  }, [])
+
   const handleMessagesViewportScroll = useCallback(() => {
     const viewport = messagesViewportRef.current
     if (!viewport) {
       return
     }
     const distanceFromBottom = viewport.scrollHeight - (viewport.scrollTop + viewport.clientHeight)
-    if (!isAutoScrollPausedRef.current && isGenerating && distanceFromBottom > STORY_AUTOSCROLL_BOTTOM_THRESHOLD) {
-      isAutoScrollPausedRef.current = true
-      setIsAutoScrollPaused(true)
+    if (distanceFromBottom > STORY_AUTOSCROLL_BOTTOM_THRESHOLD) {
+      setMessagesAutoScrollPaused(true)
+    } else if (distanceFromBottom <= 4) {
+      setMessagesAutoScrollPaused(false)
     }
 
     if (viewport.scrollTop <= STORY_LOAD_OLDER_SCROLL_TOP_THRESHOLD && !isExpandingMessagesWindowRef.current) {
@@ -11023,13 +11039,45 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [
     activeGameId,
     hasOlderStoryMessages,
-    isGenerating,
     isLoadingOlderStoryMessages,
     loadGameById,
     messages,
     messagesWindowStartIndex,
+    setMessagesAutoScrollPaused,
     visibleAssistantTurns,
   ])
+
+  const handleMessagesViewportWheel = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>) => {
+      if (event.deltaY < 0) {
+        setMessagesAutoScrollPaused(true)
+      }
+    },
+    [setMessagesAutoScrollPaused],
+  )
+
+  const handleMessagesViewportTouchStart = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    messagesTouchYRef.current = event.touches[0]?.clientY ?? null
+  }, [])
+
+  const handleMessagesViewportTouchMove = useCallback(
+    (event: ReactTouchEvent<HTMLDivElement>) => {
+      const nextTouchY = event.touches[0]?.clientY
+      const previousTouchY = messagesTouchYRef.current
+      if (typeof nextTouchY !== 'number') {
+        return
+      }
+      if (previousTouchY !== null && nextTouchY > previousTouchY) {
+        setMessagesAutoScrollPaused(true)
+      }
+      messagesTouchYRef.current = nextTouchY
+    },
+    [setMessagesAutoScrollPaused],
+  )
+
+  const handleMessagesViewportTouchEnd = useCallback(() => {
+    messagesTouchYRef.current = null
+  }, [])
 
   useEffect(() => {
     if (!isExpandingMessagesWindowRef.current) {
@@ -11047,7 +11095,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [messagesWindowStartIndex, renderedMessages.length])
 
   useEffect(() => {
-    if (isAutoScrollPaused) {
+    if (isAutoScrollPausedRef.current) {
       return
     }
     const viewport = messagesViewportRef.current
@@ -11075,7 +11123,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [])
 
   useEffect(() => {
-    if (!errorMessage) {
+    if (!errorMessage || isAutoScrollPausedRef.current) {
       return
     }
     const viewport = messagesViewportRef.current
@@ -11083,6 +11131,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
     const timeoutId = window.setTimeout(() => {
+      if (isAutoScrollPausedRef.current) {
+        return
+      }
       viewport.scrollTo({
         top: viewport.scrollHeight,
         behavior: 'smooth',
@@ -21736,6 +21787,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       <Box
         ref={messagesViewportRef}
         onScroll={handleMessagesViewportScroll}
+        onWheel={handleMessagesViewportWheel}
+        onTouchStart={handleMessagesViewportTouchStart}
+        onTouchMove={handleMessagesViewportTouchMove}
+        onTouchEnd={handleMessagesViewportTouchEnd}
+        onTouchCancel={handleMessagesViewportTouchEnd}
         className="morius-scrollbar"
         sx={{
           position: 'fixed',
