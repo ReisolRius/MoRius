@@ -1109,43 +1109,157 @@ def auto_layout_story_graph(db: Session, game: StoryGame) -> StoryGraphOut:
     ]
     if not nodes:
         return get_story_graph(db, game)
-    main_nodes = [
-        node
-        for node in nodes
-        if (card_by_key.get(_card_key(node.card_type, int(node.card_id))) or None) is not None
-        and card_by_key[_card_key(node.card_type, int(node.card_id))].kind == "main_hero"
-    ]
-    # Keep automatic rings inside the positive graph workspace. Centering at
-    # the origin previously placed roughly half of the nodes beyond its edge.
-    center_x = 1_300.0
-    center_y = 900.0
-    if main_nodes:
-        for index, node in enumerate(main_nodes):
-            node.x = center_x + index * 24.0
-            node.y = center_y + index * 24.0
-    else:
-        nodes[0].x = center_x
-        nodes[0].y = center_y
-    placed_ids = {int(node.id) for node in main_nodes} or {int(nodes[0].id)}
-    remaining = [node for node in nodes if int(node.id) not in placed_ids]
-    rings = [
-        [node for node in remaining if (card_by_key.get(_card_key(node.card_type, int(node.card_id))) or None) and card_by_key[_card_key(node.card_type, int(node.card_id))].kind in {"npc", "world_profile"}],
-        [node for node in remaining if (card_by_key.get(_card_key(node.card_type, int(node.card_id))) or None) and card_by_key[_card_key(node.card_type, int(node.card_id))].card_type == GRAPH_CARD_TYPE_WORLD_CARD and card_by_key[_card_key(node.card_type, int(node.card_id))].kind not in {"npc", "main_hero", "world_profile"}],
-        [node for node in remaining if (card_by_key.get(_card_key(node.card_type, int(node.card_id))) or None) and card_by_key[_card_key(node.card_type, int(node.card_id))].card_type != GRAPH_CARD_TYPE_WORLD_CARD],
-    ]
-    used_remaining_ids: set[int] = set()
-    for ring_index, ring_nodes in enumerate(rings):
-        radius = 330.0 + ring_index * 230.0
-        count = max(len(ring_nodes), 1)
-        for index, node in enumerate(ring_nodes):
-            angle = (math.pi * 2 * index / count) - math.pi / 2
-            node.x = center_x + math.cos(angle) * radius
-            node.y = center_y + math.sin(angle) * radius
-            used_remaining_ids.add(int(node.id))
-    leftovers = [node for node in remaining if int(node.id) not in used_remaining_ids]
-    for index, node in enumerate(leftovers):
-        node.x = center_x + (index % 5) * 310.0 - 620.0
-        node.y = center_y + 680.0 + (index // 5) * 190.0
+
+    node_by_id = {int(node.id): node for node in nodes}
+    adjacency: dict[int, set[int]] = {node_id: set() for node_id in node_by_id}
+    edges = db.scalars(
+        select(StoryGraphEdge)
+        .where(
+            StoryGraphEdge.game_id == int(game.id),
+            StoryGraphEdge.undone_at.is_(None),
+        )
+        .order_by(StoryGraphEdge.importance.desc(), StoryGraphEdge.id.asc())
+    ).all()
+    for edge in edges:
+        source_id = int(edge.source_node_id)
+        target_id = int(edge.target_node_id)
+        if source_id not in adjacency or target_id not in adjacency or source_id == target_id:
+            continue
+        adjacency[source_id].add(target_id)
+        adjacency[target_id].add(source_id)
+
+    card_type_rank = {
+        GRAPH_CARD_TYPE_WORLD_CARD: 0,
+        GRAPH_CARD_TYPE_INSTRUCTION_CARD: 1,
+        GRAPH_CARD_TYPE_PLOT_CARD: 2,
+        GRAPH_CARD_TYPE_MEMORY_BLOCK: 3,
+    }
+
+    def node_priority(node_id: int) -> tuple[int, int, int, int]:
+        node = node_by_id[node_id]
+        card = card_by_key.get(_card_key(node.card_type, int(node.card_id)))
+        is_main_hero = bool(card and card.kind == "main_hero")
+        return (
+            0 if is_main_hero else 1,
+            -len(adjacency[node_id]),
+            card_type_rank.get(node.card_type, 9),
+            node_id,
+        )
+
+    components: list[list[int]] = []
+    unvisited = set(node_by_id)
+    while unvisited:
+        start_id = min(unvisited, key=node_priority)
+        queue = [start_id]
+        unvisited.remove(start_id)
+        component: list[int] = []
+        queue_index = 0
+        while queue_index < len(queue):
+            node_id = queue[queue_index]
+            queue_index += 1
+            component.append(node_id)
+            for neighbor_id in sorted(adjacency[node_id], key=node_priority):
+                if neighbor_id not in unvisited:
+                    continue
+                unvisited.remove(neighbor_id)
+                queue.append(neighbor_id)
+        components.append(component)
+
+    components.sort(
+        key=lambda component: (
+            min(node_priority(node_id)[0] for node_id in component),
+            -len(component),
+            min(component),
+        )
+    )
+
+    horizontal_gap = 150.0
+    vertical_gap = 70.0
+    component_gap = 220.0
+    workspace_margin = 180.0
+    shelf_width = 9_600.0
+    max_rows_per_column = 10
+    component_layouts: list[tuple[float, float, dict[int, tuple[float, float]]]] = []
+
+    for component in components:
+        root_id = min(component, key=node_priority)
+        depth_by_id = {root_id: 0}
+        queue = [root_id]
+        queue_index = 0
+        while queue_index < len(queue):
+            node_id = queue[queue_index]
+            queue_index += 1
+            for neighbor_id in sorted(adjacency[node_id], key=node_priority):
+                if neighbor_id not in component or neighbor_id in depth_by_id:
+                    continue
+                depth_by_id[neighbor_id] = depth_by_id[node_id] + 1
+                queue.append(neighbor_id)
+
+        levels: dict[int, list[int]] = {}
+        for node_id in component:
+            levels.setdefault(depth_by_id.get(node_id, 0), []).append(node_id)
+
+        previous_order: dict[int, int] = {}
+        ordered_levels: list[list[int]] = []
+        for depth in sorted(levels):
+            level_node_ids = levels[depth]
+            if depth == 0:
+                level_node_ids.sort(key=node_priority)
+            else:
+                level_node_ids.sort(
+                    key=lambda node_id: (
+                        min(
+                            (previous_order[neighbor_id] for neighbor_id in adjacency[node_id] if neighbor_id in previous_order),
+                            default=10_000,
+                        ),
+                        node_priority(node_id),
+                    )
+                )
+            ordered_levels.append(level_node_ids)
+            previous_order = {node_id: index for index, node_id in enumerate(level_node_ids)}
+
+        column_specs: list[tuple[float, list[int], float]] = []
+        for level_node_ids in ordered_levels:
+            for start_index in range(0, len(level_node_ids), max_rows_per_column):
+                chunk = level_node_ids[start_index : start_index + max_rows_per_column]
+                column_width = max(
+                    max(float(node_by_id[node_id].width or GRAPH_NODE_DEFAULT_WIDTH), GRAPH_NODE_DEFAULT_WIDTH)
+                    for node_id in chunk
+                )
+                column_height = sum(
+                    max(float(node_by_id[node_id].height or GRAPH_NODE_DEFAULT_HEIGHT), GRAPH_NODE_DEFAULT_HEIGHT)
+                    for node_id in chunk
+                ) + vertical_gap * max(len(chunk) - 1, 0)
+                column_specs.append((column_width, chunk, column_height))
+
+        component_height = max((column_height for _, _, column_height in column_specs), default=GRAPH_NODE_DEFAULT_HEIGHT)
+        local_positions: dict[int, tuple[float, float]] = {}
+        local_x = 0.0
+        for column_width, chunk, column_height in column_specs:
+            local_y = (component_height - column_height) / 2
+            for node_id in chunk:
+                node = node_by_id[node_id]
+                node_height = max(float(node.height or GRAPH_NODE_DEFAULT_HEIGHT), GRAPH_NODE_DEFAULT_HEIGHT)
+                local_positions[node_id] = (local_x, local_y)
+                local_y += node_height + vertical_gap
+            local_x += column_width + horizontal_gap
+        component_width = max(local_x - horizontal_gap, GRAPH_NODE_DEFAULT_WIDTH)
+        component_layouts.append((component_width, component_height, local_positions))
+
+    shelf_x = workspace_margin
+    shelf_y = workspace_margin
+    shelf_row_height = 0.0
+    for component_width, component_height, local_positions in component_layouts:
+        if shelf_x > workspace_margin and shelf_x + component_width > shelf_width:
+            shelf_x = workspace_margin
+            shelf_y += shelf_row_height + component_gap
+            shelf_row_height = 0.0
+        for node_id, (local_x, local_y) in local_positions.items():
+            node_by_id[node_id].x = shelf_x + local_x
+            node_by_id[node_id].y = shelf_y + local_y
+        shelf_x += component_width + component_gap
+        shelf_row_height = max(shelf_row_height, component_height)
+
     db.flush()
     return get_story_graph(db, game)
 
@@ -2480,36 +2594,65 @@ def build_story_graph_context_instruction(
     cards = _list_card_summaries_for_keys(db, int(game.id), referenced_card_keys)
     card_by_key = _card_summary_map(cards)
     active_keys: set[tuple[str, int]] = set()
-    for item in world_cards:
-        if isinstance(item, dict) and isinstance(item.get("id"), int):
-            active_keys.add(_card_key(GRAPH_CARD_TYPE_WORLD_CARD, int(item["id"])))
-    for item in plot_cards:
-        if isinstance(item, dict) and isinstance(item.get("id"), int):
-            active_keys.add(_card_key(GRAPH_CARD_TYPE_PLOT_CARD, int(item["id"])))
-    for item in instruction_cards:
-        if isinstance(item, dict) and isinstance(item.get("id"), int):
-            active_keys.add(_card_key(GRAPH_CARD_TYPE_INSTRUCTION_CARD, int(item["id"])))
-    latest_text = "\n".join(
-        _compact_text(getattr(message, "content", ""), max_chars=800)
-        for message in context_messages[-8:]
-        if _compact_text(getattr(message, "content", ""))
-    ).casefold()
+
+    def add_payload_keys(items: list[dict[str, Any]], card_type: str) -> None:
+        normalized_titles: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            card_id = item.get("id")
+            if isinstance(card_id, int):
+                active_keys.add(_card_key(card_type, int(card_id)))
+                continue
+            title = _compact_text(item.get("title"), max_chars=240).casefold()
+            if title:
+                normalized_titles.add(title)
+        if not normalized_titles:
+            return
+        for key, card in card_by_key.items():
+            if key[0] == card_type and _compact_text(card.title, max_chars=240).casefold() in normalized_titles:
+                active_keys.add(key)
+
+    add_payload_keys(world_cards, GRAPH_CARD_TYPE_WORLD_CARD)
+    add_payload_keys(plot_cards, GRAPH_CARD_TYPE_PLOT_CARD)
+    add_payload_keys(instruction_cards, GRAPH_CARD_TYPE_INSTRUCTION_CARD)
+    if not active_keys:
+        return ""
+
+    contextual_card_types = {
+        GRAPH_CARD_TYPE_INSTRUCTION_CARD,
+        GRAPH_CARD_TYPE_PLOT_CARD,
+        GRAPH_CARD_TYPE_MEMORY_BLOCK,
+    }
+    expanded_active_keys = set(active_keys)
+    for edge in edges:
+        source_key = _card_key(edge.source_card_type, int(edge.source_card_id))
+        target_key = _card_key(edge.target_card_type, int(edge.target_card_id))
+        if source_key in active_keys and target_key[0] in contextual_card_types:
+            expanded_active_keys.add(target_key)
+        if target_key in active_keys and source_key[0] in contextual_card_types:
+            expanded_active_keys.add(source_key)
+
+    selected_edges = [
+        edge
+        for edge in edges
+        if _card_key(edge.source_card_type, int(edge.source_card_id)) in expanded_active_keys
+        and _card_key(edge.target_card_type, int(edge.target_card_id)) in expanded_active_keys
+    ]
+    if not selected_edges:
+        return ""
 
     def edge_score(edge: StoryGraphEdge) -> tuple[int, int]:
         score = int(edge.importance or 3) * 10
         source_key = _card_key(edge.source_card_type, int(edge.source_card_id))
         target_key = _card_key(edge.target_card_type, int(edge.target_card_id))
-        if source_key in active_keys or target_key in active_keys:
+        if source_key in active_keys and target_key in active_keys:
+            score += 60
+        elif source_key in active_keys or target_key in active_keys:
             score += 40
-        for key in (source_key, target_key):
-            card = card_by_key.get(key)
-            if card and _compact_text(card.title).casefold() in latest_text:
-                score += 24
-        if int(edge.importance or 0) >= 4:
-            score += 16
         return (score, int(edge.id))
 
-    selected_edges = sorted(edges, key=edge_score, reverse=True)
+    selected_edges = sorted(selected_edges, key=edge_score, reverse=True)
     if len(selected_edges) > GRAPH_CONTEXT_MAX_EDGES:
         selected_edges = selected_edges[:GRAPH_CONTEXT_MAX_EDGES]
     selected_card_keys: set[tuple[str, int]] = set()
@@ -2555,9 +2698,9 @@ def build_story_graph_context_instruction(
     if not edge_lines:
         return ""
     sections = [
-        "[ГРАФ СВЯЗЕЙ КАРТОЧЕК]",
-        "Эти связи являются источником истины о том, кто с кем знаком, кто где состоит, какие правила к кому применяются, какие сюжетные линии к кому относятся.",
-        "Не выдумывай связь между сущностями, если она не указана в графе или явно не следует из текущей сцены. Если связи нет, персонажи и организации считаются не связанными, пока сюжет не покажет обратное.",
+        "[АКТИВНЫЙ ПОДГРАФ СВЯЗЕЙ КАРТОЧЕК]",
+        "Здесь только связи карточек, активных в текущем ходе, плюс напрямую связанные с ними правила, сюжет и важная память.",
+        "Используй только перечисленные связи. Не подтягивай остальные ноды графа и не делай выводов об отсутствующих здесь связях.",
     ]
     if node_lines:
         sections.append("Ноды:\n" + "\n".join(node_lines))

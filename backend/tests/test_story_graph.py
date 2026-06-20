@@ -19,6 +19,7 @@ from app.models import (  # noqa: E402
     StoryGraphEvent,
     StoryGraphNode,
     StoryGraphSuggestion,
+    StoryInstructionCard,
     StoryMemoryBlock,
     StoryMessage,
     StoryWorldCard,
@@ -38,6 +39,7 @@ from app.services.story_graph import (  # noqa: E402
     _select_graph_analysis_cards,
     _validate_graph_analysis_evidence,
     analyze_story_graph_for_api,
+    auto_layout_story_graph,
     build_story_graph_context_instruction,
     create_story_graph_edge,
     create_story_graph_node,
@@ -205,7 +207,7 @@ class StoryGraphTests(unittest.TestCase):
                 db,
                 game,
                 context_messages=[],
-                world_cards=[{"id": int(first.id)}],
+                world_cards=[{"id": int(first.id)}, {"id": int(second.id)}],
                 plot_cards=[],
                 instruction_cards=[],
             )
@@ -214,6 +216,176 @@ class StoryGraphTests(unittest.TestCase):
             self.assertIn("North Gate", context)
             self.assertIn("guards", context)
             self.assertIn("scope=location_specific", context)
+        finally:
+            _close_session(db)
+
+    def test_story_graph_context_excludes_inactive_normal_neighbors(self) -> None:
+        db = _create_session()
+        try:
+            _, game, first, second = _seed_game(db)
+            first_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="world_card", card_id=int(first.id), x=100, y=120),
+            )
+            second_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="world_card", card_id=int(second.id), x=420, y=120),
+            )
+            create_story_graph_edge(
+                db,
+                game,
+                StoryGraphEdgeCreateRequest(
+                    source_node_id=first_node.id,
+                    target_node_id=second_node.id,
+                    relation_type="located_in",
+                    label="guards",
+                    importance=5,
+                ),
+            )
+            db.flush()
+
+            context = build_story_graph_context_instruction(
+                db,
+                game,
+                context_messages=[],
+                world_cards=[{"id": int(first.id)}],
+                plot_cards=[],
+                instruction_cards=[],
+            )
+
+            self.assertEqual(context, "")
+        finally:
+            _close_session(db)
+
+    def test_story_graph_context_expands_active_card_to_linked_rule_and_key_memory(self) -> None:
+        db = _create_session()
+        try:
+            _, game, first, _ = _seed_game(db)
+            rule = StoryInstructionCard(
+                game_id=int(game.id),
+                title="Moon oath",
+                content="Mira cannot break a sworn moon oath.",
+                is_active=True,
+            )
+            memory = StoryMemoryBlock(
+                game_id=int(game.id),
+                layer="key",
+                title="Old rescue",
+                content="Mira once rescued the duke.",
+            )
+            db.add_all([rule, memory])
+            db.flush()
+            first_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="world_card", card_id=int(first.id), x=100, y=120),
+            )
+            rule_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="instruction_card", card_id=int(rule.id), x=420, y=60),
+            )
+            memory_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="memory_block", card_id=int(memory.id), x=420, y=240),
+            )
+            create_story_graph_edge(
+                db,
+                game,
+                StoryGraphEdgeCreateRequest(
+                    source_node_id=rule_node.id,
+                    target_node_id=first_node.id,
+                    relation_type="rule_applies_to",
+                    label="bound by oath",
+                    importance=5,
+                ),
+            )
+            create_story_graph_edge(
+                db,
+                game,
+                StoryGraphEdgeCreateRequest(
+                    source_node_id=memory_node.id,
+                    target_node_id=first_node.id,
+                    relation_type="memory_about",
+                    label="remembers rescue",
+                    importance=4,
+                ),
+            )
+            db.flush()
+
+            context = build_story_graph_context_instruction(
+                db,
+                game,
+                context_messages=[],
+                world_cards=[{"id": int(first.id)}],
+                plot_cards=[],
+                instruction_cards=[],
+            )
+
+            self.assertIn("Moon oath", context)
+            self.assertIn("bound by oath", context)
+            self.assertIn("Old rescue", context)
+            self.assertIn("remembers rescue", context)
+        finally:
+            _close_session(db)
+
+    def test_story_graph_auto_layout_does_not_overlap_nodes(self) -> None:
+        db = _create_session()
+        try:
+            _, game, first, second = _seed_game(db)
+            extra_cards = [
+                StoryWorldCard(
+                    game_id=int(game.id),
+                    title=f"NPC {index}",
+                    content=f"Character {index}.",
+                    kind="npc",
+                    triggers=f'["NPC {index}"]',
+                )
+                for index in range(8)
+            ]
+            db.add_all(extra_cards)
+            db.flush()
+            cards = [first, second, *extra_cards]
+            nodes = [
+                create_story_graph_node(
+                    db,
+                    game,
+                    StoryGraphNodeCreateRequest(
+                        card_type="world_card",
+                        card_id=int(card.id),
+                        x=100 + index * 10,
+                        y=100 + index * 10,
+                    ),
+                )
+                for index, card in enumerate(cards)
+            ]
+            for node in nodes[1:]:
+                create_story_graph_edge(
+                    db,
+                    game,
+                    StoryGraphEdgeCreateRequest(
+                        source_node_id=nodes[0].id,
+                        target_node_id=node.id,
+                        relation_type="acquaintance",
+                        label="knows",
+                    ),
+                )
+            db.flush()
+
+            graph = auto_layout_story_graph(db, game)
+
+            for index, left in enumerate(graph.nodes):
+                for right in graph.nodes[index + 1 :]:
+                    overlaps = (
+                        left.x < right.x + right.width
+                        and left.x + left.width > right.x
+                        and left.y < right.y + right.height
+                        and left.y + left.height > right.y
+                    )
+                    self.assertFalse(overlaps, f"Nodes {left.id} and {right.id} overlap")
         finally:
             _close_session(db)
 

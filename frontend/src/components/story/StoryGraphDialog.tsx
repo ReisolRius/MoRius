@@ -29,7 +29,6 @@ import {
   Typography,
 } from '@mui/material'
 import {
-  analyzeStoryGraphAfterTurn,
   applyStoryGraphSuggestions,
   autoLayoutStoryGraph,
   createStoryGraphEdge,
@@ -120,6 +119,7 @@ const NODE_HEIGHT = 136
 const ZOOM_MIN = 0.35
 const ZOOM_MAX = 1.8
 const GRAPH_LOAD_TIMEOUT_MS = 20_000
+const VIEWPORT_ANIMATION_MS = 420
 
 const RELATION_OPTIONS: Array<{ value: StoryGraphRelationType; label: string }> = [
   { value: 'acquaintance', label: 'Знакомство' },
@@ -220,6 +220,10 @@ function normalizeRole(value: string): string {
   return value.trim().toLowerCase()
 }
 
+function normalizeGraphSearch(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru')
+}
+
 function createEmptyGraph(gameId: number): StoryGraphPayload {
   return {
     game_id: gameId,
@@ -271,10 +275,10 @@ export default function StoryGraphDialog({
   const loadRequestRef = useRef<{ id: number; controller: AbortController } | null>(null)
   const loadSequenceRef = useRef(0)
   const hasAutoFittedGraphRef = useRef(false)
+  const viewportAnimationTimerRef = useRef<number | null>(null)
   const [graph, setGraph] = useState<StoryGraphPayload | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isMutating, setIsMutating] = useState(false)
-  const [isSuggesting, setIsSuggesting] = useState(false)
   const [isSavingSettings, setIsSavingSettings] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null)
@@ -282,9 +286,11 @@ export default function StoryGraphDialog({
   const [connectSourceNodeId, setConnectSourceNodeId] = useState<number | null>(null)
   const [selectedCardKeys, setSelectedCardKeys] = useState<string[]>([])
   const [cardSearch, setCardSearch] = useState('')
+  const [nodeSearch, setNodeSearch] = useState('')
   const [cardTypeFilter, setCardTypeFilter] = useState<CardTypeFilter>('all')
   const [zoom, setZoom] = useState(0.78)
   const [pan, setPan] = useState({ x: 430, y: 130 })
+  const [isViewportAnimating, setIsViewportAnimating] = useState(false)
   const [edgeDraft, setEdgeDraft] = useState<EdgeDraft | null>(null)
 
   const canUseGraph = normalizeRole(userRole) === 'administrator' || normalizeRole(userRole) === 'moderator'
@@ -298,6 +304,77 @@ export default function StoryGraphDialog({
   )
   const selectedNode = selectedNodeId === null ? null : nodesById.get(selectedNodeId) ?? null
   const selectedEdge = selectedEdgeId === null ? null : edgesById.get(selectedEdgeId) ?? null
+  const normalizedNodeSearch = useMemo(() => normalizeGraphSearch(nodeSearch), [nodeSearch])
+  const matchingNodeIds = useMemo(() => {
+    if (!normalizedNodeSearch) {
+      return new Set<number>()
+    }
+    return new Set(
+      graphPayload.nodes
+        .filter((node) => {
+          const card = node.card
+          const searchText = normalizeGraphSearch(
+            [
+              card?.title,
+              card?.description,
+              card?.kind,
+              card?.detail_type,
+              formatCardType(node.card_type),
+              `#${node.id}`,
+            ]
+              .filter(Boolean)
+              .join(' '),
+          )
+          return searchText.includes(normalizedNodeSearch)
+        })
+        .map((node) => node.id),
+    )
+  }, [graphPayload.nodes, normalizedNodeSearch])
+  const matchingNodes = useMemo(
+    () => graphPayload.nodes.filter((node) => matchingNodeIds.has(node.id)),
+    [graphPayload.nodes, matchingNodeIds],
+  )
+  const connectedNodeIds = useMemo(() => {
+    const connected = new Set<number>()
+    if (selectedNodeId === null) {
+      return connected
+    }
+    connected.add(selectedNodeId)
+    graphPayload.edges.forEach((edge) => {
+      if (edge.source_node_id === selectedNodeId) {
+        connected.add(edge.target_node_id)
+      } else if (edge.target_node_id === selectedNodeId) {
+        connected.add(edge.source_node_id)
+      }
+    })
+    return connected
+  }, [graphPayload.edges, selectedNodeId])
+  const connectedEdgeIds = useMemo(() => {
+    if (selectedNodeId === null) {
+      return new Set<number>()
+    }
+    return new Set(
+      graphPayload.edges
+        .filter((edge) => edge.source_node_id === selectedNodeId || edge.target_node_id === selectedNodeId)
+        .map((edge) => edge.id),
+    )
+  }, [graphPayload.edges, selectedNodeId])
+  const canvasWidth = useMemo(
+    () =>
+      graphPayload.nodes.reduce(
+        (maximum, node) => Math.max(maximum, node.x + (node.width || NODE_WIDTH) + 640),
+        GRAPH_CANVAS_WIDTH,
+      ),
+    [graphPayload.nodes],
+  )
+  const canvasHeight = useMemo(
+    () =>
+      graphPayload.nodes.reduce(
+        (maximum, node) => Math.max(maximum, node.y + (node.height || NODE_HEIGHT) + 640),
+        GRAPH_CANVAS_HEIGHT,
+      ),
+    [graphPayload.nodes],
+  )
   const selectedCardKeysSet = useMemo(() => new Set(selectedCardKeys), [selectedCardKeys])
   const availableCards = useMemo(() => {
     const normalizedSearch = cardSearch.trim().toLowerCase()
@@ -353,7 +430,7 @@ export default function StoryGraphDialog({
   const plotCardsById = useMemo(() => new Map(plotCards.map((card) => [card.id, card])), [plotCards])
   const memoryBlocksById = useMemo(() => new Map(memoryBlocks.map((block) => [block.id, block])), [memoryBlocks])
 
-  const fitNodesInViewport = useCallback((nodes: StoryGraphNode[]) => {
+  const fitNodesInViewport = useCallback((nodes: StoryGraphNode[], options?: { animate?: boolean; maxZoom?: number; padding?: number }) => {
     const viewport = viewportRef.current
     if (!viewport || nodes.length === 0) {
       return
@@ -368,12 +445,12 @@ export default function StoryGraphDialog({
     const maxY = Math.max(...nodes.map((node) => node.y + (node.height || NODE_HEIGHT)))
     const contentWidth = Math.max(maxX - minX, NODE_WIDTH)
     const contentHeight = Math.max(maxY - minY, NODE_HEIGHT)
-    const padding = 72
+    const padding = options?.padding ?? 72
     const nextZoom = clamp(
       Math.min(
         (rect.width - padding * 2) / contentWidth,
         (rect.height - padding * 2) / contentHeight,
-        1.15,
+        options?.maxZoom ?? 1.15,
       ),
       ZOOM_MIN,
       ZOOM_MAX,
@@ -381,6 +458,19 @@ export default function StoryGraphDialog({
     const nextPan = {
       x: (rect.width - contentWidth * nextZoom) / 2 - minX * nextZoom,
       y: (rect.height - contentHeight * nextZoom) / 2 - minY * nextZoom,
+    }
+    if (viewportAnimationTimerRef.current !== null) {
+      window.clearTimeout(viewportAnimationTimerRef.current)
+      viewportAnimationTimerRef.current = null
+    }
+    if (options?.animate) {
+      setIsViewportAnimating(true)
+      viewportAnimationTimerRef.current = window.setTimeout(() => {
+        viewportAnimationTimerRef.current = null
+        setIsViewportAnimating(false)
+      }, VIEWPORT_ANIMATION_MS)
+    } else {
+      setIsViewportAnimating(false)
     }
     viewStateRef.current = { zoom: nextZoom, pan: nextPan }
     setZoom(nextZoom)
@@ -454,6 +544,7 @@ export default function StoryGraphDialog({
       setSelectedNodeId(null)
       setSelectedEdgeId(null)
       setConnectSourceNodeId(null)
+      setNodeSearch('')
       setEdgeDraft(null)
       setErrorMessage('')
       hasAutoFittedGraphRef.current = false
@@ -471,6 +562,29 @@ export default function StoryGraphDialog({
   useEffect(() => {
     viewStateRef.current = { zoom, pan }
   }, [pan, zoom])
+
+  useEffect(() => {
+    if (!open || !normalizedNodeSearch || matchingNodes.length === 0) {
+      return
+    }
+    const timeoutId = window.setTimeout(() => {
+      fitNodesInViewport(matchingNodes, {
+        animate: true,
+        maxZoom: matchingNodes.length === 1 ? 1.18 : 1.08,
+        padding: matchingNodes.length === 1 ? 150 : 96,
+      })
+    }, 160)
+    return () => window.clearTimeout(timeoutId)
+  }, [fitNodesInViewport, matchingNodes, normalizedNodeSearch, open])
+
+  useEffect(
+    () => () => {
+      if (viewportAnimationTimerRef.current !== null) {
+        window.clearTimeout(viewportAnimationTimerRef.current)
+      }
+    },
+    [],
+  )
 
   const replaceGraph = useCallback((nextGraph: StoryGraphPayload) => {
     setGraph(nextGraph)
@@ -601,36 +715,11 @@ export default function StoryGraphDialog({
     try {
       const nextGraph = await autoLayoutStoryGraph({ token, gameId: game.id })
       replaceGraph(nextGraph)
-      window.requestAnimationFrame(() => fitNodesInViewport(nextGraph.nodes))
+      window.requestAnimationFrame(() => fitNodesInViewport(nextGraph.nodes, { animate: true }))
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Не удалось разложить граф')
     } finally {
       setIsMutating(false)
-    }
-  }, [fitNodesInViewport, game, replaceGraph, token])
-
-  const handleSuggestGraph = useCallback(async () => {
-    if (!game) {
-      return
-    }
-    setIsSuggesting(true)
-    setErrorMessage('')
-    try {
-      const result = await analyzeStoryGraphAfterTurn({
-        token,
-        gameId: game.id,
-        applyHighConfidence: true,
-      })
-      replaceGraph(result.graph)
-      if (result.applied_nodes > 0 || result.applied_edges > 0) {
-        window.requestAnimationFrame(() => fitNodesInViewport(result.graph.nodes))
-      } else if (result.skipped.length > 0) {
-        setErrorMessage(result.skipped.join(' · '))
-      }
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Gemini не смог подготовить связи')
-    } finally {
-      setIsSuggesting(false)
     }
   }, [fitNodesInViewport, game, replaceGraph, token])
 
@@ -859,6 +948,10 @@ export default function StoryGraphDialog({
       }
       event.preventDefault()
       event.stopPropagation()
+      setIsViewportAnimating(false)
+      setNodeSearch('')
+      setSelectedNodeId(node.id)
+      setSelectedEdgeId(null)
       event.currentTarget.setPointerCapture(event.pointerId)
       dragStateRef.current = {
         type: 'node',
@@ -884,6 +977,7 @@ export default function StoryGraphDialog({
       return
     }
     event.preventDefault()
+    setIsViewportAnimating(false)
     event.currentTarget.setPointerCapture(event.pointerId)
     dragStateRef.current = {
       type: 'pan',
@@ -912,8 +1006,8 @@ export default function StoryGraphDialog({
       }
       const deltaX = (event.clientX - dragState.startClientX) / zoom
       const deltaY = (event.clientY - dragState.startClientY) / zoom
-      const x = clamp(dragState.startX + deltaX, 20, GRAPH_CANVAS_WIDTH - NODE_WIDTH - 20)
-      const y = clamp(dragState.startY + deltaY, 20, GRAPH_CANVAS_HEIGHT - NODE_HEIGHT - 20)
+      const x = clamp(dragState.startX + deltaX, 20, canvasWidth - NODE_WIDTH - 20)
+      const y = clamp(dragState.startY + deltaY, 20, canvasHeight - NODE_HEIGHT - 20)
       dragState.latestX = x
       dragState.latestY = y
       setGraph((previousGraph) => {
@@ -931,7 +1025,7 @@ export default function StoryGraphDialog({
         }
       })
     },
-    [zoom],
+    [canvasHeight, canvasWidth, zoom],
   )
 
   const handlePointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -960,6 +1054,7 @@ export default function StoryGraphDialog({
       }
       event.preventDefault()
       event.stopPropagation()
+      setIsViewportAnimating(false)
       const rect = viewportNode.getBoundingClientRect()
       const currentView = viewStateRef.current
       const currentZoom = currentView.zoom
@@ -999,6 +1094,7 @@ export default function StoryGraphDialog({
         openEdgeDraft(null, connectSourceNodeId, node.id)
         return
       }
+      setNodeSearch('')
       setSelectedNodeId(node.id)
       setSelectedEdgeId(null)
     },
@@ -1034,23 +1130,35 @@ export default function StoryGraphDialog({
   )
 
   const renderCardAvatar = (card: StoryGraphCardSummary) => {
-    const imageUrl = resolveApiResourceUrl(card.avatar_url)
+    const imageUrl = resolveApiResourceUrl(card.avatar_original_url || card.avatar_url)
     if (imageUrl) {
       return (
         <Box
-          component="img"
-          src={imageUrl}
-          alt=""
-          loading="lazy"
-          decoding="async"
           sx={{
             width: 34,
             height: 34,
             borderRadius: '50%',
-            objectFit: 'cover',
-            transform: `scale(${clamp(card.avatar_scale || 1, 1, 2.2)})`,
+            overflow: 'hidden',
+            flexShrink: 0,
+            backgroundColor: 'rgba(115, 138, 164, 0.18)',
           }}
-        />
+        >
+          <Box
+            component="img"
+            src={imageUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            sx={{
+              width: '100%',
+              height: '100%',
+              display: 'block',
+              objectFit: 'cover',
+              transform: `scale(${clamp(card.avatar_scale || 1, 1, 2.2)})`,
+              transformOrigin: 'center',
+            }}
+          />
+        </Box>
       )
     }
     return (
@@ -1077,6 +1185,12 @@ export default function StoryGraphDialog({
     const card = node.card
     const isSelected = selectedNodeId === node.id
     const isConnectSource = connectSourceNodeId === node.id
+    const hasSearchFocus = normalizedNodeSearch.length > 0 && matchingNodeIds.size > 0
+    const isSearchMatch = matchingNodeIds.has(node.id)
+    const hasSelectionFocus = selectedNodeId !== null && !hasSearchFocus
+    const isConnected = connectedNodeIds.has(node.id)
+    const isDimmed = hasSearchFocus ? !isSearchMatch : hasSelectionFocus ? !isConnected : false
+    const isHighlighted = isSelected || isConnectSource || isSearchMatch || (hasSelectionFocus && isConnected)
     return (
       <Box
         key={node.id}
@@ -1096,12 +1210,19 @@ export default function StoryGraphDialog({
             ? '2px solid #7FDBFF'
             : isConnectSource
               ? '2px solid #F2C56D'
+              : isSearchMatch
+                ? '2px solid rgba(127, 219, 255, 0.92)'
+                : hasSelectionFocus && isConnected
+                  ? '2px solid rgba(127, 219, 255, 0.62)'
               : '2px solid rgba(126, 160, 194, 0.7)',
           outline: isSelected ? '1px solid rgba(127, 219, 255, 0.28)' : '1px solid rgba(7, 10, 15, 0.9)',
           backgroundColor: 'rgba(18, 23, 30, 0.94)',
-          boxShadow: isSelected
+          boxShadow: isHighlighted
             ? '0 0 0 4px rgba(127, 219, 255, 0.12), 0 18px 38px rgba(0, 0, 0, 0.38)'
             : '0 12px 24px rgba(0, 0, 0, 0.28)',
+          opacity: isDimmed ? 0.16 : 1,
+          zIndex: isHighlighted ? 3 : isConnected ? 2 : 1,
+          transition: 'opacity 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
           cursor: 'pointer',
           overflow: 'hidden',
           userSelect: 'none',
@@ -1178,8 +1299,23 @@ export default function StoryGraphDialog({
     const midX = (sourceX + targetX) / 2
     const midY = (sourceY + targetY) / 2
     const isSelected = selectedEdgeId === edge.id
+    const hasSearchFocus = normalizedNodeSearch.length > 0 && matchingNodeIds.size > 0
+    const hasSelectionFocus = selectedNodeId !== null && !hasSearchFocus
+    const isConnectedToSelection = connectedEdgeIds.has(edge.id)
+    const isConnectedToSearch = matchingNodeIds.has(edge.source_node_id) || matchingNodeIds.has(edge.target_node_id)
+    const isHighlighted = isSelected || (hasSelectionFocus && isConnectedToSelection)
+    const edgeOpacity = hasSearchFocus
+      ? isConnectedToSearch
+        ? 0.72
+        : 0.08
+      : hasSelectionFocus
+        ? isConnectedToSelection
+          ? 1
+          : 0.08
+        : 1
     return (
-      <g key={edge.id} data-graph-interactive="true" onClick={() => {
+      <g key={edge.id} opacity={edgeOpacity} style={{ transition: 'opacity 180ms ease' }} data-graph-interactive="true" onClick={() => {
+        setNodeSearch('')
         setSelectedEdgeId(edge.id)
         setSelectedNodeId(null)
       }}>
@@ -1197,8 +1333,8 @@ export default function StoryGraphDialog({
           y1={sourceY}
           x2={targetX}
           y2={targetY}
-          stroke={edge.active ? (isSelected ? '#7FDBFF' : 'rgba(143, 185, 219, 0.66)') : 'rgba(130, 142, 160, 0.28)'}
-          strokeWidth={isSelected ? 3.2 : 2}
+          stroke={edge.active ? (isHighlighted ? '#7FDBFF' : 'rgba(143, 185, 219, 0.66)') : 'rgba(130, 142, 160, 0.28)'}
+          strokeWidth={isHighlighted ? 3.2 : 2}
           strokeLinecap="round"
           markerEnd={edge.direction === 'directed' ? `url(#graph-arrow-${edge.active ? 'active' : 'muted'})` : undefined}
           cursor="pointer"
@@ -1211,7 +1347,7 @@ export default function StoryGraphDialog({
               borderRadius: '7px',
               border: '1px solid rgba(143, 185, 219, 0.28)',
               backgroundColor: 'rgba(12, 16, 22, 0.88)',
-              color: isSelected ? '#CFF5FF' : 'rgba(226, 234, 246, 0.86)',
+              color: isHighlighted ? '#CFF5FF' : 'rgba(226, 234, 246, 0.86)',
               fontSize: '11px',
               fontWeight: 800,
               textAlign: 'center',
@@ -1278,16 +1414,6 @@ export default function StoryGraphDialog({
             </Button>
             <Button onClick={() => void handleAutoLayout()} disabled={isMutating || graphPayload.nodes.length === 0} sx={toolbarButtonSx}>
               Авто-layout
-            </Button>
-            <Button
-              onClick={() => fitNodesInViewport(graphPayload.nodes)}
-              disabled={graphPayload.nodes.length === 0}
-              sx={toolbarButtonSx}
-            >
-              Вписать
-            </Button>
-            <Button onClick={() => void handleSuggestGraph()} disabled={isSuggesting || isMutating || disabled} sx={primaryToolbarButtonSx}>
-              {isSuggesting ? <CircularProgress size={16} sx={{ color: '#061018' }} /> : 'AI-связи'}
             </Button>
             <IconButton onClick={onClose} aria-label="Закрыть ноды" sx={{ color: '#DDE7F5' }}>
               ×
@@ -1417,33 +1543,44 @@ export default function StoryGraphDialog({
                   position: 'absolute',
                   left: 0,
                   top: 0,
-                  width: GRAPH_CANVAS_WIDTH,
-                  height: GRAPH_CANVAS_HEIGHT,
-                  boxSizing: 'border-box',
-                  border: '3px solid rgba(127, 219, 255, 0.34)',
-                  boxShadow: 'inset 0 0 0 1px rgba(7, 10, 15, 0.95)',
-                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                  transformOrigin: '0 0',
-                  willChange: 'transform',
+                  width: 0,
+                  height: 0,
+                  transform: `translate(${Math.round(pan.x)}px, ${Math.round(pan.y)}px)`,
+                  transition: isViewportAnimating ? `transform ${VIEWPORT_ANIMATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)` : 'none',
                 }}
               >
                 <Box
-                  component="svg"
-                  width={GRAPH_CANVAS_WIDTH}
-                  height={GRAPH_CANVAS_HEIGHT}
-                  sx={{ position: 'absolute', inset: 0, overflow: 'visible' }}
+                  sx={{
+                    position: 'relative',
+                    width: canvasWidth,
+                    height: canvasHeight,
+                    boxSizing: 'border-box',
+                    border: '3px solid rgba(127, 219, 255, 0.34)',
+                    boxShadow: 'inset 0 0 0 1px rgba(7, 10, 15, 0.95)',
+                    zoom,
+                    transition: isViewportAnimating ? `zoom ${VIEWPORT_ANIMATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)` : 'none',
+                    textRendering: 'geometricPrecision',
+                    WebkitFontSmoothing: 'antialiased',
+                  }}
                 >
-                  <defs>
-                    <marker id="graph-arrow-active" markerWidth="11" markerHeight="11" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-                      <path d="M0,0 L0,6 L9,3 z" fill="#7FDBFF" />
-                    </marker>
-                    <marker id="graph-arrow-muted" markerWidth="11" markerHeight="11" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-                      <path d="M0,0 L0,6 L9,3 z" fill="rgba(130, 142, 160, 0.38)" />
-                    </marker>
-                  </defs>
-                  {graphPayload.edges.map(renderEdge)}
+                  <Box
+                    component="svg"
+                    width={canvasWidth}
+                    height={canvasHeight}
+                    sx={{ position: 'absolute', inset: 0, overflow: 'visible' }}
+                  >
+                    <defs>
+                      <marker id="graph-arrow-active" markerWidth="11" markerHeight="11" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                        <path d="M0,0 L0,6 L9,3 z" fill="#7FDBFF" />
+                      </marker>
+                      <marker id="graph-arrow-muted" markerWidth="11" markerHeight="11" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                        <path d="M0,0 L0,6 L9,3 z" fill="rgba(130, 142, 160, 0.38)" />
+                      </marker>
+                    </defs>
+                    {graphPayload.edges.map(renderEdge)}
+                  </Box>
+                  {graphPayload.nodes.map(renderNode)}
                 </Box>
-                {graphPayload.nodes.map(renderNode)}
               </Box>
               {connectSourceNodeId !== null ? (
                 <Box sx={{ position: 'absolute', left: 14, bottom: 14, borderRadius: '8px', px: 1.2, py: 0.8, backgroundColor: 'rgba(12, 16, 22, 0.92)', border: '1px solid rgba(242, 197, 109, 0.5)' }}>
@@ -1457,6 +1594,34 @@ export default function StoryGraphDialog({
             <Box sx={sidePanelSx}>
               <Stack spacing={1.35}>
                 <Typography sx={panelTitleSx}>Инспектор</Typography>
+                <Stack spacing={0.45}>
+                  <TextField
+                    size="small"
+                    value={nodeSearch}
+                    onChange={(event) => setNodeSearch(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        setNodeSearch('')
+                      }
+                    }}
+                    placeholder="Поиск по нодам"
+                    aria-label="Поиск по нодам"
+                    sx={darkTextFieldSx}
+                  />
+                  {normalizedNodeSearch ? (
+                    <Typography
+                      sx={{
+                        color: matchingNodeIds.size > 0 ? 'rgba(174, 226, 246, 0.8)' : 'rgba(240, 157, 157, 0.82)',
+                        fontSize: '0.74rem',
+                        fontWeight: 800,
+                      }}
+                    >
+                      {matchingNodeIds.size > 0
+                        ? `Совпадений: ${matchingNodeIds.size}`
+                        : 'Совпадений нет'}
+                    </Typography>
+                  ) : null}
+                </Stack>
                 {selectedNode ? (
                   <Stack spacing={1}>
                     <Typography sx={{ color: '#F5F8FC', fontWeight: 900, lineHeight: 1.2 }}>
@@ -1657,7 +1822,7 @@ export default function StoryGraphDialog({
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2 }}>
           <Button onClick={() => setEdgeDraft(null)} sx={{ color: 'rgba(224, 234, 248, 0.72)' }}>Отмена</Button>
-          <Button onClick={() => void handleSaveEdgeDraft()} disabled={isMutating || edgeDraft === null} sx={primaryToolbarButtonSx}>
+          <Button onClick={() => void handleSaveEdgeDraft()} disabled={isMutating || edgeDraft === null} sx={primaryActionButtonSx}>
             Сохранить
           </Button>
         </DialogActions>
@@ -1727,7 +1892,7 @@ const toolbarButtonSx = {
   '&:hover': { backgroundColor: 'rgba(32, 42, 56, 0.96)' },
 }
 
-const primaryToolbarButtonSx = {
+const primaryActionButtonSx = {
   minHeight: 36,
   borderRadius: '8px',
   px: 1.35,
