@@ -179,10 +179,6 @@ def _normalize_key(value: Any) -> str:
     return re.sub(r"[^0-9a-zа-яё]+", "", normalized, flags=re.IGNORECASE)
 
 
-def _normalize_label_key(value: Any) -> str:
-    return _normalize_key(value)
-
-
 def _safe_int(value: Any) -> int:
     if isinstance(value, bool):
         return 0
@@ -643,6 +639,12 @@ def _edge_to_out(edge: StoryGraphEdge) -> StoryGraphEdgeOut:
 
 def _graph_edge_snapshot(edge: StoryGraphEdge) -> dict[str, Any]:
     return {
+        "source_node_id": int(edge.source_node_id),
+        "target_node_id": int(edge.target_node_id),
+        "source_card_type": _normalize_card_type(edge.source_card_type),
+        "source_card_id": int(edge.source_card_id),
+        "target_card_type": _normalize_card_type(edge.target_card_type),
+        "target_card_id": int(edge.target_card_id),
         "relation_type": _normalize_relation_type(edge.relation_type),
         "label": str(edge.label or ""),
         "description": str(edge.description or ""),
@@ -669,6 +671,7 @@ def _suggestion_to_out(suggestion: StoryGraphSuggestion) -> StoryGraphSuggestion
 
 
 def get_story_graph(db: Session, game: StoryGame) -> StoryGraphOut:
+    _collapse_duplicate_edges_for_game(db, game)
     cards = _list_card_summaries(db, int(game.id))
     card_by_key = _card_summary_map(cards)
     stored_nodes = db.scalars(
@@ -918,7 +921,18 @@ def delete_story_graph_node(db: Session, game: StoryGame, node_id: int, *, delet
     return connected_edges_count
 
 
-def _find_duplicate_edge(
+def _edge_pair_key(
+    source_card_type: str,
+    source_card_id: int,
+    target_card_type: str,
+    target_card_id: int,
+) -> tuple[tuple[str, int], tuple[str, int]]:
+    source_key = _card_key(source_card_type, source_card_id)
+    target_key = _card_key(target_card_type, target_card_id)
+    return (source_key, target_key) if source_key <= target_key else (target_key, source_key)
+
+
+def _find_edge_between_cards(
     db: Session,
     game: StoryGame,
     *,
@@ -926,27 +940,93 @@ def _find_duplicate_edge(
     source_card_id: int,
     target_card_type: str,
     target_card_id: int,
-    relation_type: str,
-    label: str,
     exclude_edge_id: int | None = None,
 ) -> StoryGraphEdge | None:
+    normalized_source_type = _normalize_card_type(source_card_type)
+    normalized_target_type = _normalize_card_type(target_card_type)
     query = select(StoryGraphEdge).where(
         StoryGraphEdge.game_id == int(game.id),
-        StoryGraphEdge.source_card_type == _normalize_card_type(source_card_type),
-        StoryGraphEdge.source_card_id == int(source_card_id),
-        StoryGraphEdge.target_card_type == _normalize_card_type(target_card_type),
-        StoryGraphEdge.target_card_id == int(target_card_id),
-        StoryGraphEdge.relation_type == _normalize_relation_type(relation_type),
+        or_(
+            (
+                (StoryGraphEdge.source_card_type == normalized_source_type)
+                & (StoryGraphEdge.source_card_id == int(source_card_id))
+                & (StoryGraphEdge.target_card_type == normalized_target_type)
+                & (StoryGraphEdge.target_card_id == int(target_card_id))
+            ),
+            (
+                (StoryGraphEdge.source_card_type == normalized_target_type)
+                & (StoryGraphEdge.source_card_id == int(target_card_id))
+                & (StoryGraphEdge.target_card_type == normalized_source_type)
+                & (StoryGraphEdge.target_card_id == int(source_card_id))
+            ),
+        ),
         StoryGraphEdge.undone_at.is_(None),
-    )
+    ).order_by(StoryGraphEdge.updated_at.desc(), StoryGraphEdge.id.desc())
     if exclude_edge_id is not None:
         query = query.where(StoryGraphEdge.id != int(exclude_edge_id))
-    label_key = _normalize_label_key(label)
-    for edge in db.scalars(query).all():
-        existing_label_key = _normalize_label_key(edge.label)
-        if not label_key or not existing_label_key or label_key == existing_label_key:
-            return edge
-    return None
+    return db.scalars(query).first()
+
+
+def _remove_other_edges_for_pair(
+    db: Session,
+    game: StoryGame,
+    *,
+    edge: StoryGraphEdge,
+) -> int:
+    duplicates = db.scalars(
+        select(StoryGraphEdge).where(
+            StoryGraphEdge.game_id == int(game.id),
+            StoryGraphEdge.id != int(edge.id),
+            StoryGraphEdge.undone_at.is_(None),
+        )
+    ).all()
+    pair_key = _edge_pair_key(
+        edge.source_card_type,
+        int(edge.source_card_id),
+        edge.target_card_type,
+        int(edge.target_card_id),
+    )
+    removed = 0
+    for duplicate in duplicates:
+        if _edge_pair_key(
+            duplicate.source_card_type,
+            int(duplicate.source_card_id),
+            duplicate.target_card_type,
+            int(duplicate.target_card_id),
+        ) != pair_key:
+            continue
+        db.delete(duplicate)
+        removed += 1
+    return removed
+
+
+def _collapse_duplicate_edges_for_game(db: Session, game: StoryGame) -> int:
+    edges = db.scalars(
+        select(StoryGraphEdge)
+        .where(
+            StoryGraphEdge.game_id == int(game.id),
+            StoryGraphEdge.undone_at.is_(None),
+        )
+        .order_by(StoryGraphEdge.updated_at.desc(), StoryGraphEdge.id.desc())
+    ).all()
+    seen_pairs: set[tuple[tuple[str, int], tuple[str, int]]] = set()
+    removed = 0
+    for edge in edges:
+        pair_key = _edge_pair_key(
+            edge.source_card_type,
+            int(edge.source_card_id),
+            edge.target_card_type,
+            int(edge.target_card_id),
+        )
+        if pair_key not in seen_pairs:
+            seen_pairs.add(pair_key)
+            continue
+        db.delete(edge)
+        removed += 1
+    if removed:
+        db.flush()
+        logger.info("Duplicate story graph edges collapsed: game_id=%s removed=%s", game.id, removed)
+    return removed
 
 
 def create_story_graph_edge(
@@ -978,18 +1058,46 @@ def create_story_graph_edge(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Graph node not found")
     relation_type = _normalize_relation_type(payload.relation_type)
     label = _compact_text(payload.label, max_chars=160)
-    duplicate = _find_duplicate_edge(
+    existing = _find_edge_between_cards(
         db,
         game,
         source_card_type=source_node.card_type,
         source_card_id=int(source_node.card_id),
         target_card_type=target_node.card_type,
         target_card_id=int(target_node.card_id),
-        relation_type=relation_type,
-        label=label,
     )
-    if duplicate is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Similar graph edge already exists")
+    if existing is not None:
+        before_snapshot = _graph_edge_snapshot(existing) if source_turn_id else None
+        existing.source_node_id = int(source_node.id)
+        existing.target_node_id = int(target_node.id)
+        existing.source_card_type = _normalize_card_type(source_node.card_type)
+        existing.source_card_id = int(source_node.card_id)
+        existing.target_card_type = _normalize_card_type(target_node.card_type)
+        existing.target_card_id = int(target_node.card_id)
+        existing.relation_type = relation_type
+        existing.label = label
+        existing.description = _compact_text(payload.description, max_chars=4_000)
+        existing.direction = _normalize_direction(payload.direction)
+        existing.scope = _normalize_scope(payload.scope)
+        existing.importance = _normalize_importance(payload.importance)
+        existing.active = bool(payload.active)
+        existing.confidence = _normalize_confidence(confidence)
+        _remove_other_edges_for_pair(db, game, edge=existing)
+        db.flush()
+        if source_turn_id and before_snapshot != _graph_edge_snapshot(existing):
+            _record_graph_event(
+                db,
+                game,
+                event_type="edge_updated",
+                message="Gemini updated an existing graph relationship",
+                payload={
+                    "edge_id": int(existing.id),
+                    "before": before_snapshot,
+                    "after": _graph_edge_snapshot(existing),
+                },
+                assistant_message_id=source_turn_id,
+            )
+        return _edge_to_out(existing)
     edge = StoryGraphEdge(
         game_id=int(game.id),
         source_node_id=int(source_node.id),
@@ -1034,19 +1142,6 @@ def update_story_graph_edge(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Graph edge not found")
     next_relation_type = _normalize_relation_type(payload.relation_type) if payload.relation_type is not None else edge.relation_type
     next_label = _compact_text(payload.label, max_chars=160) if payload.label is not None else edge.label
-    duplicate = _find_duplicate_edge(
-        db,
-        game,
-        source_card_type=edge.source_card_type,
-        source_card_id=int(edge.source_card_id),
-        target_card_type=edge.target_card_type,
-        target_card_id=int(edge.target_card_id),
-        relation_type=next_relation_type,
-        label=next_label,
-        exclude_edge_id=int(edge.id),
-    )
-    if duplicate is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Similar graph edge already exists")
     before_snapshot = _graph_edge_snapshot(edge) if source_turn_id else None
     edge.relation_type = next_relation_type
     edge.label = next_label
@@ -1060,6 +1155,7 @@ def update_story_graph_edge(
         edge.importance = _normalize_importance(payload.importance)
     if payload.active is not None:
         edge.active = bool(payload.active)
+    _remove_other_edges_for_pair(db, game, edge=edge)
     db.flush()
     if source_turn_id and before_snapshot != _graph_edge_snapshot(edge):
         _record_graph_event(
@@ -1673,9 +1769,13 @@ def _build_graph_analysis_messages(
         "updateEdges": [
             {
                 "edgeId": 1,
+                "relationType": "friend",
                 "label": "...",
                 "description": "...",
+                "direction": "directed | undirected",
+                "scope": "both",
                 "importance": 3,
+                "active": True,
                 "evidence": "exact short quote proving the update",
                 "reason": "...",
                 "confidence": 0.0,
@@ -1720,12 +1820,18 @@ def _build_graph_analysis_messages(
                 "Use the language of the current turn for every user-visible field. Check grammar, names, direction, and who relates to whom. "
                 "Use undirected for genuinely mutual relationships such as acquaintance, friendship, alliance, rivalry, or kinship; "
                 "use directed only when the relationship is asymmetric. "
+                "There must be exactly one edge for each unordered pair of cards, regardless of direction or relationship type. "
+                "If an edge already exists between two cards, never create another one: return updateEdges for its edgeId. "
+                "An update may refine or completely replace relationType, label, description, direction, scope, and importance. "
+                "Set active=false when the durable relationship has ended or been explicitly broken; set active=true if it becomes current again. "
+                "When a relationship gains a new still-valid aspect, rewrite description so it contains the complete current durable state, "
+                "preserving relevant established facts and removing facts that the current turn made obsolete. "
                 "A single turn may produce many cards and many edges; return all supported changes without an arbitrary count limit. "
                 "For a relationship directly stated by the player or narrator, use confidence 0.95 or higher. "
                 "Every action must include evidence copied verbatim as a short exact quote from latestUserPrompt or latestAssistantText. "
                 "Keep entity names in the same spelling and language used by the current turn. "
                 "Every newly created entity that belongs on the graph must be referenced by addNodes and/or createEdges. "
-                "If a similar card or edge already exists, reference it or return updateEdges instead of duplicate createEdges. "
+                "If a similar card exists, reference it. If any edge for the same card pair exists, update that single edge instead of creating another. "
                 "If the turn contains only transient interactions and no durable relationship or graph fact, return no edge action and explain why "
                 "in doNothingReason. "
                 "Do not use markdown. Confidence must be 0..1."
@@ -2083,19 +2189,14 @@ def _apply_graph_analysis_payload(
         if copy_error:
             add_skip(copy_error)
             continue
-        duplicate = _find_duplicate_edge(
+        existing_edge = _find_edge_between_cards(
             db,
             game,
             source_card_type=source_ref[0],
             source_card_id=source_ref[1],
             target_card_type=target_ref[0],
             target_card_id=target_ref[1],
-            relation_type=relation_type,
-            label=label,
         )
-        if duplicate is not None:
-            add_skip("similar edge already exists")
-            continue
         if _should_apply_ai_action(
             confidence=confidence,
             threshold=confidence_threshold,
@@ -2155,7 +2256,10 @@ def _apply_graph_analysis_payload(
                 confidence=confidence,
                 source_turn_id=source_turn_id,
             )
-            result["applied_edges"] += 1
+            if existing_edge is None:
+                result["applied_edges"] += 1
+            else:
+                result["updated_edges"] += 1
         elif confirm_low_confidence and _create_suggestion(
             db,
             game,
@@ -2212,9 +2316,21 @@ def _apply_graph_analysis_payload(
                 game,
                 edge_id,
                 StoryGraphEdgeUpdateRequest(
-                    label=_compact_text(raw_update.get("label"), max_chars=160) or edge.label,
-                    description=_compact_text(raw_update.get("description"), max_chars=4_000) or edge.description,
-                    importance=_normalize_importance(raw_update.get("importance") or edge.importance),
+                    relation_type=(
+                        _normalize_relation_type(raw_update.get("relationType") or raw_update.get("relation_type"))
+                        if raw_update.get("relationType") is not None or raw_update.get("relation_type") is not None
+                        else None
+                    ),
+                    label=_compact_text(raw_update.get("label"), max_chars=160) if raw_update.get("label") is not None else None,
+                    description=(
+                        _compact_text(raw_update.get("description"), max_chars=4_000)
+                        if raw_update.get("description") is not None
+                        else None
+                    ),
+                    direction=_normalize_direction(raw_update.get("direction")) if raw_update.get("direction") is not None else None,
+                    scope=_normalize_scope(raw_update.get("scope")) if raw_update.get("scope") is not None else None,
+                    importance=_normalize_importance(raw_update.get("importance")) if raw_update.get("importance") is not None else None,
+                    active=bool(raw_update.get("active")) if raw_update.get("active") is not None else None,
                 ),
                 source_turn_id=source_turn_id,
             )
@@ -2248,6 +2364,7 @@ def analyze_story_graph_after_turn(
     allow_node_actions: bool = True,
     allow_edge_actions: bool = True,
 ) -> dict[str, Any]:
+    _collapse_duplicate_edges_for_game(db, game)
     threshold = _safe_float(confidence_threshold, _safe_float(getattr(game, "graph_auto_apply_confidence", None), 0.78))
     threshold = max(0.0, min(threshold, 1.0))
     confirm_low = bool(
@@ -2576,6 +2693,7 @@ def build_story_graph_context_instruction(
     plot_cards: list[dict[str, Any]],
     instruction_cards: list[dict[str, Any]],
 ) -> str:
+    _collapse_duplicate_edges_for_game(db, game)
     edges = db.scalars(
         select(StoryGraphEdge)
         .where(

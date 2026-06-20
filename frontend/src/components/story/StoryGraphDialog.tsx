@@ -1091,14 +1091,26 @@ export default function StoryGraphDialog({
   const handleNodeClick = useCallback(
     (node: StoryGraphNode) => {
       if (connectSourceNodeId !== null && connectSourceNodeId !== node.id) {
-        openEdgeDraft(null, connectSourceNodeId, node.id)
+        const existingEdge = graphPayload.edges.find(
+          (edge) =>
+            (edge.source_node_id === connectSourceNodeId && edge.target_node_id === node.id)
+            || (edge.source_node_id === node.id && edge.target_node_id === connectSourceNodeId),
+        )
+        if (existingEdge) {
+          openEdgeDraft(existingEdge)
+          setSelectedEdgeId(existingEdge.id)
+          setSelectedNodeId(null)
+        } else {
+          openEdgeDraft(null, connectSourceNodeId, node.id)
+        }
+        setConnectSourceNodeId(null)
         return
       }
       setNodeSearch('')
       setSelectedNodeId(node.id)
       setSelectedEdgeId(null)
     },
-    [connectSourceNodeId, openEdgeDraft],
+    [connectSourceNodeId, graphPayload.edges, openEdgeDraft],
   )
 
   const handleSettingChange = useCallback(
@@ -1451,6 +1463,7 @@ export default function StoryGraphDialog({
                   <Select
                     label="Тип карточек"
                     value={cardTypeFilter}
+                    MenuProps={graphSelectMenuProps}
                     onChange={(event) => {
                       setCardTypeFilter(event.target.value as CardTypeFilter)
                       setSelectedCardKeys([])
@@ -1737,10 +1750,19 @@ export default function StoryGraphDialog({
         onClose={() => setEdgeDraft(null)}
         maxWidth="sm"
         fullWidth
-        PaperProps={{ sx: { borderRadius: '10px', backgroundColor: '#10151D', color: '#EEF4FC' } }}
+        PaperProps={{
+          sx: {
+            borderRadius: '10px',
+            border: '1px solid rgba(143, 185, 219, 0.2)',
+            backgroundColor: '#080C12',
+            backgroundImage: 'none',
+            color: '#EEF4FC',
+            boxShadow: '0 26px 80px rgba(0, 0, 0, 0.72)',
+          },
+        }}
       >
-        <DialogTitle sx={{ fontWeight: 900 }}>{edgeDraft?.id === null ? 'Новая связь' : 'Редактирование связи'}</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
+        <DialogTitle sx={{ fontWeight: 900, backgroundColor: '#080C12' }}>{edgeDraft?.id === null ? 'Новая связь' : 'Редактирование связи'}</DialogTitle>
+        <DialogContent sx={{ pt: 1, backgroundColor: '#080C12' }}>
           {edgeDraft ? (
             <Stack spacing={1.4}>
               <FormControl size="small" fullWidth sx={darkSelectSx}>
@@ -1748,6 +1770,7 @@ export default function StoryGraphDialog({
                 <Select
                   label="Тип"
                   value={edgeDraft.relationType}
+                  MenuProps={graphSelectMenuProps}
                   onChange={(event) => setEdgeDraft((draft) => draft ? { ...draft, relationType: event.target.value as StoryGraphRelationType } : draft)}
                 >
                   {RELATION_OPTIONS.map((option) => (
@@ -1777,6 +1800,7 @@ export default function StoryGraphDialog({
                   <Select
                     label="Направление"
                     value={edgeDraft.direction}
+                    MenuProps={graphSelectMenuProps}
                     onChange={(event) => setEdgeDraft((draft) => draft ? { ...draft, direction: event.target.value as StoryGraphDirection } : draft)}
                   >
                     <MenuItem value="directed">Направленная</MenuItem>
@@ -1788,6 +1812,7 @@ export default function StoryGraphDialog({
                   <Select
                     label="Scope"
                     value={edgeDraft.scope}
+                    MenuProps={graphSelectMenuProps}
                     onChange={(event) => setEdgeDraft((draft) => draft ? { ...draft, scope: event.target.value as StoryGraphScope } : draft)}
                   >
                     {SCOPE_OPTIONS.map((option) => (
@@ -1820,7 +1845,7 @@ export default function StoryGraphDialog({
             </Stack>
           ) : null}
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+        <DialogActions sx={{ px: 3, pb: 2.2, backgroundColor: '#080C12' }}>
           <Button onClick={() => setEdgeDraft(null)} sx={{ color: 'rgba(224, 234, 248, 0.72)' }}>Отмена</Button>
           <Button onClick={() => void handleSaveEdgeDraft()} disabled={isMutating || edgeDraft === null} sx={primaryActionButtonSx}>
             Сохранить
@@ -1902,6 +1927,31 @@ const primaryActionButtonSx = {
   backgroundColor: '#7FDBFF',
   '&:hover': { backgroundColor: '#9BE8FF' },
   '&:disabled': { color: 'rgba(6, 16, 24, 0.42)', backgroundColor: 'rgba(127, 219, 255, 0.42)' },
+}
+
+const graphSelectMenuProps = {
+  PaperProps: {
+    sx: {
+      mt: 0.5,
+      border: '1px solid rgba(143, 185, 219, 0.2)',
+      backgroundColor: '#080C12',
+      backgroundImage: 'none',
+      color: '#EEF4FC',
+      boxShadow: '0 18px 48px rgba(0, 0, 0, 0.64)',
+      '& .MuiMenuItem-root': {
+        color: '#EAF1FA',
+      },
+      '& .MuiMenuItem-root:hover': {
+        backgroundColor: 'rgba(127, 219, 255, 0.1)',
+      },
+      '& .MuiMenuItem-root.Mui-selected': {
+        backgroundColor: 'rgba(127, 219, 255, 0.16)',
+      },
+      '& .MuiMenuItem-root.Mui-selected:hover': {
+        backgroundColor: 'rgba(127, 219, 255, 0.22)',
+      },
+    },
+  },
 }
 
 const compactButtonSx = {

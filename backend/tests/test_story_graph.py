@@ -173,6 +173,108 @@ class StoryGraphTests(unittest.TestCase):
         finally:
             _close_session(db)
 
+    def test_story_graph_keeps_one_mutable_edge_per_card_pair(self) -> None:
+        db = _create_session()
+        try:
+            _, game, first, second = _seed_game(db)
+            first_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="world_card", card_id=int(first.id), x=100, y=120),
+            )
+            second_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="world_card", card_id=int(second.id), x=420, y=120),
+            )
+            original = create_story_graph_edge(
+                db,
+                game,
+                StoryGraphEdgeCreateRequest(
+                    source_node_id=first_node.id,
+                    target_node_id=second_node.id,
+                    relation_type="acquaintance",
+                    label="do not know each other",
+                    description="They have never met.",
+                    direction="undirected",
+                    importance=2,
+                ),
+            )
+            updated = create_story_graph_edge(
+                db,
+                game,
+                StoryGraphEdgeCreateRequest(
+                    source_node_id=second_node.id,
+                    target_node_id=first_node.id,
+                    relation_type="friend",
+                    label="new friends",
+                    description="They met, trusted each other, and became friends.",
+                    direction="undirected",
+                    importance=4,
+                ),
+            )
+            db.flush()
+
+            stored_edges = db.scalars(select(StoryGraphEdge)).all()
+            self.assertEqual(len(stored_edges), 1)
+            self.assertEqual(updated.id, original.id)
+            self.assertEqual(stored_edges[0].relation_type, "friend")
+            self.assertEqual(stored_edges[0].label, "new friends")
+            self.assertEqual(stored_edges[0].source_node_id, second_node.id)
+            self.assertEqual(stored_edges[0].target_node_id, first_node.id)
+        finally:
+            _close_session(db)
+
+    def test_story_graph_read_collapses_legacy_duplicate_pair_edges(self) -> None:
+        db = _create_session()
+        try:
+            _, game, first, second = _seed_game(db)
+            first_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="world_card", card_id=int(first.id), x=100, y=120),
+            )
+            second_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="world_card", card_id=int(second.id), x=420, y=120),
+            )
+            db.add_all(
+                [
+                    StoryGraphEdge(
+                        game_id=int(game.id),
+                        source_node_id=first_node.id,
+                        target_node_id=second_node.id,
+                        source_card_type="world_card",
+                        source_card_id=int(first.id),
+                        target_card_type="world_card",
+                        target_card_id=int(second.id),
+                        relation_type="acquaintance",
+                        label="met once",
+                    ),
+                    StoryGraphEdge(
+                        game_id=int(game.id),
+                        source_node_id=second_node.id,
+                        target_node_id=first_node.id,
+                        source_card_type="world_card",
+                        source_card_id=int(second.id),
+                        target_card_type="world_card",
+                        target_card_id=int(first.id),
+                        relation_type="enemy",
+                        label="became enemies",
+                    ),
+                ]
+            )
+            db.flush()
+
+            graph = get_story_graph(db, game)
+
+            self.assertEqual(len(graph.edges), 1)
+            self.assertEqual(graph.edges[0].label, "became enemies")
+            self.assertEqual(len(db.scalars(select(StoryGraphEdge)).all()), 1)
+        finally:
+            _close_session(db)
+
     def test_story_graph_context_instruction_includes_active_edges(self) -> None:
         db = _create_session()
         try:
@@ -568,6 +670,132 @@ class StoryGraphTests(unittest.TestCase):
             self.assertEqual(result["applied_nodes"], 6)
             self.assertEqual(len(db.scalars(select(StoryGraphEdge)).all()), 5)
             self.assertEqual(len(db.scalars(select(StoryGraphNode)).all()), 6)
+        finally:
+            _close_session(db)
+
+    def test_ai_create_edge_updates_existing_pair_instead_of_adding_line(self) -> None:
+        db = _create_session()
+        try:
+            _, game, first, second = _seed_game(db)
+            first_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="world_card", card_id=int(first.id), x=100, y=120),
+            )
+            second_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="world_card", card_id=int(second.id), x=420, y=120),
+            )
+            original = create_story_graph_edge(
+                db,
+                game,
+                StoryGraphEdgeCreateRequest(
+                    source_node_id=first_node.id,
+                    target_node_id=second_node.id,
+                    relation_type="acquaintance",
+                    label="strangers who met",
+                    description="They met once but did not trust each other.",
+                    direction="undirected",
+                    importance=2,
+                ),
+            )
+
+            result = _apply_graph_analysis_payload(
+                db,
+                game,
+                {
+                    "createEdges": [
+                        {
+                            "sourceCardRef": f"world_card:{second.id}",
+                            "targetCardRef": f"world_card:{first.id}",
+                            "relationType": "friend",
+                            "label": "trust each other",
+                            "description": "They learned each other's motives and formed a durable friendship.",
+                            "direction": "undirected",
+                            "scope": "both",
+                            "importance": 4,
+                            "confidence": 0.98,
+                        }
+                    ]
+                },
+                apply_high_confidence=True,
+                confidence_threshold=0.9,
+                confirm_low_confidence=True,
+                source_turn_id=None,
+            )
+            db.flush()
+
+            stored_edges = db.scalars(select(StoryGraphEdge)).all()
+            self.assertEqual(result["applied_edges"], 0)
+            self.assertEqual(result["updated_edges"], 1)
+            self.assertEqual(len(stored_edges), 1)
+            self.assertEqual(stored_edges[0].id, original.id)
+            self.assertEqual(stored_edges[0].relation_type, "friend")
+            self.assertEqual(stored_edges[0].label, "trust each other")
+        finally:
+            _close_session(db)
+
+    def test_ai_update_edge_can_break_and_fully_replace_relationship(self) -> None:
+        db = _create_session()
+        try:
+            _, game, first, second = _seed_game(db)
+            first_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="world_card", card_id=int(first.id), x=100, y=120),
+            )
+            second_node = create_story_graph_node(
+                db,
+                game,
+                StoryGraphNodeCreateRequest(card_type="world_card", card_id=int(second.id), x=420, y=120),
+            )
+            edge = create_story_graph_edge(
+                db,
+                game,
+                StoryGraphEdgeCreateRequest(
+                    source_node_id=first_node.id,
+                    target_node_id=second_node.id,
+                    relation_type="friend",
+                    label="close friends",
+                    description="They trusted one another.",
+                    direction="undirected",
+                    importance=4,
+                ),
+            )
+
+            result = _apply_graph_analysis_payload(
+                db,
+                game,
+                {
+                    "updateEdges": [
+                        {
+                            "edgeId": edge.id,
+                            "relationType": "enemy",
+                            "label": "friendship destroyed",
+                            "description": "A betrayal ended their friendship and made them enemies.",
+                            "direction": "undirected",
+                            "scope": "both",
+                            "importance": 5,
+                            "active": False,
+                            "confidence": 0.99,
+                        }
+                    ]
+                },
+                apply_high_confidence=True,
+                confidence_threshold=0.9,
+                confirm_low_confidence=True,
+                source_turn_id=None,
+            )
+            db.flush()
+            stored = db.get(StoryGraphEdge, edge.id)
+
+            self.assertEqual(result["updated_edges"], 1)
+            self.assertIsNotNone(stored)
+            self.assertEqual(stored.relation_type, "enemy")
+            self.assertEqual(stored.label, "friendship destroyed")
+            self.assertEqual(stored.importance, 5)
+            self.assertFalse(stored.active)
         finally:
             _close_session(db)
 

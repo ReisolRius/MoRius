@@ -151,6 +151,12 @@ def _graph_event_payload(event: StoryGraphEvent) -> dict[str, Any]:
 
 
 def _apply_story_graph_edge_snapshot(edge: StoryGraphEdge, snapshot: dict[str, Any]) -> None:
+    source_node_id = snapshot.get("source_node_id")
+    target_node_id = snapshot.get("target_node_id")
+    source_card_type = snapshot.get("source_card_type")
+    source_card_id = snapshot.get("source_card_id")
+    target_card_type = snapshot.get("target_card_type")
+    target_card_id = snapshot.get("target_card_id")
     relation_type = snapshot.get("relation_type")
     label = snapshot.get("label")
     description = snapshot.get("description")
@@ -158,6 +164,18 @@ def _apply_story_graph_edge_snapshot(edge: StoryGraphEdge, snapshot: dict[str, A
     scope = snapshot.get("scope")
     importance = snapshot.get("importance")
     active = snapshot.get("active")
+    if isinstance(source_node_id, int) and not isinstance(source_node_id, bool):
+        edge.source_node_id = source_node_id
+    if isinstance(target_node_id, int) and not isinstance(target_node_id, bool):
+        edge.target_node_id = target_node_id
+    if isinstance(source_card_type, str):
+        edge.source_card_type = source_card_type
+    if isinstance(source_card_id, int) and not isinstance(source_card_id, bool):
+        edge.source_card_id = source_card_id
+    if isinstance(target_card_type, str):
+        edge.target_card_type = target_card_type
+    if isinstance(target_card_id, int) and not isinstance(target_card_id, bool):
+        edge.target_card_id = target_card_id
     if isinstance(relation_type, str):
         edge.relation_type = relation_type
     if isinstance(label, str):
