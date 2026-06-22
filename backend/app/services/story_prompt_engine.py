@@ -871,6 +871,7 @@ def _build_story_provider_messages(
     effective_context_limit_tokens = _effective_story_context_limit_tokens(
         context_limit_tokens,
         model_name=model_name,
+        response_max_tokens=response_max_tokens,
     )
     selected_history = _select_story_history_source(
         full_history,

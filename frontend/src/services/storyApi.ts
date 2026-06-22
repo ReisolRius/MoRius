@@ -42,6 +42,7 @@
   StoryStreamChunkPayload,
   StoryStreamDonePayload,
   StoryStreamPlotMemoryPayload,
+  StoryStreamProgressPayload,
   StoryStreamStartPayload,
   StoryTurnImageGenerationPayload,
   StoryVNBeat,
@@ -248,6 +249,7 @@ export type StoryGenerationStreamOptions = {
   emotionVisualizationEnabled?: boolean
   onStart?: (payload: StoryStreamStartPayload) => void
   onChunk?: (payload: StoryStreamChunkPayload) => void
+  onProgress?: (payload: StoryStreamProgressPayload) => void
   onPlotMemory?: (payload: StoryStreamPlotMemoryPayload) => void
   onDone?: (payload: StoryStreamDonePayload) => void
 }
@@ -2549,6 +2551,17 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
         options.onChunk?.(payload)
       } catch (error) {
         streamError = toStreamError(error, 'Failed to process generation chunk event')
+        streamTerminalEventReceived = true
+      }
+      return
+    }
+
+    if (parsed.event === 'progress') {
+      try {
+        const payload = JSON.parse(parsed.data) as StoryStreamProgressPayload
+        options.onProgress?.(payload)
+      } catch (error) {
+        streamError = toStreamError(error, 'Failed to process generation progress event')
         streamTerminalEventReceived = true
       }
       return

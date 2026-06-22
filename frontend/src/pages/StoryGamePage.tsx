@@ -184,6 +184,7 @@ import type {
   StoryPlotCard,
   StoryPlotCardEvent,
   StoryStreamDonePayload,
+  StoryStreamProgressStage,
   StoryVNBeat,
   StoryWorldCard,
   StoryWorldCardKind,
@@ -677,6 +678,13 @@ type VisualStageParticipant = StorySceneEmotionCueParticipant & {
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const STREAMING_CARET_CLASS_NAME = 'morius-streaming-caret'
+const STORY_POSTPROCESS_STAGE_LABELS: Record<StoryStreamProgressStage, string> = {
+  finalizing: 'Сохраняем продолжение',
+  visual_novel: 'Разбираем сцену',
+  postprocess: 'Обновляем состояние мира',
+  memory_sync: 'Оптимизируем память',
+  graph_sync: 'Связываем события',
+}
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS = 120_000
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_SLOW_MS = 120_000
 const STORY_GENERATION_INTERRUPTION_MARKERS = [
@@ -5815,6 +5823,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isFinalizingStoryTurn, setIsFinalizingStoryTurn] = useState(false)
+  const [storyPostprocessStage, setStoryPostprocessStage] = useState<StoryStreamProgressStage | null>(null)
   const [isAutoScrollPaused, setIsAutoScrollPaused] = useState(false)
   const [continueHiddenForMessageId, setContinueHiddenForMessageId] = useState<number | null>(null)
   const [hiddenUserMessageIds, setHiddenUserMessageIds] = useState<number[]>([])
@@ -6833,6 +6842,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     (entry) => entry.status === 'ready' && Boolean(entry.imageUrl),
   )
   const isStoryTurnBusy = isGenerating || isFinalizingStoryTurn
+  const isNarratorGenerating = isGenerating && !isFinalizingStoryTurn
+  const storyPostprocessLabel = storyPostprocessStage
+    ? STORY_POSTPROCESS_STAGE_LABELS[storyPostprocessStage]
+    : STORY_POSTPROCESS_STAGE_LABELS.finalizing
   const isAdministrator = user.role.trim().toLowerCase() === 'administrator'
   const canUseStoryGraph = isAdministrator || user.role.trim().toLowerCase() === 'moderator'
   const effectiveAmbientEnabled = isAdministrator && ambientEnabled
@@ -15536,6 +15549,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setErrorMessage('')
       setIsGenerating(true)
       setIsFinalizingStoryTurn(false)
+      setStoryPostprocessStage(null)
       setActiveAssistantMessageId(null)
       const requestState = {
         requestId: Date.now(),
@@ -15679,6 +15693,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             )
             scheduleStreamingAutoScroll()
           },
+          onProgress: (payload) => {
+            setIsFinalizingStoryTurn(true)
+            setStoryPostprocessStage(payload.stage)
+          },
           onPlotMemory: (payload) => {
             const nextPlotEvents = payload.plot_card_events ?? []
             const nextPlotCards = payload.plot_cards ?? null
@@ -15795,6 +15813,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setIsRerollTurnPendingReplacement(false)
         }
         setIsFinalizingStoryTurn(true)
+        setStoryPostprocessStage((currentStage) => currentStage ?? 'finalizing')
         setIsGenerating(false)
         setActiveAssistantMessageId(null)
         if (generationRequestRef.current?.requestId === requestState.requestId) {
@@ -15850,6 +15869,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
 
         setIsFinalizingStoryTurn(false)
+        setStoryPostprocessStage(null)
 
         if (
           shouldOptimizeStoryMemory ||
@@ -16512,7 +16532,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   ])
 
   const handleVoiceActionClick = useCallback(() => {
-    if (isGenerating) {
+    if (isNarratorGenerating) {
       void handleStopStoryGeneration()
       return
     }
@@ -16529,7 +16549,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     voiceSessionRequestedRef.current = true
     startVoiceInput()
-  }, [handleSendPrompt, handleStopStoryGeneration, isGenerating, isVisualNovelInputLocked, isVoiceInputActive, showMicAction, startVoiceInput, stopVoiceInput])
+  }, [handleSendPrompt, handleStopStoryGeneration, isNarratorGenerating, isVisualNovelInputLocked, isVoiceInputActive, showMicAction, startVoiceInput, stopVoiceInput])
 
   const handleUndoAssistantStep = useCallback(async () => {
     if (!activeGameId || !canUndoAssistantStep || isUndoingAssistantStep) {
@@ -23396,8 +23416,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Box>
           <Box
             data-tour-id="story-composer-input"
+            className={isFinalizingStoryTurn ? 'morius-composer-waiting' : undefined}
             sx={{
               width: '100%',
+              minHeight: isFinalizingStoryTurn ? 64 : undefined,
               borderRadius: '18px',
               border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
               background:
@@ -23549,7 +23571,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               defaultValue={composerDraftRef.current}
               placeholder={inputPlaceholder}
               maxLength={STORY_PROMPT_MAX_LENGTH}
-              disabled={isVisualNovelInputLocked || isStoryTurnBusy || hasInsufficientTokensForTurn}
+              disabled={isVisualNovelInputLocked || isNarratorGenerating || hasInsufficientTokensForTurn}
               onChange={handleComposerInputChange}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') {
@@ -23579,7 +23601,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 boxSizing: 'border-box',
                 px: { xs: 1.95, sm: 2.15 },
                 pl: { xs: 7.2, sm: 7.55 },
-                py: { xs: '8px', sm: '9px' },
+                pt: { xs: '8px', sm: '9px' },
+                pb: isFinalizingStoryTurn ? { xs: '27px', sm: '28px' } : { xs: '8px', sm: '9px' },
                 pr: { xs: 5.6, sm: 6 },
                 overflowY: 'hidden',
                 '&::placeholder': {
@@ -23589,9 +23612,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             />
             <IconButton
               className="morius-composer-send-button"
-              aria-label={isGenerating ? 'Остановить генерацию' : isFinalizingStoryTurn ? 'Синхронизируем ход' : 'Отправить'}
+              aria-label={isNarratorGenerating ? 'Остановить генерацию' : isFinalizingStoryTurn ? 'Отправка станет доступна после обработки' : 'Отправить'}
               onClick={handleVoiceActionClick}
-              disabled={isGenerating ? false : (isVisualNovelInputLocked || isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
+              disabled={isNarratorGenerating ? false : (isVisualNovelInputLocked || isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
               sx={{
                 '@keyframes morius-voice-pulse': {
                   '0%, 100%': {
@@ -23615,7 +23638,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 borderRadius: '999px',
                 backgroundColor: 'transparent',
                 border: 'none',
-                color: isGenerating ? 'var(--morius-accent)' : sendButtonIconColor,
+                color: isNarratorGenerating ? 'var(--morius-accent)' : sendButtonIconColor,
                 ...(isVoiceInputActive && showMicAction
                   ? {
                       color: sendButtonIconColor,
@@ -23633,14 +23656,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   backgroundColor: 'transparent',
                 },
                 '&:disabled': {
-                  opacity: isGenerating ? 0.7 : 0.62,
-                  color: isGenerating ? 'var(--morius-accent)' : sendButtonIconColor,
+                  opacity: isNarratorGenerating ? 0.7 : 0.5,
+                  color: sendButtonIconColor,
                   backgroundColor: 'transparent',
                   border: 'none',
                 },
               }}
             >
-              {isGenerating ? (
+              {isNarratorGenerating ? (
                 <Box
                   className="morius-stop-indicator"
                   sx={{
@@ -23651,7 +23674,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }}
                 />
               ) : isFinalizingStoryTurn ? (
-                <CircularProgress size={16} sx={{ color: 'var(--morius-accent)' }} />
+                <AssetMaskIcon src={icons.send} size={18} />
               ) : showMicAction ? (
                 <Box
                   sx={{
@@ -23702,21 +23725,40 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   Идет запись...
                 </Typography>
               </Stack>
-            ) : isFinalizingStoryTurn && !isGenerating ? (
+            ) : isFinalizingStoryTurn ? (
               <Stack
                 direction="row"
                 alignItems="center"
                 spacing={0.65}
                 sx={{
                   position: 'absolute',
-                  left: 14,
-                  bottom: 10,
-                  color: 'var(--morius-accent)',
+                  left: { xs: 62, sm: 66 },
+                  right: { xs: 46, sm: 50 },
+                  bottom: 6,
+                  width: 'fit-content',
+                  maxWidth: 'calc(100% - 112px)',
+                  minWidth: 0,
+                  px: 0.85,
+                  py: 0.32,
+                  borderRadius: '999px',
+                  color: 'var(--morius-text-secondary)',
+                  border: '1px solid color-mix(in srgb, var(--morius-accent) 20%, transparent)',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
                 }}
               >
-                <CircularProgress size={10} sx={{ color: 'var(--morius-accent)' }} />
-                <Typography sx={{ fontSize: '0.73rem', lineHeight: 1, fontWeight: 700 }}>
-                  Синхронизируем ход...
+                <Box className="morius-generating-pulse-dot" sx={{ width: '6px !important', height: '6px !important', flex: '0 0 auto' }} />
+                <Typography
+                  sx={{
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontSize: { xs: '0.68rem', sm: '0.72rem' },
+                    lineHeight: 1.1,
+                    fontWeight: 700,
+                  }}
+                >
+                  {storyPostprocessLabel}
                 </Typography>
               </Stack>
             ) : null}

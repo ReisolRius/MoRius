@@ -133,8 +133,9 @@ def _select_story_presence_penalty_value(
     return None
 
 
-POLZA_RETRY_DELAYS_SECONDS = (1.1, 2.4)
+POLZA_RETRY_DELAYS_SECONDS = (1.1, 2.4, 4.8)
 POLZA_TRANSIENT_STATUS_CODES = {500, 502, 503, 504}
+POLZA_RETRYABLE_REQUEST_STATUS_CODES = {408, 409, 425, 429, 499, *POLZA_TRANSIENT_STATUS_CODES}
 POLZA_FALLBACK_STATUS_CODES = {404, 408, 409, 425, 429, *POLZA_TRANSIENT_STATUS_CODES}
 POLZA_STORY_STREAM_CONNECT_TIMEOUT_SECONDS = 20
 POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS = 90
@@ -267,7 +268,7 @@ def _is_polza_temporary_provider_failure(status_code: int, detail: str) -> bool:
 def _should_retry_polza_chat_request(*, status_code: int, detail: str, attempt_index: int) -> bool:
     if attempt_index >= len(POLZA_RETRY_DELAYS_SECONDS):
         return False
-    if status_code == 429:
+    if status_code in POLZA_RETRYABLE_REQUEST_STATUS_CODES:
         return True
     return _is_polza_temporary_provider_failure(status_code, detail)
 
@@ -922,18 +923,26 @@ def _iter_polza_story_stream_chunks(
                 except requests.RequestException as exc:
                     if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                         raise StoryGenerationCancelled("Story generation cancelled") from exc
+                    if not emitted_delta and attempt_index < len(POLZA_RETRY_DELAYS_SECONDS):
+                        last_error = RuntimeError("Failed while reading OpenRouter chat stream")
+                        logger.warning(
+                            "OpenRouter stream read failed before content; silently retrying same turn: model=%s provider=%s attempt=%s error=%s",
+                            model_name,
+                            provider_label,
+                            attempt_index + 1,
+                            exc,
+                        )
+                        _sleep_polza_retry(attempt_index)
+                        continue
                     raise RuntimeError("Failed while reading OpenRouter chat stream") from exc
                 except RuntimeError as exc:
                     if (
                         not emitted_delta
-                        and _should_retry_polza_gemini_pro_turn_failure(
-                            model_name=model_name,
-                            attempt_index=attempt_index,
-                        )
+                        and attempt_index < len(POLZA_RETRY_DELAYS_SECONDS)
                     ):
                         last_error = RuntimeError(str(exc).strip() or "OpenRouter stream returned an error")
                         logger.warning(
-                            "OpenRouter Gemini Pro stream failed before content; silently retrying same turn: model=%s provider=%s attempt=%s error=%s",
+                            "OpenRouter stream failed before content; silently retrying same turn: model=%s provider=%s attempt=%s error=%s",
                             model_name,
                             provider_label,
                             attempt_index + 1,

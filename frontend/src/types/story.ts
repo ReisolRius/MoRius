@@ -643,6 +643,18 @@ export type StoryStreamChunkPayload = {
   delta: string
 }
 
+export type StoryStreamProgressStage =
+  | 'finalizing'
+  | 'visual_novel'
+  | 'postprocess'
+  | 'memory_sync'
+  | 'graph_sync'
+
+export type StoryStreamProgressPayload = {
+  assistant_message_id: number
+  stage: StoryStreamProgressStage
+}
+
 export type StoryAmbientProfile = {
   scene: string
   lighting: string

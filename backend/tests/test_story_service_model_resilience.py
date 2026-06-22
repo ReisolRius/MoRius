@@ -27,6 +27,25 @@ class _FakeResponse:
 
 
 class StoryServiceModelResilienceTests(unittest.TestCase):
+    def test_openrouter_turn_retry_covers_transient_gateway_and_timeout_statuses(self) -> None:
+        for status_code in (408, 409, 425, 429, 499, 500, 502, 503, 504):
+            with self.subTest(status_code=status_code):
+                self.assertTrue(
+                    story_generation_provider._should_retry_polza_chat_request(
+                        status_code=status_code,
+                        detail="temporary upstream failure",
+                        attempt_index=0,
+                    )
+                )
+
+        self.assertFalse(
+            story_generation_provider._should_retry_polza_chat_request(
+                status_code=400,
+                detail="maximum context length exceeded",
+                attempt_index=0,
+            )
+        )
+
     def test_candidate_models_keep_explicit_fallback_when_service_fallback_is_disabled(self) -> None:
         candidates = story_generation_provider._build_polza_story_candidate_models(
             "google/gemma-4-31b-it:free",

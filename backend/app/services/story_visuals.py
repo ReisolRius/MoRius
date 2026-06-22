@@ -598,7 +598,8 @@ def _extract_story_turn_image_visual_sentences(plain_content: str) -> list[str]:
 
 def _extract_story_turn_image_appearance_lock_from_card(card: dict[str, Any]) -> str:
     plain_content = _normalize_story_markup_to_plain_text(str(card.get("content", ""))).replace("\r\n", "\n").strip()
-    if not plain_content:
+    explicit_clothing = str(card.get("clothing", "") or "").replace("\r\n", " ").strip()
+    if not plain_content and not explicit_clothing:
         return ""
     lines = [line.strip() for line in plain_content.split("\n") if line.strip()]
 
@@ -619,6 +620,9 @@ def _extract_story_turn_image_appearance_lock_from_card(card: dict[str, Any]) ->
             return
         seen_fragments.add(dedupe_key)
         appearance_fragments.append(normalized_value)
+
+    if explicit_clothing:
+        _append_fragment(f"CURRENT OUTFIT (EXPLICIT CARD FIELD): {explicit_clothing}", max_chars=240)
 
     profile_field_groups: tuple[tuple[str, ...], ...] = (
         ("РІРЅРµС€РЅРѕСЃС‚СЊ", "appearance", "РѕР±Р»РёРє"),
@@ -659,13 +663,19 @@ def _extract_story_turn_image_appearance_lock_from_card(card: dict[str, Any]) ->
 
 def _extract_story_turn_image_appearance_hint_from_card(card: dict[str, Any]) -> str:
     plain_content = _normalize_story_markup_to_plain_text(str(card.get("content", ""))).replace("\r\n", "\n").strip()
-    if not plain_content:
+    explicit_clothing = _normalize_story_prompt_text(
+        str(card.get("clothing", "") or ""),
+        max_chars=STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_CHARS,
+    )
+    if not plain_content and not explicit_clothing:
         return ""
     lines = [line.strip() for line in plain_content.split("\n") if line.strip()]
     profile_appearance = _sanitize_story_npc_profile_value(
         _extract_story_npc_profile_field(lines, ("РІРЅРµС€РЅРѕСЃС‚СЊ", "appearance", "РѕР±Р»РёРє"))
     )
     appearance_fragments: list[str] = []
+    if explicit_clothing:
+        appearance_fragments.append(f"current outfit: {explicit_clothing}")
     if profile_appearance and not _is_story_dialogue_like_fragment(profile_appearance):
         normalized_profile = _normalize_story_prompt_text(
             profile_appearance,
@@ -921,6 +931,7 @@ def _build_story_turn_image_character_lines(
         )
         appearance_hint = _extract_story_turn_image_appearance_hint_from_card(card)
         appearance_lock = _extract_story_turn_image_appearance_lock_from_card(card)
+        explicit_clothing = _normalize_story_prompt_text(str(card.get("clothing", "") or ""), max_chars=240)
 
         line_parts = [f"{role_label}: {title}"]
         gender_label = _story_turn_image_gender_hint_for_prompt(gender_hint)
@@ -929,6 +940,8 @@ def _build_story_turn_image_character_lines(
         gender_lock = _story_turn_image_gender_lock_for_prompt(gender_hint)
         if gender_lock:
             line_parts.append(gender_lock)
+        if explicit_clothing:
+            line_parts.append(f"clothing-lock {explicit_clothing}")
         if appearance_lock:
             line_parts.append(f"appearance-lock {appearance_lock}")
         if appearance_hint:
@@ -960,13 +973,23 @@ def _build_story_turn_image_full_character_card_locks(
 
         raw_content = str(card.get("content", ""))
         plain_content = _normalize_story_markup_to_plain_text(raw_content).replace("\r\n", "\n").strip()
-        if not plain_content:
+        explicit_clothing = _normalize_story_prompt_text(str(card.get("clothing", "") or ""), max_chars=320)
+        if not plain_content and not explicit_clothing:
             continue
 
+        lock_lines = [f"CHARACTER_CARD_LOCK_BEGIN: {role_label} | {title}"]
+        if explicit_clothing:
+            lock_lines.extend(
+                [
+                    f"EXPLICIT_CLOTHING_LOCK (HIGHEST OUTFIT PRIORITY): {explicit_clothing}",
+                    "If scene text or generic card content describes different clothing, use EXPLICIT_CLOTHING_LOCK.",
+                ]
+            )
+        if plain_content:
+            lock_lines.append(plain_content)
+        lock_lines.append("CHARACTER_CARD_LOCK_END")
         lock_blocks.append(
-            f"CHARACTER_CARD_LOCK_BEGIN: {role_label} | {title}\n"
-            f"{plain_content}\n"
-            "CHARACTER_CARD_LOCK_END"
+            "\n".join(lock_lines)
         )
     return lock_blocks
 
@@ -1134,6 +1157,7 @@ def _build_story_turn_image_prompt(
     has_main_hero_line = any(line.startswith("main_hero:") for line in character_lines)
     has_gender_lock_line = any("gender-lock" in line for line in character_lines)
     has_appearance_lock_line = any("appearance-lock" in line for line in character_lines)
+    has_clothing_lock_line = any("clothing-lock" in line for line in character_lines)
     style_instructions = _build_story_turn_image_style_instructions(normalized_image_style_prompt)
     scene_focus_text = _build_story_turn_image_latest_scene_focus_text(
         sanitized_assistant_text,
@@ -1280,6 +1304,14 @@ def _build_story_turn_image_prompt(
             )
             _try_append_optional_line(
                 "Choose framing and lighting so locked facial and hair details remain clearly readable."
+            )
+        if has_clothing_lock_line:
+            _try_append_optional_line(
+                "Clothing lock is absolute for the current frame. The explicit Clothing field from the character card "
+                "overrides generic card prose, older scene descriptions, inferred outfits, and model defaults."
+            )
+            _try_append_optional_line(
+                "Show the exact clothing-lock outfit without substitutions, redesigns, added uniforms, armor, dresses, coats, or accessories."
             )
         if has_main_hero_line:
             _try_append_optional_line("If the main hero is visible in the scene, show the main hero in third-person framing; if not present, do not force the main hero into the image.")

@@ -161,6 +161,10 @@ def _fallback_world_card_to_prompt_payload(card: Any) -> dict[str, Any] | None:
         "id": int(getattr(card, "id", 0) or 0),
         "title": title[:120],
         "content": content[:8_000],
+        "race": str(getattr(card, "race", "") or "").strip(),
+        "clothing": str(getattr(card, "clothing", "") or "").strip(),
+        "inventory": str(getattr(card, "inventory", "") or "").strip(),
+        "health_status": str(getattr(card, "health_status", "") or "").strip(),
         "triggers": triggers[:20],
         "kind": str(getattr(card, "kind", "") or "").strip().lower(),
     }
