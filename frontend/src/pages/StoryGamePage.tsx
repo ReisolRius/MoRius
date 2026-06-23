@@ -5513,6 +5513,53 @@ function StoryRightPanelLoadingSkeleton() {
   )
 }
 
+function StoryTurnProgressIndicator({
+  label,
+  mobile,
+}: {
+  label: string
+  mobile: boolean
+}) {
+  return (
+    <Stack
+      direction="row"
+      alignItems="center"
+      spacing={0.65}
+      sx={{
+        display: mobile ? { xs: 'flex', sm: 'none' } : { xs: 'none', sm: 'flex' },
+        alignSelf: mobile ? 'auto' : 'flex-end',
+        maxWidth: mobile ? 'calc(100% - 72px)' : 'min(100%, 360px)',
+        minWidth: 0,
+        mr: mobile ? 0 : 0.3,
+        px: 0.85,
+        py: 0.32,
+        borderRadius: '999px',
+        color: 'var(--morius-text-secondary)',
+        border: '1px solid color-mix(in srgb, var(--morius-accent) 20%, transparent)',
+        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
+      }}
+    >
+      <Box
+        className="morius-generating-pulse-dot"
+        sx={{ width: '6px !important', height: '6px !important', flex: '0 0 auto' }}
+      />
+      <Typography
+        sx={{
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontSize: { xs: '0.68rem', sm: '0.72rem' },
+          lineHeight: 1.1,
+          fontWeight: 700,
+        }}
+      >
+        {label}
+      </Typography>
+    </Stack>
+  )
+}
+
 function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, onUserUpdate }: StoryGamePageProps) {
   const {
     themeId,
@@ -6842,7 +6889,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     (entry) => entry.status === 'ready' && Boolean(entry.imageUrl),
   )
   const isStoryTurnBusy = isGenerating || isFinalizingStoryTurn
-  const isNarratorGenerating = isGenerating && !isFinalizingStoryTurn
+  const isStoryGenerationActive = isGenerating
   const storyPostprocessLabel = storyPostprocessStage
     ? STORY_POSTPROCESS_STAGE_LABELS[storyPostprocessStage]
     : STORY_POSTPROCESS_STAGE_LABELS.finalizing
@@ -16532,7 +16579,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   ])
 
   const handleVoiceActionClick = useCallback(() => {
-    if (isNarratorGenerating) {
+    if (isStoryGenerationActive) {
       void handleStopStoryGeneration()
       return
     }
@@ -16549,7 +16596,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     voiceSessionRequestedRef.current = true
     startVoiceInput()
-  }, [handleSendPrompt, handleStopStoryGeneration, isNarratorGenerating, isVisualNovelInputLocked, isVoiceInputActive, showMicAction, startVoiceInput, stopVoiceInput])
+  }, [handleSendPrompt, handleStopStoryGeneration, isStoryGenerationActive, isVisualNovelInputLocked, isVoiceInputActive, showMicAction, startVoiceInput, stopVoiceInput])
 
   const handleUndoAssistantStep = useCallback(async () => {
     if (!activeGameId || !canUndoAssistantStep || isUndoingAssistantStep) {
@@ -23414,12 +23461,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               </Stack>
             </Stack>
           </Box>
+          {isFinalizingStoryTurn ? (
+            <StoryTurnProgressIndicator label={storyPostprocessLabel} mobile={false} />
+          ) : null}
           <Box
             data-tour-id="story-composer-input"
             className={isFinalizingStoryTurn ? 'morius-composer-waiting' : undefined}
             sx={{
               width: '100%',
-              minHeight: isFinalizingStoryTurn ? 64 : undefined,
               borderRadius: '18px',
               border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
               background:
@@ -23571,7 +23620,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               defaultValue={composerDraftRef.current}
               placeholder={inputPlaceholder}
               maxLength={STORY_PROMPT_MAX_LENGTH}
-              disabled={isVisualNovelInputLocked || isNarratorGenerating || hasInsufficientTokensForTurn}
+              disabled={isVisualNovelInputLocked || isStoryGenerationActive || hasInsufficientTokensForTurn}
               onChange={handleComposerInputChange}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') {
@@ -23602,7 +23651,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 px: { xs: 1.95, sm: 2.15 },
                 pl: { xs: 7.2, sm: 7.55 },
                 pt: { xs: '8px', sm: '9px' },
-                pb: isFinalizingStoryTurn ? { xs: '27px', sm: '28px' } : { xs: '8px', sm: '9px' },
+                pb: { xs: '8px', sm: '9px' },
                 pr: { xs: 5.6, sm: 6 },
                 overflowY: 'hidden',
                 '&::placeholder': {
@@ -23612,9 +23661,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             />
             <IconButton
               className="morius-composer-send-button"
-              aria-label={isNarratorGenerating ? 'Остановить генерацию' : isFinalizingStoryTurn ? 'Отправка станет доступна после обработки' : 'Отправить'}
+              aria-label={isStoryGenerationActive ? 'Остановить генерацию' : isFinalizingStoryTurn ? 'Отправка станет доступна после обработки' : 'Отправить'}
               onClick={handleVoiceActionClick}
-              disabled={isNarratorGenerating ? false : (isVisualNovelInputLocked || isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
+              disabled={isStoryGenerationActive ? false : (isVisualNovelInputLocked || isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
               sx={{
                 '@keyframes morius-voice-pulse': {
                   '0%, 100%': {
@@ -23638,7 +23687,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 borderRadius: '999px',
                 backgroundColor: 'transparent',
                 border: 'none',
-                color: isNarratorGenerating ? 'var(--morius-accent)' : sendButtonIconColor,
+                color: isStoryGenerationActive ? 'var(--morius-accent)' : sendButtonIconColor,
                 ...(isVoiceInputActive && showMicAction
                   ? {
                       color: sendButtonIconColor,
@@ -23656,14 +23705,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   backgroundColor: 'transparent',
                 },
                 '&:disabled': {
-                  opacity: isNarratorGenerating ? 0.7 : 0.5,
+                  opacity: isStoryGenerationActive ? 0.7 : 0.5,
                   color: sendButtonIconColor,
                   backgroundColor: 'transparent',
                   border: 'none',
                 },
               }}
             >
-              {isNarratorGenerating ? (
+              {isStoryGenerationActive ? (
                 <Box
                   className="morius-stop-indicator"
                   sx={{
@@ -23725,60 +23774,29 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   Идет запись...
                 </Typography>
               </Stack>
-            ) : isFinalizingStoryTurn ? (
-              <Stack
-                direction="row"
-                alignItems="center"
-                spacing={0.65}
-                sx={{
-                  position: 'absolute',
-                  left: { xs: 62, sm: 66 },
-                  right: { xs: 46, sm: 50 },
-                  bottom: 6,
-                  width: 'fit-content',
-                  maxWidth: 'calc(100% - 112px)',
-                  minWidth: 0,
-                  px: 0.85,
-                  py: 0.32,
-                  borderRadius: '999px',
-                  color: 'var(--morius-text-secondary)',
-                  border: '1px solid color-mix(in srgb, var(--morius-accent) 20%, transparent)',
-                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
-                }}
-              >
-                <Box className="morius-generating-pulse-dot" sx={{ width: '6px !important', height: '6px !important', flex: '0 0 auto' }} />
-                <Typography
-                  sx={{
-                    minWidth: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    fontSize: { xs: '0.68rem', sm: '0.72rem' },
-                    lineHeight: 1.1,
-                    fontWeight: 700,
-                  }}
-                >
-                  {storyPostprocessLabel}
-                </Typography>
-              </Stack>
             ) : null}
           </Box>
 
-          <Typography
-            ref={inputLengthIndicatorRef}
-            component="span"
-            sx={{
-              alignSelf: 'flex-end',
-              mr: 0.3,
-              color: 'var(--morius-text-secondary)',
-              fontSize: '0.74rem',
-              lineHeight: 1.35,
-              textAlign: 'right',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {composerDraftRef.current.length}/{STORY_PROMPT_MAX_LENGTH}
-          </Typography>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
+            {isFinalizingStoryTurn ? (
+              <StoryTurnProgressIndicator label={storyPostprocessLabel} mobile />
+            ) : null}
+            <Typography
+              ref={inputLengthIndicatorRef}
+              component="span"
+              sx={{
+                ml: 'auto',
+                mr: 0.3,
+                color: 'var(--morius-text-secondary)',
+                fontSize: '0.74rem',
+                lineHeight: 1.35,
+                textAlign: 'right',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {composerDraftRef.current.length}/{STORY_PROMPT_MAX_LENGTH}
+            </Typography>
+          </Stack>
         </Stack>
       </Box>
 

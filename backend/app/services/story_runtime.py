@@ -68,6 +68,7 @@ from app.services.sqlite_write_guard import commit_with_retry, is_database_busy_
 from app.services.story_generation_cancel import (
     StoryGenerationCancelled,
     cancel_story_generation,
+    is_story_generation_cancelled,
     mark_story_generation_finished,
     mark_story_generation_started,
 )
@@ -1101,6 +1102,49 @@ def _stream_story_response(
     last_persisted_at = time.monotonic()
     aborted = False
     stream_error: str | None = None
+
+    def _stop_requested(stage: str, *, rollback: bool = False) -> bool:
+        if not is_story_generation_cancelled(int(game.id), story_generation_id):
+            return False
+        logger.info(
+            "Story generation cancellation acknowledged: game_id=%s assistant_message_id=%s stage=%s",
+            game.id,
+            getattr(assistant_message, "id", None),
+            stage,
+        )
+        if rollback:
+            try:
+                db.rollback()
+            except Exception:
+                logger.debug(
+                    "Failed to roll back cancelled story generation stage: game_id=%s stage=%s",
+                    game.id,
+                    stage,
+                    exc_info=True,
+                )
+        return True
+
+    def _persist_cancelled_output() -> None:
+        partial_output = str(produced or "").replace("\r\n", "\n").strip()
+        try:
+            if assistant_message is not None and partial_output:
+                assistant_message.content = partial_output
+            elif assistant_message is not None:
+                db.delete(assistant_message)
+            deps.touch_story_game(game)
+            commit_with_retry(db)
+            try:
+                db.refresh(user)
+            except Exception:
+                pass
+        except Exception:
+            logger.exception(
+                "Failed to clean up canceled story stream: game_id=%s assistant_message_id=%s",
+                game.id,
+                getattr(assistant_message, "id", None),
+            )
+            db.rollback()
+
     try:
         for chunk in deps.stream_story_provider_chunks(
             prompt=prompt,
@@ -1172,30 +1216,18 @@ def _stream_story_response(
         yield _sse_event("error", {"detail": error_detail})
         return
 
+    if not aborted and _stop_requested("provider_complete"):
+        aborted = True
+
     if aborted:
-        partial_output = str(produced or "").replace("\r\n", "\n").strip()
-        try:
-            if assistant_message is not None and partial_output:
-                assistant_message.content = partial_output
-            elif assistant_message is not None:
-                db.delete(assistant_message)
-            deps.touch_story_game(game)
-            commit_with_retry(db)
-            try:
-                db.refresh(user)
-            except Exception:
-                pass
-        except Exception:
-            logger.exception(
-                "Failed to clean up canceled story stream: game_id=%s assistant_message_id=%s",
-                game.id,
-                getattr(assistant_message, "id", None),
-            )
-            db.rollback()
+        _persist_cancelled_output()
         return
 
     if assistant_message is not None:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "finalizing"})
+        if _stop_requested("finalizing"):
+            _persist_cancelled_output()
+            return
 
     # Preserve the provider's final text. The legacy post-generation normalizers
     # rewrote dialogue markers after streaming and could break avatars/text.
@@ -1212,6 +1244,9 @@ def _stream_story_response(
         if not aborted:
             stream_error = stream_error or str(exc)
             yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
+        return
+
+    if _stop_requested("message_finalized"):
         return
 
     response_has_content = bool(normalized_output.strip() or produced.strip())
@@ -1234,6 +1269,8 @@ def _stream_story_response(
     vn_beats_payload: list[dict[str, Any]] = []
     if visual_novel_enabled and not aborted and response_has_content:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "visual_novel"})
+        if _stop_requested("visual_novel"):
+            return
         try:
             vn_segments = persist_visual_novel_beats_for_message(
                 db=db,
@@ -1242,6 +1279,8 @@ def _stream_story_response(
                 raw_response=normalized_output,
                 world_cards=[card for card in all_world_cards if isinstance(card, StoryWorldCard)],
             )
+            if _stop_requested("visual_novel_persist", rollback=True):
+                return
             deps.touch_story_game(game)
             commit_with_retry(db)
             db.refresh(assistant_message)
@@ -1259,6 +1298,9 @@ def _stream_story_response(
                 assistant_message.id,
             )
             db.rollback()
+
+    if _stop_requested("before_billing"):
+        return
 
     if turn_cost_tokens > 0:
         try:
@@ -1283,6 +1325,9 @@ def _stream_story_response(
             yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
             return
 
+    if _stop_requested("after_billing"):
+        return
+
     assistant_text_for_postprocess = _normalize_story_message_content(getattr(assistant_message, "content", None))
     if not assistant_text_for_postprocess:
         assistant_text_for_postprocess = normalized_output.strip()
@@ -1298,6 +1343,8 @@ def _stream_story_response(
 
     raw_memory_checkpointed = False
     if not aborted and response_has_content:
+        if _stop_requested("raw_memory_checkpoint"):
+            return
         raw_memory_checkpointed = _checkpoint_story_raw_turn_memory(
             deps=deps,
             db=db,
@@ -1307,6 +1354,8 @@ def _stream_story_response(
             latest_assistant_text=assistant_text_for_memory,
             memory_optimization_enabled=memory_optimization_enabled,
         )
+        if _stop_requested("raw_memory_checkpoint_complete", rollback=True):
+            return
         if memory_optimization_enabled and not raw_memory_checkpointed:
             logger.warning(
                 "Story raw-memory checkpoint unavailable before post-process: game_id=%s assistant_message_id=%s",
@@ -1339,6 +1388,8 @@ def _stream_story_response(
     )
     if not aborted and response_has_content:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "postprocess"})
+        if _stop_requested("postprocess"):
+            return
         try:
             with use_story_service_http_request_budget(service_request_budget):
                 unified_postprocess_payload = deps.resolve_story_turn_postprocess_payload(
@@ -1357,6 +1408,8 @@ def _stream_story_response(
                     emotion_visualization_enabled=emotion_visualization_enabled,
                     auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
                 )
+            if _stop_requested("postprocess_resolved", rollback=True):
+                return
         except Exception:
             logger.exception(
                 "Failed to resolve unified story post-process payload: game_id=%s assistant_message_id=%s",
@@ -1364,6 +1417,9 @@ def _stream_story_response(
                 assistant_message.id,
             )
             unified_postprocess_payload = None
+
+    if _stop_requested("before_postprocess_apply", rollback=True):
+        return
 
     ambient_payload: dict[str, Any] | None = None
     scene_emotion_payload: str | None = None
@@ -1446,6 +1502,8 @@ def _stream_story_response(
             memory_optimization_enabled,
         )
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "memory_sync"})
+        if _stop_requested("memory_sync"):
+            return
         plot_card_created = False
         postprocess_pending = False
         postprocess_failed = False
@@ -1479,6 +1537,8 @@ def _stream_story_response(
                     memory_optimization_enabled=memory_optimization_enabled,
                     allow_model_postprocess_request=True,
                 )
+                if _stop_requested("memory_sync_resolved", rollback=True):
+                    return
                 plot_card_created, _generated_plot_events, postprocess_meta = _normalize_story_postprocess_result(
                     postprocess_result
                 )
@@ -1497,6 +1557,8 @@ def _stream_story_response(
                 if raw_postprocess_status:
                     postprocess_status = raw_postprocess_status
             commit_with_retry(db)
+            if _stop_requested("memory_sync_committed"):
+                return
             try:
                 db.refresh(game)
             except Exception:
@@ -1546,6 +1608,8 @@ def _stream_story_response(
         )
         if graph_enabled:
             yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "graph_sync"})
+            if _stop_requested("graph_sync"):
+                return
             try:
                 from app.services.story_graph import analyze_story_graph_after_turn
 
@@ -1563,6 +1627,8 @@ def _stream_story_response(
                         allow_node_actions=bool(getattr(game, "auto_graph_nodes_enabled", False)),
                         allow_edge_actions=bool(getattr(game, "auto_graph_edges_enabled", False)),
                     )
+                if _stop_requested("graph_sync_resolved", rollback=True):
+                    return
                 commit_with_retry(db)
             except Exception as exc:
                 logger.exception(
@@ -1621,6 +1687,8 @@ def _stream_story_response(
 
         baseline_synced = False
         if needs_baseline_sync:
+            if _stop_requested("baseline_sync"):
+                return
             with use_story_service_http_request_budget(service_request_budget):
                 baseline_synced = _best_effort_sync_story_turn_memory_and_environment(
                     deps=deps,
@@ -1631,6 +1699,8 @@ def _stream_story_response(
                     latest_assistant_text=assistant_text_for_memory,
                     memory_optimization_enabled=memory_optimization_enabled,
                 )
+            if _stop_requested("baseline_sync_complete", rollback=True):
+                return
         if postprocess_failed and not baseline_synced:
             logger.warning(
                 "Story post-process failed and baseline sync made no changes: game_id=%s assistant_message_id=%s",
@@ -1645,6 +1715,9 @@ def _stream_story_response(
             postprocess_status = STORY_POSTPROCESS_STATUS_PENDING
 
         postprocess_failed_modules = sorted({module for module in postprocess_failed_modules if module})
+
+        if _stop_requested("done_payload"):
+            return
 
         ai_memory_blocks_payload = _safe_dump_stream_items(
             [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]

@@ -17,6 +17,11 @@ from app.services.story_game_operation_lock import (  # noqa: E402
     acquire_story_game_operation_lock,
 )
 from app.services import story_runtime  # noqa: E402
+from app.services.story_generation_cancel import (  # noqa: E402
+    cancel_story_generation,
+    mark_story_generation_finished,
+    mark_story_generation_started,
+)
 from app.services.story_generation_provider import (  # noqa: E402
     _ensure_story_stream_within_time_budget,
 )
@@ -28,6 +33,31 @@ class _RollbackTrackingSession:
 
     def rollback(self) -> None:
         self.rollback_calls += 1
+
+
+class _StreamingSession:
+    def __init__(self) -> None:
+        self.next_message_id = 700
+        self.commit_calls = 0
+        self.rollback_calls = 0
+        self.deleted: list[object] = []
+
+    def add(self, value: object) -> None:
+        if getattr(value, "id", None) is None:
+            setattr(value, "id", self.next_message_id)
+            self.next_message_id += 1
+
+    def commit(self) -> None:
+        self.commit_calls += 1
+
+    def rollback(self) -> None:
+        self.rollback_calls += 1
+
+    def refresh(self, _value: object) -> None:
+        return
+
+    def delete(self, value: object) -> None:
+        self.deleted.append(value)
 
 
 class StoryGenerationLockingTests(unittest.TestCase):
@@ -119,6 +149,83 @@ class StoryGenerationLockingTests(unittest.TestCase):
         self.assertEqual(exc_info.exception.detail, STORY_GAME_OPERATION_BUSY_DETAIL)
         self.assertEqual(acquire_calls, [0.001, 0.002])
         cancel_mock.assert_called_once_with(202)
+
+    def test_cancel_after_finalizing_progress_skips_billing_and_postprocess(self) -> None:
+        game_id = 9_101
+        generation_id = "generation-finalizing-cancel"
+        db = _StreamingSession()
+        game = SimpleNamespace(id=game_id)
+        user = SimpleNamespace(id=501)
+        calls = {
+            "billing": 0,
+            "postprocess": 0,
+        }
+
+        def fail_billing(*_args, **_kwargs):
+            calls["billing"] += 1
+            self.fail("Billing must not run after finalizing-stage cancellation")
+
+        def fail_postprocess(*_args, **_kwargs):
+            calls["postprocess"] += 1
+            self.fail("Post-process must not run after finalizing-stage cancellation")
+
+        deps = SimpleNamespace(
+            stream_persist_min_chars=10_000,
+            stream_persist_max_interval_seconds=60.0,
+            story_assistant_role="assistant",
+            touch_story_game=lambda _game: None,
+            stream_story_provider_chunks=lambda **_kwargs: iter(["Готовый ответ"]),
+            spend_user_tokens_if_sufficient=fail_billing,
+            resolve_story_turn_postprocess_payload=fail_postprocess,
+        )
+
+        mark_story_generation_started(game_id, generation_id)
+        try:
+            stream = story_runtime._stream_story_response(
+                deps=deps,
+                db=db,
+                game=game,
+                user=user,
+                turn_cost_tokens=10,
+                source_user_message=None,
+                prompt="Ход",
+                turn_index=1,
+                context_messages=[],
+                instruction_cards=[],
+                plot_cards=[],
+                world_cards=[],
+                all_world_cards=[],
+                context_limit_chars=10_000,
+                story_model_name=None,
+                story_response_max_tokens=None,
+                story_temperature=0.7,
+                story_repetition_penalty=1.0,
+                story_top_k=40,
+                story_top_r=0.9,
+                memory_optimization_enabled=True,
+                reroll_discarded_assistant_text=None,
+                ambient_enabled=False,
+                emotion_visualization_enabled=False,
+                visual_novel_enabled=False,
+                show_gg_thoughts=False,
+                show_npc_thoughts=False,
+                story_generation_id=generation_id,
+            )
+
+            self.assertIn("event: start", next(stream))
+            self.assertIn("event: chunk", next(stream))
+            finalizing_event = next(stream)
+            self.assertIn("event: progress", finalizing_event)
+            self.assertIn('"stage": "finalizing"', finalizing_event)
+
+            self.assertTrue(cancel_story_generation(game_id))
+            with self.assertRaises(StopIteration):
+                next(stream)
+        finally:
+            mark_story_generation_finished(game_id, generation_id)
+
+        self.assertEqual(calls["billing"], 0)
+        self.assertEqual(calls["postprocess"], 0)
 
 
 if __name__ == "__main__":
