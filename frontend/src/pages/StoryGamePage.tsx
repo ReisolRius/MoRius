@@ -682,7 +682,7 @@ const STORY_POSTPROCESS_STAGE_LABELS: Record<StoryStreamProgressStage, string> =
   finalizing: 'Сохраняем продолжение',
   visual_novel: 'Разбираем сцену',
   postprocess: 'Обновляем состояние мира',
-  memory_sync: 'Оптимизируем память',
+  memory_sync: 'Обновляем память и мир',
   graph_sync: 'Связываем события',
 }
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS = 900_000
@@ -5577,8 +5577,10 @@ function StoryTurnProgressIndicator({
       spacing={0.65}
       sx={{
         display: mobile ? { xs: 'flex', sm: 'none' } : { xs: 'none', sm: 'flex' },
-        alignSelf: mobile ? 'auto' : 'flex-end',
-        maxWidth: mobile ? 'calc(100% - 72px)' : 'min(100%, 360px)',
+        alignSelf: mobile ? 'auto' : 'center',
+        flex: mobile ? '0 1 auto' : '0 0 auto',
+        width: mobile ? 'auto' : 'min(42vw, 320px)',
+        maxWidth: mobile ? 'calc(100% - 72px)' : '320px',
         minWidth: 0,
         mr: mobile ? 0 : 0.3,
         px: 0.85,
@@ -23428,7 +23430,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           <Box
             data-tour-id="story-composer-controls"
             sx={{
-              overflowX: { xs: 'auto', md: 'visible' },
+              position: 'relative',
+              overflowX: { xs: 'auto', sm: 'visible' },
               overflowY: 'visible',
               pb: 0.1,
               '&::-webkit-scrollbar': {
@@ -23635,10 +23638,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Tooltip>
               </Stack>
             </Stack>
+            {isFinalizingStoryTurn ? (
+              <Box
+                sx={{
+                  display: { xs: 'none', sm: 'block' },
+                  position: 'absolute',
+                  top: '50%',
+                  right: 0,
+                  transform: 'translateY(-50%)',
+                  zIndex: 2,
+                  pointerEvents: 'none',
+                }}
+              >
+                <StoryTurnProgressIndicator label={storyPostprocessLabel} mobile={false} />
+              </Box>
+            ) : null}
           </Box>
-          {isFinalizingStoryTurn ? (
-            <StoryTurnProgressIndicator label={storyPostprocessLabel} mobile={false} />
-          ) : null}
           <Box
             data-tour-id="story-composer-input"
             className={isFinalizingStoryTurn ? 'morius-composer-waiting' : undefined}
