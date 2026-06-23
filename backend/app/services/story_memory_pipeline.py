@@ -24,6 +24,7 @@ from app.services.story_llm_modules import (
     DetailedMemoryPayload,
     FactMemoryPayload,
     GameStateAnalysisPayload,
+    ImportantMemoryPayload,
     LlmModuleService,
 )
 from app.services.story_memory import (
@@ -42,10 +43,12 @@ from app.services.story_memory_prompts import (
     LLM_DETAILED_MEMORY_PROMPT_NAME,
     LLM_FACT_MEMORY_PROMPT_NAME,
     LLM_GAME_STATE_ANALYSIS_PROMPT_NAME,
+    LLM_IMPORTANT_MEMORY_PROMPT_NAME,
     build_compressed_memory_messages,
     build_detailed_memory_messages,
     build_fact_memory_messages,
     build_game_state_analysis_messages,
+    build_important_memory_messages,
 )
 from app.services.story_queries import list_story_instruction_cards, list_story_plot_cards, list_story_world_cards
 from app.services.story_service_budget import (
@@ -99,6 +102,7 @@ _TOKEN_COUNTER = TokenCounter()
 _TOKEN_BUDGET_SERVICE = TokenBudgetService(_TOKEN_COUNTER)
 _NPC_DEDUP_SERVICE = NpcCardDedupService()
 STORY_MEMORY_MODEL_MAX_ATTEMPTS = 2
+STORY_IMPORTANT_MEMORY_MODEL_MAX_ATTEMPTS = 3
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -1352,7 +1356,6 @@ def _extract_story_postprocess_memory_payload(
     _ = (
         raw_memory_enabled,
         environment_enabled,
-        important_event_enabled,
         ambient_enabled,
         scene_emotion_enabled,
         scene_emotion_active_cast_entries,
@@ -1365,8 +1368,33 @@ def _extract_story_postprocess_memory_payload(
         requested_modules.append("auto_state")
     if auto_npc_cards_enabled:
         requested_modules.append("npc_cards")
-    if not requested_modules:
+    if not requested_modules and not important_event_enabled:
         return None
+    result: dict[str, Any] = {"call_count": 0}
+    failed_modules: list[str] = []
+
+    if important_event_enabled:
+        try:
+            result["important_event"] = _extract_story_important_plot_card_payload(
+                db=db,
+                game=game,
+                latest_user_prompt=latest_user_prompt,
+                latest_assistant_text=latest_assistant_text,
+            )
+            result["call_count"] += 1
+        except Exception:
+            logger.warning(
+                "Important-memory analysis failed after Gemini retries: game_id=%s",
+                game.id,
+                exc_info=True,
+            )
+            result["important_event"] = None
+            failed_modules.append("important_event")
+
+    if not requested_modules:
+        if failed_modules:
+            result["_postprocess_failed_modules"] = failed_modules
+        return result
     # Character state and NPC deduplication must see every persisted character,
     # not only the cards selected for the current storyteller prompt.
     try:
@@ -1419,7 +1447,7 @@ def _extract_story_postprocess_memory_payload(
         max_attempts=2,
     )
     model_result = payload.model_dump(mode="json")
-    result: dict[str, Any] = {"call_count": 1}
+    result["call_count"] += 1
     if location_enabled:
         location = model_result.get("location") if isinstance(model_result.get("location"), dict) else {}
         if location:
@@ -1443,6 +1471,8 @@ def _extract_story_postprocess_memory_payload(
         )
         result["npc_cards"] = npc_cards
         result["auto_npcs"] = npc_cards.get("actions", [])
+    if failed_modules:
+        result["_postprocess_failed_modules"] = failed_modules
     return result
 
 
@@ -2139,9 +2169,48 @@ def _extract_story_important_plot_card_payload_locally(*args: Any, **kwargs: Any
     return None
 
 
-def _extract_story_important_plot_card_payload(*args: Any, **kwargs: Any) -> None:
-    _ = (args, kwargs)
-    return None
+def _extract_story_important_plot_card_payload(
+    *,
+    db: Session,
+    game: StoryGame,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+    **kwargs: Any,
+) -> tuple[str, str] | None:
+    _ = kwargs
+    player_turn = _normalize_story_message_content(latest_user_prompt)
+    narrator_response = _normalize_story_assistant_text_for_memory(latest_assistant_text)
+    if not player_turn and not narrator_response:
+        return None
+
+    existing_memories = [
+        {
+            "title": str(getattr(block, "title", "") or "").strip(),
+            "summary": str(getattr(block, "content", "") or "").strip(),
+        }
+        for block in _list_story_memory_blocks(db, game.id)
+        if _normalize_story_memory_layer(getattr(block, "layer", "")) == STORY_MEMORY_LAYER_KEY
+    ][-40:]
+    payload, _meta = _llm_service(gemini_only=True).call_json(
+        messages=build_important_memory_messages(
+            player_turn=player_turn,
+            narrator_response=narrator_response,
+            existing_memories=existing_memories,
+        ),
+        schema=ImportantMemoryPayload,
+        module=LLM_IMPORTANT_MEMORY_PROMPT_NAME,
+        game_id=game.id,
+        max_tokens=450,
+        max_attempts=STORY_IMPORTANT_MEMORY_MODEL_MAX_ATTEMPTS,
+        request_timeout=(8.0, 90.0),
+    )
+    if not payload.should_store:
+        return None
+    title = _base_normalize_memory_title(payload.title)
+    content = _sanitize_story_key_memory_content(payload.summary)
+    if not _is_story_key_memory_content_valid(content):
+        raise RuntimeError("Gemini important-memory module returned invalid content")
+    return title, content
 
 
 def _estimate_story_memory_similarity(left_value: str, right_value: str) -> float:

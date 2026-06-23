@@ -8,10 +8,59 @@ LLM_DETAILED_MEMORY_PROMPT_NAME = "LLM_DETAILED_MEMORY_PROMPT"
 LLM_COMPRESSED_MEMORY_PROMPT_NAME = "LLM_COMPRESSED_MEMORY_PROMPT"
 LLM_FACT_MEMORY_PROMPT_NAME = "LLM_FACT_MEMORY_PROMPT"
 LLM_GAME_STATE_ANALYSIS_PROMPT_NAME = "LLM_GAME_STATE_ANALYSIS_PROMPT"
+LLM_IMPORTANT_MEMORY_PROMPT_NAME = "LLM_IMPORTANT_MEMORY_PROMPT"
 
 
 def _dump_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+def build_important_memory_messages(
+    *,
+    player_turn: str,
+    narrator_response: str,
+    existing_memories: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Ты — модуль важной долговременной памяти текстовой RPG. "
+                "Проанализируй только уже произошедшее в ходе игрока и ответе рассказчика. "
+                "Создавай не более одной карточки за ход и только для действительно значимого события, "
+                "которое важно помнить в будущих сценах.\n\n"
+                "Сохраняй: необратимые или крупные изменения мира и персонажей; смерть, тяжёлую травму, "
+                "исчезновение или спасение; важное раскрытие тайны или личности; принятое обязательство, "
+                "клятву, договор, предательство, разрыв или заметный перелом отношений; получение, потерю "
+                "или уничтожение уникального предмета; новую долгосрочную цель, миссию, запрет или угрозу; "
+                "решение с длительными последствиями.\n\n"
+                "Не сохраняй: обычное перемещение, атмосферные детали, бытовые действия, флирт без последствий, "
+                "повтор уже известного факта, рядовую реплику, краткую эмоцию, мелкую находку, обычный бой без "
+                "долгосрочных последствий и любые технические инструкции. Если значимого события нет или оно "
+                "уже отражено в существующей памяти, верни should_store=false.\n\n"
+                "Не выдумывай фактов и не продолжай сцену. Заголовок должен быть коротким и конкретным. "
+                "Summary — краткий самостоятельный пересказ с именами, причиной и последствием. "
+                "Верни только JSON без markdown."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"EXISTING_IMPORTANT_MEMORIES:\n{_dump_json(existing_memories)}\n\n"
+                f"PLAYER_TURN:\n{player_turn or 'нет'}\n\n"
+                f"NARRATOR_RESPONSE:\n{narrator_response or 'нет'}\n\n"
+                "Верни JSON строго такого вида:\n"
+                "{\n"
+                '  "should_store": true,\n'
+                '  "title": "Короткий заголовок события",\n'
+                '  "summary": "Краткий фактический пересказ значимого события и его последствия",\n'
+                '  "significance": "Почему это потребуется помнить позже"\n'
+                "}\n"
+                "Если важного нового события нет, верни: "
+                '{"should_store":false,"title":"","summary":"","significance":""}'
+            ),
+        },
+    ]
 
 
 def build_detailed_memory_messages(*, player_turn: str, narrator_response: str) -> list[dict[str, str]]:

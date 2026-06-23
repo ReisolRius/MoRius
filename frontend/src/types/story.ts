@@ -643,6 +643,12 @@ export type StoryStreamChunkPayload = {
   delta: string
 }
 
+export type StoryStreamRetryPayload = {
+  assistant_message_id: number
+  attempt: number
+  max_attempts: number
+}
+
 export type StoryStreamProgressStage =
   | 'finalizing'
   | 'visual_novel'

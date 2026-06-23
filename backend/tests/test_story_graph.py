@@ -962,7 +962,7 @@ class StoryGraphTests(unittest.TestCase):
             _close_session(db)
 
     def test_story_turn_service_request_caps_reserve_one_graph_call(self) -> None:
-        self.assertEqual(STORY_POSTPROCESS_MAX_SERVICE_REQUESTS, 3)
+        self.assertEqual(STORY_POSTPROCESS_MAX_SERVICE_REQUESTS, 8)
         self.assertEqual(STORY_GRAPH_MAX_SERVICE_REQUESTS, 1)
 
     def test_reroll_can_delete_message_referenced_by_graph_rows(self) -> None:

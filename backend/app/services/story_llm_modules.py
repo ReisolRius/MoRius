@@ -7,6 +7,7 @@ from typing import Any, Callable, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from app.config import POLZA_GEMINI_25_FLASH_MODEL, settings
+from app.services.provider_resilience import is_content_policy_error
 
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,27 @@ class FactMemoryPayload(BaseModel):
     facts: list[str] = Field(default_factory=list)
     persistent_state: list[str] = Field(default_factory=list)
     open_threads: list[str] = Field(default_factory=list)
+
+
+class ImportantMemoryPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    should_store: bool = False
+    title: str = ""
+    summary: str = ""
+    significance: str = ""
+
+    @model_validator(mode="after")
+    def _validate_important_memory(self) -> "ImportantMemoryPayload":
+        self.title = " ".join(str(self.title or "").split()).strip()[:160].rstrip()
+        self.summary = " ".join(str(self.summary or "").split()).strip()[:1200].rstrip()
+        self.significance = " ".join(str(self.significance or "").split()).strip()[:500].rstrip()
+        if self.should_store and (not self.title or not self.summary):
+            raise ValueError("important memory requires non-empty title and summary")
+        if not self.should_store:
+            self.title = ""
+            self.summary = ""
+        return self
 
 
 class LocationCurrentPayload(BaseModel):
@@ -331,6 +353,8 @@ class LlmModuleService:
                 ]
             except Exception as exc:
                 last_error = exc
+                if is_content_policy_error(exc):
+                    raise RuntimeError(f"{module} request was prohibited by content policy") from exc
                 logger.warning(
                     "Story LLM module request failed",
                     extra={

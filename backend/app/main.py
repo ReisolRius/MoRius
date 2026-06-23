@@ -75,6 +75,10 @@ from app.routers.story_turn_image import router as story_turn_image_router
 from app.routers.story_undo import router as story_undo_router
 from app.routers.story_world_cards import router as story_world_cards_router
 from app.services.story_service_budget import consume_story_service_http_request
+from app.services.provider_resilience import (
+    is_content_policy_error,
+    is_retryable_provider_error,
+)
 from app.services.sqlite_write_guard import commit_with_retry
 from app.schemas import (
     StoryCharacterAvatarGenerateOut,
@@ -581,6 +585,7 @@ STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT = 600
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 600,
 }
+STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS = (1.5, 3.5, 7.0, 12.0)
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 20_000
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 20_000
 STORY_TURN_IMAGE_GENDER_PATTERNS_FEMALE: tuple[tuple[str, int], ...] = (
@@ -12956,35 +12961,96 @@ def _request_polza_story_turn_image(
         use_chat_completions=True,
         reference_image_input=normalized_reference_image_input,
     )
-    try:
-        response = HTTP_SESSION.post(
-            endpoint_url,
-            headers=headers,
-            json=request_payload,
-            timeout=(
-                STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
-                read_timeout_seconds,
-            ),
-        )
-    except requests.RequestException as exc:
-        raise RuntimeError("Failed to reach OpenRouter image endpoint") from exc
+    last_error: Exception | None = None
+    for attempt_index in range(len(STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS) + 1):
+        try:
+            response = HTTP_SESSION.post(
+                endpoint_url,
+                headers=headers,
+                json=request_payload,
+                timeout=(
+                    STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                    read_timeout_seconds,
+                ),
+            )
+        except requests.RequestException as exc:
+            last_error = RuntimeError("Failed to reach OpenRouter image endpoint")
+            if attempt_index < len(STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS):
+                retry_delay = STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS[attempt_index]
+                logger.warning(
+                    "OpenRouter image transport failed; retrying same generation: model=%s attempt=%s "
+                    "next_attempt=%s delay=%.1fs error=%s",
+                    selected_model,
+                    attempt_index + 1,
+                    attempt_index + 2,
+                    retry_delay,
+                    exc,
+                )
+                time.sleep(retry_delay)
+                continue
+            raise last_error from exc
 
-    if response.status_code >= 400:
-        detail = _extract_polza_error_detail(response)
-        error_text = f"OpenRouter image error ({response.status_code})"
-        if detail:
-            error_text = f"{error_text}: {detail}"
-        raise RuntimeError(error_text)
+        if response.status_code >= 400:
+            detail = _extract_polza_error_detail(response)
+            error_text = f"OpenRouter image error ({response.status_code})"
+            if detail:
+                error_text = f"{error_text}: {detail}"
+            last_error = RuntimeError(error_text)
+            if (
+                attempt_index < len(STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS)
+                and not is_content_policy_error(detail)
+                and is_retryable_provider_error(detail or error_text, status_code=response.status_code)
+            ):
+                retry_delay = STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS[attempt_index]
+                logger.warning(
+                    "OpenRouter image temporary failure; retrying same generation: model=%s status=%s "
+                    "attempt=%s next_attempt=%s delay=%.1fs detail=%s",
+                    selected_model,
+                    response.status_code,
+                    attempt_index + 1,
+                    attempt_index + 2,
+                    retry_delay,
+                    detail or "n/a",
+                )
+                time.sleep(retry_delay)
+                continue
+            raise last_error
 
-    try:
-        payload_value = response.json()
-    except ValueError as exc:
-        raise RuntimeError("OpenRouter image endpoint returned invalid payload") from exc
+        try:
+            payload_value = response.json()
+            parsed_payload = _parse_polza_story_turn_image_payload(
+                payload_value,
+                selected_model=selected_model,
+            )
+        except (ValueError, RuntimeError) as exc:
+            last_error = (
+                RuntimeError("OpenRouter image endpoint returned invalid payload")
+                if isinstance(exc, ValueError)
+                else exc
+            )
+            if (
+                attempt_index < len(STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS)
+                and is_retryable_provider_error(last_error)
+            ):
+                retry_delay = STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS[attempt_index]
+                logger.warning(
+                    "OpenRouter image returned no usable result; retrying same generation: "
+                    "model=%s attempt=%s next_attempt=%s delay=%.1fs error=%s",
+                    selected_model,
+                    attempt_index + 1,
+                    attempt_index + 2,
+                    retry_delay,
+                    last_error,
+                )
+                time.sleep(retry_delay)
+                continue
+            raise last_error from exc
 
-    return _parse_polza_story_turn_image_payload(
-        payload_value,
-        selected_model=selected_model,
-    )
+        if _story_turn_image_payload_has_image(parsed_payload):
+            return parsed_payload
+        last_error = RuntimeError("OpenRouter image provider returned empty image")
+
+    raise last_error or RuntimeError("OpenRouter image request failed")
 
 
 def _story_turn_image_payload_has_image(payload: dict[str, str | None]) -> bool:

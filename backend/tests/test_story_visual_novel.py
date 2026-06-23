@@ -79,7 +79,7 @@ class StoryVisualNovelTests(unittest.TestCase):
         self.assertIn('"beats"', card["content"])
         self.assertIn("return valid JSON only", card["content"])
 
-    def test_instruction_card_contributes_to_runtime_context_estimate(self) -> None:
+    def test_hidden_instruction_card_does_not_contribute_to_runtime_context_estimate(self) -> None:
         card = build_visual_novel_instruction_card()
         cost = _calculate_story_turn_cost_tokens(
             get_story_turn_cost_tokens=lambda context_usage_tokens, _model_name: int(context_usage_tokens or 0),
@@ -92,7 +92,7 @@ class StoryVisualNovelTests(unittest.TestCase):
             memory_optimization_enabled=True,
         )
 
-        self.assertGreater(cost, 0)
+        self.assertEqual(cost, 0)
 
 
 if __name__ == "__main__":

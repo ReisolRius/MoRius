@@ -41,8 +41,10 @@ class _StreamingSession:
         self.commit_calls = 0
         self.rollback_calls = 0
         self.deleted: list[object] = []
+        self.added: list[object] = []
 
     def add(self, value: object) -> None:
+        self.added.append(value)
         if getattr(value, "id", None) is None:
             setattr(value, "id", self.next_message_id)
             self.next_message_id += 1
@@ -226,6 +228,89 @@ class StoryGenerationLockingTests(unittest.TestCase):
 
         self.assertEqual(calls["billing"], 0)
         self.assertEqual(calls["postprocess"], 0)
+
+    def test_partial_provider_failure_restarts_turn_without_billing_partial_text(self) -> None:
+        game_id = 9_102
+        generation_id = "generation-provider-retry"
+        db = _StreamingSession()
+        game = SimpleNamespace(id=game_id)
+        user = SimpleNamespace(id=502)
+        provider_calls = 0
+
+        def stream_provider(**_kwargs):
+            nonlocal provider_calls
+            provider_calls += 1
+            if provider_calls == 1:
+                yield "partial text"
+                raise RuntimeError("OpenRouter story stream ended incomplete")
+            yield "complete replacement"
+
+        deps = SimpleNamespace(
+            stream_persist_min_chars=10_000,
+            stream_persist_max_interval_seconds=60.0,
+            story_assistant_role="assistant",
+            touch_story_game=lambda _game: None,
+            stream_story_provider_chunks=stream_provider,
+            spend_user_tokens_if_sufficient=lambda *_args, **_kwargs: self.fail(
+                "Billing must not run before the retried response reaches finalizing"
+            ),
+            resolve_story_turn_postprocess_payload=lambda **_kwargs: self.fail(
+                "Post-process must not run before cancellation"
+            ),
+        )
+
+        mark_story_generation_started(game_id, generation_id)
+        try:
+            with (
+                patch.object(story_runtime, "STORY_STREAM_RETRY_DELAYS_SECONDS", (0.0,)),
+                patch.object(story_runtime.time, "sleep", return_value=None),
+            ):
+                stream = story_runtime._stream_story_response(
+                    deps=deps,
+                    db=db,
+                    game=game,
+                    user=user,
+                    turn_cost_tokens=10,
+                    source_user_message=None,
+                    prompt="turn",
+                    turn_index=1,
+                    context_messages=[],
+                    instruction_cards=[],
+                    plot_cards=[],
+                    world_cards=[],
+                    all_world_cards=[],
+                    context_limit_chars=10_000,
+                    story_model_name="aion-labs/aion-2.0",
+                    story_response_max_tokens=None,
+                    story_temperature=0.7,
+                    story_repetition_penalty=1.0,
+                    story_top_k=40,
+                    story_top_r=0.9,
+                    memory_optimization_enabled=True,
+                    reroll_discarded_assistant_text=None,
+                    ambient_enabled=False,
+                    emotion_visualization_enabled=False,
+                    visual_novel_enabled=False,
+                    show_gg_thoughts=False,
+                    show_npc_thoughts=False,
+                    story_generation_id=generation_id,
+                )
+
+                self.assertIn("event: start", next(stream))
+                self.assertIn("partial text", next(stream))
+                retry_event = next(stream)
+                self.assertIn("event: retry", retry_event)
+                self.assertIn('"attempt": 2', retry_event)
+                self.assertIn("complete replacement", next(stream))
+                self.assertIn('"stage": "finalizing"', next(stream))
+                self.assertTrue(cancel_story_generation(game_id))
+                with self.assertRaises(StopIteration):
+                    next(stream)
+        finally:
+            mark_story_generation_finished(game_id, generation_id)
+
+        self.assertEqual(provider_calls, 2)
+        self.assertEqual(getattr(db.added[0], "content", ""), "complete replacement")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,10 @@ from app.services.story_generation_cancel import (
     register_story_generation_response,
     unregister_story_generation_response,
 )
+from app.services.provider_resilience import (
+    is_content_policy_error,
+    is_retryable_provider_error,
+)
 from app.services.story_service_budget import consume_story_service_http_request
 from app.services.text_encoding import repair_likely_utf8_mojibake_deep
 
@@ -268,9 +272,14 @@ def _is_polza_temporary_provider_failure(status_code: int, detail: str) -> bool:
 def _should_retry_polza_chat_request(*, status_code: int, detail: str, attempt_index: int) -> bool:
     if attempt_index >= len(POLZA_RETRY_DELAYS_SECONDS):
         return False
+    if is_content_policy_error(detail):
+        return False
     if status_code in POLZA_RETRYABLE_REQUEST_STATUS_CODES:
         return True
-    return _is_polza_temporary_provider_failure(status_code, detail)
+    return _is_polza_temporary_provider_failure(status_code, detail) or is_retryable_provider_error(
+        detail,
+        status_code=status_code,
+    )
 
 
 def _is_polza_gemini_25_pro_model(model_name: str | None) -> bool:
@@ -326,24 +335,26 @@ def _should_retry_polza_gemini_pro_turn_failure(
     model_name: str | None,
     attempt_index: int,
     status_code: int | None = None,
+    detail: str = "",
 ) -> bool:
     if not _is_polza_gemini_pro_model(model_name):
         return False
     if attempt_index >= POLZA_GEMINI_PRO_SILENT_RETRY_ATTEMPTS:
+        return False
+    if is_content_policy_error(detail):
         return False
     if status_code is None:
         return True
     return int(status_code) in POLZA_GEMINI_PRO_RETRY_STATUS_CODES
 
 
-def _is_polza_gemini_pro_incomplete_stream_result(
+def _is_polza_incomplete_stream_result(
     *,
     model_name: str | None,
     finish_reason: str | None,
     saw_done_marker: bool,
 ) -> bool:
-    if _normalize_story_model_id(model_name) not in POLZA_GEMINI_31_PRO_MODEL_IDS:
-        return False
+    _ = model_name
     normalized_finish_reason = str(finish_reason or "").strip().casefold()
     if normalized_finish_reason == "length":
         return True
@@ -797,6 +808,7 @@ def _iter_polza_story_stream_chunks(
                         model_name=model_name,
                         attempt_index=attempt_index,
                         status_code=response.status_code,
+                        detail=detail,
                     ):
                         logger.warning(
                             "OpenRouter stream temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
@@ -939,6 +951,7 @@ def _iter_polza_story_stream_chunks(
                     if (
                         not emitted_delta
                         and attempt_index < len(POLZA_RETRY_DELAYS_SECONDS)
+                        and is_retryable_provider_error(exc)
                     ):
                         last_error = RuntimeError(str(exc).strip() or "OpenRouter stream returned an error")
                         logger.warning(
@@ -969,26 +982,20 @@ def _iter_polza_story_stream_chunks(
                         log_message = (
                             "OpenRouter stream ended before a clean done marker: model=%s finish_reason=%s done=%s"
                         )
-                        if _is_polza_gemini_pro_incomplete_stream_result(
+                        if _is_polza_incomplete_stream_result(
                             model_name=model_name,
                             finish_reason=finish_reason,
                             saw_done_marker=saw_done_marker,
                         ):
                             logger.error(
-                                log_message + "; rejecting incomplete Gemini Pro turn instead of saving truncated text",
+                                log_message + "; rejecting incomplete turn instead of saving truncated text",
                                 model_name,
                                 finish_reason or "",
                                 saw_done_marker,
                             )
                             raise RuntimeError(
-                                "OpenRouter Gemini Pro stream ended incomplete; the partial response was rejected"
+                                "OpenRouter story stream ended incomplete; the partial response was rejected"
                             )
-                        logger.warning(
-                            log_message + "; keeping streamed text",
-                            model_name,
-                            finish_reason or "",
-                            saw_done_marker,
-                        )
                     return
 
                 logger.warning(
@@ -1205,6 +1212,7 @@ def _request_polza_story_text(
                         model_name=candidate_model,
                         attempt_index=attempt_index,
                         status_code=response.status_code,
+                        detail=detail,
                     )
                 )
                 if should_retry:

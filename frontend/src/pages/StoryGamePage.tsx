@@ -185,6 +185,7 @@ import type {
   StoryPlotCardEvent,
   StoryStreamDonePayload,
   StoryStreamProgressStage,
+  StoryTurnImageGenerationPayload,
   StoryVNBeat,
   StoryWorldCard,
   StoryWorldCardKind,
@@ -685,8 +686,33 @@ const STORY_POSTPROCESS_STAGE_LABELS: Record<StoryStreamProgressStage, string> =
   memory_sync: 'Оптимизируем память',
   graph_sync: 'Связываем события',
 }
-const STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS = 120_000
-const STORY_TURN_IMAGE_REQUEST_TIMEOUT_SLOW_MS = 120_000
+const STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS = 900_000
+const STORY_TURN_IMAGE_REQUEST_TIMEOUT_SLOW_MS = 900_000
+const STORY_TURN_IMAGE_RECOVERY_POLL_INTERVAL_MS = 3_000
+const STORY_TURN_IMAGE_RECOVERY_POLL_ATTEMPTS = 200
+const STORY_TURN_IMAGE_WAIT_PHRASES = [
+  'Собираем композицию сцены…',
+  'Настраиваем свет и атмосферу…',
+  'Уточняем образы персонажей…',
+  'Проявляем детали кадра…',
+  'Финализируем изображение…',
+] as const
+const STORY_TURN_IMAGE_RETRYABLE_ERROR_MARKERS = [
+  'aborterror',
+  'network error',
+  'failed to fetch',
+  'failed to connect to api',
+  'image error (408)',
+  'image error (425)',
+  'image error (429)',
+  'image error (500)',
+  'image error (502)',
+  'image error (503)',
+  'image error (504)',
+  'gateway',
+  'timeout',
+  'timed out',
+] as const
 const STORY_GENERATION_INTERRUPTION_MARKERS = [
   'генерация прервалась',
   'network error',
@@ -1496,6 +1522,7 @@ function VisualNovelStage({
   onGenerateImage,
   canGenerateImage,
   isGeneratingImage,
+  imageGenerationStatusText,
 }: {
   beats: StoryVNBeat[]
   beatIndex: number
@@ -1507,6 +1534,7 @@ function VisualNovelStage({
   onGenerateImage: () => void
   canGenerateImage: boolean
   isGeneratingImage: boolean
+  imageGenerationStatusText: string
 }) {
   const readyTurnImage = [...turnImageEntries].reverse().find((entry) => entry.status === 'ready' && entry.imageUrl)
   const rawBackgroundUrl = readyTurnImage?.imageUrl ?? currentBeat?.background_image_url ?? null
@@ -1665,6 +1693,28 @@ function VisualNovelStage({
           </span>
         </Tooltip>
       </Stack>
+
+      {isGeneratingImage ? (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 58,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 4,
+            px: 1.2,
+            py: 0.65,
+            borderRadius: '999px',
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            border: '1px solid rgba(255,255,255,0.14)',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <Typography sx={{ color: 'rgba(255,255,255,0.9)', fontSize: '0.78rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
+            {imageGenerationStatusText}
+          </Typography>
+        </Box>
+      ) : null}
 
       <Box
         sx={{
@@ -2091,6 +2141,11 @@ const AI_MEMORY_LAYER_LABEL: Record<'raw' | 'compressed' | 'super', string> = {
   raw: 'Свежие блоки · 50%',
   compressed: 'Сжатые блоки · 30%',
   super: 'Суперсжатые блоки · 20%',
+}
+
+function isRetryableStoryTurnImageError(error: unknown): boolean {
+  const detail = error instanceof Error ? `${error.name} ${error.message}`.toLowerCase() : String(error ?? '').toLowerCase()
+  return STORY_TURN_IMAGE_RETRYABLE_ERROR_MARKERS.some((marker) => detail.includes(marker))
 }
 type StoryMemoryDevLayer = 'raw' | 'compressed' | 'super'
 
@@ -4205,6 +4260,8 @@ function getStoryTurnCostTokens(
   ambientEnabled: boolean,
   emotionVisualizationEnabled = false,
 ): number {
+  void ambientEnabled
+  void emotionVisualizationEnabled
   const normalizedUsage = Math.min(
     Math.max(0, Math.round(contextUsageTokens)),
     getStoryContextLimitMax(narratorModelId),
@@ -4219,12 +4276,6 @@ function getStoryTurnCostTokens(
     totalCost = tier3Cost
   } else if (normalizedUsage <= STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX) {
     totalCost = tier4Cost
-  }
-  if (ambientEnabled) {
-    totalCost += 1
-  }
-  if (emotionVisualizationEnabled) {
-    totalCost += 1
   }
   return totalCost
 }
@@ -5877,6 +5928,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [turnImageByAssistantMessageId, setTurnImageByAssistantMessageId] = useState<
     Record<number, StoryTurnImageEntry[]>
   >({})
+  const [turnImageWaitPhraseIndex, setTurnImageWaitPhraseIndex] = useState(0)
   const [gallerySavingTurnImageIds, setGallerySavingTurnImageIds] = useState<Set<number>>(() => new Set())
   const [savedGalleryTurnImageIds, setSavedGalleryTurnImageIds] = useState<Set<number>>(() => new Set())
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
@@ -6888,6 +6940,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const hasLatestTurnImage = latestTurnImageEntries.some(
     (entry) => entry.status === 'ready' && Boolean(entry.imageUrl),
   )
+  const hasAnyTurnImageLoading = useMemo(
+    () => Object.values(turnImageByAssistantMessageId).some((entries) => entries.some((entry) => entry.status === 'loading')),
+    [turnImageByAssistantMessageId],
+  )
+  useEffect(() => {
+    if (!hasAnyTurnImageLoading) {
+      setTurnImageWaitPhraseIndex(0)
+      return
+    }
+    const intervalId = window.setInterval(() => {
+      setTurnImageWaitPhraseIndex((current) => (current + 1) % STORY_TURN_IMAGE_WAIT_PHRASES.length)
+    }, 5_000)
+    return () => window.clearInterval(intervalId)
+  }, [hasAnyTurnImageLoading])
+  const turnImageWaitPhrase = STORY_TURN_IMAGE_WAIT_PHRASES[turnImageWaitPhraseIndex]
   const isStoryTurnBusy = isGenerating || isFinalizingStoryTurn
   const isStoryGenerationActive = isGenerating
   const storyPostprocessLabel = storyPostprocessStage
@@ -7294,6 +7361,61 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const historyBudgetTokens = Math.max(contextLimitChars - instructionContextTokensUsed - worldContextTokensUsed, 0)
     return estimateHistoryTokensWithinBudget(normalizedHistory, historyBudgetTokens)
   }, [contextLimitChars, instructionContextTokensUsed, messages, worldContextTokensUsed])
+  const optimizedHistoryContextTokensUsed = useMemo(() => {
+    if (!memoryOptimizationEnabled) {
+      return 0
+    }
+    const normalizedHistory = messages
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .map((message) => ({
+        role: message.role as 'user' | 'assistant',
+        content: toStoryText(message.content).replace(/\r\n/g, '\n').trim(),
+      }))
+      .filter((message) => message.content.length > 0)
+    const userIndexes = normalizedHistory
+      .map((message, index) => (message.role === 'user' ? index : -1))
+      .filter((index) => index >= 0)
+    const latestUserIndex = userIndexes.at(-1)
+    if (latestUserIndex === undefined) {
+      return 0
+    }
+    const selectedHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
+    const latestUserMessage = normalizedHistory[latestUserIndex]
+    if (latestUserMessage.content === STORY_CONTINUE_PROMPT) {
+      let previousAssistantIndex = -1
+      for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
+        if (normalizedHistory[index].role === 'assistant') {
+          previousAssistantIndex = index
+          break
+        }
+      }
+      if (previousAssistantIndex >= 0) {
+        for (let index = previousAssistantIndex - 1; index >= 0; index -= 1) {
+          if (normalizedHistory[index].role === 'user') {
+            selectedHistory.push(normalizedHistory[index])
+            break
+          }
+        }
+        selectedHistory.push(normalizedHistory[previousAssistantIndex])
+      }
+    } else if (userIndexes.length === 1) {
+      for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
+        if (normalizedHistory[index].role === 'assistant') {
+          selectedHistory.push(normalizedHistory[index])
+          break
+        }
+      }
+    }
+    selectedHistory.push(latestUserMessage)
+    const historyBudgetTokens = Math.max(contextLimitChars - instructionContextTokensUsed - worldContextTokensUsed, 0)
+    return estimateHistoryTokensWithinBudget(selectedHistory, historyBudgetTokens)
+  }, [
+    contextLimitChars,
+    instructionContextTokensUsed,
+    memoryOptimizationEnabled,
+    messages,
+    worldContextTokensUsed,
+  ])
   const keyMemoryCardsForContext = useMemo(
     () => normalizedAiMemoryCardsForContext.filter((block) => block.layer === 'key'),
     [normalizedAiMemoryCardsForContext],
@@ -7315,8 +7437,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [normalizedPlotCardsForContext],
   )
   const fixedCardsBudgetTokens = useMemo(
-    () => Math.max(contextLimitChars - instructionContextTokensUsed - worldContextTokensUsed, 0),
-    [contextLimitChars, instructionContextTokensUsed, worldContextTokensUsed],
+    () => Math.max(contextLimitChars - instructionContextTokensUsed - worldContextTokensUsed - optimizedHistoryContextTokensUsed, 0),
+    [contextLimitChars, instructionContextTokensUsed, optimizedHistoryContextTokensUsed, worldContextTokensUsed],
   )
   const keyMemoryBudgetTokens = useMemo(
     () => Math.min(contextLimitChars, Math.max(Math.floor(contextLimitChars * STORY_KEY_MEMORY_BUDGET_SHARE), STORY_KEY_MEMORY_MIN_BUDGET_TOKENS)),
@@ -7376,7 +7498,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isAiMemoryActive = memoryOptimizationEnabled && normalizedAiMemoryCardsForContext.length > 0
   const isPlotMemoryActive = memoryOptimizationEnabled && normalizedPlotCardsForContext.length > 0
   const storyMemoryTokensUsed = memoryOptimizationEnabled
-    ? effectiveAiMemoryContextTokensUsed + effectivePlotContextTokensUsed
+    ? optimizedHistoryContextTokensUsed + effectiveAiMemoryContextTokensUsed + effectivePlotContextTokensUsed
     : effectiveHistoryContextTokensUsed
   const storyMemoryLabel = memoryOptimizationEnabled
     ? isAiMemoryActive && isPlotMemoryActive
@@ -15289,6 +15411,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       turnImageAbortControllersRef.current.get(options.assistantMessageId)?.abort()
       const requestController = new AbortController()
       turnImageAbortControllersRef.current.set(options.assistantMessageId, requestController)
+      const previousPersistedImageId = Math.max(
+        0,
+        ...(turnImageByAssistantMessageId[options.assistantMessageId] ?? [])
+          .filter((entry) => entry.status === 'ready' && entry.id > 0)
+          .map((entry) => entry.id),
+      )
       const loadingEntryId = -Math.abs(Date.now() + Math.floor(Math.random() * 1000))
       const loadingStartedAt = new Date().toISOString()
       const timeoutId = window.setTimeout(() => {
@@ -15312,13 +15440,64 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       })
       try {
-        const imagePayload = await generateStoryTurnImage({
-          token: authToken,
-          gameId: options.gameId,
-          assistantMessageId: options.assistantMessageId,
-          imageStylePrompt: normalizeStoryImageStylePrompt(imageStylePromptDraft),
-          signal: requestController.signal,
-        })
+        let imagePayload: StoryTurnImageGenerationPayload
+        try {
+          imagePayload = await generateStoryTurnImage({
+            token: authToken,
+            gameId: options.gameId,
+            assistantMessageId: options.assistantMessageId,
+            imageStylePrompt: normalizeStoryImageStylePrompt(imageStylePromptDraft),
+            signal: requestController.signal,
+          })
+        } catch (requestError) {
+          if (!isRetryableStoryTurnImageError(requestError)) {
+            throw requestError
+          }
+          let recoveredPayload: StoryTurnImageGenerationPayload | null = null
+          for (let attempt = 0; attempt < STORY_TURN_IMAGE_RECOVERY_POLL_ATTEMPTS; attempt += 1) {
+            if (turnImageAbortControllersRef.current.get(options.assistantMessageId) !== requestController) {
+              return
+            }
+            if (attempt > 0) {
+              await new Promise<void>((resolve) => {
+                window.setTimeout(resolve, STORY_TURN_IMAGE_RECOVERY_POLL_INTERVAL_MS)
+              })
+            }
+            try {
+              const snapshot = await getStoryGame({
+                token: authToken,
+                gameId: options.gameId,
+              })
+              const persistedImage = [...(snapshot.turn_images ?? [])]
+                .filter(
+                  (item) =>
+                    item.assistant_message_id === options.assistantMessageId &&
+                    item.id > previousPersistedImageId,
+                )
+                .sort((left, right) => right.id - left.id)[0]
+              if (!persistedImage) {
+                continue
+              }
+              recoveredPayload = {
+                id: persistedImage.id,
+                assistant_message_id: persistedImage.assistant_message_id,
+                model: persistedImage.model,
+                prompt: persistedImage.prompt,
+                revised_prompt: persistedImage.revised_prompt,
+                image_url: persistedImage.image_url,
+                image_data_url: persistedImage.image_data_url,
+                user: undefined,
+              }
+              break
+            } catch {
+              // The original generation may still be running behind the gateway.
+            }
+          }
+          if (!recoveredPayload) {
+            throw requestError
+          }
+          imagePayload = recoveredPayload
+        }
         const resolvedImageUrl = (imagePayload.image_data_url ?? imagePayload.image_url ?? '').trim()
         if (!resolvedImageUrl) {
           throw new Error('Image service returned an empty image payload')
@@ -15438,7 +15617,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       }
     },
-    [authToken, imageStylePromptDraft, onUserUpdate, storyImageModel],
+    [authToken, imageStylePromptDraft, onUserUpdate, storyImageModel, turnImageByAssistantMessageId],
   )
 
   const handleGenerateLatestTurnImage = useCallback(() => {
@@ -15740,6 +15919,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             )
             scheduleStreamingAutoScroll()
           },
+          onRetry: (payload) => {
+            smoothStreamingControllerRef.current?.cancel()
+            streamingAssistantTextStore.setText(payload.assistant_message_id, '')
+            updateAssistantMessageContent(payload.assistant_message_id, '')
+            smoothStreamingControllerRef.current = createSmoothStreamingTextController({
+              enabled: smoothStreamingEnabled,
+              reducedMotion: prefersReducedMotion(),
+              onUpdate: (text) => {
+                streamingAssistantTextStore.setText(payload.assistant_message_id, text)
+                scheduleStreamingAutoScroll()
+              },
+            })
+            setIsFinalizingStoryTurn(false)
+            setStoryPostprocessStage(null)
+          },
           onProgress: (payload) => {
             setIsFinalizingStoryTurn(true)
             setStoryPostprocessStage(payload.stage)
@@ -15851,7 +16045,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setConfirmLogoutOpen(false)
           onNavigate('/shop')
         } else if (generationInterrupted) {
-          setErrorMessage('Генерация прервалась до завершения. Списание солов не выполнено, попробуйте повторить ход.')
+          setErrorMessage('')
         } else {
           setErrorMessage(detail)
         }
@@ -15879,9 +16073,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
         streamingAssistantTextStore.clear(completedAssistantMessageId ?? startedAssistantMessageId ?? undefined)
 
-        // The backend stream already performs the bounded memory rebalance for this turn.
-        // Running /memory/optimize here added extra hidden model calls after every answer.
-        const shouldOptimizeStoryMemory = false
+        // Normal turns are optimized inline. If a provider/module failed, retry only the
+        // pending optimization in the background without surfacing transient errors.
+        const shouldOptimizeStoryMemory =
+          !generationCancelledByUser &&
+          memoryOptimizationEnabled &&
+          postprocessPending &&
+          completedAssistantMessageId !== null
         const shouldReloadGameSnapshot =
           generationCancelledByUser ||
           generationFailed ||
@@ -15928,12 +16126,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           void (async () => {
             if (shouldOptimizeStoryMemory && canContinueDeferredTurnSync()) {
               pendingContextBudgetCheckRef.current = true
-              try {
-                await optimizeStoryMemorySnapshot(options.gameId, completedAssistantMessageId)
-              } catch (memoryError) {
-                console.error('Story memory optimize after generation failed', memoryError)
-                const detail = memoryError instanceof Error ? memoryError.message : 'Ход создан, но оптимизация памяти не выполнена'
-                setErrorMessage(detail)
+              const retryDelaysMs = [0, 2500, 7000, 15000]
+              for (const retryDelayMs of retryDelaysMs) {
+                if (!canContinueDeferredTurnSync()) {
+                  break
+                }
+                if (retryDelayMs > 0) {
+                  await new Promise<void>((resolve) => {
+                    window.setTimeout(resolve, retryDelayMs)
+                  })
+                }
+                try {
+                  await optimizeStoryMemorySnapshot(options.gameId, completedAssistantMessageId)
+                  break
+                } catch (memoryError) {
+                  console.error('Story memory optimize retry failed', memoryError)
+                }
               }
             }
 
@@ -15949,10 +16157,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             }
 
             if (shouldRetryGameSyncWithoutDoneEvent) {
-              const retryAttempts = 2
+              const retryAttempts = 60
               for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
                 await new Promise<void>((resolve) => {
-                  window.setTimeout(resolve, 800)
+                  window.setTimeout(resolve, 3000)
                 })
                 if (!canContinueDeferredTurnSync()) {
                   break
@@ -22177,6 +22385,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   onGenerateImage={handleGenerateCurrentVnTurnImage}
                   canGenerateImage={canGenerateCurrentVnTurnImage}
                   isGeneratingImage={isCurrentVnTurnImageLoading}
+                  imageGenerationStatusText={turnImageWaitPhrase}
                 />
               </Box>
             ) : null}
@@ -23058,7 +23267,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     sx={{ width: '100%', height: '100%', px: 1.2, textAlign: 'center' }}
                                   >
                                     <Typography sx={{ color: 'rgba(221, 231, 246, 0.94)', fontSize: '0.96rem', fontWeight: 700 }}>
-                                      Не двигайтесь! Рисуем...
+                                      {turnImageWaitPhrase}
                                     </Typography>
                                     <Stack direction="row" spacing={0.45} alignItems="center" className="morius-generating-indicator">
                                       <Box className="morius-generating-dot" />

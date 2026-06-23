@@ -1,13 +1,26 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import main as monolith_main  # noqa: E402
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, payload: dict) -> None:
+        self.status_code = status_code
+        self._payload = payload
+        self.text = ""
+        self.reason = ""
+
+    def json(self) -> dict:
+        return self._payload
 
 
 class StoryImageMediaPayloadTests(unittest.TestCase):
@@ -57,6 +70,46 @@ class StoryImageMediaPayloadTests(unittest.TestCase):
 
         self.assertEqual(parsed["image_url"], "https://cdn.example/image.png")
         self.assertIsNone(parsed["image_data_url"])
+
+    def test_image_request_retries_504_and_returns_success_without_exposing_error(self) -> None:
+        gateway_timeout = _FakeResponse(
+            504,
+            {"error": {"message": "temporary upstream gateway timeout"}},
+        )
+        success = _FakeResponse(
+            200,
+            {
+                "model": monolith_main.STORY_TURN_IMAGE_MODEL_FLUX,
+                "choices": [
+                    {
+                        "message": {
+                            "images": [
+                                {"image_url": {"url": "https://cdn.example/recovered.png"}},
+                            ]
+                        }
+                    }
+                ],
+            },
+        )
+
+        patched_settings = replace(
+            monolith_main.settings,
+            polza_api_key="test-key",
+            polza_chat_url="https://example.test/v1/chat/completions",
+            polza_image_url="",
+        )
+        with (
+            patch.object(monolith_main, "settings", patched_settings),
+            patch.object(monolith_main.HTTP_SESSION, "post", side_effect=[gateway_timeout, success]) as post_mock,
+            patch.object(monolith_main.time, "sleep", return_value=None),
+        ):
+            payload = monolith_main._request_polza_story_turn_image(
+                prompt="scene",
+                model_name=monolith_main.STORY_TURN_IMAGE_MODEL_FLUX,
+            )
+
+        self.assertEqual(payload["image_url"], "https://cdn.example/recovered.png")
+        self.assertEqual(post_mock.call_count, 2)
 
 
 if __name__ == "__main__":

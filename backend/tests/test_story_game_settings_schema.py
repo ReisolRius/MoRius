@@ -147,6 +147,27 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_turn_cost_tokens(32_001, "google/gemini-3.1-pro-preview"), 65)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-4.7"), 25)
 
+    def test_turn_cost_table_matches_product_matrix(self) -> None:
+        expected_rows = {
+            "deepseek/deepseek-v3.2": (1, 4, 9, 18),
+            "deepseek/deepseek-v4-pro": (3, 8, 18, 36),
+            "z-ai/glm-4.7-flash": (1, 4, 9, 18),
+            "z-ai/glm-4.7": (2, 5, 12, 25),
+            "aion-labs/aion-2.0": (3, 7, 16, 34),
+            "z-ai/glm-5": (4, 10, 22, 45),
+            "google/gemini-2.5-pro": (4, 10, 22, 45),
+            "z-ai/glm-5.1": (5, 12, 26, 55),
+            "google/gemini-3.1-pro-preview": (8, 20, 35, 65),
+            "anthropic/claude-sonnet-4.6": (10, 24, 45, 85),
+        }
+        usage_by_tier = (6_000, 6_001, 16_001, 32_001)
+        for model_name, expected_costs in expected_rows.items():
+            with self.subTest(model_name=model_name):
+                self.assertEqual(
+                    tuple(get_story_turn_cost_tokens(usage, model_name) for usage in usage_by_tier),
+                    expected_costs,
+                )
+
     def test_qwen_service_model_is_not_a_selectable_narrator(self) -> None:
         self.assertEqual(
             coerce_story_llm_model("qwen/qwen3-next-80b-a3b-instruct:free"),
@@ -206,6 +227,26 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             context_messages=[StoryMessage(game_id=1, role="user", content="look around")],
             instruction_cards=[],
             plot_cards=[{"title": "Hidden", "content": "word " * 40_000, "source_kind": "context"}],
+            world_cards=[],
+            memory_optimization_enabled=True,
+        )
+
+        self.assertEqual(cost, 10)
+
+    def test_runtime_turn_cost_ignores_hidden_instruction_prompts(self) -> None:
+        cost = _calculate_story_turn_cost_tokens(
+            get_story_turn_cost_tokens=get_story_turn_cost_tokens,
+            context_limit_tokens=32_000,
+            model_name="anthropic/claude-sonnet-4.6",
+            context_messages=[StoryMessage(game_id=1, role="user", content="look around")],
+            instruction_cards=[
+                {
+                    "title": "Hidden graph protocol",
+                    "content": "word " * 40_000,
+                    "source_kind": "graph",
+                }
+            ],
+            plot_cards=[],
             world_cards=[],
             memory_optimization_enabled=True,
         )

@@ -43,6 +43,7 @@
   StoryStreamDonePayload,
   StoryStreamPlotMemoryPayload,
   StoryStreamProgressPayload,
+  StoryStreamRetryPayload,
   StoryStreamStartPayload,
   StoryTurnImageGenerationPayload,
   StoryVNBeat,
@@ -70,7 +71,7 @@ const STORY_GENERATION_INTERRUPTED_MESSAGE =
   'Генерация прервалась. Зависший запрос остановлен, можно повторить ход или продолжить сцену.'
 const STORY_ROUTERAI_TEMPORARY_ERROR_MESSAGE =
   'OpenRouter сейчас возвращает ошибку провайдера. Ход не был сгенерирован; повторите попытку позже.'
-const STORY_GENERATION_BUSY_RETRY_DELAYS_MS = [800, 1600, 2600, 4200] as const
+const STORY_GENERATION_BUSY_RETRY_DELAYS_MS = [800, 1600, 2600, 4200, 7000] as const
 const STORY_GENERATION_TRANSPORT_ERROR_MARKERS = [
   'network error',
   'failed to fetch',
@@ -91,6 +92,14 @@ const STORY_ROUTERAI_TEMPORARY_ERROR_MARKERS = [
   'routerai chat error (502)',
   'routerai chat error (503)',
   'routerai chat error (504)',
+] as const
+const STORY_CONTENT_POLICY_ERROR_MARKERS = [
+  'prohibited request',
+  'request is prohibited',
+  'content policy',
+  'policy violation',
+  'blocked by safety',
+  'content_filter',
 ] as const
 const STORY_DEFAULT_REPETITION_PENALTY = 1.05
 const DEFAULT_PUBLICATION_STATE: StoryPublicationState = {
@@ -179,6 +188,11 @@ function delay(ms: number): Promise<void> {
   })
 }
 
+function isStoryContentPolicyErrorMessage(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return STORY_CONTENT_POLICY_ERROR_MARKERS.some((marker) => normalized.includes(marker))
+}
+
 function isStoryOperationBusyMessage(detail: string): boolean {
   const normalizedDetail = detail.replace(/\s+/g, ' ').trim().toLocaleLowerCase().replace(/ё/g, 'е')
   if (!normalizedDetail) {
@@ -249,6 +263,7 @@ export type StoryGenerationStreamOptions = {
   emotionVisualizationEnabled?: boolean
   onStart?: (payload: StoryStreamStartPayload) => void
   onChunk?: (payload: StoryStreamChunkPayload) => void
+  onRetry?: (payload: StoryStreamRetryPayload) => void
   onProgress?: (payload: StoryStreamProgressPayload) => void
   onPlotMemory?: (payload: StoryStreamPlotMemoryPayload) => void
   onDone?: (payload: StoryStreamDonePayload) => void
@@ -2465,6 +2480,10 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       if (isAbortError(error)) {
         throw error
       }
+      if (attempt < STORY_GENERATION_BUSY_RETRY_DELAYS_MS.length) {
+        await delay(STORY_GENERATION_BUSY_RETRY_DELAYS_MS[attempt])
+        continue
+      }
       throw new Error(normalizeStoryProviderErrorMessage(`Failed to connect to API (${targetUrl}).`))
     }
 
@@ -2476,6 +2495,14 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
     if (
       response.status === 409 &&
       isStoryOperationBusyMessage(parsedError.message) &&
+      attempt < STORY_GENERATION_BUSY_RETRY_DELAYS_MS.length
+    ) {
+      await delay(STORY_GENERATION_BUSY_RETRY_DELAYS_MS[attempt])
+      continue
+    }
+    if (
+      RETRYABLE_STATUS_CODES.has(response.status) &&
+      !isStoryContentPolicyErrorMessage(parsedError.message) &&
       attempt < STORY_GENERATION_BUSY_RETRY_DELAYS_MS.length
     ) {
       await delay(STORY_GENERATION_BUSY_RETRY_DELAYS_MS[attempt])
@@ -2551,6 +2578,17 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
         options.onChunk?.(payload)
       } catch (error) {
         streamError = toStreamError(error, 'Failed to process generation chunk event')
+        streamTerminalEventReceived = true
+      }
+      return
+    }
+
+    if (parsed.event === 'retry') {
+      try {
+        const payload = JSON.parse(parsed.data) as StoryStreamRetryPayload
+        options.onRetry?.(payload)
+      } catch (error) {
+        streamError = toStreamError(error, 'Failed to process generation retry event')
         streamTerminalEventReceived = true
       }
       return

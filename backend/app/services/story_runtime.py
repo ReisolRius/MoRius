@@ -55,6 +55,7 @@ from app.services.story_canonical_pipeline import (
     persist_canonical_state_to_game,
 )
 from app.services.story_memory import resolve_story_current_location_label
+from app.services.provider_resilience import is_retryable_provider_error
 from app.services.story_service_budget import (
     StoryServiceHttpRequestBudget,
     use_story_service_http_request_budget,
@@ -87,8 +88,9 @@ STORY_POSTPROCESS_STATUS_FAILED_RETRYABLE = "storyteller_succeeded_postprocessin
 STORY_POSTPROCESS_STATUS_PENDING = "storyteller_succeeded_postprocessing_pending"
 STORY_GENERATE_LOCK_WAIT_SECONDS = 15.0
 STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 20.0
-STORY_POSTPROCESS_MAX_SERVICE_REQUESTS = 3
+STORY_POSTPROCESS_MAX_SERVICE_REQUESTS = 8
 STORY_GRAPH_MAX_SERVICE_REQUESTS = 1
+STORY_STREAM_RETRY_DELAYS_SECONDS = (1.0, 2.5, 5.0, 8.0)
 STORY_CONTINUE_MODEL_PROMPT = (
     "Continue the current scene from exactly where the latest assistant response ended. "
     "Do not repeat or paraphrase the previous response. Advance events with a new action, reaction, consequence, "
@@ -392,16 +394,57 @@ def _estimate_story_context_usage_tokens(
         selected_reversed.reverse()
         return min(_estimate_cards_payload_tokens(selected_reversed), budget)
 
-    def _estimate_history_tokens_within_budget(token_budget: int) -> int:
+    def _select_billable_history_messages() -> list[StoryMessage]:
+        eligible_messages = [
+            message
+            for message in context_messages
+            if message.role in {"user", "assistant"}
+            and _normalize_story_message_content(getattr(message, "content", None))
+        ]
+        if not memory_optimization_enabled:
+            return eligible_messages
+
+        latest_user_index: int | None = None
+        user_message_count = 0
+        for index, message in enumerate(eligible_messages):
+            if message.role != "user":
+                continue
+            user_message_count += 1
+            latest_user_index = index
+        if latest_user_index is None:
+            return []
+
+        selected: list[StoryMessage] = []
+        latest_user_message = eligible_messages[latest_user_index]
+        latest_user_content = _normalize_story_message_content(getattr(latest_user_message, "content", None))
+        if latest_user_content == STORY_CONTINUE_MODEL_PROMPT:
+            previous_assistant_index: int | None = None
+            for index in range(latest_user_index - 1, -1, -1):
+                if eligible_messages[index].role == "assistant":
+                    previous_assistant_index = index
+                    break
+            if previous_assistant_index is not None:
+                for index in range(previous_assistant_index - 1, -1, -1):
+                    if eligible_messages[index].role == "user":
+                        selected.append(eligible_messages[index])
+                        break
+                selected.append(eligible_messages[previous_assistant_index])
+        elif user_message_count == 1:
+            for index in range(latest_user_index - 1, -1, -1):
+                if eligible_messages[index].role == "assistant":
+                    selected.append(eligible_messages[index])
+                    break
+        selected.append(latest_user_message)
+        return selected
+
+    def _estimate_history_tokens_within_budget(messages_for_billing: list[StoryMessage], token_budget: int) -> int:
         budget = max(int(token_budget), 0)
-        if not context_messages or budget <= 0:
+        if not messages_for_billing or budget <= 0:
             return 0
 
         consumed_tokens = 0
         selected_any = False
-        for message in reversed(context_messages):
-            if message.role not in {"user", "assistant"}:
-                continue
+        for message in reversed(messages_for_billing):
             content = _normalize_story_message_content(getattr(message, "content", None))
             if not content:
                 continue
@@ -415,9 +458,14 @@ def _estimate_story_context_usage_tokens(
             break
         return min(consumed_tokens, budget)
 
+    billable_instruction_cards = [
+        card
+        for card in instruction_cards
+        if str(card.get("source_kind", "") or "").strip().lower() in {"", "user", "instruction"}
+    ]
     instruction_payload = "\n".join(
         f"{index}. {card['title']}: {card['content']}"
-        for index, card in enumerate(instruction_cards, start=1)
+        for index, card in enumerate(billable_instruction_cards, start=1)
         if card.get("title", "").strip() and card.get("content", "").strip()
     )
     instruction_tokens_used = _estimate_story_tokens(instruction_payload)
@@ -435,9 +483,19 @@ def _estimate_story_context_usage_tokens(
     world_tokens_used = _estimate_story_tokens("\n".join(world_lines))
 
     fixed_cards_budget_tokens = max(context_limit - instruction_tokens_used - world_tokens_used, 0)
+    billable_history_messages = _select_billable_history_messages()
     if not memory_optimization_enabled:
-        history_tokens_used = _estimate_history_tokens_within_budget(fixed_cards_budget_tokens)
+        history_tokens_used = _estimate_history_tokens_within_budget(
+            billable_history_messages,
+            fixed_cards_budget_tokens,
+        )
         return max(instruction_tokens_used + history_tokens_used + world_tokens_used, 0)
+
+    history_tokens_used = _estimate_history_tokens_within_budget(
+        billable_history_messages,
+        fixed_cards_budget_tokens,
+    )
+    fixed_cards_budget_tokens = max(fixed_cards_budget_tokens - history_tokens_used, 0)
 
     key_memory_cards: list[dict[str, str]] = []
     raw_memory_cards: list[dict[str, str]] = []
@@ -489,7 +547,7 @@ def _estimate_story_context_usage_tokens(
         + _estimate_cards_tokens_within_budget(compressed_memory_cards, compressed_memory_budget_tokens)
         + _estimate_cards_tokens_within_budget(super_memory_cards, super_memory_budget_tokens)
     )
-    return max(instruction_tokens_used + memory_tokens_used + world_tokens_used, 0)
+    return max(instruction_tokens_used + history_tokens_used + memory_tokens_used + world_tokens_used, 0)
 
 
 def _calculate_story_turn_cost_tokens(
@@ -1146,49 +1204,101 @@ def _stream_story_response(
             db.rollback()
 
     try:
-        for chunk in deps.stream_story_provider_chunks(
-            prompt=prompt,
-            turn_index=turn_index,
-            context_messages=context_messages,
-            instruction_cards=instruction_cards,
-            plot_cards=plot_cards,
-            world_cards=world_cards,
-            context_limit_chars=context_limit_chars,
-            story_model_name=story_model_name,
-            story_response_max_tokens=story_response_max_tokens,
-            story_temperature=story_temperature,
-            story_repetition_penalty=story_repetition_penalty,
-            story_top_k=story_top_k,
-            story_top_r=story_top_r,
-            use_plot_memory=memory_optimization_enabled,
-            reroll_discarded_assistant_text=reroll_discarded_assistant_text,
-            show_gg_thoughts=show_gg_thoughts,
-            show_npc_thoughts=show_npc_thoughts,
-            story_generation_game_id=int(game.id),
-            story_generation_id=story_generation_id,
-            raw_output_collector=stream_runtime_meta,
-        ):
-            produced += chunk
-            current_time = time.monotonic()
-            if (
-                len(produced) - persisted_length >= persist_min_chars
-                or current_time - last_persisted_at >= persist_max_interval_seconds
-            ):
-                assistant_message.content = produced
+        for stream_attempt in range(len(STORY_STREAM_RETRY_DELAYS_SECONDS) + 1):
+            try:
+                for chunk in deps.stream_story_provider_chunks(
+                    prompt=prompt,
+                    turn_index=turn_index,
+                    context_messages=context_messages,
+                    instruction_cards=instruction_cards,
+                    plot_cards=plot_cards,
+                    world_cards=world_cards,
+                    context_limit_chars=context_limit_chars,
+                    story_model_name=story_model_name,
+                    story_response_max_tokens=story_response_max_tokens,
+                    story_temperature=story_temperature,
+                    story_repetition_penalty=story_repetition_penalty,
+                    story_top_k=story_top_k,
+                    story_top_r=story_top_r,
+                    use_plot_memory=memory_optimization_enabled,
+                    reroll_discarded_assistant_text=reroll_discarded_assistant_text,
+                    show_gg_thoughts=show_gg_thoughts,
+                    show_npc_thoughts=show_npc_thoughts,
+                    story_generation_game_id=int(game.id),
+                    story_generation_id=story_generation_id,
+                    raw_output_collector=stream_runtime_meta,
+                ):
+                    produced += chunk
+                    current_time = time.monotonic()
+                    if (
+                        len(produced) - persisted_length >= persist_min_chars
+                        or current_time - last_persisted_at >= persist_max_interval_seconds
+                    ):
+                        assistant_message.content = produced
+                        try:
+                            commit_with_retry(db)
+                        except Exception:
+                            logger.warning(
+                                "Failed to checkpoint streamed story response; final save will retry. game_id=%s assistant_message_id=%s",
+                                game.id,
+                                assistant_message.id,
+                                exc_info=True,
+                            )
+                            db.rollback()
+                        else:
+                            persisted_length = len(produced)
+                            last_persisted_at = current_time
+                    yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": chunk})
+                break
+            except (GeneratorExit, StoryGenerationCancelled):
+                raise
+            except Exception as exc:
+                if _stop_requested("provider_retry", rollback=True):
+                    raise StoryGenerationCancelled("Story generation cancelled") from exc
+                can_retry = (
+                    stream_attempt < len(STORY_STREAM_RETRY_DELAYS_SECONDS)
+                    and is_retryable_provider_error(exc)
+                )
+                if not can_retry:
+                    raise
+                retry_delay = STORY_STREAM_RETRY_DELAYS_SECONDS[stream_attempt]
+                logger.warning(
+                    "Story provider stream failed; silently restarting full turn: "
+                    "game_id=%s assistant_message_id=%s model=%s attempt=%s next_attempt=%s delay=%.1fs error=%s",
+                    game.id,
+                    assistant_message.id,
+                    story_model_name,
+                    stream_attempt + 1,
+                    stream_attempt + 2,
+                    retry_delay,
+                    exc,
+                )
+                produced = ""
+                stream_runtime_meta.clear()
+                persisted_length = 0
+                last_persisted_at = time.monotonic()
+                assistant_message.content = ""
+                deps.touch_story_game(game)
                 try:
                     commit_with_retry(db)
                 except Exception:
                     logger.warning(
-                        "Failed to checkpoint streamed story response; final save will retry. game_id=%s assistant_message_id=%s",
+                        "Failed to clear partial story checkpoint before provider retry: "
+                        "game_id=%s assistant_message_id=%s",
                         game.id,
                         assistant_message.id,
                         exc_info=True,
                     )
                     db.rollback()
-                else:
-                    persisted_length = len(produced)
-                    last_persisted_at = current_time
-            yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": chunk})
+                yield _sse_event(
+                    "retry",
+                    {
+                        "assistant_message_id": assistant_message.id,
+                        "attempt": stream_attempt + 2,
+                        "max_attempts": len(STORY_STREAM_RETRY_DELAYS_SECONDS) + 1,
+                    },
+                )
+                time.sleep(retry_delay)
     except (GeneratorExit, StoryGenerationCancelled):
         aborted = True
         stream_error = stream_error or "stream cancelled by client"
@@ -2460,7 +2570,6 @@ def _generate_story_response_locked(
     if visual_novel_enabled:
         visual_novel_instruction_card = build_visual_novel_instruction_card()
         effective_instruction_cards = [*effective_instruction_cards, visual_novel_instruction_card]
-        billing_instruction_cards = [*billing_instruction_cards, visual_novel_instruction_card]
     try:
         from app.services.story_graph import build_story_graph_context_instruction
 
@@ -2479,7 +2588,6 @@ def _generate_story_response_locked(
                 "source_kind": "graph",
             }
             effective_instruction_cards = [*effective_instruction_cards, graph_instruction_card]
-            billing_instruction_cards = [*billing_instruction_cards, graph_instruction_card]
             logger.info(
                 "Story graph context attached: game_id=%s chars=%s",
                 game.id,

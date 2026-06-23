@@ -46,6 +46,46 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             )
         )
 
+    def test_content_policy_error_is_never_retried(self) -> None:
+        self.assertFalse(
+            story_generation_provider._should_retry_polza_chat_request(
+                status_code=400,
+                detail="Prohibited request: content policy violation",
+                attempt_index=0,
+            )
+        )
+        self.assertFalse(
+            story_generation_provider._should_retry_polza_gemini_pro_turn_failure(
+                model_name="google/gemini-3.1-pro-preview",
+                attempt_index=0,
+                status_code=400,
+                detail="request is prohibited by safety policy",
+            )
+        )
+
+    def test_incomplete_stream_is_rejected_for_every_narrator_model(self) -> None:
+        for model_name in (
+            "google/gemini-3.1-pro-preview",
+            "aion-labs/aion-2.0",
+            "deepseek/deepseek-v3.2",
+            "z-ai/glm-5.1",
+        ):
+            with self.subTest(model_name=model_name):
+                self.assertTrue(
+                    story_generation_provider._is_polza_incomplete_stream_result(
+                        model_name=model_name,
+                        finish_reason=None,
+                        saw_done_marker=False,
+                    )
+                )
+                self.assertTrue(
+                    story_generation_provider._is_polza_incomplete_stream_result(
+                        model_name=model_name,
+                        finish_reason="length",
+                        saw_done_marker=True,
+                    )
+                )
+
     def test_candidate_models_keep_explicit_fallback_when_service_fallback_is_disabled(self) -> None:
         candidates = story_generation_provider._build_polza_story_candidate_models(
             "google/gemma-4-31b-it:free",
@@ -341,6 +381,59 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             ],
         )
         self.assertTrue(all(call.kwargs["fallback_model_names"] == [] for call in request_mock.call_args_list))
+
+    def test_important_memory_uses_only_gemini_flash_and_creates_no_manual_fallback(self) -> None:
+        class FakeSession:
+            def scalars(self, *_args, **_kwargs):
+                return []
+
+        with patch.object(
+            story_memory_pipeline,
+            "_request_polza_story_text",
+            return_value=(
+                '{"should_store":true,"title":"Broken oath",'
+                '"summary":"Mira broke her oath to Alex and joined the enemy.",'
+                '"significance":"The betrayal changes their alliance."}'
+            ),
+        ) as request_mock:
+            payload = story_memory_pipeline._extract_story_important_plot_card_payload(
+                db=FakeSession(),
+                game=SimpleNamespace(id=77),
+                latest_user_prompt="Alex asks Mira to honor the oath.",
+                latest_assistant_text="Mira breaks the oath and joins the enemy.",
+            )
+
+        self.assertEqual(
+            payload,
+            ("Broken oath", "Mira broke her oath to Alex and joined the enemy."),
+        )
+        self.assertEqual(request_mock.call_count, 1)
+        self.assertEqual(
+            request_mock.call_args.kwargs["model_name"],
+            "google/gemini-2.5-flash",
+        )
+        self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
+        self.assertFalse(request_mock.call_args.kwargs["allow_service_fallback"])
+        self.assertFalse(request_mock.call_args.kwargs["include_configured_service_fallback"])
+
+    def test_important_memory_skips_routine_turn_when_gemini_marks_it_unimportant(self) -> None:
+        class FakeSession:
+            def scalars(self, *_args, **_kwargs):
+                return []
+
+        with patch.object(
+            story_memory_pipeline,
+            "_request_polza_story_text",
+            return_value='{"should_store":false,"title":"","summary":"","significance":"routine action"}',
+        ):
+            payload = story_memory_pipeline._extract_story_important_plot_card_payload(
+                db=FakeSession(),
+                game=SimpleNamespace(id=78),
+                latest_user_prompt="Alex sits down.",
+                latest_assistant_text="Alex sits by the window.",
+            )
+
+        self.assertIsNone(payload)
 
 
 if __name__ == "__main__":
