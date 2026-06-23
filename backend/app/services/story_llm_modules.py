@@ -301,7 +301,7 @@ class LlmModuleService:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     request_timeout=request_timeout,
-                    retry_on_rate_limit=False,
+                    retry_on_rate_limit=True,
                 )
                 parsed = strict_json_loads(raw_response)
                 payload = schema.model_validate(parsed)

@@ -103,6 +103,7 @@ _TOKEN_BUDGET_SERVICE = TokenBudgetService(_TOKEN_COUNTER)
 _NPC_DEDUP_SERVICE = NpcCardDedupService()
 STORY_MEMORY_MODEL_MAX_ATTEMPTS = 2
 STORY_IMPORTANT_MEMORY_MODEL_MAX_ATTEMPTS = 3
+STORY_MEMORY_HTTP_MAX_REQUESTS = 8
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -464,7 +465,7 @@ def _compress_story_memory_block_with_model(
     if not content:
         raise ValueError("Cannot compress empty memory block")
     service = _llm_service(gemini_only=True)
-    reserved_budget = StoryServiceHttpRequestBudget(max_requests=STORY_MEMORY_MODEL_MAX_ATTEMPTS)
+    reserved_budget = StoryServiceHttpRequestBudget(max_requests=STORY_MEMORY_HTTP_MAX_REQUESTS)
     with use_story_service_http_request_budget(reserved_budget):
         if super_mode:
             payload, _meta = service.call_json(
@@ -587,7 +588,7 @@ def _promote_blocks(
         }
         for block in source_blocks
     ]
-    reserved_budget = StoryServiceHttpRequestBudget(max_requests=STORY_MEMORY_MODEL_MAX_ATTEMPTS)
+    reserved_budget = StoryServiceHttpRequestBudget(max_requests=STORY_MEMORY_HTTP_MAX_REQUESTS)
     with use_story_service_http_request_budget(reserved_budget):
         if prompt_name == LLM_COMPRESSED_MEMORY_PROMPT_NAME:
             payload, _meta = service.call_json(

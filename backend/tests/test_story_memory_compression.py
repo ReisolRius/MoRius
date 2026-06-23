@@ -69,7 +69,7 @@ class StoryMemoryCompressionTests(unittest.TestCase):
         self.assertIn("дверь закрыта", content)
         self.assertEqual(request_mock.call_count, 1)
         self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL)
-        self.assertFalse(request_mock.call_args.kwargs["retry_on_rate_limit"])
+        self.assertTrue(request_mock.call_args.kwargs["retry_on_rate_limit"])
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
 
     def test_invalid_model_payload_raises_without_local_summary_fallback(self) -> None:

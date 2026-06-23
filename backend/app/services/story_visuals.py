@@ -204,13 +204,14 @@ def _request_story_scene_emotion_payload(
     }
 
     try:
-        response = HTTP_SESSION.post(
-            settings.polza_chat_url,
+        response = monolith_main._post_story_ai_with_retries(
+            url=settings.polza_chat_url,
             headers=headers,
-            json=payload,
+            payload=payload,
             timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
+            operation="Story scene-emotion analysis",
         )
-    except requests.RequestException:
+    except Exception:
         return _serialize_story_scene_emotion_payload(
             {
                 "show_visualization": False,

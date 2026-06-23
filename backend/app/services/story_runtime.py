@@ -88,8 +88,8 @@ STORY_POSTPROCESS_STATUS_FAILED_RETRYABLE = "storyteller_succeeded_postprocessin
 STORY_POSTPROCESS_STATUS_PENDING = "storyteller_succeeded_postprocessing_pending"
 STORY_GENERATE_LOCK_WAIT_SECONDS = 15.0
 STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 20.0
-STORY_POSTPROCESS_MAX_SERVICE_REQUESTS = 8
-STORY_GRAPH_MAX_SERVICE_REQUESTS = 1
+STORY_POSTPROCESS_MAX_SERVICE_REQUESTS = 16
+STORY_GRAPH_MAX_SERVICE_REQUESTS = 4
 STORY_STREAM_RETRY_DELAYS_SECONDS = (1.0, 2.5, 5.0, 8.0)
 STORY_CONTINUE_MODEL_PROMPT = (
     "Continue the current scene from exactly where the latest assistant response ended. "
@@ -1257,13 +1257,14 @@ def _stream_story_response(
                     raise StoryGenerationCancelled("Story generation cancelled") from exc
                 can_retry = (
                     stream_attempt < len(STORY_STREAM_RETRY_DELAYS_SECONDS)
+                    and not produced
                     and is_retryable_provider_error(exc)
                 )
                 if not can_retry:
                     raise
                 retry_delay = STORY_STREAM_RETRY_DELAYS_SECONDS[stream_attempt]
                 logger.warning(
-                    "Story provider stream failed; silently restarting full turn: "
+                    "Story provider failed before producing text; silently retrying full turn: "
                     "game_id=%s assistant_message_id=%s model=%s attempt=%s next_attempt=%s delay=%.1fs error=%s",
                     game.id,
                     assistant_message.id,

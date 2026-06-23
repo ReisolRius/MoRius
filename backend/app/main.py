@@ -7788,6 +7788,81 @@ def _normalize_story_world_card_change_operations(
     return normalized_operations
 
 
+STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS = (1.0, 2.5, 5.0)
+
+
+def _extract_story_ai_error_detail(response: requests.Response) -> str:
+    try:
+        error_payload = response.json()
+    except ValueError:
+        error_payload = {}
+    if not isinstance(error_payload, dict):
+        return ""
+    error_value = error_payload.get("error")
+    if isinstance(error_value, dict):
+        detail = str(error_value.get("message") or error_value.get("code") or "").strip()
+        metadata_value = error_value.get("metadata")
+        if isinstance(metadata_value, dict):
+            raw_detail = str(metadata_value.get("raw") or "").strip()
+            if raw_detail:
+                detail = f"{detail}. {raw_detail}" if detail else raw_detail
+        return detail
+    if isinstance(error_value, str):
+        return error_value.strip()
+    return str(error_payload.get("message") or error_payload.get("detail") or "").strip()
+
+
+def _post_story_ai_with_retries(
+    *,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    timeout: tuple[int | float, int | float],
+    operation: str,
+) -> requests.Response:
+    last_error: Exception | None = None
+    for attempt_index in range(len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS) + 1):
+        try:
+            consume_story_service_http_request()
+            response = HTTP_SESSION.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=timeout,
+            )
+        except requests.RequestException as exc:
+            last_error = RuntimeError(f"{operation} transport failed")
+            if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
+                time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                continue
+            raise last_error from exc
+
+        if response.status_code < 400:
+            return response
+
+        detail = _extract_story_ai_error_detail(response)
+        retryable = (
+            not is_content_policy_error(detail)
+            and (
+                response.status_code == 400
+                or is_retryable_provider_error(detail, status_code=response.status_code)
+            )
+        )
+        if retryable and attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
+            logger.warning(
+                "%s temporary provider failure; retrying: status=%s attempt=%s detail=%s",
+                operation,
+                response.status_code,
+                attempt_index + 1,
+                detail or "n/a",
+            )
+            time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+            continue
+        return response
+
+    raise last_error or RuntimeError(f"{operation} failed")
+
+
 def _request_polza_world_card_candidates(messages_payload: list[dict[str, str]]) -> Any:
     headers = {
         "Authorization": f"Bearer {settings.polza_api_key}",
@@ -7812,15 +7887,13 @@ def _request_polza_world_card_candidates(messages_payload: list[dict[str, str]])
             "stream": False,
             "temperature": 0.1,
         }
-        try:
-            response = HTTP_SESSION.post(
-                settings.polza_chat_url,
-                headers=headers,
-                json=payload,
-                timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
-            )
-        except requests.RequestException as exc:
-            raise RuntimeError("Failed to reach Polza.ai extraction endpoint") from exc
+        response = _post_story_ai_with_retries(
+            url=settings.polza_chat_url,
+            headers=headers,
+            payload=payload,
+            timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
+            operation="Story world-card extraction",
+        )
 
         if response.status_code >= 400:
             detail = ""
@@ -7957,13 +8030,14 @@ def _request_story_scene_emotion_payload(
     }
 
     try:
-        response = HTTP_SESSION.post(
-            settings.polza_chat_url,
+        response = _post_story_ai_with_retries(
+            url=settings.polza_chat_url,
             headers=headers,
-            json=payload,
+            payload=payload,
             timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
+            operation="Story scene-emotion analysis",
         )
-    except requests.RequestException:
+    except Exception:
         return _serialize_story_scene_emotion_payload(
             {
                 "show_visualization": False,
@@ -10779,8 +10853,7 @@ def _request_polza_story_text(
             payload["max_tokens"] = normalized_limit
             payload["max_completion_tokens"] = normalized_limit
         _apply_polza_story_reasoning_preferences(payload, model_name=candidate_model)
-        attempts_per_model = 2 if retry_on_rate_limit else 1
-        for attempt_index in range(attempts_per_model):
+        for attempt_index in range(len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS) + 1):
             consume_story_service_http_request()
             request_started_at = time.monotonic()
             logger.info(
@@ -10797,16 +10870,19 @@ def _request_polza_story_text(
                     timeout=timeout_value,
                 )
             except requests.RequestException as exc:
-                error_text = "Failed to reach OpenRouter chat endpoint"
-                if candidate_model != candidate_models[-1]:
+                last_error = RuntimeError("Failed to reach OpenRouter chat endpoint")
+                if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
                     logger.warning(
-                        "OpenRouter service transport failed for model=%s; trying fallback model: error=%s",
+                        "OpenRouter service transport failed; retrying same model: model=%s attempt=%s error=%s",
                         candidate_model,
+                        attempt_index + 1,
                         exc,
                     )
-                    last_error = RuntimeError(error_text)
+                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                    continue
+                if candidate_model != candidate_models[-1]:
                     break
-                raise RuntimeError(error_text) from exc
+                raise last_error from exc
 
             logger.info(
                 "OpenRouter service response received: model=%s status=%s latency=%.3fs",
@@ -10816,84 +10892,98 @@ def _request_polza_story_text(
             )
 
             if response.status_code >= 400:
-                detail = ""
-                try:
-                    error_payload = response.json()
-                except ValueError:
-                    error_payload = {}
-
-                if isinstance(error_payload, dict):
-                    error_value = error_payload.get("error")
-                    if isinstance(error_value, dict):
-                        detail = str(error_value.get("message") or error_value.get("code") or "").strip()
-                        metadata_value = error_value.get("metadata")
-                        if isinstance(metadata_value, dict):
-                            raw_detail = str(metadata_value.get("raw") or "").strip()
-                            if raw_detail:
-                                detail = f"{detail}. {raw_detail}" if detail else raw_detail
-                    elif isinstance(error_value, str):
-                        detail = error_value.strip()
-                    if not detail:
-                        detail = str(error_payload.get("message") or error_payload.get("detail") or "").strip()
-
-                if retry_on_rate_limit and response.status_code == 429 and attempt_index == 0:
-                    logger.warning(
-                        "Polza.ai chat rate-limited; retrying once: model=%s status=%s",
-                        candidate_model,
-                        response.status_code,
-                    )
-                    time.sleep(1.1)
-                    continue
-
+                detail = _extract_story_ai_error_detail(response)
                 error_text = f"Polza.ai chat error ({response.status_code})"
                 if detail:
                     error_text = f"{error_text}: {detail}"
+                last_error = RuntimeError(error_text)
 
-                if response.status_code in {404, 408, 409, 425, 429, 500, 502, 503, 504} and candidate_model != candidate_models[-1]:
+                retryable = (
+                    not is_content_policy_error(detail)
+                    and (
+                        response.status_code == 400
+                        or is_retryable_provider_error(detail or error_text, status_code=response.status_code)
+                    )
+                )
+                if response.status_code == 429 and not retry_on_rate_limit:
+                    retryable = False
+                if retryable and attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
+                    logger.warning(
+                        "OpenRouter service temporary failure; retrying same model: model=%s status=%s attempt=%s detail=%s",
+                        candidate_model,
+                        response.status_code,
+                        attempt_index + 1,
+                        detail or "n/a",
+                    )
+                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                    continue
+
+                if (
+                    not is_content_policy_error(detail)
+                    and response.status_code in {400, 404, 408, 409, 425, 429, 499, 500, 502, 503, 504}
+                    and candidate_model != candidate_models[-1]
+                ):
                     logger.warning(
                         "OpenRouter service model failed; trying fallback model: model=%s status=%s detail=%s",
                         candidate_model,
                         response.status_code,
                         detail or "n/a",
                     )
-                    last_error = RuntimeError(error_text)
                     break
-                raise RuntimeError(error_text)
+                raise last_error
 
             try:
                 payload_value = response.json()
             except ValueError as exc:
-                raise RuntimeError("Polza.ai chat returned invalid payload") from exc
+                last_error = RuntimeError("Polza.ai chat returned invalid payload")
+                if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
+                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                    continue
+                if candidate_model != candidate_models[-1]:
+                    break
+                raise last_error from exc
 
             if not isinstance(payload_value, dict):
+                last_error = RuntimeError("OpenRouter chat returned an invalid payload")
+                if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
+                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                    continue
                 if candidate_model != candidate_models[-1]:
-                    last_error = RuntimeError("OpenRouter chat returned an invalid payload")
                     break
-                return ""
+                raise last_error
             choices = payload_value.get("choices")
             if not isinstance(choices, list) or not choices:
+                last_error = RuntimeError("OpenRouter chat returned no choices")
+                if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
+                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                    continue
                 if candidate_model != candidate_models[-1]:
-                    last_error = RuntimeError("OpenRouter chat returned no choices")
                     break
-                return ""
+                raise last_error
             choice = choices[0] if isinstance(choices[0], dict) else {}
             message_value = choice.get("message")
             if not isinstance(message_value, dict):
+                last_error = RuntimeError("OpenRouter chat returned no message")
+                if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
+                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                    continue
                 if candidate_model != candidate_models[-1]:
-                    last_error = RuntimeError("OpenRouter chat returned no message")
                     break
-                return ""
+                raise last_error
             response_text = _extract_text_from_model_content(message_value.get("content"))
             if response_text:
                 return response_text
+            last_error = RuntimeError("OpenRouter chat returned empty text")
+            if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
+                time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                continue
             if candidate_model != candidate_models[-1]:
-                last_error = RuntimeError("OpenRouter chat returned empty text")
                 break
-            return ""
+            raise last_error
 
     if last_error is not None:
         raise last_error
-    return ""
+    raise RuntimeError("OpenRouter chat request failed")
 
 
 def _validate_story_turn_image_provider_config(model_name: str | None = None) -> None:
@@ -12843,6 +12933,7 @@ def _request_aitunnel_story_turn_image(
         or bool(normalized_reference_image_data_url)
     )
     read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
+    request_kwargs: dict[str, Any]
 
     if use_image_edit:
         endpoint_url = _resolve_aitunnel_image_endpoint(
@@ -12863,16 +12954,11 @@ def _request_aitunnel_story_turn_image(
         files = {
             "image": (filename, image_payload, mime_type),
         }
-        try:
-            response = HTTP_SESSION.post(
-                endpoint_url,
-                headers=headers,
-                data=request_data,
-                files=files,
-                timeout=(STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS, read_timeout_seconds),
-            )
-        except requests.RequestException as exc:
-            raise RuntimeError("Failed to reach AITunnel image edit endpoint") from exc
+        request_kwargs = {
+            "headers": headers,
+            "data": request_data,
+            "files": files,
+        }
     else:
         endpoint_url = _resolve_aitunnel_image_endpoint(
             settings.aitunnel_image_generation_url,
@@ -12885,22 +12971,45 @@ def _request_aitunnel_story_turn_image(
         }
         if image_size:
             request_payload["size"] = image_size
+        request_kwargs = {
+            "headers": {**headers, "Content-Type": "application/json"},
+            "json": request_payload,
+        }
+
+    last_error: Exception | None = None
+    response: requests.Response | None = None
+    for attempt_index in range(len(STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS) + 1):
         try:
             response = HTTP_SESSION.post(
                 endpoint_url,
-                headers={**headers, "Content-Type": "application/json"},
-                json=request_payload,
                 timeout=(STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS, read_timeout_seconds),
+                **request_kwargs,
             )
         except requests.RequestException as exc:
-            raise RuntimeError("Failed to reach AITunnel image generation endpoint") from exc
+            last_error = RuntimeError("Failed to reach AITunnel image endpoint")
+            if attempt_index < len(STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS):
+                time.sleep(STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS[attempt_index])
+                continue
+            raise last_error from exc
 
-    if response.status_code >= 400:
+        if response.status_code < 400:
+            break
         detail = _extract_polza_error_detail(response)
         error_text = f"AITunnel image error ({response.status_code})"
         if detail:
             error_text = f"{error_text}: {detail}"
-        raise RuntimeError(error_text)
+        last_error = RuntimeError(error_text)
+        if (
+            attempt_index < len(STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS)
+            and not is_content_policy_error(detail)
+            and is_retryable_provider_error(detail or error_text, status_code=response.status_code)
+        ):
+            time.sleep(STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS[attempt_index])
+            continue
+        raise last_error
+
+    if response is None:
+        raise last_error or RuntimeError("AITunnel image request failed")
 
     try:
         payload_value = response.json()

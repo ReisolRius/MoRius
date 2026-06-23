@@ -145,8 +145,6 @@ POLZA_STORY_STREAM_CONNECT_TIMEOUT_SECONDS = 20
 POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS = 90
 POLZA_GEMINI_PRO_STREAM_READ_TIMEOUT_SECONDS = 300
 STORY_STREAM_FIRST_TOKEN_TIMEOUT_FLOOR_SECONDS = 120.0
-STORY_STREAM_TOTAL_TIMEOUT_FLOOR_SECONDS = 300.0
-STORY_STREAM_TOTAL_TIMEOUT_READ_MULTIPLIER = 3.0
 POLZA_PROVIDER_TEMPORARY_ERROR_MARKERS = (
     "provider returned error",
     "internal server error",
@@ -162,8 +160,8 @@ POLZA_GEMINI_PRO_MODEL_IDS = {
     POLZA_GEMINI_25_PRO_MODEL_ID,
     *POLZA_GEMINI_31_PRO_MODEL_IDS,
 }
-POLZA_GEMINI_PRO_SILENT_RETRY_ATTEMPTS = 1
-POLZA_GEMINI_PRO_RETRY_STATUS_CODES = {400, 408, 409, 425, 429, 499, 500, 502, 503, 504}
+POLZA_TURN_SILENT_RETRY_ATTEMPTS = 1
+POLZA_TURN_RETRY_STATUS_CODES = {400, 408, 409, 425, 429, 499, 500, 502, 503, 504}
 
 
 def _apply_polza_story_reasoning_preferences(
@@ -300,13 +298,6 @@ def _story_stream_first_token_timeout_seconds(read_timeout_seconds: int | float)
     return max(float(read_timeout_seconds or 0), STORY_STREAM_FIRST_TOKEN_TIMEOUT_FLOOR_SECONDS)
 
 
-def _story_stream_total_timeout_seconds(read_timeout_seconds: int | float) -> float:
-    return max(
-        float(read_timeout_seconds or 0) * STORY_STREAM_TOTAL_TIMEOUT_READ_MULTIPLIER,
-        STORY_STREAM_TOTAL_TIMEOUT_FLOOR_SECONDS,
-    )
-
-
 def _ensure_story_stream_within_time_budget(
     *,
     provider_label: str,
@@ -314,7 +305,6 @@ def _ensure_story_stream_within_time_budget(
     current_time: float,
     emitted_delta: bool,
     first_token_timeout_seconds: float,
-    total_timeout_seconds: float,
     story_generation_game_id: int | None,
     story_generation_id: str | None,
 ) -> None:
@@ -326,26 +316,23 @@ def _ensure_story_stream_within_time_budget(
         raise RuntimeError(
             f"{provider_label} stream did not produce content within {int(first_token_timeout_seconds)}s"
         )
-    if elapsed_seconds >= float(total_timeout_seconds):
-        raise RuntimeError(f"{provider_label} stream exceeded {int(total_timeout_seconds)}s")
 
 
-def _should_retry_polza_gemini_pro_turn_failure(
+def _should_retry_polza_turn_failure(
     *,
     model_name: str | None,
     attempt_index: int,
     status_code: int | None = None,
     detail: str = "",
 ) -> bool:
-    if not _is_polza_gemini_pro_model(model_name):
-        return False
-    if attempt_index >= POLZA_GEMINI_PRO_SILENT_RETRY_ATTEMPTS:
+    _ = model_name
+    if attempt_index >= POLZA_TURN_SILENT_RETRY_ATTEMPTS:
         return False
     if is_content_policy_error(detail):
         return False
     if status_code is None:
         return True
-    return int(status_code) in POLZA_GEMINI_PRO_RETRY_STATUS_CODES
+    return int(status_code) in POLZA_TURN_RETRY_STATUS_CODES
 
 
 def _is_polza_incomplete_stream_result(
@@ -356,9 +343,79 @@ def _is_polza_incomplete_stream_result(
 ) -> bool:
     _ = model_name
     normalized_finish_reason = str(finish_reason or "").strip().casefold()
-    if normalized_finish_reason == "length":
-        return True
+    if normalized_finish_reason:
+        return False
     return not bool(saw_done_marker) and not normalized_finish_reason
+
+
+def _extract_story_stream_novel_suffix(base_text: str, candidate_text: str) -> str:
+    normalized_base = str(base_text or "")
+    normalized_candidate = str(candidate_text or "")
+    if not normalized_candidate:
+        return ""
+    if not normalized_base:
+        return normalized_candidate
+    if normalized_candidate.startswith(normalized_base):
+        return normalized_candidate[len(normalized_base) :]
+    overlap_limit = min(len(normalized_base), len(normalized_candidate))
+    for overlap_size in range(overlap_limit, 0, -1):
+        if normalized_base.endswith(normalized_candidate[:overlap_size]):
+            return normalized_candidate[overlap_size:]
+    return normalized_candidate
+
+
+def _recover_polza_story_stream_tail(
+    *,
+    messages_payload: list[dict[str, str]],
+    partial_text: str,
+    model_name: str,
+    temperature: float | None,
+    top_k: int | None,
+    top_p: float | None,
+    max_tokens: int | None,
+    read_timeout_seconds: int,
+) -> str:
+    normalized_partial = str(partial_text or "").replace("\r\n", "\n").strip()
+    if not normalized_partial:
+        return ""
+
+    remaining_max_tokens = max_tokens
+    if isinstance(max_tokens, int):
+        estimated_used_tokens = max(int(_estimate_story_tokens(normalized_partial)), 1)
+        remaining_max_tokens = max(int(max_tokens) - estimated_used_tokens, 0)
+        if remaining_max_tokens < 64:
+            return ""
+        remaining_max_tokens = max(128, remaining_max_tokens)
+
+    continuation_messages = [
+        *messages_payload,
+        {"role": "assistant", "content": normalized_partial},
+        {
+            "role": "user",
+            "content": (
+                "Continue the same narrator reply from the exact final character above. "
+                "Return only the missing continuation. Do not repeat, rewrite, summarize, restart, "
+                "or comment on the existing text. Finish the interrupted sentence and end at a natural player decision point."
+            ),
+        },
+    ]
+    recovered_text = _request_polza_story_text(
+        continuation_messages,
+        model_name=model_name,
+        allow_service_fallback=False,
+        translate_input=False,
+        fallback_model_names=[],
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        max_tokens=remaining_max_tokens,
+        request_timeout=(
+            POLZA_STORY_STREAM_CONNECT_TIMEOUT_SECONDS,
+            max(int(read_timeout_seconds), 120),
+        ),
+        retry_on_rate_limit=True,
+    )
+    return _extract_story_stream_novel_suffix(normalized_partial, recovered_text)
 
 
 def _should_try_polza_fallback_model(
@@ -578,7 +635,6 @@ def _iter_gigachat_story_stream_chunks(
         first_content_emitted_at: float | None = None
         read_timeout_seconds = 120
         first_token_timeout_seconds = _story_stream_first_token_timeout_seconds(read_timeout_seconds)
-        total_timeout_seconds = _story_stream_total_timeout_seconds(read_timeout_seconds)
         for raw_line in response.iter_lines(
             chunk_size=STORY_STREAM_HTTP_CHUNK_SIZE_BYTES,
             decode_unicode=True,
@@ -590,7 +646,6 @@ def _iter_gigachat_story_stream_chunks(
                 current_time=current_time,
                 emitted_delta=emitted_delta,
                 first_token_timeout_seconds=first_token_timeout_seconds,
-                total_timeout_seconds=total_timeout_seconds,
                 story_generation_game_id=story_generation_game_id,
                 story_generation_id=story_generation_id,
             )
@@ -804,7 +859,7 @@ def _iter_polza_story_stream_chunks(
                         status_code=response.status_code,
                         detail=detail,
                         attempt_index=attempt_index,
-                    ) or _should_retry_polza_gemini_pro_turn_failure(
+                    ) or _should_retry_polza_turn_failure(
                         model_name=model_name,
                         attempt_index=attempt_index,
                         status_code=response.status_code,
@@ -834,7 +889,6 @@ def _iter_polza_story_stream_chunks(
                 first_content_emitted_at: float | None = None
                 last_keepalive_at = time.monotonic()
                 first_token_timeout_seconds = _story_stream_first_token_timeout_seconds(read_timeout_seconds)
-                total_timeout_seconds = _story_stream_total_timeout_seconds(read_timeout_seconds)
                 finish_reason: str | None = None
                 usage_payload: Any = None
                 saw_done_marker = False
@@ -850,7 +904,6 @@ def _iter_polza_story_stream_chunks(
                             current_time=current_time,
                             emitted_delta=emitted_delta,
                             first_token_timeout_seconds=first_token_timeout_seconds,
-                            total_timeout_seconds=total_timeout_seconds,
                             story_generation_game_id=story_generation_game_id,
                             story_generation_id=story_generation_id,
                         )
@@ -872,8 +925,10 @@ def _iter_polza_story_stream_chunks(
 
                         try:
                             chunk_payload = json.loads(raw_data)
-                        except json.JSONDecodeError:
-                            continue
+                        except json.JSONDecodeError as exc:
+                            raise RuntimeError(
+                                "OpenRouter stream returned malformed SSE JSON"
+                            ) from exc
 
                         if isinstance(chunk_payload.get("usage"), dict):
                             usage_payload = chunk_payload.get("usage")
@@ -908,20 +963,20 @@ def _iter_polza_story_stream_chunks(
                                     )
                                 for chunk in _yield_story_stream_chunks_with_pacing(content_delta):
                                     yield chunk
-                                continue
-                            if not emitted_delta and current_time - last_keepalive_at >= 8.0:
+                            elif not emitted_delta and current_time - last_keepalive_at >= 8.0:
                                 last_keepalive_at = current_time
                                 yield ""
-
-                        if emitted_delta:
-                            continue
 
                         message_value = choice.get("message")
                         if isinstance(message_value, dict):
                             content_value = _extract_text_from_model_content(message_value.get("content"))
                             if content_value:
+                                emitted_text = "".join(emitted_text_parts)
+                                novel_content = _extract_story_stream_novel_suffix(emitted_text, content_value)
+                                if not novel_content:
+                                    continue
                                 emitted_delta = True
-                                emitted_text_parts.append(content_value)
+                                emitted_text_parts.append(novel_content)
                                 if first_content_emitted_at is None:
                                     first_content_emitted_at = time.monotonic()
                                     logger.info(
@@ -929,9 +984,10 @@ def _iter_polza_story_stream_chunks(
                                         first_content_emitted_at - request_started_at,
                                         model_name,
                                     )
-                                for chunk in _yield_story_stream_chunks_with_pacing(content_value):
+                                for chunk in _yield_story_stream_chunks_with_pacing(novel_content):
                                     yield chunk
-                                break
+                                if not emitted_text:
+                                    break
                 except requests.RequestException as exc:
                     if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                         raise StoryGenerationCancelled("Story generation cancelled") from exc
@@ -946,6 +1002,30 @@ def _iter_polza_story_stream_chunks(
                         )
                         _sleep_polza_retry(attempt_index)
                         continue
+                    if emitted_delta:
+                        partial_text = "".join(emitted_text_parts)
+                        logger.warning(
+                            "OpenRouter stream read failed after content; recovering only the missing tail: "
+                            "model=%s provider=%s partial_chars=%s error=%s",
+                            model_name,
+                            provider_label,
+                            len(partial_text),
+                            exc,
+                        )
+                        recovered_tail = _recover_polza_story_stream_tail(
+                            messages_payload=messages_payload,
+                            partial_text=partial_text,
+                            model_name=model_name,
+                            temperature=temperature,
+                            top_k=top_k,
+                            top_p=top_p,
+                            max_tokens=max_tokens,
+                            read_timeout_seconds=read_timeout_seconds,
+                        )
+                        if recovered_tail:
+                            for chunk in _yield_story_stream_chunks_with_pacing(recovered_tail):
+                                yield chunk
+                            return
                     raise RuntimeError("Failed while reading OpenRouter chat stream") from exc
                 except RuntimeError as exc:
                     if (
@@ -963,6 +1043,30 @@ def _iter_polza_story_stream_chunks(
                         )
                         _sleep_polza_retry(attempt_index)
                         continue
+                    if emitted_delta and is_retryable_provider_error(exc):
+                        partial_text = "".join(emitted_text_parts)
+                        logger.warning(
+                            "OpenRouter stream failed after content; recovering only the missing tail: "
+                            "model=%s provider=%s partial_chars=%s error=%s",
+                            model_name,
+                            provider_label,
+                            len(partial_text),
+                            exc,
+                        )
+                        recovered_tail = _recover_polza_story_stream_tail(
+                            messages_payload=messages_payload,
+                            partial_text=partial_text,
+                            model_name=model_name,
+                            temperature=temperature,
+                            top_k=top_k,
+                            top_p=top_p,
+                            max_tokens=max_tokens,
+                            read_timeout_seconds=read_timeout_seconds,
+                        )
+                        if recovered_tail:
+                            for chunk in _yield_story_stream_chunks_with_pacing(recovered_tail):
+                                yield chunk
+                            return
                     raise
 
                 if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
@@ -976,26 +1080,39 @@ def _iter_polza_story_stream_chunks(
                         usage_payload=usage_payload,
                         max_tokens=max_tokens,
                     )
-                    stream_closed_unexpectedly = not saw_done_marker and not str(finish_reason or "").strip()
                     model_hit_length_limit = str(finish_reason or "").strip().casefold() == "length"
-                    if stream_closed_unexpectedly or model_hit_length_limit:
-                        log_message = (
-                            "OpenRouter stream ended before a clean done marker: model=%s finish_reason=%s done=%s"
+                    if model_hit_length_limit:
+                        return
+                    if _is_polza_incomplete_stream_result(
+                        model_name=model_name,
+                        finish_reason=finish_reason,
+                        saw_done_marker=saw_done_marker,
+                    ):
+                        partial_text = "".join(emitted_text_parts)
+                        logger.warning(
+                            "OpenRouter stream closed without terminal metadata; recovering only the missing tail: "
+                            "model=%s provider=%s partial_chars=%s",
+                            model_name,
+                            provider_label,
+                            len(partial_text),
                         )
-                        if _is_polza_incomplete_stream_result(
+                        recovered_tail = _recover_polza_story_stream_tail(
+                            messages_payload=messages_payload,
+                            partial_text=partial_text,
                             model_name=model_name,
-                            finish_reason=finish_reason,
-                            saw_done_marker=saw_done_marker,
-                        ):
-                            logger.error(
-                                log_message + "; rejecting incomplete turn instead of saving truncated text",
-                                model_name,
-                                finish_reason or "",
-                                saw_done_marker,
-                            )
-                            raise RuntimeError(
-                                "OpenRouter story stream ended incomplete; the partial response was rejected"
-                            )
+                            temperature=temperature,
+                            top_k=top_k,
+                            top_p=top_p,
+                            max_tokens=max_tokens,
+                            read_timeout_seconds=read_timeout_seconds,
+                        )
+                        if recovered_tail:
+                            for chunk in _yield_story_stream_chunks_with_pacing(recovered_tail):
+                                yield chunk
+                            return
+                        raise RuntimeError(
+                            "OpenRouter story stream ended incomplete and tail recovery returned no text"
+                        )
                     return
 
                 logger.warning(
@@ -1136,7 +1253,7 @@ def _request_polza_story_text(
         messages_payload,
         translate_input=translate_input,
     )
-    retry_delays = POLZA_RETRY_DELAYS_SECONDS if retry_on_rate_limit else ()
+    retry_delays = POLZA_RETRY_DELAYS_SECONDS
     for candidate_model in candidate_models:
         for attempt_index in range(len(retry_delays) + 1):
             payload = {
@@ -1202,19 +1319,21 @@ def _request_polza_story_text(
             if response.status_code >= 400:
                 detail = _extract_polza_chat_error_detail(response)
 
-                should_retry = retry_on_rate_limit and (
+                should_retry = (
                     _should_retry_polza_chat_request(
                         status_code=response.status_code,
                         detail=detail,
                         attempt_index=attempt_index,
                     )
-                    or _should_retry_polza_gemini_pro_turn_failure(
+                    or _should_retry_polza_turn_failure(
                         model_name=candidate_model,
                         attempt_index=attempt_index,
                         status_code=response.status_code,
                         detail=detail,
                     )
                 )
+                if response.status_code == 429 and not retry_on_rate_limit:
+                    should_retry = False
                 if should_retry:
                     logger.warning(
                         "OpenRouter text temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
@@ -1251,13 +1370,25 @@ def _request_polza_story_text(
             try:
                 payload_value = response.json()
             except ValueError as exc:
-                raise RuntimeError("OpenRouter chat returned invalid payload") from exc
+                last_error = RuntimeError("OpenRouter chat returned invalid payload")
+                if attempt_index < len(retry_delays):
+                    _sleep_polza_retry(attempt_index)
+                    continue
+                raise last_error from exc
 
             if not isinstance(payload_value, dict):
-                return ""
+                last_error = RuntimeError("OpenRouter chat returned invalid payload root")
+                if attempt_index < len(retry_delays):
+                    _sleep_polza_retry(attempt_index)
+                    continue
+                raise last_error
             choices = payload_value.get("choices")
             if not isinstance(choices, list) or not choices:
-                return ""
+                last_error = RuntimeError("OpenRouter chat completed without choices")
+                if attempt_index < len(retry_delays):
+                    _sleep_polza_retry(attempt_index)
+                    continue
+                raise last_error
             choice = choices[0] if isinstance(choices[0], dict) else {}
             finish_reason = choice.get("finish_reason") if isinstance(choice.get("finish_reason"), str) else None
             _log_polza_completion_finish(
@@ -1269,8 +1400,19 @@ def _request_polza_story_text(
             )
             message_value = choice.get("message")
             if not isinstance(message_value, dict):
-                return ""
-            return _extract_text_from_model_content(message_value.get("content"))
+                last_error = RuntimeError("OpenRouter chat completed without a message payload")
+                if attempt_index < len(retry_delays):
+                    _sleep_polza_retry(attempt_index)
+                    continue
+                raise last_error
+            result_text = _extract_text_from_model_content(message_value.get("content"))
+            if result_text:
+                return result_text
+            last_error = RuntimeError("OpenRouter chat completed without textual content")
+            if attempt_index < len(retry_delays):
+                _sleep_polza_retry(attempt_index)
+                continue
+            raise last_error
 
     if last_error is not None:
         raise last_error

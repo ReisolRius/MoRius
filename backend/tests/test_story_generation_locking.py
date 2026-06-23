@@ -71,23 +71,20 @@ class StoryGenerationLockingTests(unittest.TestCase):
                 current_time=131.0,
                 emitted_delta=False,
                 first_token_timeout_seconds=120.0,
-                total_timeout_seconds=300.0,
                 story_generation_game_id=None,
                 story_generation_id=None,
             )
 
-    def test_stream_time_budget_fails_when_stream_never_finishes(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "exceeded"):
-            _ensure_story_stream_within_time_budget(
-                provider_label="OpenRouter",
-                started_at=10.0,
-                current_time=311.0,
-                emitted_delta=True,
-                first_token_timeout_seconds=120.0,
-                total_timeout_seconds=300.0,
-                story_generation_game_id=None,
-                story_generation_id=None,
-            )
+    def test_stream_time_budget_does_not_cut_a_healthy_long_stream(self) -> None:
+        _ensure_story_stream_within_time_budget(
+            provider_label="OpenRouter",
+            started_at=10.0,
+            current_time=3_611.0,
+            emitted_delta=True,
+            first_token_timeout_seconds=120.0,
+            story_generation_game_id=None,
+            story_generation_id=None,
+        )
 
     def test_operation_lock_timeout_raises_busy_without_leaking_registry_entry(self) -> None:
         game_id = 9_001
@@ -229,7 +226,7 @@ class StoryGenerationLockingTests(unittest.TestCase):
         self.assertEqual(calls["billing"], 0)
         self.assertEqual(calls["postprocess"], 0)
 
-    def test_partial_provider_failure_restarts_turn_without_billing_partial_text(self) -> None:
+    def test_partial_provider_failure_is_not_restarted_as_a_new_turn(self) -> None:
         game_id = 9_102
         generation_id = "generation-provider-retry"
         db = _StreamingSession()
@@ -240,10 +237,8 @@ class StoryGenerationLockingTests(unittest.TestCase):
         def stream_provider(**_kwargs):
             nonlocal provider_calls
             provider_calls += 1
-            if provider_calls == 1:
-                yield "partial text"
-                raise RuntimeError("OpenRouter story stream ended incomplete")
-            yield "complete replacement"
+            yield "partial text"
+            raise RuntimeError("OpenRouter story stream ended incomplete")
 
         deps = SimpleNamespace(
             stream_persist_min_chars=10_000,
@@ -298,19 +293,15 @@ class StoryGenerationLockingTests(unittest.TestCase):
 
                 self.assertIn("event: start", next(stream))
                 self.assertIn("partial text", next(stream))
-                retry_event = next(stream)
-                self.assertIn("event: retry", retry_event)
-                self.assertIn('"attempt": 2', retry_event)
-                self.assertIn("complete replacement", next(stream))
-                self.assertIn('"stage": "finalizing"', next(stream))
-                self.assertTrue(cancel_story_generation(game_id))
+                error_event = next(stream)
+                self.assertIn("event: error", error_event)
                 with self.assertRaises(StopIteration):
                     next(stream)
         finally:
             mark_story_generation_finished(game_id, generation_id)
 
-        self.assertEqual(provider_calls, 2)
-        self.assertEqual(getattr(db.added[0], "content", ""), "complete replacement")
+        self.assertEqual(provider_calls, 1)
+        self.assertIn(db.added[0], db.deleted)
 
 
 if __name__ == "__main__":

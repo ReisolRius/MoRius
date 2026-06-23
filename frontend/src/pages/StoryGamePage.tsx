@@ -130,7 +130,6 @@ import {
   listStoryCharacterRaces,
   listStoryCharacters,
   listStoryGames,
-  optimizeStoryMemory,
   regenerateStoryEnvironmentWeather,
   selectStoryMainHero,
   updateStoryCharacter,
@@ -10755,21 +10754,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [loadGameById])
 
-  const optimizeStoryMemorySnapshot = useCallback(
-    async (gameId: number, messageId?: number | null) => {
-      const optimizedMemoryBlocks = await optimizeStoryMemory({
-        token: authToken,
-        gameId,
-        messageId: typeof messageId === 'number' ? messageId : null,
-      })
-      if (activeGameIdRef.current === gameId) {
-        setAiMemoryBlocks(normalizeStoryMemoryBlocks(optimizedMemoryBlocks))
-      }
-      return optimizedMemoryBlocks
-    },
-    [authToken],
-  )
-
   useEffect(() => {
     let isActive = true
     let deferredGameListTimerId: number | null = null
@@ -16073,13 +16057,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
         streamingAssistantTextStore.clear(completedAssistantMessageId ?? startedAssistantMessageId ?? undefined)
 
-        // Normal turns are optimized inline. If a provider/module failed, retry only the
-        // pending optimization in the background without surfacing transient errors.
-        const shouldOptimizeStoryMemory =
-          !generationCancelledByUser &&
-          memoryOptimizationEnabled &&
-          postprocessPending &&
-          completedAssistantMessageId !== null
         const shouldReloadGameSnapshot =
           generationCancelledByUser ||
           generationFailed ||
@@ -16117,34 +16094,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setStoryPostprocessStage(null)
 
         if (
-          shouldOptimizeStoryMemory ||
           shouldRefreshGameList ||
           shouldRetryGameSyncWithoutDoneEvent ||
           shouldReconcileSuccessfulGeneration ||
           shouldPollPostprocessInBackground
         ) {
           void (async () => {
-            if (shouldOptimizeStoryMemory && canContinueDeferredTurnSync()) {
-              pendingContextBudgetCheckRef.current = true
-              const retryDelaysMs = [0, 2500, 7000, 15000]
-              for (const retryDelayMs of retryDelaysMs) {
-                if (!canContinueDeferredTurnSync()) {
-                  break
-                }
-                if (retryDelayMs > 0) {
-                  await new Promise<void>((resolve) => {
-                    window.setTimeout(resolve, retryDelayMs)
-                  })
-                }
-                try {
-                  await optimizeStoryMemorySnapshot(options.gameId, completedAssistantMessageId)
-                  break
-                } catch (memoryError) {
-                  console.error('Story memory optimize retry failed', memoryError)
-                }
-              }
-            }
-
             if (shouldRefreshGameList && canContinueDeferredTurnSync()) {
               try {
                 const refreshedGames = await listStoryGames(authToken, { compact: true, limit: STORY_GAME_LIST_SNAPSHOT_LIMIT })
@@ -16237,7 +16192,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       loadGameById,
       memoryOptimizationEnabled,
       onUserUpdate,
-      optimizeStoryMemorySnapshot,
       responseMaxTokensEnabled,
       responseMaxTokens,
       scheduleStreamingAutoScroll,

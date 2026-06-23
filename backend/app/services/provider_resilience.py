@@ -46,6 +46,7 @@ _TRANSIENT_ERROR_MARKERS = (
     "stream ended incomplete",
     "stream ended unexpectedly",
     "stream closed unexpectedly",
+    "malformed sse",
     "completed without textual content",
     "empty response",
     "empty payload",

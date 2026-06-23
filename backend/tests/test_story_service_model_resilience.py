@@ -26,7 +26,24 @@ class _FakeResponse:
         return self._payload
 
 
+class _FakeStreamResponse(_FakeResponse):
+    def __init__(self, lines: list[str], *, status_code: int = 200, payload: dict | None = None) -> None:
+        super().__init__(status_code, payload or {})
+        self._lines = lines
+        self.encoding = ""
+        self.closed = False
+
+    def iter_lines(self, **_kwargs):
+        yield from self._lines
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class StoryServiceModelResilienceTests(unittest.TestCase):
+    def test_story_response_limit_remains_4500_tokens(self) -> None:
+        self.assertEqual(monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX, 4_500)
+
     def test_openrouter_turn_retry_covers_transient_gateway_and_timeout_statuses(self) -> None:
         for status_code in (408, 409, 425, 429, 499, 500, 502, 503, 504):
             with self.subTest(status_code=status_code):
@@ -55,7 +72,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             )
         )
         self.assertFalse(
-            story_generation_provider._should_retry_polza_gemini_pro_turn_failure(
+            story_generation_provider._should_retry_polza_turn_failure(
                 model_name="google/gemini-3.1-pro-preview",
                 attempt_index=0,
                 status_code=400,
@@ -78,13 +95,166 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
                         saw_done_marker=False,
                     )
                 )
-                self.assertTrue(
+                self.assertFalse(
                     story_generation_provider._is_polza_incomplete_stream_result(
                         model_name=model_name,
                         finish_reason="length",
                         saw_done_marker=True,
                     )
                 )
+
+    def test_turn_retry_policy_applies_to_every_narrator_model(self) -> None:
+        for model_name in (
+            "google/gemini-3.1-pro-preview",
+            "aion-labs/aion-2.0",
+            "deepseek/deepseek-v3.2",
+            "z-ai/glm-5.1",
+            "anthropic/claude-sonnet-4.6",
+        ):
+            with self.subTest(model_name=model_name):
+                self.assertTrue(
+                    story_generation_provider._should_retry_polza_turn_failure(
+                        model_name=model_name,
+                        attempt_index=0,
+                        status_code=500,
+                        detail="internal server error",
+                    )
+                )
+
+    def test_background_text_request_retries_transient_failure_on_same_model(self) -> None:
+        success = _FakeResponse(
+            200,
+            {"choices": [{"message": {"content": "{\"ok\":true}"}}]},
+        )
+        for model_name in (
+            "google/gemini-2.5-flash",
+            "aion-labs/aion-2.0",
+            "deepseek/deepseek-v3.2",
+            "z-ai/glm-5.1",
+        ):
+            with self.subTest(model_name=model_name):
+                temporary_failure = _FakeResponse(
+                    500,
+                    {"error": {"message": "temporary upstream failure"}},
+                )
+                with (
+                    patch.object(
+                        monolith_main.HTTP_SESSION,
+                        "post",
+                        side_effect=[temporary_failure, success],
+                    ) as post_mock,
+                    patch.object(monolith_main.time, "sleep", return_value=None),
+                ):
+                    result = monolith_main._request_polza_story_text(
+                        [{"role": "user", "content": "test"}],
+                        model_name=model_name,
+                        fallback_model_names=[],
+                        allow_service_fallback=False,
+                        retry_on_rate_limit=True,
+                    )
+
+                self.assertEqual(result, "{\"ok\":true}")
+                self.assertEqual(post_mock.call_count, 2)
+                self.assertEqual(
+                    [call.kwargs["json"]["model"] for call in post_mock.call_args_list],
+                    [model_name, model_name],
+                )
+
+    def test_background_text_request_never_retries_content_policy_error(self) -> None:
+        prohibited = _FakeResponse(
+            400,
+            {"error": {"message": "Prohibited request: content policy violation"}},
+        )
+        with (
+            patch.object(monolith_main.HTTP_SESSION, "post", return_value=prohibited) as post_mock,
+            patch.object(monolith_main.time, "sleep", return_value=None),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Prohibited request"):
+                monolith_main._request_polza_story_text(
+                    [{"role": "user", "content": "test"}],
+                    model_name="google/gemini-2.5-flash",
+                    fallback_model_names=[],
+                    allow_service_fallback=False,
+                    retry_on_rate_limit=True,
+                )
+
+        self.assertEqual(post_mock.call_count, 1)
+
+    def test_successful_stream_keeps_final_message_tail_after_deltas(self) -> None:
+        response = _FakeStreamResponse(
+            [
+                'data: {"choices":[{"delta":{"content":"Начало "}}]}',
+                (
+                    'data: {"choices":[{"delta":{"content":"и "},'
+                    '"message":{"content":"Начало и конец."},'
+                    '"finish_reason":"stop"}]}'
+                ),
+                "data: [DONE]",
+            ]
+        )
+        with (
+            patch.object(
+                story_generation_provider,
+                "_build_story_provider_messages",
+                return_value=[
+                    {"role": "system", "content": "system"},
+                    {"role": "user", "content": "turn"},
+                ],
+            ),
+            patch.object(story_generation_provider.HTTP_SESSION, "post", return_value=response),
+            patch.object(story_generation_provider, "_recover_polza_story_stream_tail") as recover_mock,
+        ):
+            chunks = list(
+                story_generation_provider._iter_polza_story_stream_chunks(
+                    [],
+                    [],
+                    [],
+                    [],
+                    context_limit_chars=6_000,
+                    model_name="google/gemini-3.1-pro-preview",
+                    max_tokens=4_500,
+                )
+            )
+
+        self.assertEqual("".join(chunks), "Начало и конец.")
+        self.assertTrue(response.closed)
+        recover_mock.assert_not_called()
+
+    def test_broken_stream_recovers_only_missing_tail_without_full_restart(self) -> None:
+        response = _FakeStreamResponse(
+            ['data: {"choices":[{"delta":{"content":"Начало "}}]}']
+        )
+        with (
+            patch.object(
+                story_generation_provider,
+                "_build_story_provider_messages",
+                return_value=[
+                    {"role": "system", "content": "system"},
+                    {"role": "user", "content": "turn"},
+                ],
+            ),
+            patch.object(story_generation_provider.HTTP_SESSION, "post", return_value=response) as post_mock,
+            patch.object(
+                story_generation_provider,
+                "_recover_polza_story_stream_tail",
+                return_value="и продолжение.",
+            ) as recover_mock,
+        ):
+            chunks = list(
+                story_generation_provider._iter_polza_story_stream_chunks(
+                    [],
+                    [],
+                    [],
+                    [],
+                    context_limit_chars=6_000,
+                    model_name="deepseek/deepseek-v3.2",
+                    max_tokens=4_500,
+                )
+            )
+
+        self.assertEqual("".join(chunks), "Начало и продолжение.")
+        self.assertEqual(post_mock.call_count, 1)
+        recover_mock.assert_called_once()
 
     def test_candidate_models_keep_explicit_fallback_when_service_fallback_is_disabled(self) -> None:
         candidates = story_generation_provider._build_polza_story_candidate_models(
@@ -300,7 +470,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(payload["npc_cards"]["actions"], [])
         self.assertEqual(payload["auto_npcs"], [])
         self.assertEqual(request_mock.call_count, 1)
-        self.assertFalse(request_mock.call_args.kwargs["retry_on_rate_limit"])
+        self.assertTrue(request_mock.call_args.kwargs["retry_on_rate_limit"])
         user_prompt = request_mock.call_args.args[0][1]["content"]
         self.assertIn('"npc_cards"', user_prompt)
 
@@ -354,7 +524,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(request_mock.call_count, 1)
         self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL)
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
-        self.assertFalse(request_mock.call_args.kwargs["retry_on_rate_limit"])
+        self.assertTrue(request_mock.call_args.kwargs["retry_on_rate_limit"])
 
     def test_memory_compression_retries_gemini_after_invalid_json(self) -> None:
         valid_memory_json = (

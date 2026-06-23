@@ -1938,7 +1938,7 @@ def request_gemini_graph_analysis(
             temperature=float(kwargs.get("temperature", 0.1)),
             max_tokens=int(kwargs.get("max_tokens", GRAPH_ANALYSIS_MAX_OUTPUT_TOKENS)),
             request_timeout=kwargs.get("request_timeout") or (8, 150),
-            retry_on_rate_limit=False,
+            retry_on_rate_limit=True,
         )
 
     service = LlmModuleService(

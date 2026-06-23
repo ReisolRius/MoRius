@@ -1244,15 +1244,6 @@ def _request_story_environment_postprocess_payload(
         if str(part or "").strip()
     )
 
-    headers = {
-        "Authorization": f"Bearer {settings.polza_api_key}",
-        "Content-Type": "application/json",
-    }
-    if settings.polza_site_url:
-        headers["HTTP-Referer"] = settings.polza_site_url
-    if settings.polza_app_name:
-        headers["X-Title"] = settings.polza_app_name
-
     system_prompt = (
         "You analyze a Russian fantasy RPG scene and return strict JSON only without markdown. "
         "All human-readable values must be in Russian. "
@@ -1313,46 +1304,25 @@ def _request_story_environment_postprocess_payload(
                 "content": user_prompt + (f"\n\nFix previous answer:\n{retry_note}" if retry_note else ""),
             },
         ]
-        payload = {
-            "model": _STORY_ENVIRONMENT_SERVICE_MODEL,
-            "messages": request_messages,
-            "temperature": 1.05 if force_weather_refresh and include_weather else 0.95,
-            "max_tokens": 1_000,
-        }
         try:
-            response = requests.post(
-                settings.polza_chat_url,
-                headers=headers,
-                json=payload,
-                timeout=(12, 70),
+            from app.services.story_generation_provider import _request_polza_story_text
+
+            raw_content = _request_polza_story_text(
+                request_messages,
+                model_name=_STORY_ENVIRONMENT_SERVICE_MODEL,
+                allow_service_fallback=False,
+                translate_input=False,
+                fallback_model_names=[],
+                temperature=1.05 if force_weather_refresh and include_weather else 0.95,
+                max_tokens=1_000,
+                request_timeout=(12, 70),
+                retry_on_rate_limit=True,
             )
-        except requests.RequestException as exc:
+        except RuntimeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"Polza.ai request failed: {exc}",
             ) from exc
-        if response.status_code >= 400:
-            detail = _extract_story_polza_error_detail(response)
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=detail[:500] or f"Polza.ai chat error ({response.status_code})",
-            )
-
-        try:
-            response_payload = response.json()
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Polza.ai returned invalid JSON",
-            ) from exc
-
-        raw_content = ""
-        choices = response_payload.get("choices")
-        if isinstance(choices, list) and choices:
-            first_choice = choices[0] if isinstance(choices[0], dict) else {}
-            message_payload = first_choice.get("message")
-            if isinstance(message_payload, dict):
-                raw_content = str(message_payload.get("content") or "")
         parsed_payload = _extract_story_json_object(raw_content)
         if not isinstance(parsed_payload, dict):
             retry_note = (
@@ -4015,15 +3985,6 @@ def _request_story_environment_postprocess_payload(
         if str(part or "").strip()
     )
 
-    headers = {
-        "Authorization": f"Bearer {settings.polza_api_key}",
-        "Content-Type": "application/json",
-    }
-    if settings.polza_site_url:
-        headers["HTTP-Referer"] = settings.polza_site_url
-    if settings.polza_app_name:
-        headers["X-Title"] = settings.polza_app_name
-
     system_prompt = (
         "You analyze a Russian fantasy RPG scene and return strict JSON only without markdown. "
         "All human-readable values must be in Russian. "
@@ -4084,46 +4045,25 @@ def _request_story_environment_postprocess_payload(
                 "content": user_prompt + (f"\n\nFix previous answer:\n{retry_note}" if retry_note else ""),
             },
         ]
-        payload = {
-            "model": _STORY_ENVIRONMENT_SERVICE_MODEL,
-            "messages": request_messages,
-            "temperature": 1.05 if force_weather_refresh and include_weather else 0.95,
-            "max_tokens": 1_000,
-        }
         try:
-            response = requests.post(
-                settings.polza_chat_url,
-                headers=headers,
-                json=payload,
-                timeout=(12, 70),
+            from app.services.story_generation_provider import _request_polza_story_text
+
+            raw_content = _request_polza_story_text(
+                request_messages,
+                model_name=_STORY_ENVIRONMENT_SERVICE_MODEL,
+                allow_service_fallback=False,
+                translate_input=False,
+                fallback_model_names=[],
+                temperature=1.05 if force_weather_refresh and include_weather else 0.95,
+                max_tokens=1_000,
+                request_timeout=(12, 70),
+                retry_on_rate_limit=True,
             )
-        except requests.RequestException as exc:
+        except RuntimeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"Polza.ai request failed: {exc}",
             ) from exc
-        if response.status_code >= 400:
-            detail = _extract_story_polza_error_detail(response)
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=detail[:500] or f"Polza.ai chat error ({response.status_code})",
-            )
-
-        try:
-            response_payload = response.json()
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Polza.ai returned invalid JSON",
-            ) from exc
-
-        raw_content = ""
-        choices = response_payload.get("choices")
-        if isinstance(choices, list) and choices:
-            first_choice = choices[0] if isinstance(choices[0], dict) else {}
-            message_payload = first_choice.get("message")
-            if isinstance(message_payload, dict):
-                raw_content = str(message_payload.get("content") or "")
         parsed_payload = _extract_story_json_object(raw_content)
         if not isinstance(parsed_payload, dict):
             retry_note = (
