@@ -17,6 +17,7 @@ from app.services.story_game_operation_lock import (  # noqa: E402
     acquire_story_game_operation_lock,
 )
 from app.services import story_runtime  # noqa: E402
+from app.services import story_generation_provider  # noqa: E402
 from app.services.story_generation_cancel import (  # noqa: E402
     cancel_story_generation,
     mark_story_generation_finished,
@@ -60,6 +61,23 @@ class _StreamingSession:
 
     def delete(self, value: object) -> None:
         self.deleted.append(value)
+
+
+class _FakeProviderStreamResponse:
+    status_code = 200
+    encoding = "utf-8"
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def iter_lines(self, *, chunk_size: int, decode_unicode: bool):
+        _ = (chunk_size, decode_unicode)
+        yield 'data: {"choices":[{"delta":{"content":"start "}}]}'
+        yield 'data: {"choices":[{"finish_reason":"length"}]}'
+        yield "data: [DONE]"
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class StoryGenerationLockingTests(unittest.TestCase):
@@ -302,6 +320,42 @@ class StoryGenerationLockingTests(unittest.TestCase):
 
         self.assertEqual(provider_calls, 1)
         self.assertIn(db.added[0], db.deleted)
+
+    def test_polza_length_finish_recovers_tail_before_success(self) -> None:
+        fake_response = _FakeProviderStreamResponse()
+
+        with (
+            patch.object(story_generation_provider.HTTP_SESSION, "post", return_value=fake_response),
+            patch.object(
+                story_generation_provider,
+                "_build_story_provider_messages",
+                return_value=[
+                    {"role": "system", "content": "rules"},
+                    {"role": "user", "content": "turn"},
+                ],
+            ),
+            patch.object(
+                story_generation_provider,
+                "_recover_polza_story_stream_tail",
+                return_value="tail.",
+            ) as recover_mock,
+        ):
+            chunks = list(
+                story_generation_provider._iter_polza_story_stream_chunks(
+                    context_messages=[],
+                    instruction_cards=[],
+                    plot_cards=[],
+                    world_cards=[],
+                    context_limit_chars=10_000,
+                    model_name="test/model",
+                    max_tokens=400,
+                )
+            )
+
+        self.assertEqual("".join(chunks), "start tail.")
+        self.assertTrue(fake_response.closed)
+        recover_mock.assert_called_once()
+        self.assertIs(recover_mock.call_args.kwargs["consume_remaining_token_budget"], False)
 
 
 if __name__ == "__main__":

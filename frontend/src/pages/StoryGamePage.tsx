@@ -15806,6 +15806,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         })
       }
 
+      const flushVisibleAssistantStream = (messageId: number | null | undefined) => {
+        const controller = smoothStreamingControllerRef.current
+        const resolvedMessageId = messageId ?? startedAssistantMessageId
+        if (!controller || resolvedMessageId === null) {
+          return
+        }
+        const text = controller.flush()
+        streamingAssistantTextStore.setText(resolvedMessageId, text)
+        scheduleStreamingAutoScroll()
+      }
+
       try {
         await generateStoryResponseStream({
           token: authToken,
@@ -15919,6 +15930,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             setStoryPostprocessStage(null)
           },
           onProgress: (payload) => {
+            flushVisibleAssistantStream(payload.assistant_message_id)
             setIsFinalizingStoryTurn(true)
             setStoryPostprocessStage(payload.stage)
           },

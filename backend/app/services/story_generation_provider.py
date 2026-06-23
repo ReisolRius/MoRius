@@ -374,18 +374,22 @@ def _recover_polza_story_stream_tail(
     top_p: float | None,
     max_tokens: int | None,
     read_timeout_seconds: int,
+    consume_remaining_token_budget: bool = True,
 ) -> str:
     normalized_partial = str(partial_text or "").replace("\r\n", "\n").strip()
     if not normalized_partial:
         return ""
 
     remaining_max_tokens = max_tokens
-    if isinstance(max_tokens, int):
+    if isinstance(max_tokens, int) and consume_remaining_token_budget:
         estimated_used_tokens = max(int(_estimate_story_tokens(normalized_partial)), 1)
         remaining_max_tokens = max(int(max_tokens) - estimated_used_tokens, 0)
         if remaining_max_tokens < 64:
             return ""
         remaining_max_tokens = max(128, remaining_max_tokens)
+    elif isinstance(max_tokens, int):
+        max_story_tokens = int(globals().get("STORY_RESPONSE_MAX_TOKENS_MAX", 4_500) or 4_500)
+        remaining_max_tokens = max(512, min(max(int(max_tokens), 1_200), max_story_tokens))
 
     continuation_messages = [
         *messages_payload,
@@ -1082,7 +1086,33 @@ def _iter_polza_story_stream_chunks(
                     )
                     model_hit_length_limit = str(finish_reason or "").strip().casefold() == "length"
                     if model_hit_length_limit:
-                        return
+                        partial_text = "".join(emitted_text_parts)
+                        logger.warning(
+                            "OpenRouter stream hit response token limit; recovering missing tail: "
+                            "model=%s provider=%s partial_chars=%s max_tokens=%s",
+                            model_name,
+                            provider_label,
+                            len(partial_text),
+                            max_tokens,
+                        )
+                        recovered_tail = _recover_polza_story_stream_tail(
+                            messages_payload=messages_payload,
+                            partial_text=partial_text,
+                            model_name=model_name,
+                            temperature=temperature,
+                            top_k=top_k,
+                            top_p=top_p,
+                            max_tokens=max_tokens,
+                            read_timeout_seconds=read_timeout_seconds,
+                            consume_remaining_token_budget=False,
+                        )
+                        if recovered_tail:
+                            for chunk in _yield_story_stream_chunks_with_pacing(recovered_tail):
+                                yield chunk
+                            return
+                        raise RuntimeError(
+                            "OpenRouter story response hit the token limit before a complete answer"
+                        )
                     if _is_polza_incomplete_stream_result(
                         model_name=model_name,
                         finish_reason=finish_reason,

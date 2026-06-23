@@ -9,6 +9,7 @@ type SmoothStreamingTextOptions = {
 export type SmoothStreamingTextController = {
   appendChunk: (chunk: string) => void
   appendFinalText: (text: string) => void
+  flush: () => string
   finish: () => Promise<string>
   cancel: () => void
   getDisplayedText: () => string
@@ -180,6 +181,10 @@ export function createSmoothStreamingTextController(
   return {
     appendChunk,
     appendFinalText,
+    flush: () => {
+      flushToTarget()
+      return getDisplayedText()
+    },
     finish: () => {
       if (cancelled || displayedChars.length >= targetChars.length || !shouldAnimate) {
         flushToTarget()
