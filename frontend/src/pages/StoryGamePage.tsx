@@ -16141,10 +16141,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
         if (shouldReloadGameSnapshot) {
           try {
-            await loadGameById(options.gameId, {
+            const reloadedExpectedSnapshot = await loadGameById(options.gameId, {
               silent: true,
               minAssistantMessageId: minimumExpectedAssistantMessageId,
             })
+            if (!reloadedExpectedSnapshot && (generationFailed || generationCancelledByUser || completedAssistantMessageId === null)) {
+              await loadGameById(options.gameId, {
+                silent: true,
+                suppressErrors: true,
+              })
+            }
           } catch (syncError) {
             console.error('Failed to reload story snapshot after generation', syncError)
           }

@@ -67,6 +67,7 @@ const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504])
 const REQUEST_RETRY_DELAYS_MS = [250, 700] as const
 const STORY_CHARACTER_EMOTION_GENERATION_TIMEOUT_MS = 600_000
 const STORY_CHARACTER_EMOTION_GENERATION_POLL_INTERVAL_MS = 1_500
+const STORY_GENERATION_CANCEL_BEST_EFFORT_TIMEOUT_MS = 4_000
 const STORY_GENERATION_INTERRUPTED_MESSAGE =
   'Генерация прервалась. Зависший запрос остановлен, можно повторить ход или продолжить сцену.'
 const STORY_ROUTERAI_TEMPORARY_ERROR_MESSAGE =
@@ -2394,6 +2395,53 @@ export async function cancelStoryGeneration(payload: {
   })
 }
 
+async function cancelStoryGenerationBestEffort(payload: { token: string; gameId: number }): Promise<void> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => {
+    controller.abort()
+  }, STORY_GENERATION_CANCEL_BEST_EFFORT_TIMEOUT_MS)
+  try {
+    await fetch(buildApiUrl(`/api/story/games/${payload.gameId}/generation/cancel`), {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+  } catch {
+    // Best-effort cleanup only; the original generation error is more useful to callers.
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+async function repairStoryGenerationBestEffort(payload: { token: string; gameId: number }): Promise<void> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => {
+    controller.abort()
+  }, STORY_GENERATION_CANCEL_BEST_EFFORT_TIMEOUT_MS)
+  try {
+    await fetch(buildApiUrl(`/api/story/games/${payload.gameId}/generation/repair`), {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+  } catch {
+    // Best-effort state repair only; callers still surface the original generation failure.
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+async function recoverStoryGenerationBestEffort(payload: { token: string; gameId: number }): Promise<void> {
+  await cancelStoryGenerationBestEffort(payload)
+  await repairStoryGenerationBestEffort(payload)
+}
+
 export async function generateStoryResponseStream(options: StoryGenerationStreamOptions): Promise<void> {
   const targetUrl = buildApiUrl(`/api/story/games/${options.gameId}/generate`)
   const requestPayload: Record<string, unknown> = {
@@ -2481,6 +2529,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
         throw error
       }
       if (attempt < STORY_GENERATION_BUSY_RETRY_DELAYS_MS.length) {
+        await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
         await delay(STORY_GENERATION_BUSY_RETRY_DELAYS_MS[attempt])
         continue
       }
@@ -2492,11 +2541,15 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
     }
 
     const parsedError = await parseApiError(response)
+    const isBusyConflict = response.status === 409 && isStoryOperationBusyMessage(parsedError.message)
+    const shouldCancelStuckGeneration = response.status === 504 || isBusyConflict
     if (
-      response.status === 409 &&
-      isStoryOperationBusyMessage(parsedError.message) &&
+      isBusyConflict &&
       attempt < STORY_GENERATION_BUSY_RETRY_DELAYS_MS.length
     ) {
+      if (shouldCancelStuckGeneration) {
+        await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
+      }
       await delay(STORY_GENERATION_BUSY_RETRY_DELAYS_MS[attempt])
       continue
     }
@@ -2505,8 +2558,14 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       !isStoryContentPolicyErrorMessage(parsedError.message) &&
       attempt < STORY_GENERATION_BUSY_RETRY_DELAYS_MS.length
     ) {
+      if (shouldCancelStuckGeneration) {
+        await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
+      }
       await delay(STORY_GENERATION_BUSY_RETRY_DELAYS_MS[attempt])
       continue
+    }
+    if (shouldCancelStuckGeneration) {
+      await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
     }
     throw new Error(normalizeStoryProviderErrorMessage(parsedError.message))
   }
@@ -2524,6 +2583,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   let buffer = ''
   let streamError: Error | null = null
   let streamTerminalEventReceived = false
+  let streamCompletedSuccessfully = false
 
   const toStreamError = (error: unknown, fallbackMessage: string): Error => {
     const detail = error instanceof Error && error.message.trim() ? error.message : fallbackMessage
@@ -2609,6 +2669,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       try {
         const payload = normalizeStoryStreamDonePayload(JSON.parse(parsed.data) as StoryStreamDonePayload)
         options.onDone?.(payload)
+        streamCompletedSuccessfully = true
       } catch (error) {
         streamError = toStreamError(error, 'Failed to process generation done event')
       }
@@ -2650,7 +2711,12 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       }
 
       if (streamTerminalEventReceived) {
-        continue
+        try {
+          await reader.cancel()
+        } catch {
+          // The stream is already terminal from the app point of view.
+        }
+        break
       }
 
       buffer += decoder.decode(value, { stream: true })
@@ -2661,6 +2727,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       throw error
     }
     if (!streamTerminalEventReceived) {
+      await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
       streamError = toStreamError(error, 'Generation stream connection was interrupted')
     }
   }
@@ -2671,10 +2738,14 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
 
   if (!streamTerminalEventReceived && !streamError) {
+    await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
     throw new Error(normalizeStoryProviderErrorMessage('Generation stream ended unexpectedly before terminal event'))
   }
 
   if (streamError) {
+    if (!streamCompletedSuccessfully) {
+      await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
+    }
     throw streamError
   }
 }

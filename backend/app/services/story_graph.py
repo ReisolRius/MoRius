@@ -1798,7 +1798,7 @@ def _build_graph_analysis_messages(
         {
             "role": "system",
             "content": (
-                "You analyze a text RPG turn for a card relationship graph. Return strict JSON only. "
+                "You analyze a text RPG turn for a card relationship graph. Return JSON only; no markdown, reasoning, or commentary. "
                 "All user-visible card names, relationship labels, and relationship descriptions in your JSON are final copy: "
                 "the application will display them as written and will not rewrite or complete them. "
                 "Use Gemini-level semantic judgment, but never invent relationships that are not stated or clearly earned by the current scene. "
@@ -1840,7 +1840,7 @@ def _build_graph_analysis_messages(
                 "If a similar card exists, reference it. If any edge for the same card pair exists, update that single edge instead of creating another. "
                 "If the turn contains only transient interactions and no durable relationship or graph fact, return no edge action and explain why "
                 "in doNothingReason. "
-                "Do not use markdown. Confidence must be 0..1."
+                "Confidence must be 0..1."
             ),
         },
         {

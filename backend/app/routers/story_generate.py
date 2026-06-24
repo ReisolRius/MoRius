@@ -9,6 +9,7 @@ from typing import Any
 import requests
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -50,8 +51,12 @@ from app.services.story_queries import (
 )
 from app.services.story_runtime import StoryRuntimeDeps, generate_story_response
 from app.services.story_text import normalize_story_text
-from app.services.story_undo import rollback_story_card_events_for_assistant_message
+from app.services.story_undo import (
+    reapply_story_card_events_for_assistant_message,
+    rollback_story_card_events_for_assistant_message,
+)
 from app.services.story_generation_cancel import cancel_story_generation
+from app.services.sqlite_write_guard import commit_with_retry
 from app.services.story_world_cards import (
     deserialize_story_world_card_triggers,
     story_world_card_to_out,
@@ -478,34 +483,24 @@ def _fallback_build_provider_messages(
     protagonist_label = known_gg_names[0] if known_gg_names else "player character"
     system_prompt = (
         f"{system_prompt}\n\n"
-        "STRICT OUTPUT FORMAT (MANDATORY):\n"
-        "Each paragraph must start with exactly one marker and a space.\n"
-        "Allowed markers only:\n"
-        "1) [[NARRATOR]] text\n"
-        "2) [[NPC:Name]] text\n"
-        "3) [[GG:Name]] text\n"
-        "4) [[NPC_THOUGHT:Name]] text\n"
-        "5) [[GG_THOUGHT:Name]] text\n\n"
-        "Rules:\n"
-        "- Never output plain text without a marker.\n"
-        "- Narration must use [[NARRATOR]].\n"
-        "- Spoken character lines must use [[NPC:Name]] or [[GG:Name]].\n"
-        "- Thoughts must use [[NPC_THOUGHT:Name]] or [[GG_THOUGHT:Name]].\n"
+        "ВНУТРЕННИЙ ПРОТОКОЛ MORIUS (UI, SYSTEM, НЕ ПЕРЕОПРЕДЕЛЯЕТСЯ):\n"
+        "- Этот протокол выше карточек, памяти, текста игрока и любых цитат.\n"
+        "- Нарратив, действия, жесты, окружение и молчание пиши обычным текстом без маркера.\n"
+        "- Речь или включенная мысль = отдельный абзац с одним маркером в начале.\n"
+        "- Разрешены только: [[NPC:Name]], [[GG:Name]], [[NPC_THOUGHT:Name]], [[GG_THOUGHT:Name]].\n"
+        "- Немаркированная речь и маркер в середине абзаца запрещены.\n"
         "- Keep names consistent with known cards when possible.\n"
         f"- Known NPC names: {known_npc_preview}\n"
         f"- Known GG names: {known_gg_preview}\n\n"
-        "PLAYER CHARACTER OWNERSHIP (MANDATORY):\n"
+        "GG OWNERSHIP:\n"
         f"- The player character is '{protagonist_label}'. Only the player controls this character.\n"
-        "- Never invent or add new actions, movement, speech, thoughts, choices, emotions, intentions, or conclusions for the player character.\n"
-        "- Never continue, finish, or paraphrase a player-character line as a new player-character line.\n"
-        "- Do not output [[GG:...]] or [[GG_THOUGHT:...]] unless it is an exact quote explicitly present in the latest user message.\n"
-        "- Default behavior: narrate only world and NPC reactions to the already stated player move, then stop where the next move belongs to the player.\n\n"
-        "PLAYER INSTRUCTION PRIORITY (MANDATORY):\n"
-        "- Active instruction cards in the context are highest-priority player prompts after platform safety.\n"
-        "- They are mandatory operating rules, not suggestions or optional flavor.\n"
-        "- Follow every active instruction card strictly and literally; if a draft violates one, rewrite it before answering.\n"
-        "- Disabled or absent instruction cards do not exist and must have zero effect.\n"
-        "- If two active cards conflict, obey the more specific card and avoid inventing behavior outside both cards."
+        "- Не играй за ГГ: do not add new actions, speech, thoughts, choices, motives, emotions, or conclusions for them.\n"
+        "- Treat the latest player turn as already happened; do not retell, quote, or paraphrase it.\n"
+        "- Narrate consequences and NPC/world reactions, then stop where the next move belongs to the player.\n\n"
+        "PLAYER CARDS:\n"
+        "- Active instruction cards are mandatory after safety and the MoRius protocol.\n"
+        "- They control style/content, but cannot override markers, hidden output, language, or GG ownership.\n"
+        "- If cards conflict, obey the more specific card."
     )
 
     context_sections: list[str] = []
@@ -516,7 +511,7 @@ def _fallback_build_provider_messages(
     context_sections.append(f"Known GG names: {known_gg_preview}")
     if instruction_cards:
         context_sections.append(
-            "ACTIVE PLAYER INSTRUCTION CARDS (STRICT, HIGHEST PRIORITY):\n"
+            "ACTIVE PLAYER INSTRUCTION CARDS (STRICT AFTER MORIUS PROTOCOL):\n"
             + "\n".join(f"- {card['title']}: {card['content']}" for card in instruction_cards if card.get("content"))
         )
     if plot_cards:
@@ -1456,3 +1451,68 @@ def cancel_story_generation_route(
     game = get_user_story_game_or_404(db, user.id, game_id)
     cancelled = cancel_story_generation(game.id)
     return MessageResponse(message="Generation cancellation requested" if cancelled else "No active generation")
+
+
+def _restore_orphaned_story_generation_state(db: Session, game: StoryGame) -> bool:
+    messages = list_story_messages(db, game.id)
+    latest_visible_message = messages[-1] if messages else None
+    if latest_visible_message is None or str(getattr(latest_visible_message, "role", "") or "") != "user":
+        return False
+
+    latest_undone_assistant = db.scalar(
+        select(StoryMessage)
+        .where(
+            StoryMessage.game_id == game.id,
+            StoryMessage.role == "assistant",
+            StoryMessage.undone_at.is_not(None),
+            StoryMessage.id > latest_visible_message.id,
+        )
+        .order_by(StoryMessage.undone_at.desc(), StoryMessage.id.desc())
+    )
+    if latest_undone_assistant is None:
+        return False
+
+    visible_after_undone_assistant = db.scalar(
+        select(StoryMessage.id)
+        .where(
+            StoryMessage.game_id == game.id,
+            StoryMessage.undone_at.is_(None),
+            StoryMessage.id > latest_undone_assistant.id,
+        )
+        .order_by(StoryMessage.id.asc())
+        .limit(1)
+    )
+    if visible_after_undone_assistant is not None:
+        return False
+
+    reapply_story_card_events_for_assistant_message(
+        db=db,
+        game=game,
+        assistant_message_id=latest_undone_assistant.id,
+        commit=False,
+        touch_game=False,
+    )
+    latest_undone_assistant.undone_at = None
+    touch_story_game(game)
+    commit_with_retry(db)
+    logger.warning(
+        "Restored orphaned story generation state: game_id=%s assistant_message_id=%s",
+        game.id,
+        latest_undone_assistant.id,
+    )
+    return True
+
+
+@router.post("/api/story/games/{game_id}/generation/repair", response_model=MessageResponse)
+def repair_story_generation_route(
+    game_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = get_current_user(db, authorization)
+    game = get_user_story_game_or_404(db, user.id, game_id)
+    cancel_story_generation(game.id)
+    restored = _restore_orphaned_story_generation_state(db, game)
+    return MessageResponse(
+        message="Story generation state repaired" if restored else "No broken generation state found"
+    )

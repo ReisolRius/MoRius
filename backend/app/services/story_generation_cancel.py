@@ -14,6 +14,7 @@ class StoryGenerationCancelled(RuntimeError):
 _REGISTRY_LOCK = Lock()
 _CURRENT_GENERATION_BY_GAME: dict[int, str] = {}
 _CANCELLED_GENERATIONS: set[tuple[int, str]] = set()
+_CANCEL_NEXT_GENERATION_BY_GAME: set[int] = set()
 _ACTIVE_RESPONSES: dict[tuple[int, str], set[Any]] = {}
 
 
@@ -24,7 +25,12 @@ def mark_story_generation_started(game_id: int, generation_id: str) -> None:
         return
     with _REGISTRY_LOCK:
         _CURRENT_GENERATION_BY_GAME[normalized_game_id] = normalized_generation_id
-        _CANCELLED_GENERATIONS.discard((normalized_game_id, normalized_generation_id))
+        key = (normalized_game_id, normalized_generation_id)
+        if normalized_game_id in _CANCEL_NEXT_GENERATION_BY_GAME:
+            _CANCEL_NEXT_GENERATION_BY_GAME.discard(normalized_game_id)
+            _CANCELLED_GENERATIONS.add(key)
+        else:
+            _CANCELLED_GENERATIONS.discard(key)
 
 
 def mark_story_generation_finished(game_id: int, generation_id: str) -> None:
@@ -37,6 +43,7 @@ def mark_story_generation_finished(game_id: int, generation_id: str) -> None:
         if _CURRENT_GENERATION_BY_GAME.get(normalized_game_id) == normalized_generation_id:
             _CURRENT_GENERATION_BY_GAME.pop(normalized_game_id, None)
         _CANCELLED_GENERATIONS.discard(key)
+        _CANCEL_NEXT_GENERATION_BY_GAME.discard(normalized_game_id)
         _ACTIVE_RESPONSES.pop(key, None)
 
 
@@ -80,6 +87,26 @@ def cancel_story_generation(game_id: int) -> bool:
         generation_id = _CURRENT_GENERATION_BY_GAME.get(normalized_game_id)
         if not generation_id:
             return False
+        key = (normalized_game_id, generation_id)
+        _CANCELLED_GENERATIONS.add(key)
+        responses = list(_ACTIVE_RESPONSES.get(key, ()))
+    for response in responses:
+        try:
+            response.close()
+        except Exception:
+            logger.debug("Failed to close active story generation response", exc_info=True)
+    return True
+
+
+def cancel_story_generation_or_next(game_id: int) -> bool:
+    normalized_game_id = int(game_id or 0)
+    if normalized_game_id <= 0:
+        return False
+    with _REGISTRY_LOCK:
+        generation_id = _CURRENT_GENERATION_BY_GAME.get(normalized_game_id)
+        if not generation_id:
+            _CANCEL_NEXT_GENERATION_BY_GAME.add(normalized_game_id)
+            return True
         key = (normalized_game_id, generation_id)
         _CANCELLED_GENERATIONS.add(key)
         responses = list(_ACTIVE_RESPONSES.get(key, ()))

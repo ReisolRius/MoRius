@@ -1115,7 +1115,7 @@ def _maybe_enrich_story_map_payload_with_ai_details(payload: dict[str, Any]) -> 
             "role": "system",
             "content": (
                 "You enrich a roleplay world map with unique names and concise lore. "
-                "Return JSON only. No markdown, no explanations. "
+                "Return JSON only. No markdown, reasoning, or explanations. "
                 "Keep ids unchanged. Respect any locked_name=true entries by preserving their current name seed. "
                 "Do not invent more items than provided. "
                 "Descriptions must be short, flavorful, and easy for a game UI to display. "
@@ -1126,7 +1126,7 @@ def _maybe_enrich_story_map_payload_with_ai_details(payload: dict[str, Any]) -> 
             "role": "user",
             "content": (
                 "Create unique map naming and lore for this generated world seed.\n"
-                "Return strict JSON with keys regions, locations, landmarks.\n"
+                "Return JSON only with keys regions, locations, landmarks.\n"
                 "Each region item: {id, name, description}.\n"
                 "Each location item: {id, name, aliases, description}.\n"
                 "Each landmark item: {id, name, description}.\n"

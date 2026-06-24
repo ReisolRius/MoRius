@@ -133,7 +133,7 @@ def build_visual_novel_instruction_card() -> dict[str, str]:
     return {
         "title": "Visual Novel Beat Contract",
         "content": (
-            "For this admin-only game mode, return valid JSON only. "
+            "For this admin-only game mode, Return JSON only; no markdown, reasoning, or commentary. "
             "Schema: {\"beats\":[{\"type\":\"narration|dialogue|thought|system\","
             "\"speaker\":string|null,\"emotion\":\"calm|angry|irritated|stern|cheerful|smiling|sly|alert|scared|happy|embarrassed|confused|thoughtful\","
             "\"text\":string,\"visual_hint\":string|null,\"background_hint\":string|null}]}. "

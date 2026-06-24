@@ -3,13 +3,11 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 import sys
+from threading import Event
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
-
-from fastapi import HTTPException
-from fastapi.responses import StreamingResponse
-
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -36,6 +34,9 @@ class _RollbackTrackingSession:
 
     def rollback(self) -> None:
         self.rollback_calls += 1
+
+    def close(self) -> None:
+        return
 
 
 class _ReleaseTrackingLease:
@@ -158,23 +159,38 @@ class StoryGenerationLockingTests(unittest.TestCase):
             raise StoryGameOperationBusyError(STORY_GAME_OPERATION_BUSY_DETAIL)
 
         with (
+            patch.object(story_runtime, "SessionLocal", return_value=db),
             patch.object(story_runtime, "acquire_story_game_operation_lock", side_effect=fake_acquire),
             patch.object(story_runtime, "cancel_story_generation", return_value=True) as cancel_mock,
-            patch.object(story_runtime, "STORY_GENERATE_LOCK_WAIT_SECONDS", 0.001),
-            patch.object(story_runtime, "STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS", 0.002),
+            patch.object(story_runtime, "STORY_GENERATE_LOCK_WAIT_SECONDS", 0.0),
+            patch.object(story_runtime, "STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS", 0.0),
         ):
-            with self.assertRaises(HTTPException) as exc_info:
-                story_runtime.generate_story_response(
-                    deps=deps,
-                    game_id=202,
-                    payload=SimpleNamespace(),
-                    authorization="Bearer token",
-                    db=db,
-                )
+            response = story_runtime.generate_story_response(
+                deps=deps,
+                game_id=202,
+                payload=SimpleNamespace(),
+                authorization="Bearer token",
+                db=db,
+            )
+            self.assertEqual(acquire_calls, [])
 
-        self.assertEqual(exc_info.exception.status_code, 409)
-        self.assertEqual(exc_info.exception.detail, STORY_GAME_OPERATION_BUSY_DETAIL)
-        self.assertEqual(acquire_calls, [0.001, 0.002])
+            async def consume_until_error() -> list[str]:
+                iterator = response.body_iterator
+                chunks: list[str] = []
+                for _ in range(5):
+                    chunk = await iterator.__anext__()
+                    chunks.append(chunk)
+                    if "event: error" in chunk:
+                        break
+                await iterator.aclose()
+                return chunks
+
+            chunks = asyncio.run(consume_until_error())
+
+        self.assertIn(": keepalive", chunks[0])
+        self.assertTrue(any("event: error" in chunk for chunk in chunks))
+        self.assertTrue(any(STORY_GAME_OPERATION_BUSY_DETAIL in chunk for chunk in chunks))
+        self.assertGreaterEqual(len(acquire_calls), 2)
         cancel_mock.assert_called_once_with(202)
 
     def test_story_generate_releases_operation_lock_when_stream_is_closed_early(self) -> None:
@@ -186,16 +202,23 @@ class StoryGenerationLockingTests(unittest.TestCase):
             get_user_story_game_or_404=lambda _db, _user_id, _game_id: SimpleNamespace(id=303),
         )
 
-        async def hanging_stream():
-            yield "event: start\ndata: {}\n\n"
-            await asyncio.sleep(3600)
+        def fake_locked_stream(**kwargs):
+            self.assertTrue(kwargs.get("as_stream"))
+
+            def stream():
+                yield "event: start\ndata: {}\n\n"
+                while True:
+                    yield ": keepalive\n\n"
+
+            return stream()
 
         with (
+            patch.object(story_runtime, "SessionLocal", return_value=db),
             patch.object(story_runtime, "acquire_story_game_operation_lock", return_value=lease),
             patch.object(
                 story_runtime,
                 "_generate_story_response_locked",
-                return_value=StreamingResponse(hanging_stream(), media_type="text/event-stream"),
+                side_effect=fake_locked_stream,
             ),
         ):
             response = story_runtime.generate_story_response(
@@ -206,22 +229,168 @@ class StoryGenerationLockingTests(unittest.TestCase):
                 db=db,
             )
 
-        async def consume_one_chunk_and_close() -> None:
-            iterator = response.body_iterator
-            first_chunk = await iterator.__anext__()
-            self.assertIn("event: start", first_chunk)
-            await iterator.aclose()
+            async def consume_one_chunk_and_close() -> None:
+                iterator = response.body_iterator
+                chunks: list[str] = []
+                for _ in range(5):
+                    chunk = await iterator.__anext__()
+                    chunks.append(chunk)
+                    if "event: start" in chunk:
+                        break
+                self.assertIn(": keepalive", chunks[0])
+                self.assertTrue(any("event: start" in chunk for chunk in chunks))
+                await iterator.aclose()
 
-        asyncio.run(consume_one_chunk_and_close())
+            asyncio.run(consume_one_chunk_and_close())
+
+        for _ in range(50):
+            if lease.release_calls >= 1:
+                break
+            time.sleep(0.01)
 
         self.assertEqual(lease.release_calls, 1)
         self.assertEqual(db.rollback_calls, 2)
+
+    def test_story_generate_emits_keepalive_while_preparing_locked_stream(self) -> None:
+        db = _RollbackTrackingSession()
+        lease = _ReleaseTrackingLease()
+        prep_started = Event()
+        prep_continue = Event()
+        deps = SimpleNamespace(
+            validate_provider_config=lambda: None,
+            get_current_user=lambda _db, _authorization: SimpleNamespace(id=101),
+            get_user_story_game_or_404=lambda _db, _user_id, _game_id: SimpleNamespace(id=404),
+        )
+
+        def slow_locked_stream(**kwargs):
+            self.assertTrue(kwargs.get("as_stream"))
+            prep_started.set()
+            prep_continue.wait(timeout=2.0)
+
+            def stream():
+                yield "event: start\ndata: {}\n\n"
+
+            return stream()
+
+        with (
+            patch.object(story_runtime, "SessionLocal", return_value=db),
+            patch.object(story_runtime, "acquire_story_game_operation_lock", return_value=lease),
+            patch.object(
+                story_runtime,
+                "_generate_story_response_locked",
+                side_effect=slow_locked_stream,
+            ),
+            patch.object(story_runtime, "STORY_STREAM_RELAY_HEARTBEAT_SECONDS", 0.01),
+        ):
+            response = story_runtime.generate_story_response(
+                deps=deps,
+                game_id=404,
+                payload=SimpleNamespace(),
+                authorization="Bearer token",
+                db=db,
+            )
+
+            async def consume_keepalive_then_start() -> list[str]:
+                iterator = response.body_iterator
+                chunks = [await iterator.__anext__()]
+                self.assertTrue(prep_started.wait(timeout=1.0))
+                chunks.append(await iterator.__anext__())
+                prep_continue.set()
+                for _ in range(10):
+                    chunk = await iterator.__anext__()
+                    chunks.append(chunk)
+                    if "event: start" in chunk:
+                        break
+                await iterator.aclose()
+                return chunks
+
+            chunks = asyncio.run(consume_keepalive_then_start())
+
+        self.assertIn(": keepalive", chunks[0])
+        self.assertTrue(any(": keepalive" in chunk for chunk in chunks[:2]))
+        self.assertTrue(any("event: start" in chunk for chunk in chunks))
+        for _ in range(50):
+            if lease.release_calls >= 1:
+                break
+            time.sleep(0.01)
+        self.assertEqual(lease.release_calls, 1)
 
         if response.background is not None:
             asyncio.run(response.background())
 
         self.assertEqual(lease.release_calls, 1)
         self.assertEqual(db.rollback_calls, 2)
+
+    def test_story_stream_emits_keepalive_while_provider_waits_for_first_chunk(self) -> None:
+        game_id = 9_103
+        generation_id = "generation-provider-heartbeat"
+        db = _StreamingSession()
+        game = SimpleNamespace(id=game_id)
+        user = SimpleNamespace(id=503)
+        provider_continue = Event()
+
+        def slow_provider(**_kwargs):
+            provider_continue.wait(timeout=2.0)
+            yield "late text"
+
+        deps = SimpleNamespace(
+            stream_persist_min_chars=10_000,
+            stream_persist_max_interval_seconds=60.0,
+            story_assistant_role="assistant",
+            touch_story_game=lambda _game: None,
+            stream_story_provider_chunks=slow_provider,
+            spend_user_tokens_if_sufficient=lambda *_args, **_kwargs: True,
+            resolve_story_turn_postprocess_payload=lambda **_kwargs: {},
+        )
+
+        mark_story_generation_started(game_id, generation_id)
+        try:
+            with patch.object(story_runtime, "STORY_PROVIDER_HEARTBEAT_SECONDS", 0.01):
+                stream = story_runtime._stream_story_response(
+                    deps=deps,
+                    db=db,
+                    game=game,
+                    user=user,
+                    turn_cost_tokens=0,
+                    source_user_message=None,
+                    prompt="turn",
+                    turn_index=1,
+                    context_messages=[],
+                    instruction_cards=[],
+                    plot_cards=[],
+                    world_cards=[],
+                    all_world_cards=[],
+                    context_limit_chars=10_000,
+                    story_model_name=None,
+                    story_response_max_tokens=None,
+                    story_temperature=0.7,
+                    story_repetition_penalty=1.0,
+                    story_top_k=40,
+                    story_top_r=0.9,
+                    memory_optimization_enabled=True,
+                    reroll_discarded_assistant_text=None,
+                    ambient_enabled=False,
+                    emotion_visualization_enabled=False,
+                    visual_novel_enabled=False,
+                    show_gg_thoughts=False,
+                    show_npc_thoughts=False,
+                    story_generation_id=generation_id,
+                )
+
+                self.assertIn("event: start", next(stream))
+                self.assertIn(": keepalive", next(stream))
+                provider_continue.set()
+
+                chunk_event = ""
+                for _ in range(20):
+                    chunk_event = next(stream)
+                    if "event: chunk" in chunk_event:
+                        break
+                self.assertIn("event: chunk", chunk_event)
+                self.assertIn("late text", chunk_event)
+                stream.close()
+        finally:
+            mark_story_generation_finished(game_id, generation_id)
 
     def test_cancel_after_finalizing_progress_skips_billing_and_postprocess(self) -> None:
         game_id = 9_101

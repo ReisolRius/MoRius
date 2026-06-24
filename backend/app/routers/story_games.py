@@ -753,7 +753,7 @@ def _generate_story_quick_start_payload(
             "role": "system",
             "content": (
                 "You create the protagonist setup for a Russian text RPG. "
-                "Return strict JSON only without markdown. "
+                "Return JSON only. No markdown, reasoning, or commentary. "
                 "Write all fields in Russian. "
                 "Use exactly these keys: game_title, game_description, hero_description, hero_triggers. "
                 "hero_description must feel specific, authored, and non-generic. "
@@ -778,7 +778,7 @@ def _generate_story_quick_start_payload(
                 "4. hero_description обязательно должен описывать пол или гендерную подачу, расу или происхождение, возраст, одежду, заметные черты внешности и сам класс героя.\n"
                 "5. Не делай героя безликим: пусть у него будет характерный образ и ощущение личной истории, а не абстрактное описание.\n"
                 "6. hero_triggers: массив из 4-6 коротких триггеров.\n"
-                "7. Верни только JSON без markdown."
+                "7. Return JSON only. No reasoning."
             ),
         },
     ]
@@ -788,7 +788,7 @@ def _generate_story_quick_start_payload(
             "role": "system",
             "content": (
                 "You write only the opening scene for a Russian interactive RPG. "
-                "Return strict JSON only without markdown. "
+                "Return JSON only. No markdown, reasoning, or commentary. "
                 "Use exactly one key: opening_scene. "
                 "The scene must be vivid, specific, and unique, not generic filler. "
                 "It must read like the very first assistant turn already written into the story before the player's first move. "
@@ -809,7 +809,7 @@ def _generate_story_quick_start_payload(
                 "3. Пусть в ней будет конкретное место, заметная деталь обстановки и повод для немедленного действия.\n"
                 "4. Это должен быть первый ход мастера до действия игрока, поэтому не пиши реплики или действия игрока.\n"
                 "5. Финал сцены должен подталкивать к следующему выбору или действию героя.\n"
-                "6. Верни только JSON без markdown."
+                "6. Return JSON only. No reasoning."
             ),
         },
     ]

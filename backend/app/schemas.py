@@ -1116,6 +1116,14 @@ class StoryCharacterEmotionGenerateOut(BaseModel):
     user: UserOut | None = None
 
 
+class StorySpriteCutoutRequest(BaseModel):
+    sources: list[str] = Field(default_factory=list, max_length=8)
+
+
+class StorySpriteCutoutOut(BaseModel):
+    assets: list[str] = Field(default_factory=list)
+
+
 StoryCharacterEmotionJobStatus = Literal["queued", "running", "completed", "failed"]
 
 

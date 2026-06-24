@@ -83,6 +83,7 @@ STORY_TURN_IMAGE_APPEARANCE_LOCK_KEYWORDS = monolith_main.STORY_TURN_IMAGE_APPEA
 STORY_TURN_IMAGE_HAIR_LENGTH_LOCK_KEYWORDS = monolith_main.STORY_TURN_IMAGE_HAIR_LENGTH_LOCK_KEYWORDS
 STORY_WORLD_CARD_KIND_NPC = monolith_main.STORY_WORLD_CARD_KIND_NPC
 STORY_WORLD_CARD_KIND_MAIN_HERO = monolith_main.STORY_WORLD_CARD_KIND_MAIN_HERO
+STORY_SPRITE_IMAGE_BASE_RULES = monolith_main.STORY_SPRITE_IMAGE_BASE_RULES
 
 _get_current_user = monolith_main._get_current_user
 _get_user_story_game_or_404 = monolith_main._get_user_story_game_or_404
@@ -1692,10 +1693,9 @@ def _build_story_character_avatar_prompt(
 
     prompt_lines = [
         "Create a character reference illustration.",
-        "Single character only.",
+        *STORY_SPRITE_IMAGE_BASE_RULES,
         "Full-body framing: show the character from head to toe in a standing pose.",
         "Keep the character centered with clean margins around the silhouette.",
-        "No extra people, no text, no logos, no watermark, no frame.",
         "Use only the player's character appearance description below as the source of visual details.",
     ]
     if normalized_style_prompt:
@@ -1728,13 +1728,11 @@ def _build_story_character_emotion_reference_prompt(
 
     prompt_lines = [
         "Create a character reference sprite for an RPG dialogue overlay.",
-        "Single character only.",
+        *STORY_SPRITE_IMAGE_BASE_RULES,
         "Full-body sprite framing: show the entire character from head to feet.",
         "Do not crop at the waist, hips, knees, or shins. Boots, shoes, and the full silhouette must be visible.",
         "Keep the character centered with clean margins around the silhouette.",
-        "Use a plain pure white studio background or another flat cutout-friendly background with no scenery so the character can be extracted as a transparent sprite.",
-        "No props, no weapons unless explicitly described, no scenery, no text, no watermark, no frame.",
-        "Readable face, consistent costume, consistent anatomy, consistent proportions.",
+        "No props or weapons unless explicitly described.",
         f"Character appearance description: {normalized_description}.",
     ]
     if normalized_style_prompt:
@@ -1804,7 +1802,7 @@ def _build_story_character_emotion_edit_prompt(
     descriptor = _resolve_story_character_emotion_descriptor(emotion_id)
     prompt_lines = [
         "Edit the provided character reference image into a character expression sprite.",
-        "Single character only.",
+        *STORY_SPRITE_IMAGE_BASE_RULES,
         emotion_prompt_lock,
         f"Change the facial expression, hands, shoulders, torso angle, and pose so the character clearly reads as {descriptor}.",
         "Use emotion-appropriate whole-body posing, for example crossed arms and grounded stance for anger or strictness, recoiling posture for fear, open posture for joy, wary footing for alertness, bashful hand-to-face gestures for embarrassment, or reflective hand/chin posing for thoughtful scenes when suitable.",
@@ -1812,8 +1810,7 @@ def _build_story_character_emotion_edit_prompt(
         "Keep the same character identity, outfit, and art style, but do not freeze the sprite into the exact same pose.",
         "Frame the sprite from head to feet with the entire body visible.",
         "Do not return a face portrait, chest crop, or waist crop. Legs and feet must stay inside frame.",
-        "Use a plain pure white or near-white flat studio background with no scenery so post-processing can extract a clean transparent PNG sprite.",
-        "No props, no scenery, no extra people, no text, no watermark, no frame.",
+        "No props unless explicitly present in the reference or description.",
     ]
     return "\n".join(line for line in prompt_lines if line).strip()
 
@@ -2352,26 +2349,15 @@ def _build_story_scene_emotion_analysis_messages(
     system_prompt = "\n".join(
         [
             "You annotate a narrator response for a visual-novel screen.",
-            "Return one exact timeline object via the report_scene_emotions tool.",
-            "The narrator response is already split into numbered blocks. Respect the block order exactly.",
-            "Rules:",
-            "- If the response has at least one usable block, set show_visualization=true and return one block object for every listed block index.",
-            "- Use show_visualization=false only when the response is empty or unusable for a visual-novel timeline. In that case return blocks=[].",
-            "- The main hero is always shown on the left. Every block must have one hero_emotion.",
-            "- Show at most one NPC on the right in each block.",
-            "- Use npc_name and npc_emotion only when a concrete NPC should be visible on the right in that exact block.",
-            "- Usually NPC speech and NPC thought blocks should show that same NPC on the right.",
-            "- For narration blocks, show an NPC on the right only when the narration clearly focuses on a named NPC in that block.",
-            "- Never invent characters. Use only exact NPC names from the active character list.",
-            "- Never use pronouns instead of names.",
+            "Use only the report_scene_emotions tool; no reasoning or commentary.",
+            "Respect numbered block order exactly.",
+            "- If blocks are usable, show_visualization=true and return one block object for every listed block index; otherwise false with blocks=[].",
+            "- Main hero is always left with one hero_emotion per block; at most one exact-name NPC on the right.",
+            "- NPC speech/thought usually shows that NPC; narration shows an NPC only when focused on them.",
+            "- Never invent characters or use pronouns instead of names.",
             "- Use only these emotion ids: calm, angry, irritated, stern, cheerful, smiling, sly, alert, scared, happy, embarrassed, confused, thoughtful.",
-            "- If a named character encounters danger, choose alert or scared depending on the severity.",
-            "- If the scene is interactive but emotion is mild, use calm or smiling.",
-            "- Use embarrassed for shyness, awkwardness, blush, or social discomfort.",
-            "- If a block explicitly describes blush, shy body language, awkward silence, bashfulness, fluster, СЃРјСѓС‰РµРЅРёРµ, СЃРјСѓС‰С‘РЅРЅСѓСЋ СѓР»С‹Р±РєСѓ, РЅРµР»РѕРІРєРѕСЃС‚СЊ, or a hesitant romantic reaction, npc_emotion must be embarrassed.",
-            "- Use confused for uncertainty, disorientation, misunderstanding, or visible confusion.",
-            "- Use stern for authoritative, strict, cold, severe, or hard-line reactions.",
-            "- Use thoughtful for reflective pauses, deep thinking, hesitation with introspection, or pensive silence.",
+            "- Danger -> alert/scared; mild interaction -> calm/smiling; shy/blush/awkward -> embarrassed.",
+            "- confused=uncertain; stern=authority/cold severity; thoughtful=pensive pause.",
         ]
     )
     user_prompt = "\n".join(

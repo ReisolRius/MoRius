@@ -5,8 +5,10 @@ import logging
 import math
 import re
 import time
+from queue import Empty, Queue
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
+from threading import Event, Thread
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -17,6 +19,7 @@ from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.database import SessionLocal
 from app.models import (
     StoryCharacterStateSnapshot,
     StoryGame,
@@ -69,6 +72,7 @@ from app.services.sqlite_write_guard import commit_with_retry, is_database_busy_
 from app.services.story_generation_cancel import (
     StoryGenerationCancelled,
     cancel_story_generation,
+    cancel_story_generation_or_next,
     is_story_generation_cancelled,
     mark_story_generation_finished,
     mark_story_generation_started,
@@ -88,6 +92,9 @@ STORY_POSTPROCESS_STATUS_FAILED_RETRYABLE = "storyteller_succeeded_postprocessin
 STORY_POSTPROCESS_STATUS_PENDING = "storyteller_succeeded_postprocessing_pending"
 STORY_GENERATE_LOCK_WAIT_SECONDS = 15.0
 STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 20.0
+STORY_GENERATE_LOCK_POLL_SECONDS = 0.75
+STORY_PROVIDER_HEARTBEAT_SECONDS = 8.0
+STORY_STREAM_RELAY_HEARTBEAT_SECONDS = 1.0
 STORY_POSTPROCESS_MAX_SERVICE_REQUESTS = 16
 STORY_GRAPH_MAX_SERVICE_REQUESTS = 4
 STORY_STREAM_RETRY_DELAYS_SECONDS = (1.0, 2.5, 5.0, 8.0)
@@ -127,6 +134,14 @@ class _StoryMessagePromptOverride:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.source, name)
+
+
+@dataclass(frozen=True)
+class _StoryProviderHeartbeat:
+    pass
+
+
+_STORY_PROVIDER_HEARTBEAT = _StoryProviderHeartbeat()
 
 
 def _is_sqlite_database_url(database_url: str | None) -> bool:
@@ -177,6 +192,53 @@ class StoryRuntimeDeps:
 
 def _sse_event(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _sse_keepalive() -> str:
+    return ": keepalive\n\n"
+
+
+def _iter_story_provider_chunks_with_heartbeat(
+    *,
+    chunk_iter_factory: Callable[[], Any],
+    game_id: int,
+    story_generation_id: str,
+):
+    queue: Queue[tuple[str, Any]] = Queue()
+
+    def _worker() -> None:
+        try:
+            for chunk in chunk_iter_factory():
+                queue.put(("chunk", chunk))
+        except BaseException as exc:
+            queue.put(("error", exc))
+        finally:
+            queue.put(("done", None))
+
+    thread = Thread(
+        target=_worker,
+        name=f"story-provider-stream-{int(game_id or 0)}",
+        daemon=True,
+    )
+    thread.start()
+
+    heartbeat_seconds = max(float(STORY_PROVIDER_HEARTBEAT_SECONDS), 0.25)
+    while True:
+        if is_story_generation_cancelled(game_id, story_generation_id):
+            raise StoryGenerationCancelled("Story generation cancelled")
+        try:
+            kind, value = queue.get(timeout=heartbeat_seconds)
+        except Empty:
+            yield _STORY_PROVIDER_HEARTBEAT
+            continue
+
+        if kind == "chunk":
+            yield str(value or "")
+            continue
+        if kind == "error":
+            raise value
+        if kind == "done":
+            return
 
 
 def _safe_dump_stream_events(events: list[Any]) -> list[dict[str, Any]]:
@@ -294,6 +356,118 @@ def _attach_story_operation_lease_release(
     combined_background.add_task(release_once)
     response.background = combined_background
     return response
+
+
+def _wait_for_story_generate_operation_lease(locked_game_id: int, stop_event: Event | None = None):
+    wait_started_at = time.monotonic()
+    cancel_requested = False
+    cancel_deadline = wait_started_at + STORY_GENERATE_LOCK_WAIT_SECONDS + STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS
+    last_busy_error: StoryGameOperationBusyError | None = None
+
+    while True:
+        if stop_event is not None and stop_event.is_set():
+            raise StoryGenerationCancelled("Story generation stream was closed before lock acquisition")
+        now = time.monotonic()
+        active_deadline = (
+            cancel_deadline
+            if cancel_requested
+            else wait_started_at + STORY_GENERATE_LOCK_WAIT_SECONDS
+        )
+        remaining_seconds = max(active_deadline - now, 0.0)
+        poll_seconds = min(max(float(STORY_GENERATE_LOCK_POLL_SECONDS), 0.05), max(remaining_seconds, 0.05))
+        try:
+            return acquire_story_game_operation_lock(
+                locked_game_id,
+                operation="story_generate",
+                wait_timeout_seconds=poll_seconds,
+            )
+        except StoryGameOperationBusyError as exc:
+            last_busy_error = exc
+            now = time.monotonic()
+            if not cancel_requested and now >= wait_started_at + STORY_GENERATE_LOCK_WAIT_SECONDS:
+                cancelled_previous_generation = cancel_story_generation(locked_game_id)
+                cancel_requested = True
+                cancel_deadline = now + STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS
+                logger.warning(
+                    "Story generate lock timed out inside stream; requested active generation cancellation: "
+                    "game_id=%s cancelled=%s error=%s",
+                    locked_game_id,
+                    cancelled_previous_generation,
+                    exc,
+                )
+            elif cancel_requested and now >= cancel_deadline:
+                logger.warning(
+                    "Story generate lock stayed busy after streaming cancellation grace period: "
+                    "game_id=%s wait_seconds=%.3fs error=%s",
+                    locked_game_id,
+                    STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS,
+                    exc,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=STORY_GAME_OPERATION_BUSY_DETAIL,
+                ) from last_busy_error
+            yield _sse_keepalive()
+
+
+def _restore_latest_undone_assistant_response_if_orphaned(
+    *,
+    deps: StoryRuntimeDeps,
+    db: Session,
+    game: StoryGame,
+    current_messages: list[StoryMessage] | None = None,
+    reason: str,
+) -> bool:
+    messages = current_messages if current_messages is not None else deps.list_story_messages(db, game.id)
+    latest_visible_message = messages[-1] if messages else None
+    if latest_visible_message is None or latest_visible_message.role != deps.story_user_role:
+        return False
+
+    latest_undone_assistant = db.scalar(
+        select(StoryMessage)
+        .where(
+            StoryMessage.game_id == game.id,
+            StoryMessage.role == deps.story_assistant_role,
+            StoryMessage.undone_at.is_not(None),
+            StoryMessage.id > latest_visible_message.id,
+        )
+        .order_by(StoryMessage.undone_at.desc(), StoryMessage.id.desc())
+    )
+    if latest_undone_assistant is None:
+        return False
+
+    visible_message_after_undone_assistant = db.scalar(
+        select(StoryMessage.id)
+        .where(
+            StoryMessage.game_id == game.id,
+            StoryMessage.undone_at.is_(None),
+            StoryMessage.id > latest_undone_assistant.id,
+        )
+        .order_by(StoryMessage.id.asc())
+        .limit(1)
+    )
+    if visible_message_after_undone_assistant is not None:
+        return False
+
+    from app.services.story_undo import reapply_story_card_events_for_assistant_message
+
+    reapply_story_card_events_for_assistant_message(
+        db=db,
+        game=game,
+        assistant_message_id=latest_undone_assistant.id,
+        commit=False,
+        touch_game=False,
+    )
+    latest_undone_assistant.undone_at = None
+    deps.touch_story_game(game)
+    commit_with_retry(db)
+    logger.warning(
+        "Restored orphaned assistant response: game_id=%s assistant_message_id=%s reason=%s",
+        game.id,
+        latest_undone_assistant.id,
+        reason,
+    )
+    return True
 
 
 def _estimate_story_tokens(value: str) -> int:
@@ -1164,8 +1338,16 @@ def _stream_story_response(
     show_gg_thoughts: bool,
     show_npc_thoughts: bool,
     story_generation_id: str,
+    discarded_assistant_message_ids: list[int] | None = None,
 ):
     assistant_message: StoryMessage | None = None
+    discarded_assistant_ids = [
+        int(message_id)
+        for message_id in (discarded_assistant_message_ids or [])
+        if isinstance(message_id, int) and int(message_id) > 0
+    ]
+    discarded_steps_restored = False
+    discarded_steps_purged = False
     persist_min_chars = max(int(deps.stream_persist_min_chars), 1)
     persist_max_interval_seconds = max(float(deps.stream_persist_max_interval_seconds), 0.25)
     if _is_sqlite_database_url(getattr(settings, "database_url", "")):
@@ -1244,31 +1426,140 @@ def _stream_story_response(
             )
             db.rollback()
 
+    def _restore_discarded_assistant_steps(reason: str) -> None:
+        nonlocal discarded_steps_restored
+        if discarded_steps_restored or not discarded_assistant_ids:
+            return
+        try:
+            from app.services.story_undo import reapply_story_card_events_for_assistant_message
+
+            restored_any = False
+            for discarded_assistant_id in discarded_assistant_ids:
+                discarded_message = db.scalar(
+                    select(StoryMessage).where(
+                        StoryMessage.id == discarded_assistant_id,
+                        StoryMessage.game_id == game.id,
+                        StoryMessage.role == deps.story_assistant_role,
+                        StoryMessage.undone_at.is_not(None),
+                    )
+                )
+                if discarded_message is None:
+                    continue
+                reapply_story_card_events_for_assistant_message(
+                    db=db,
+                    game=game,
+                    assistant_message_id=discarded_assistant_id,
+                    commit=False,
+                    touch_game=False,
+                )
+                discarded_message.undone_at = None
+                restored_any = True
+            if restored_any:
+                deps.touch_story_game(game)
+                commit_with_retry(db)
+                try:
+                    db.refresh(game)
+                except Exception:
+                    pass
+                logger.info(
+                    "Restored discarded assistant step after failed replacement: game_id=%s assistant_ids=%s reason=%s",
+                    game.id,
+                    discarded_assistant_ids,
+                    reason,
+                )
+            discarded_steps_restored = True
+        except Exception:
+            logger.exception(
+                "Failed to restore discarded assistant step: game_id=%s assistant_ids=%s reason=%s",
+                game.id,
+                discarded_assistant_ids,
+                reason,
+            )
+            db.rollback()
+
+    def _purge_discarded_assistant_steps_after_success() -> None:
+        nonlocal discarded_steps_purged
+        if discarded_steps_purged or not discarded_assistant_ids:
+            return
+        discarded_steps_purged = True
+        try:
+            from app.services.story_undo import purge_story_graph_turn_references
+
+            purge_story_graph_turn_references(
+                db=db,
+                game_id=int(game.id),
+                assistant_message_ids=discarded_assistant_ids,
+            )
+            db.execute(sa_delete(StoryMessageSegment).where(StoryMessageSegment.message_id.in_(discarded_assistant_ids)))
+            db.execute(sa_delete(StoryTurnImage).where(StoryTurnImage.assistant_message_id.in_(discarded_assistant_ids)))
+            db.execute(
+                sa_delete(StoryWorldCardChangeEvent).where(
+                    StoryWorldCardChangeEvent.assistant_message_id.in_(discarded_assistant_ids)
+                )
+            )
+            db.execute(
+                sa_delete(StoryPlotCardChangeEvent).where(
+                    StoryPlotCardChangeEvent.assistant_message_id.in_(discarded_assistant_ids)
+                )
+            )
+            db.execute(sa_delete(StoryMemoryBlock).where(StoryMemoryBlock.assistant_message_id.in_(discarded_assistant_ids)))
+            db.execute(
+                sa_delete(StoryCharacterStateSnapshot).where(
+                    StoryCharacterStateSnapshot.assistant_message_id.in_(discarded_assistant_ids)
+                )
+            )
+            db.execute(
+                sa_delete(StoryMessage).where(
+                    StoryMessage.game_id == game.id,
+                    StoryMessage.id.in_(discarded_assistant_ids),
+                    StoryMessage.undone_at.is_not(None),
+                )
+            )
+            deps.touch_story_game(game)
+            commit_with_retry(db)
+        except Exception:
+            logger.exception(
+                "Failed to purge discarded assistant step after replacement: game_id=%s assistant_ids=%s",
+                game.id,
+                discarded_assistant_ids,
+            )
+            db.rollback()
+
     try:
         for stream_attempt in range(len(STORY_STREAM_RETRY_DELAYS_SECONDS) + 1):
             try:
-                for chunk in deps.stream_story_provider_chunks(
-                    prompt=prompt,
-                    turn_index=turn_index,
-                    context_messages=context_messages,
-                    instruction_cards=instruction_cards,
-                    plot_cards=plot_cards,
-                    world_cards=world_cards,
-                    context_limit_chars=context_limit_chars,
-                    story_model_name=story_model_name,
-                    story_response_max_tokens=story_response_max_tokens,
-                    story_temperature=story_temperature,
-                    story_repetition_penalty=story_repetition_penalty,
-                    story_top_k=story_top_k,
-                    story_top_r=story_top_r,
-                    use_plot_memory=memory_optimization_enabled,
-                    reroll_discarded_assistant_text=reroll_discarded_assistant_text,
-                    show_gg_thoughts=show_gg_thoughts,
-                    show_npc_thoughts=show_npc_thoughts,
-                    story_generation_game_id=int(game.id),
+                def _provider_chunks():
+                    return deps.stream_story_provider_chunks(
+                        prompt=prompt,
+                        turn_index=turn_index,
+                        context_messages=context_messages,
+                        instruction_cards=instruction_cards,
+                        plot_cards=plot_cards,
+                        world_cards=world_cards,
+                        context_limit_chars=context_limit_chars,
+                        story_model_name=story_model_name,
+                        story_response_max_tokens=story_response_max_tokens,
+                        story_temperature=story_temperature,
+                        story_repetition_penalty=story_repetition_penalty,
+                        story_top_k=story_top_k,
+                        story_top_r=story_top_r,
+                        use_plot_memory=memory_optimization_enabled,
+                        reroll_discarded_assistant_text=reroll_discarded_assistant_text,
+                        show_gg_thoughts=show_gg_thoughts,
+                        show_npc_thoughts=show_npc_thoughts,
+                        story_generation_game_id=int(game.id),
+                        story_generation_id=story_generation_id,
+                        raw_output_collector=stream_runtime_meta,
+                    )
+
+                for chunk in _iter_story_provider_chunks_with_heartbeat(
+                    chunk_iter_factory=_provider_chunks,
+                    game_id=int(game.id),
                     story_generation_id=story_generation_id,
-                    raw_output_collector=stream_runtime_meta,
                 ):
+                    if chunk is _STORY_PROVIDER_HEARTBEAT:
+                        yield _sse_keepalive()
+                        continue
                     produced += chunk
                     current_time = time.monotonic()
                     if (
@@ -1341,7 +1632,11 @@ def _stream_story_response(
                     },
                 )
                 time.sleep(retry_delay)
-    except (GeneratorExit, StoryGenerationCancelled):
+    except GeneratorExit:
+        cancel_story_generation(int(game.id))
+        aborted = True
+        stream_error = stream_error or "stream cancelled by client"
+    except StoryGenerationCancelled:
         aborted = True
         stream_error = stream_error or "stream cancelled by client"
     except Exception as exc:
@@ -1365,6 +1660,7 @@ def _stream_story_response(
                 getattr(assistant_message, "id", None),
             )
             db.rollback()
+        _restore_discarded_assistant_steps("provider_failed")
         yield _sse_event("error", {"detail": error_detail})
         return
 
@@ -1372,7 +1668,22 @@ def _stream_story_response(
         aborted = True
 
     if aborted:
-        _persist_cancelled_output()
+        if discarded_assistant_ids:
+            try:
+                if assistant_message is not None:
+                    db.delete(assistant_message)
+                deps.touch_story_game(game)
+                commit_with_retry(db)
+            except Exception:
+                logger.exception(
+                    "Failed to remove cancelled replacement assistant: game_id=%s assistant_message_id=%s",
+                    game.id,
+                    getattr(assistant_message, "id", None),
+                )
+                db.rollback()
+            _restore_discarded_assistant_steps("replacement_cancelled")
+        else:
+            _persist_cancelled_output()
         return
 
     if assistant_message is not None:
@@ -1395,6 +1706,7 @@ def _stream_story_response(
         db.rollback()
         if not aborted:
             stream_error = stream_error or str(exc)
+            _restore_discarded_assistant_steps("message_finalize_failed")
             yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
         return
 
@@ -1415,6 +1727,7 @@ def _stream_story_response(
                 getattr(assistant_message, "id", None),
             )
             db.rollback()
+        _restore_discarded_assistant_steps("empty_response")
         yield _sse_event("error", {"detail": "OpenRouter returned an empty story response"})
         return
 
@@ -1462,6 +1775,7 @@ def _stream_story_response(
                     db.delete(assistant_message)
                 deps.touch_story_game(game)
                 commit_with_retry(db)
+                _restore_discarded_assistant_steps("billing_insufficient")
                 yield _sse_event("error", {"detail": "Недостаточно солов для хода"})
                 return
             commit_with_retry(db)
@@ -1871,6 +2185,7 @@ def _stream_story_response(
         if _stop_requested("done_payload"):
             return
 
+        _purge_discarded_assistant_steps_after_success()
         ai_memory_blocks_payload = _safe_dump_stream_items(
             [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
         )
@@ -1929,6 +2244,7 @@ def _stream_story_response(
             yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
         return
 
+    _purge_discarded_assistant_steps_after_success()
     ai_memory_blocks_payload = _safe_dump_stream_items(
         [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
     )
@@ -1986,7 +2302,8 @@ def _generate_story_response_locked(
     payload: StoryGenerateRequest,
     authorization: str | None,
     db: Session,
-) -> StreamingResponse:
+    as_stream: bool = False,
+) -> StreamingResponse | Any:
     deps.validate_provider_config()
     user = deps.get_current_user(db, authorization)
     game = deps.get_user_story_game_or_404(db, user.id, game_id)
@@ -2172,6 +2489,7 @@ def _generate_story_response_locked(
         except Exception:
             logger.exception("Failed to hydrate story instructions from DB: game_id=%s", game.id)
     source_user_message: StoryMessage | None = None
+    discarded_assistant_message_ids: list[int] = []
 
     def _seed_opening_scene_message_if_needed(current_messages: list[StoryMessage]) -> list[StoryMessage]:
         opening_scene = str(getattr(game, "opening_scene", "") or "").replace("\r\n", "\n").strip()
@@ -2262,6 +2580,7 @@ def _generate_story_response_locked(
         action_label: str,
     ) -> list[StoryMessage]:
         nonlocal reroll_discarded_assistant_text
+        nonlocal discarded_assistant_message_ids
         if steps <= 0:
             return deps.list_story_messages(db, game.id)
 
@@ -2287,49 +2606,19 @@ def _generate_story_response_locked(
                     game=game,
                     assistant_message_id=last_message.id,
                     commit=False,
+                    purge_events=False,
                     touch_game=False,
-                )
-                # Extra safety for legacy rows: ensure no event still references removed assistant message.
-                db.execute(
-                    sa_delete(StoryMessageSegment).where(
-                        StoryMessageSegment.message_id == last_message.id,
-                    )
-                )
-                db.execute(
-                    sa_delete(StoryWorldCardChangeEvent).where(
-                        StoryWorldCardChangeEvent.assistant_message_id == last_message.id,
-                    )
-                )
-                db.execute(
-                    sa_delete(StoryPlotCardChangeEvent).where(
-                        StoryPlotCardChangeEvent.assistant_message_id == last_message.id,
-                    )
-                )
-                db.execute(
-                    sa_delete(StoryTurnImage).where(
-                        StoryTurnImage.assistant_message_id == last_message.id,
-                    )
-                )
-                db.execute(
-                    sa_delete(StoryMemoryBlock).where(
-                        StoryMemoryBlock.assistant_message_id == last_message.id,
-                    )
-                )
-                db.execute(
-                    sa_delete(StoryCharacterStateSnapshot).where(
-                        StoryCharacterStateSnapshot.assistant_message_id == last_message.id,
-                    )
                 )
                 if reroll_discarded_assistant_text is None:
                     discarded_text = _normalize_story_message_content(getattr(last_message, "content", None))
                     if discarded_text:
                         reroll_discarded_assistant_text = discarded_text
-                db.delete(last_message)
+                last_message.undone_at = datetime.now(timezone.utc)
+                discarded_assistant_message_ids.append(int(last_message.id))
                 if delete_source_user:
-                    db.delete(source_user_message_for_step)
+                    source_user_message_for_step.undone_at = datetime.now(timezone.utc)
                 clear_canonical_state_payload(game)
-                if action_label != "reroll":
-                    deps.touch_story_game(game)
+                deps.touch_story_game(game)
                 commit_with_retry(db)
             except HTTPException:
                 db.rollback()
@@ -2468,6 +2757,35 @@ def _generate_story_response_locked(
                 detail=f"Failed to purge undone steps for {action_label}: {_public_story_error_detail(exc)}",
             ) from exc
 
+    def _restore_latest_undone_assistant_for_reroll_if_needed(current_messages: list[StoryMessage]) -> bool:
+        try:
+            return _restore_latest_undone_assistant_response_if_orphaned(
+                deps=deps,
+                db=db,
+                game=game,
+                current_messages=current_messages,
+                reason="reroll_prepare",
+            )
+        except Exception as exc:
+            db.rollback()
+            if is_database_busy_session_error(exc):
+                logger.warning(
+                    "Story reroll repair delayed by busy storage after retries: game_id=%s",
+                    game.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=STORY_GAME_OPERATION_BUSY_DETAIL,
+                ) from exc
+            logger.exception(
+                "Failed to restore orphaned assistant response before reroll: game_id=%s",
+                game.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to repair reroll state: {_public_story_error_detail(exc)}",
+            ) from exc
+
     messages = _seed_opening_scene_message_if_needed(messages)
 
     if payload.reroll_last_response:
@@ -2482,6 +2800,11 @@ def _generate_story_response_locked(
         if source_user_message is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user prompt found for reroll")
 
+        if _restore_latest_undone_assistant_for_reroll_if_needed(messages):
+            messages = deps.list_story_messages(db, game.id)
+
+        _purge_undone_story_steps(action_label="reroll")
+        messages = deps.list_story_messages(db, game.id)
         last_message = messages[-1] if messages else None
         if last_message is not None and last_message.role == deps.story_assistant_role:
             messages = _drop_last_assistant_steps(
@@ -2490,7 +2813,6 @@ def _generate_story_response_locked(
                 action_label="reroll",
             )
 
-        _purge_undone_story_steps(action_label="reroll")
         messages = deps.list_story_messages(db, game.id)
         source_user_message = next((message for message in reversed(messages) if message.role == deps.story_user_role), None)
         if source_user_message is None:
@@ -2687,6 +3009,7 @@ def _generate_story_response_locked(
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
         story_generation_id=story_generation_id,
+        discarded_assistant_message_ids=discarded_assistant_message_ids,
     )
 
     def _safe_stream():
@@ -2703,6 +3026,9 @@ def _generate_story_response_locked(
                 return
         finally:
             mark_story_generation_finished(int(game.id), story_generation_id)
+
+    if as_stream:
+        return _safe_stream()
 
     return StreamingResponse(
         _safe_stream(),
@@ -2723,65 +3049,155 @@ def generate_story_response(
     db: Session,
 ) -> StreamingResponse:
     deps.validate_provider_config()
-    user = deps.get_current_user(db, authorization)
-    game = deps.get_user_story_game_or_404(db, user.id, game_id)
-    locked_game_id = int(game.id)
-    try:
-        db.rollback()
-    except Exception:
-        logger.exception(
-            "Failed to release DB transaction before story generate lock wait: game_id=%s",
-            locked_game_id,
+    locked_game_id = int(game_id or 0)
+    _ = db
+
+    def _streaming_entry():
+        stop_event = Event()
+        queue: Queue[tuple[str, Any]] = Queue()
+
+        def _repair_orphaned_reroll_after_prepare_failure(worker_db: Session, reason: str) -> None:
+            if not bool(getattr(payload, "reroll_last_response", False)):
+                return
+            try:
+                worker_db.rollback()
+            except Exception:
+                pass
+            try:
+                repair_user = deps.get_current_user(worker_db, authorization)
+                repair_game = deps.get_user_story_game_or_404(worker_db, repair_user.id, locked_game_id)
+                _restore_latest_undone_assistant_response_if_orphaned(
+                    deps=deps,
+                    db=worker_db,
+                    game=repair_game,
+                    reason=reason,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to repair orphaned reroll state after generate prepare failure: game_id=%s reason=%s",
+                    locked_game_id,
+                    reason,
+                )
+                try:
+                    worker_db.rollback()
+                except Exception:
+                    pass
+
+        def _worker() -> None:
+            operation_lease = None
+            worker_db = SessionLocal()
+            stream_iterator = None
+            try:
+                try:
+                    worker_db.rollback()
+                except Exception:
+                    logger.exception(
+                        "Failed to release DB transaction before story generate lock wait: game_id=%s",
+                        locked_game_id,
+                    )
+
+                wait_iterator = _wait_for_story_generate_operation_lease(locked_game_id, stop_event)
+                while True:
+                    if stop_event.is_set():
+                        raise StoryGenerationCancelled("Story generation stream was closed before start")
+                    try:
+                        wait_chunk = next(wait_iterator)
+                    except StopIteration as stop:
+                        operation_lease = stop.value
+                        break
+                    queue.put(("chunk", wait_chunk))
+
+                if stop_event.is_set():
+                    raise StoryGenerationCancelled("Story generation stream was closed before preparation")
+
+                stream = _generate_story_response_locked(
+                    deps=deps,
+                    game_id=game_id,
+                    payload=payload,
+                    authorization=authorization,
+                    db=worker_db,
+                    as_stream=True,
+                )
+                stream_iterator = iter(stream)
+                for chunk in stream_iterator:
+                    if stop_event.is_set():
+                        cancel_story_generation_or_next(locked_game_id)
+                        raise StoryGenerationCancelled("Story generation stream was closed")
+                    queue.put(("chunk", chunk))
+            except StoryGenerationCancelled:
+                logger.info("Story generate worker stopped after cancellation: game_id=%s", locked_game_id)
+            except HTTPException as exc:
+                logger.warning(
+                    "Story generate request failed inside stream worker: game_id=%s status=%s detail=%s",
+                    locked_game_id,
+                    exc.status_code,
+                    str(getattr(exc, "detail", "") or "").strip() or "n/a",
+                )
+                _repair_orphaned_reroll_after_prepare_failure(worker_db, "prepare_http_error")
+                queue.put(
+                    (
+                        "chunk",
+                        _sse_event(
+                            "error",
+                            {"detail": str(getattr(exc, "detail", "") or "") or "Story generation failed"},
+                        ),
+                    )
+                )
+            except Exception as exc:
+                logger.exception("Unhandled story generate stream worker failure: game_id=%s", locked_game_id)
+                _repair_orphaned_reroll_after_prepare_failure(worker_db, "prepare_unhandled_error")
+                queue.put(("chunk", _sse_event("error", {"detail": _public_story_error_detail(exc)})))
+            finally:
+                if stop_event.is_set() and stream_iterator is not None:
+                    try:
+                        close_stream = getattr(stream_iterator, "close", None)
+                        if callable(close_stream):
+                            close_stream()
+                    except Exception:
+                        logger.debug("Failed to close story stream iterator after cancellation", exc_info=True)
+                try:
+                    worker_db.rollback()
+                except Exception:
+                    pass
+                if operation_lease is not None:
+                    operation_lease.release()
+                try:
+                    worker_db.close()
+                except Exception:
+                    logger.debug("Failed to close story generate worker DB session", exc_info=True)
+                queue.put(("done", None))
+
+        worker = Thread(
+            target=_worker,
+            name=f"story-generate-entry-{locked_game_id}",
+            daemon=True,
         )
-    try:
-        operation_lease = acquire_story_game_operation_lock(
-            locked_game_id,
-            operation="story_generate",
-            wait_timeout_seconds=STORY_GENERATE_LOCK_WAIT_SECONDS,
-        )
-    except StoryGameOperationBusyError as initial_exc:
-        cancelled_previous_generation = cancel_story_generation(locked_game_id)
-        logger.warning(
-            "Story generate lock timed out; requested active generation cancellation: game_id=%s cancelled=%s error=%s",
-            locked_game_id,
-            cancelled_previous_generation,
-            initial_exc,
-        )
+        worker.start()
+
         try:
-            operation_lease = acquire_story_game_operation_lock(
-                locked_game_id,
-                operation="story_generate",
-                wait_timeout_seconds=STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS,
-            )
-        except StoryGameOperationBusyError as exc:
-            logger.warning(
-                "Story generate lock stayed busy after cancellation grace period: game_id=%s wait_seconds=%.3fs error=%s",
-                locked_game_id,
-                STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS,
-                exc,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=STORY_GAME_OPERATION_BUSY_DETAIL,
-            ) from exc
+            yield _sse_keepalive()
+            heartbeat_seconds = max(float(STORY_STREAM_RELAY_HEARTBEAT_SECONDS), 0.25)
+            while True:
+                try:
+                    kind, value = queue.get(timeout=heartbeat_seconds)
+                except Empty:
+                    yield _sse_keepalive()
+                    continue
+                if kind == "chunk":
+                    yield str(value or "")
+                    continue
+                if kind == "done":
+                    return
+        except GeneratorExit:
+            stop_event.set()
+            cancel_story_generation_or_next(locked_game_id)
+            raise
 
-    def _release_operation_lease() -> None:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        operation_lease.release()
-
-    try:
-        response = _generate_story_response_locked(
-            deps=deps,
-            game_id=game_id,
-            payload=payload,
-            authorization=authorization,
-            db=db,
-        )
-    except Exception:
-        _release_operation_lease()
-        raise
-
-    return _attach_story_operation_lease_release(response, _release_operation_lease)
+    return StreamingResponse(
+        _streaming_entry(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )

@@ -13,6 +13,7 @@ from app.services.story_game_operation_lock import (
     StoryGameOperationBusyError,
     acquire_story_game_operation_lock,
 )
+from app.services.story_generation_cancel import cancel_story_generation
 from app.services.story_queries import get_user_story_game_or_404
 from app.services.story_undo import (
     redo_story_assistant_step,
@@ -22,7 +23,8 @@ from app.services.story_undo import (
 )
 
 router = APIRouter()
-_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 15.0
+_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 3.0
+_STORY_OPERATION_LOCK_CANCEL_WAIT_SECONDS = 20.0
 
 
 def _acquire_story_operation_lease_or_409(*, game_id: int, operation: str):
@@ -32,11 +34,24 @@ def _acquire_story_operation_lease_or_409(*, game_id: int, operation: str):
             operation=operation,
             wait_timeout_seconds=_STORY_OPERATION_LOCK_TIMEOUT_SECONDS,
         )
-    except StoryGameOperationBusyError as exc:
+    except StoryGameOperationBusyError as initial_exc:
+        cancelled_generation = cancel_story_generation(game_id)
+        if cancelled_generation:
+            try:
+                return acquire_story_game_operation_lock(
+                    game_id,
+                    operation=operation,
+                    wait_timeout_seconds=_STORY_OPERATION_LOCK_CANCEL_WAIT_SECONDS,
+                )
+            except StoryGameOperationBusyError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=STORY_GAME_OPERATION_BUSY_DETAIL,
+                ) from exc
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=STORY_GAME_OPERATION_BUSY_DETAIL,
-        ) from exc
+        ) from initial_exc
 
 
 @router.post("/api/story/games/{game_id}/assistant-step/undo", response_model=MessageResponse)

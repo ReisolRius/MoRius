@@ -77,7 +77,8 @@ class StoryVisualNovelTests(unittest.TestCase):
 
         self.assertEqual(card["source_kind"], "visual_novel")
         self.assertIn('"beats"', card["content"])
-        self.assertIn("return valid JSON only", card["content"])
+        self.assertIn("Return JSON only", card["content"])
+        self.assertIn("no markdown, reasoning, or commentary", card["content"])
 
     def test_hidden_instruction_card_does_not_contribute_to_runtime_context_estimate(self) -> None:
         card = build_visual_novel_instruction_card()
