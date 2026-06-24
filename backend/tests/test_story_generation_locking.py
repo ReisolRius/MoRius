@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -7,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -34,6 +36,14 @@ class _RollbackTrackingSession:
 
     def rollback(self) -> None:
         self.rollback_calls += 1
+
+
+class _ReleaseTrackingLease:
+    def __init__(self) -> None:
+        self.release_calls = 0
+
+    def release(self) -> None:
+        self.release_calls += 1
 
 
 class _StreamingSession:
@@ -166,6 +176,52 @@ class StoryGenerationLockingTests(unittest.TestCase):
         self.assertEqual(exc_info.exception.detail, STORY_GAME_OPERATION_BUSY_DETAIL)
         self.assertEqual(acquire_calls, [0.001, 0.002])
         cancel_mock.assert_called_once_with(202)
+
+    def test_story_generate_releases_operation_lock_when_stream_is_closed_early(self) -> None:
+        db = _RollbackTrackingSession()
+        lease = _ReleaseTrackingLease()
+        deps = SimpleNamespace(
+            validate_provider_config=lambda: None,
+            get_current_user=lambda _db, _authorization: SimpleNamespace(id=101),
+            get_user_story_game_or_404=lambda _db, _user_id, _game_id: SimpleNamespace(id=303),
+        )
+
+        async def hanging_stream():
+            yield "event: start\ndata: {}\n\n"
+            await asyncio.sleep(3600)
+
+        with (
+            patch.object(story_runtime, "acquire_story_game_operation_lock", return_value=lease),
+            patch.object(
+                story_runtime,
+                "_generate_story_response_locked",
+                return_value=StreamingResponse(hanging_stream(), media_type="text/event-stream"),
+            ),
+        ):
+            response = story_runtime.generate_story_response(
+                deps=deps,
+                game_id=303,
+                payload=SimpleNamespace(),
+                authorization="Bearer token",
+                db=db,
+            )
+
+        async def consume_one_chunk_and_close() -> None:
+            iterator = response.body_iterator
+            first_chunk = await iterator.__anext__()
+            self.assertIn("event: start", first_chunk)
+            await iterator.aclose()
+
+        asyncio.run(consume_one_chunk_and_close())
+
+        self.assertEqual(lease.release_calls, 1)
+        self.assertEqual(db.rollback_calls, 2)
+
+        if response.background is not None:
+            asyncio.run(response.background())
+
+        self.assertEqual(lease.release_calls, 1)
+        self.assertEqual(db.rollback_calls, 2)
 
     def test_cancel_after_finalizing_progress_skips_billing_and_postprocess(self) -> None:
         game_id = 9_101

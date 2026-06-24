@@ -778,19 +778,20 @@ const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, n
 const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [1, 4, 9, 18, 35]
 const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [2, 5, 12, 25, 48]
 const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [3, 7, 16, 34, 65]
+const STORY_TURN_COST_MINIMAX_M2_HER_TIERS: readonly [number, number, number, number, number] = [3, 7, 16, 34, 65]
 const STORY_TURN_COST_GLM5_GEMINI25_TIERS: readonly [number, number, number, number, number] = [4, 10, 22, 45, 85]
 const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [5, 12, 26, 55, 105]
 const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [8, 20, 35, 65, 125]
 const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [10, 24, 45, 85, 85]
 const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-5.1',
-  'aion-labs/aion-2.0',
 ])
 const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-4.7-flash',
   'deepseek/deepseek-v3.2',
   'deepseek/deepseek-chat-v3-0324',
   'mistralai/mistral-nemo',
+  'openrouter/owl-alpha',
 ])
 const STORY_TOP_K_MIN = 0
 const STORY_TOP_K_MAX = 200
@@ -1065,6 +1066,18 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarrat
     storyTopK: STORY_DEFAULT_TOP_K,
     storyTopR: STORY_DEFAULT_TOP_R,
   },
+  'minimax/minimax-m2-her': {
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
+  },
+  'openrouter/owl-alpha': {
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
+  },
   'anthropic/claude-sonnet-4.6': {
     storyTemperature: STORY_DEFAULT_TEMPERATURE,
     storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
@@ -1201,6 +1214,32 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Интеллект', value: 5 },
       { label: 'Скорость', value: 3 },
       { label: 'Глубина', value: 4 },
+    ],
+  },
+  {
+    id: 'minimax/minimax-m2-her',
+    title: 'MiniMax M2-her',
+    description:
+      'Ролевой рассказчик для живых диалогов, устойчивого характера персонажей и выразительных многоходовых сцен. Контекст ограничен 64000 токенов ради стабильности.',
+    portraitSrc: narratorFreyaPortrait,
+    portraitAlt: 'MiniMax M2-her',
+    stats: [
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 4 },
+    ],
+  },
+  {
+    id: 'openrouter/owl-alpha',
+    title: 'Owl Alpha',
+    description:
+      'Бесплатная модель OpenRouter с сильным следованием инструкциям и большим запасом контекста. В MoRius работает в стабильном 64000-токенном режиме.',
+    portraitSrc: narratorOgmaPortrait,
+    portraitAlt: 'Owl Alpha',
+    stats: [
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 3 },
     ],
   },
   {
@@ -4065,6 +4104,9 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'aion-labs/aion-2.0') {
     return STORY_TURN_COST_AION_TIERS
   }
+  if (modelId === 'minimax/minimax-m2-her') {
+    return STORY_TURN_COST_MINIMAX_M2_HER_TIERS
+  }
   if (modelId === 'z-ai/glm-5' || modelId === 'google/gemini-2.5-pro') {
     return STORY_TURN_COST_GLM5_GEMINI25_TIERS
   }
@@ -5579,8 +5621,8 @@ function StoryTurnProgressIndicator({
         display: mobile ? { xs: 'flex', sm: 'none' } : { xs: 'none', sm: 'flex' },
         alignSelf: mobile ? 'auto' : 'center',
         flex: mobile ? '0 1 auto' : '0 0 auto',
-        width: mobile ? 'auto' : 'min(42vw, 320px)',
-        maxWidth: mobile ? 'calc(100% - 72px)' : '320px',
+        width: 'auto',
+        maxWidth: mobile ? 'calc(100% - 72px)' : 'min(34vw, 240px)',
         minWidth: 0,
         mr: mobile ? 0 : 0.3,
         px: 0.85,
@@ -6222,6 +6264,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSavingCanonicalStatePipeline, setIsSavingCanonicalStatePipeline] = useState(false)
   const [isSavingCanonicalStateSafeFallback, setIsSavingCanonicalStateSafeFallback] = useState(false)
   const [storyGraphDialogOpen, setStoryGraphDialogOpen] = useState(false)
+  const [storyGraphRefreshRevision, setStoryGraphRefreshRevision] = useState(0)
   const [cardMenuAnchorEl, setCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [cardMenuType, setCardMenuType] = useState<PanelCardMenuType | null>(null)
   const [cardMenuCardId, setCardMenuCardId] = useState<number | null>(null)
@@ -15981,6 +16024,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             if (nextWorldCards !== null) {
               setWorldCards(normalizeStoryWorldCards(nextWorldCards))
             }
+            if (payload.graph_analysis) {
+              setStoryGraphRefreshRevision((revision) => revision + 1)
+            }
             applyPlotCardEvents(nextPlotEvents)
             applyWorldCardEvents(nextWorldEvents)
             const nextVnBeats = normalizeStoryVNBeats(payload.vn_beats)
@@ -23648,6 +23694,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   transform: 'translateY(-50%)',
                   zIndex: 2,
                   pointerEvents: 'none',
+                  maxWidth: 'min(34vw, 240px)',
                 }}
               >
                 <StoryTurnProgressIndicator label={storyPostprocessLabel} mobile={false} />
@@ -24700,6 +24747,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             instructionCards={instructionCards}
             plotCards={plotCards}
             memoryBlocks={importantMemoryBlocks}
+            refreshRevision={storyGraphRefreshRevision}
             disabled={isStoryTurnBusy || isCreatingGame}
             onClose={() => setStoryGraphDialogOpen(false)}
             onGameUpdated={applyUpdatedGameSummary}

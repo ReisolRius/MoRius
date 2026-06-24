@@ -837,6 +837,9 @@ class StoryGraphTests(unittest.TestCase):
             self.assertIn("final copy", system_prompt)
             self.assertIn("durable semantic relationship", system_prompt)
             self.assertIn("not by itself a relationship", system_prompt)
+            self.assertIn("Do not wait for repeated evidence", system_prompt)
+            self.assertIn("first meaningful encounter", system_prompt)
+            self.assertIn("add graph nodes", system_prompt)
             self.assertIn("will not rewrite or complete them", system_prompt)
         finally:
             _close_session(db)

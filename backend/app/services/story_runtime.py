@@ -255,6 +255,47 @@ def _public_story_error_detail(exc: Exception) -> str:
     return detail[:500]
 
 
+def _attach_story_operation_lease_release(
+    response: StreamingResponse,
+    release_callback: Callable[[], None],
+) -> StreamingResponse:
+    released = False
+
+    def release_once() -> None:
+        nonlocal released
+        if released:
+            return
+        released = True
+        release_callback()
+
+    body_iterator = response.body_iterator
+
+    async def releasing_body_iterator():
+        try:
+            async for chunk in body_iterator:
+                yield chunk
+        finally:
+            release_once()
+
+    response.body_iterator = releasing_body_iterator()
+
+    existing_background = response.background
+    if existing_background is None:
+        response.background = BackgroundTask(release_once)
+        return response
+
+    if isinstance(existing_background, BackgroundTasks):
+        existing_background.add_task(release_once)
+        response.background = existing_background
+        return response
+
+    combined_background = BackgroundTasks()
+    combined_background.tasks.append(existing_background)
+    combined_background.add_task(release_once)
+    response.background = combined_background
+    return response
+
+
 def _estimate_story_tokens(value: str) -> int:
     normalized = _normalize_story_message_content(value)
     if not normalized:
@@ -2743,18 +2784,4 @@ def generate_story_response(
         _release_operation_lease()
         raise
 
-    existing_background = response.background
-    if existing_background is None:
-        response.background = BackgroundTask(_release_operation_lease)
-        return response
-
-    if isinstance(existing_background, BackgroundTasks):
-        existing_background.add_task(_release_operation_lease)
-        response.background = existing_background
-        return response
-
-    combined_background = BackgroundTasks()
-    combined_background.tasks.append(existing_background)
-    combined_background.add_task(_release_operation_lease)
-    response.background = combined_background
-    return response
+    return _attach_story_operation_lease_release(response, _release_operation_lease)

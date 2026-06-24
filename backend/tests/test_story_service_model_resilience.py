@@ -84,6 +84,8 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         for model_name in (
             "google/gemini-3.1-pro-preview",
             "aion-labs/aion-2.0",
+            "minimax/minimax-m2-her",
+            "openrouter/owl-alpha",
             "deepseek/deepseek-v3.2",
             "z-ai/glm-5.1",
         ):
@@ -107,6 +109,8 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         for model_name in (
             "google/gemini-3.1-pro-preview",
             "aion-labs/aion-2.0",
+            "minimax/minimax-m2-her",
+            "openrouter/owl-alpha",
             "deepseek/deepseek-v3.2",
             "z-ai/glm-5.1",
             "anthropic/claude-sonnet-4.6",
@@ -332,6 +336,32 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["reasoning"], {"effort": "low", "exclude": True})
+
+    def test_story_reasoning_is_excluded_for_problematic_and_agentic_models(self) -> None:
+        for model_name in (
+            "aion-labs/aion-2.0",
+            "google/gemini-2.5-pro",
+            "google/gemini-3.1-pro-preview",
+            "minimax/minimax-m2-her",
+            "openrouter/owl-alpha",
+        ):
+            with self.subTest(model_name=model_name):
+                payload: dict = {}
+
+                monolith_main._apply_polza_story_reasoning_preferences(
+                    payload,
+                    model_name=model_name,
+                )
+
+                self.assertEqual(payload["reasoning"], {"exclude": True})
+
+    def test_slow_story_models_do_not_wait_five_minutes_for_first_token(self) -> None:
+        self.assertEqual(
+            story_generation_provider._polza_story_stream_read_timeout_seconds("google/gemini-2.5-pro"),
+            180,
+        )
+        self.assertEqual(story_generation_provider._story_stream_first_token_timeout_seconds(300), 120.0)
+        self.assertEqual(story_generation_provider._story_stream_first_token_timeout_seconds(90), 120.0)
 
     def test_openrouter_service_request_falls_back_after_primary_model_rate_limit(self) -> None:
         rate_limited = _FakeResponse(

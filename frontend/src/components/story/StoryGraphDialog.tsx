@@ -67,6 +67,7 @@ type StoryGraphDialogProps = {
   instructionCards: StoryInstructionCard[]
   plotCards: StoryPlotCard[]
   memoryBlocks: StoryMemoryBlock[]
+  refreshRevision?: number
   disabled?: boolean
   onClose: () => void
   onGameUpdated: (game: StoryGameSummary) => void
@@ -261,6 +262,7 @@ export default function StoryGraphDialog({
   instructionCards,
   plotCards,
   memoryBlocks,
+  refreshRevision = 0,
   disabled = false,
   onClose,
   onGameUpdated,
@@ -526,7 +528,7 @@ export default function StoryGraphDialog({
 
   useEffect(() => {
     void loadGraph()
-  }, [loadGraph])
+  }, [loadGraph, refreshRevision])
 
   useEffect(
     () => () => {

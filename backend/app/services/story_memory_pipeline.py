@@ -104,6 +104,10 @@ _NPC_DEDUP_SERVICE = NpcCardDedupService()
 STORY_MEMORY_MODEL_MAX_ATTEMPTS = 2
 STORY_IMPORTANT_MEMORY_MODEL_MAX_ATTEMPTS = 3
 STORY_MEMORY_HTTP_MAX_REQUESTS = 8
+STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO = 900
+STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO = 0.78
+STORY_MEMORY_DETAILED_COPY_NGRAM_SIZE = 12
+STORY_MEMORY_DETAILED_COPY_RATIO_LIMIT = 0.32
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -451,6 +455,65 @@ def _format_fact_memory_content(payload: FactMemoryPayload) -> str:
     return "\n".join(lines).strip()
 
 
+def _story_memory_similarity_words(value: str) -> list[str]:
+    normalized = _normalize_story_message_content(value).casefold()
+    return re.findall(r"\w+", normalized, flags=re.UNICODE)
+
+
+def _story_memory_copied_ngram_ratio(
+    *,
+    source_content: str,
+    candidate_content: str,
+    ngram_size: int = STORY_MEMORY_DETAILED_COPY_NGRAM_SIZE,
+) -> float:
+    source_words = _story_memory_similarity_words(source_content)
+    candidate_words = _story_memory_similarity_words(candidate_content)
+    if len(source_words) < ngram_size or len(candidate_words) < ngram_size:
+        return 0.0
+    source_ngrams = {
+        " ".join(source_words[index : index + ngram_size])
+        for index in range(0, len(source_words) - ngram_size + 1)
+    }
+    candidate_total = len(candidate_words) - ngram_size + 1
+    if candidate_total <= 0:
+        return 0.0
+    copied = sum(
+        1
+        for index in range(0, candidate_total)
+        if " ".join(candidate_words[index : index + ngram_size]) in source_ngrams
+    )
+    return copied / candidate_total
+
+
+def _validate_detailed_memory_model_result(
+    *,
+    source_content: str,
+    payload: DetailedMemoryPayload,
+    result_content: str,
+) -> None:
+    source = _normalize_story_message_content(source_content)
+    result = _normalize_story_message_content(result_content)
+    summary = _normalize_story_message_content(payload.summary)
+    if not summary:
+        raise RuntimeError("Gemini detailed memory returned empty summary")
+    if re.search(
+        r"\b(?:PLAYER_TURN|NARRATOR_RESPONSE|Important entities|State changes|Open threads)\s*:",
+        summary,
+        flags=re.IGNORECASE,
+    ):
+        raise RuntimeError("Gemini detailed memory leaked raw memory markers into summary")
+    if len(source) >= STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO:
+        max_result_length = max(
+            STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO,
+            int(len(source) * STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO),
+        )
+        if len(result) > max_result_length:
+            raise RuntimeError("Gemini detailed memory was not shorter than the source turn")
+    copied_ratio = _story_memory_copied_ngram_ratio(source_content=source, candidate_content=summary)
+    if copied_ratio > STORY_MEMORY_DETAILED_COPY_RATIO_LIMIT:
+        raise RuntimeError("Gemini detailed memory copied too much source text")
+
+
 def _compress_story_memory_block_with_model(
     *,
     raw_content: str,
@@ -478,13 +541,50 @@ def _compress_story_memory_block_with_model(
             result_content = _format_fact_memory_content(payload)
             return "Факты памяти", result_content
         player_turn, narrator_response = _parse_full_turn_content(content)
-        payload, _meta = service.call_json(
-            messages=build_detailed_memory_messages(player_turn=player_turn, narrator_response=narrator_response),
-            schema=DetailedMemoryPayload,
-            module=LLM_DETAILED_MEMORY_PROMPT_NAME,
-            max_tokens=1_100,
-            max_attempts=STORY_MEMORY_MODEL_MAX_ATTEMPTS,
-        )
+        messages = build_detailed_memory_messages(player_turn=player_turn, narrator_response=narrator_response)
+        for attempt_index in range(STORY_MEMORY_MODEL_MAX_ATTEMPTS):
+            try:
+                payload, _meta = service.call_json(
+                    messages=messages,
+                    schema=DetailedMemoryPayload,
+                    module=LLM_DETAILED_MEMORY_PROMPT_NAME,
+                    max_tokens=1_100,
+                    max_attempts=1,
+                )
+            except Exception:
+                if attempt_index + 1 >= STORY_MEMORY_MODEL_MAX_ATTEMPTS:
+                    raise
+                continue
+            result_content = _format_detailed_memory_content(payload)
+            try:
+                _validate_detailed_memory_model_result(
+                    source_content=content,
+                    payload=payload,
+                    result_content=result_content,
+                )
+            except RuntimeError as exc:
+                logger.warning(
+                    "Gemini detailed memory semantic validation failed",
+                    extra={
+                        "attempt": attempt_index + 1,
+                        "validationErrors": str(exc),
+                    },
+                )
+                if attempt_index + 1 >= STORY_MEMORY_MODEL_MAX_ATTEMPTS:
+                    raise RuntimeError(f"Gemini detailed memory failed semantic validation: {exc}") from exc
+                messages = [
+                    *messages,
+                    {
+                        "role": "user",
+                        "content": (
+                            "Previous JSON was valid, but it was rejected because the summary was too close to the "
+                            "source text or too long. Return a shorter factual retelling, not copied prose. "
+                            "Use Gemini to compress the same turn again. Return only strict JSON."
+                        ),
+                    },
+                ]
+                continue
+            break
     result_content = _format_detailed_memory_content(payload)
     return "Подробная память", result_content
 

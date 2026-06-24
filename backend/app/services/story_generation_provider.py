@@ -143,13 +143,21 @@ POLZA_RETRYABLE_REQUEST_STATUS_CODES = {408, 409, 425, 429, 499, *POLZA_TRANSIEN
 POLZA_FALLBACK_STATUS_CODES = {404, 408, 409, 425, 429, *POLZA_TRANSIENT_STATUS_CODES}
 POLZA_STORY_STREAM_CONNECT_TIMEOUT_SECONDS = 20
 POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS = 90
-POLZA_GEMINI_PRO_STREAM_READ_TIMEOUT_SECONDS = 300
+POLZA_GEMINI_PRO_STREAM_READ_TIMEOUT_SECONDS = 180
 STORY_STREAM_FIRST_TOKEN_TIMEOUT_FLOOR_SECONDS = 120.0
+STORY_STREAM_FIRST_TOKEN_TIMEOUT_CEILING_SECONDS = 120.0
 POLZA_PROVIDER_TEMPORARY_ERROR_MARKERS = (
     "provider returned error",
     "internal server error",
     "server_error",
     "upstream",
+    "temporarily overloaded",
+    "overloaded",
+    "capacity",
+    "no endpoint",
+    "no endpoints",
+    "deadline exceeded",
+    "model is loading",
 )
 POLZA_GEMINI_25_PRO_MODEL_ID = "google/gemini-2.5-pro"
 POLZA_GEMINI_31_PRO_MODEL_IDS = {
@@ -295,7 +303,9 @@ def _polza_story_stream_read_timeout_seconds(model_name: str | None) -> int:
 
 
 def _story_stream_first_token_timeout_seconds(read_timeout_seconds: int | float) -> float:
-    return max(float(read_timeout_seconds or 0), STORY_STREAM_FIRST_TOKEN_TIMEOUT_FLOOR_SECONDS)
+    floor_seconds = float(STORY_STREAM_FIRST_TOKEN_TIMEOUT_FLOOR_SECONDS)
+    ceiling_seconds = float(STORY_STREAM_FIRST_TOKEN_TIMEOUT_CEILING_SECONDS)
+    return min(max(float(read_timeout_seconds or 0), floor_seconds), ceiling_seconds)
 
 
 def _ensure_story_stream_within_time_budget(

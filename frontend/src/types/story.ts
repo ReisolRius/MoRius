@@ -33,6 +33,8 @@ export type StoryNarratorModelId =
   | 'deepseek/deepseek-v4-pro'
   | 'mistralai/mistral-nemo'
   | 'aion-labs/aion-2.0'
+  | 'minimax/minimax-m2-her'
+  | 'openrouter/owl-alpha'
   | 'anthropic/claude-sonnet-4.6'
   | 'google/gemini-2.5-pro'
   | 'google/gemini-3.1-pro-preview'
@@ -576,6 +578,16 @@ export type StoryGraphAiAnalyzeResult = {
   graph: StoryGraphPayload
 }
 
+export type StoryStreamGraphAnalysisPayload = {
+  applied_cards?: number
+  applied_nodes?: number
+  applied_edges?: number
+  updated_edges?: number
+  suggestions_created?: number
+  skipped?: string[]
+  error?: string
+}
+
 export type StoryGraphApplySuggestionsResult = {
   applied: number
   declined: number
@@ -684,6 +696,7 @@ export type StoryStreamDonePayload = {
   ai_memory_blocks?: StoryMemoryBlock[]
   world_cards?: StoryWorldCard[]
   plot_card_created?: boolean
+  graph_analysis?: StoryStreamGraphAnalysisPayload
   ambient?: StoryAmbientProfile
   postprocess_pending?: boolean
   cancelled?: boolean
