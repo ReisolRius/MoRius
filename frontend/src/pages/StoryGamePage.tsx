@@ -1438,26 +1438,53 @@ function SettingsInfoTooltipIcon({ text }: { text: string }) {
       <Box
         component="span"
         sx={{
-          width: 16,
-          height: 16,
+          width: 15,
+          height: 15,
           borderRadius: '50%',
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-title-text) 68%, transparent)',
-          color: 'var(--morius-title-text)',
-          fontSize: '0.68rem',
-          fontWeight: 800,
+          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 58%, var(--morius-card-border))',
+          color: 'color-mix(in srgb, var(--morius-accent) 78%, var(--morius-title-text))',
+          fontSize: '0.62rem',
+          fontWeight: 900,
           lineHeight: 1,
           cursor: 'help',
           flexShrink: 0,
           userSelect: 'none',
-          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 92%, transparent)',
+          paddingTop: '0.5px',
+          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-elevated-bg))',
+          transition: 'color 150ms ease, border-color 150ms ease, background-color 150ms ease',
+          '&:hover': {
+            color: 'var(--morius-accent)',
+            borderColor: 'color-mix(in srgb, var(--morius-accent) 80%, transparent)',
+            backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-elevated-bg))',
+          },
         }}
       >
-        i
+        ?
       </Box>
     </Tooltip>
+  )
+}
+
+function SettingsSectionLabel({ text, tooltip }: { text: string; tooltip?: string }) {
+  return (
+    <Stack direction="row" spacing={0.5} alignItems="center">
+      <Typography
+        sx={{
+          color: 'color-mix(in srgb, var(--morius-text-secondary) 90%, var(--morius-title-text))',
+          fontSize: '0.68rem',
+          fontWeight: 800,
+          letterSpacing: '0.09em',
+          textTransform: 'uppercase',
+          lineHeight: 1.1,
+        }}
+      >
+        {text}
+      </Typography>
+      {tooltip ? <SettingsInfoTooltipIcon text={tooltip} /> : null}
+    </Stack>
   )
 }
 
@@ -5858,6 +5885,54 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     '&:active': {
       transform: 'translateY(1px)',
+      backgroundColor: 'transparent !important',
+    },
+    '&.Mui-focusVisible': {
+      backgroundColor: 'transparent !important',
+      boxShadow: 'none',
+    },
+  })
+  const storySettingsSegmentTabSx = (isActive: boolean) => ({
+    '&&&': {
+      color: `${isActive ? 'var(--morius-title-text)' : 'color-mix(in srgb, var(--morius-text-secondary) 80%, transparent)'} !important`,
+      opacity: 1,
+      fontWeight: isActive ? 850 : 650,
+    },
+    position: 'relative',
+    minHeight: 40,
+    px: 0.5,
+    py: 1,
+    minWidth: 0,
+    borderRadius: 0,
+    justifyContent: 'center',
+    textTransform: 'none',
+    backgroundColor: 'transparent !important',
+    border: 'none',
+    boxShadow: 'none',
+    fontSize: '0.88rem',
+    lineHeight: 1,
+    letterSpacing: 0,
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+    transition: 'color 160ms ease',
+    '&::after': {
+      content: '""',
+      position: 'absolute',
+      left: 2,
+      right: 2,
+      bottom: -1,
+      height: 2,
+      borderRadius: '2px 2px 0 0',
+      backgroundColor: isActive ? 'var(--morius-accent)' : 'transparent',
+      boxShadow: isActive ? '0 0 10px color-mix(in srgb, var(--morius-accent) 60%, transparent)' : 'none',
+      transition: 'background-color 160ms ease',
+    },
+    '&:hover': {
+      color: 'var(--morius-title-text) !important',
+      backgroundColor: 'transparent !important',
+      boxShadow: 'none',
+    },
+    '&:active': {
       backgroundColor: 'transparent !important',
     },
     '&.Mui-focusVisible': {
@@ -19401,10 +19476,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     onPointerUp={handleStorySettingsTabsPointerEnd}
                     onPointerCancel={handleStorySettingsTabsPointerEnd}
                     sx={{
-                      mt: 0.35,
-                      mb: 0.35,
+                      mt: 0.2,
+                      mb: 1.3,
                       display: 'flex',
-                      gap: 0.6,
+                      gap: 1.9,
                       overflowX: 'auto',
                       overflowY: 'hidden',
                       scrollbarWidth: 'none',
@@ -19412,6 +19487,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       touchAction: 'pan-x',
                       cursor: 'grab',
                       pr: 0.2,
+                      borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 90%, transparent)',
                       '&::-webkit-scrollbar': {
                         display: 'none',
                       },
@@ -19421,34 +19497,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     }}
                   >
                     {([
-                      {
-                        key: 'generation' as const,
-                        label: 'Генерация',
-                        icon: (
-                          <SvgIcon viewBox="0 0 24 24">
-                            <path d="M19 1l-1.26 3.26L14.5 5.5l3.24 1.24L19 10l1.26-3.26L23.5 5.5l-3.24-1.24L19 1ZM11 3l-1.74 4.26L5 9l4.26 1.74L11 15l1.74-4.26L17 9l-4.26-1.74L11 3Zm-5 10-.97 2.03L3 16l2.03.97L6 19l.97-2.03L9 16l-2.03-.97L6 13Z" />
-                          </SvgIcon>
-                        ),
-                      },
-                      {
-                        key: 'additional' as const,
-                        label: 'Дополнительно',
-                        icon: (
-                          <SvgIcon viewBox="0 0 24 24">
-                            <path d="M3 7h8V5h2v6h-2V9H3V7Zm12 0h6v2h-6V7ZM3 15h4v-2h2v6H7v-2H3v-2Zm8 0h10v2H11v-2Z" />
-                          </SvgIcon>
-                        ),
-                      },
-                      {
-                        key: 'appearance' as const,
-                        label: 'Оформление',
-                        icon: (
-                          <SvgIcon viewBox="0 0 24 24">
-                            <path d="M12 3C7.03 3 3 6.58 3 11c0 3.31 2.69 6 6 6h1.5c.83 0 1.5.67 1.5 1.5S12.67 20 13.5 20H15c3.31 0 6-2.69 6-6 0-6.08-4.93-11-9-11ZM6.5 11C5.67 11 5 10.33 5 9.5S5.67 8 6.5 8 8 8.67 8 9.5 7.33 11 6.5 11Zm3-4C8.67 7 8 6.33 8 5.5S8.67 4 9.5 4 11 4.67 11 5.5 10.33 7 9.5 7Zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 4 14.5 4 16 4.67 16 5.5 15.33 7 14.5 7Zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 8 17.5 8 19 8.67 19 9.5 18.33 11 17.5 11Z" />
-                          </SvgIcon>
-                        ),
-                      },
-                    ] satisfies readonly { key: StorySettingsTab; label: string; icon: ReactNode }[]).map((tab) => {
+                      { key: 'generation' as const, label: 'Генерация' },
+                      { key: 'additional' as const, label: 'Дополнительно' },
+                      { key: 'appearance' as const, label: 'Оформление' },
+                    ] satisfies readonly { key: StorySettingsTab; label: string }[]).map((tab) => {
                       const isActive = storySettingsTab === tab.key
                       return (
                         <Button
@@ -19456,9 +19508,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           type="button"
                           aria-pressed={isActive}
                           onClick={() => handleStorySettingsTabSelect(tab.key)}
-                          sx={storySettingsTabButtonSx(isActive)}
+                          sx={storySettingsSegmentTabSx(isActive)}
                         >
-                          {tab.icon}
                           {tab.label}
                         </Button>
                       )
@@ -19506,15 +19557,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Button>
                     <Collapse in={storySettingsTab === 'generation'} timeout={200} unmountOnExit>
                       <Box data-tour-id="story-settings-narrator-panel" sx={{ pb: 0.9 }}>
-                        <Stack direction="row" spacing={0.45} alignItems="center">
-                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
-                            Выбор рассказчика
-                          </Typography>
-                          <SettingsInfoTooltipIcon
-                            text={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны DeepSeek V4 Pro, GLM 5.1, AionLabs, Gemini 2.5 Pro, Gemini 3.1 Pro и Claude Sonnet 4.6.`}
-                          />
-                        </Stack>
-                        <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>
+                        <SettingsSectionLabel
+                          text="Выбор рассказчика"
+                          tooltip={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны DeepSeek V4 Pro, GLM 5.1, AionLabs, Gemini 2.5 Pro, Gemini 3.1 Pro и Claude Sonnet 4.6.`}
+                        />
+                        <FormControl fullWidth size="small" sx={{ mt: 0.85 }}>
                           <Select
                             value={storyLlmModel}
                             disabled={isSavingStorySettings || isGenerating}
@@ -19585,52 +19632,76 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           sx={{
                             mt: 0.95,
                             borderRadius: '16px',
-                            backgroundColor: 'var(--morius-card-bg)',
-                            boxShadow: 'none',
-                            px: 1,
-                            pb: 1.05,
-                            pt: 0.9,
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 55%, var(--morius-title-text) 16%)',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 55%, var(--morius-card-bg))',
+                            boxShadow: '0 10px 26px rgba(0, 0, 0, 0.22)',
+                            px: 1.3,
+                            pb: 1.25,
+                            pt: 1.15,
                           }}
                         >
+                          <Stack direction="row" alignItems="center" spacing={0.7} useFlexGap flexWrap="wrap">
+                            <Typography
+                              sx={{
+                                color: 'var(--morius-title-text)',
+                                fontSize: '1.42rem',
+                                fontWeight: 800,
+                                letterSpacing: 0,
+                                lineHeight: 1.05,
+                              }}
+                            >
+                              {selectedNarratorOption.title}
+                            </Typography>
+                            {/\bpro\b/i.test(selectedNarratorOption.title) ? (
+                              <Box
+                                component="span"
+                                sx={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  height: 19,
+                                  px: 0.72,
+                                  borderRadius: '6px',
+                                  fontSize: '0.6rem',
+                                  fontWeight: 900,
+                                  letterSpacing: '0.08em',
+                                  lineHeight: 1,
+                                  color: 'color-mix(in srgb, var(--morius-accent) 84%, var(--morius-title-text))',
+                                  border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 60%, transparent)',
+                                  backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, transparent)',
+                                }}
+                              >
+                                PRO
+                              </Box>
+                            ) : null}
+                          </Stack>
                           <Typography
                             sx={{
-                              color: 'var(--morius-title-text)',
-                              fontSize: '1.45rem',
-                              fontWeight: 800,
-                              letterSpacing: 0,
-                              lineHeight: 1,
-                            }}
-                          >
-                            {selectedNarratorOption.title}
-                          </Typography>
-                          <Typography
-                            sx={{
-                              mt: 0.65,
+                              mt: 0.7,
                               color: 'var(--morius-text-secondary)',
                               fontSize: '0.9rem',
                               fontWeight: 600,
-                              lineHeight: 1.34,
+                              lineHeight: 1.38,
                             }}
                           >
                             {selectedNarratorOption.description}
                           </Typography>
 
-                          <Stack spacing={0.52} sx={{ mt: 0.9 }}>
+                          <Stack spacing={0.62} sx={{ mt: 1.05 }}>
                             {selectedNarratorOption.stats.map((stat, statIndex) => {
                               const statLabel = resolveNarratorStatLabel(stat.label, statIndex)
                               return (
                               <Stack key={`${selectedNarratorOption.id}-${statIndex}`} direction="row" alignItems="center" justifyContent="space-between">
                                 <Typography
                                   sx={{
-                                    color: 'var(--morius-title-text)',
-                                    fontSize: '1.02rem',
-                                    fontWeight: 600,
+                                    color: 'color-mix(in srgb, var(--morius-text-secondary) 78%, var(--morius-title-text))',
+                                    fontSize: '0.98rem',
+                                    fontWeight: 700,
                                     lineHeight: 1.1,
                                   }}
                                 >
                                   {statLabel}
                                 </Typography>
-                                <Stack direction="row" spacing={0.42}>
+                                <Stack direction="row" spacing={0.48}>
                                   {Array.from({ length: NARRATOR_STAT_DOT_COUNT }).map((_, dotIndex) => {
                                     const isActiveDot = dotIndex < stat.value
                                     return (
@@ -19641,9 +19712,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           height: 11,
                                           borderRadius: '50%',
                                           backgroundColor: isActiveDot
-                                            ? 'color-mix(in srgb, var(--morius-accent) 82%, var(--morius-title-text))'
-                                            : 'color-mix(in srgb, var(--morius-app-base) 84%, var(--morius-card-border))',
-                                          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 64%, transparent)',
+                                            ? 'var(--morius-accent)'
+                                            : 'color-mix(in srgb, var(--morius-app-base) 70%, var(--morius-card-border))',
+                                          border: isActiveDot
+                                            ? '1px solid color-mix(in srgb, var(--morius-accent) 70%, var(--morius-title-text))'
+                                            : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 70%, transparent)',
+                                          boxShadow: isActiveDot
+                                            ? '0 0 8px color-mix(in srgb, var(--morius-accent) 45%, transparent)'
+                                            : 'none',
                                         }}
                                       />
                                     )
@@ -19656,18 +19732,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         </Box>
                         <Box
                           sx={{
-                            mt: 0.95,
-                            pt: 0.95,
-                            borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                            mt: 1.25,
+                            pt: 1.25,
+                            borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 85%, transparent)',
                           }}
                         >
-                          <Stack direction="row" spacing={0.45} alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
-                              Оптимизация памяти
-                            </Typography>
-                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.memoryOptimizationMode} />
-                          </Stack>
-                          <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>
+                          <SettingsSectionLabel text="Оптимизация памяти" tooltip={STORY_SETTINGS_INFO_TEXT.memoryOptimizationMode} />
+                          <FormControl fullWidth size="small" sx={{ mt: 0.85 }}>
                             <Select
                               value={memoryOptimizationMode}
                               disabled={isSavingStorySettings || isSavingResponseTokenLimit || isGenerating}
@@ -19743,7 +19814,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     data-tour-id="story-settings-visualization-section"
                     sx={{
                       display: storySettingsTab === 'generation' ? 'block' : 'none',
-                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      mt: 1.25,
+                      pt: 1.25,
+                      borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 85%, transparent)',
                     }}
                   >
                     <Button
@@ -19779,14 +19852,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       </SvgIcon>
                     </Button>
                     <Collapse in={storySettingsTab === 'generation'} timeout={200} unmountOnExit>
-                      <Box data-tour-id="story-settings-visualization-panel" sx={{ pb: 0.9, pt: 0.08 }}>
-                        <Stack direction="row" spacing={0.45} alignItems="center">
-                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
-                            Художник
-                          </Typography>
-                          <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.artist} />
-                        </Stack>
-                        <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>
+                      <Box data-tour-id="story-settings-visualization-panel" sx={{ pb: 0.9, pt: 0 }}>
+                        <SettingsSectionLabel text="Художник" tooltip={STORY_SETTINGS_INFO_TEXT.artist} />
+                        <FormControl fullWidth size="small" sx={{ mt: 0.85 }}>
                           <Select
                             value={storyImageModel}
                             disabled={isSavingStorySettings || isGenerating}
@@ -19900,24 +19968,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         </Stack>
                         <Box
                           sx={{
-                            mt: 1.05,
-                            pt: 1,
-                            borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                            mt: 1.25,
+                            pt: 1.25,
+                            borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 85%, transparent)',
                           }}
                         >
-                          <Stack direction="row" justifyContent="space-between" alignItems="baseline" spacing={0.8}>
-                            <Stack direction="row" spacing={0.45} alignItems="center" sx={{ minWidth: 0 }}>
-                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 800, lineHeight: 1.25 }}>
-                                Лимит контекста
-                              </Typography>
-                              <SettingsInfoTooltipIcon text={getStoryTurnCostTooltipText()} />
-                            </Stack>
-                            <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.84rem', fontWeight: 700 }}>
-                              {formatContextChars(contextLimitChars)}
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <SettingsSectionLabel text="Лимит контекста" tooltip={getStoryTurnCostTooltipText()} />
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', fontWeight: 700, flexShrink: 0 }}>
+                              {STORY_CONTEXT_LIMIT_MIN} – {currentStoryContextLimitMax}
                             </Typography>
                           </Stack>
 
-                          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 0.8 }}>
+                          <Stack direction="row" alignItems="baseline" spacing={0.7} sx={{ mt: 0.7 }}>
                             <Box
                               component="input"
                               value={contextLimitDraft}
@@ -19935,25 +19998,36 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               disabled={isSavingStorySettings || isGenerating}
                               inputMode="numeric"
                               sx={{
-                                width: 98,
-                                minHeight: 34,
-                                borderRadius: '999px',
-                                border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                                backgroundColor: 'var(--morius-elevated-bg)',
-                                color: 'var(--morius-text-primary)',
-                                px: 1,
+                                width: 150,
+                                maxWidth: '62%',
+                                border: 'var(--morius-border-width) solid transparent',
+                                borderRadius: '10px',
+                                backgroundColor: 'transparent',
+                                color: 'var(--morius-title-text)',
+                                px: 0.5,
+                                py: 0.1,
                                 outline: 'none',
-                                fontSize: '0.88rem',
-                                fontWeight: 700,
+                                fontSize: '1.7rem',
+                                fontWeight: 800,
+                                letterSpacing: 0,
+                                lineHeight: 1.1,
+                                transition: 'border-color 150ms ease, background-color 150ms ease',
+                                '&:hover': {
+                                  borderColor: 'color-mix(in srgb, var(--morius-card-border) 90%, transparent)',
+                                },
+                                '&:focus': {
+                                  borderColor: 'var(--morius-accent)',
+                                  backgroundColor: 'var(--morius-elevated-bg)',
+                                },
                               }}
                             />
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem' }}>токенов</Typography>
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.86rem', fontWeight: 600 }}>токенов</Typography>
                             {isSavingContextLimit ? <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} /> : null}
                           </Stack>
                           <TextLimitIndicator
                             currentLength={contextLimitDraft.length}
                             maxLength={STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH}
-                            sx={{ mt: 0.45 }}
+                            sx={{ mt: 0.35 }}
                           />
 
                           <Box sx={{ overflow: 'visible', px: 1.15, pt: 0.6 }}>
@@ -20005,12 +20079,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             }}
                           >
                             <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                              <Stack direction="row" spacing={0.42} alignItems="center">
-                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.8rem', fontWeight: 800 }}>
-                                  Использование
-                                </Typography>
-                                <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.contextUsage} />
-                              </Stack>
+                              <SettingsSectionLabel text="Использование" tooltip={STORY_SETTINGS_INFO_TEXT.contextUsage} />
                               <Typography
                                 sx={{
                                   color: cardsContextOverflowChars > 0 ? 'error.main' : 'var(--morius-text-primary)',
@@ -20021,37 +20090,68 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 {formatContextChars(cardsContextCharsUsed)} / {formatContextChars(contextLimitChars)}
                               </Typography>
                             </Stack>
-                            <Box
-                              sx={{
-                                mt: 0.64,
-                                height: 7,
-                                borderRadius: '999px',
-                                backgroundColor: switchTrackColor,
-                                overflow: 'hidden',
-                              }}
-                            >
-                              <Box
-                                sx={{
-                                  width: `${cardsContextUsagePercent}%`,
-                                  height: '100%',
-                                  borderRadius: '999px',
-                                  backgroundColor: 'var(--morius-accent)',
-                                  transition: 'width 180ms ease',
-                                }}
-                              />
-                            </Box>
-                            <Stack spacing={0.48} sx={{ mt: 0.72 }}>
-                              {[
-                                ['Инструкции', formatContextChars(instructionContextTokensUsed)],
-                                [storyMemoryLabel, formatContextChars(storyMemoryTokensUsed)],
-                                ['Карточки мира', formatContextChars(worldContextTokensUsed)],
-                              ].map(([label, value]) => (
-                                <Stack key={label} direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{label}</Typography>
-                                  <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.78rem', fontWeight: 700 }}>{value}</Typography>
-                                </Stack>
-                              ))}
-                            </Stack>
+                            {(() => {
+                              const usageSegments = [
+                                { key: 'instructions', label: 'Инструкции', value: instructionContextTokensUsed, color: '#E0883C' },
+                                { key: 'memory', label: storyMemoryLabel, value: storyMemoryTokensUsed, color: 'var(--morius-accent)' },
+                                { key: 'world', label: 'Карточки мира', value: worldContextTokensUsed, color: '#54B268' },
+                              ]
+                              const toPercent = (value: number) =>
+                                contextLimitChars > 0 ? Math.max(0, Math.min(100, (value / contextLimitChars) * 100)) : 0
+                              return (
+                                <>
+                                  <Box
+                                    sx={{
+                                      mt: 0.7,
+                                      height: 9,
+                                      borderRadius: '999px',
+                                      backgroundColor: switchTrackColor,
+                                      overflow: 'hidden',
+                                      display: 'flex',
+                                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 60%, transparent)',
+                                    }}
+                                  >
+                                    {usageSegments.map((segment) => {
+                                      const pct = toPercent(segment.value)
+                                      return pct > 0 ? (
+                                        <Box
+                                          key={segment.key}
+                                          sx={{
+                                            width: `${pct}%`,
+                                            height: '100%',
+                                            backgroundColor: segment.color,
+                                            flexShrink: 0,
+                                            transition: 'width 180ms ease',
+                                          }}
+                                        />
+                                      ) : null
+                                    })}
+                                  </Box>
+                                  <Stack spacing={0.52} sx={{ mt: 0.8 }}>
+                                    {usageSegments.map((segment) => (
+                                      <Stack key={segment.key} direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                                        <Stack direction="row" spacing={0.62} alignItems="center" sx={{ minWidth: 0 }}>
+                                          <Box
+                                            sx={{
+                                              width: 11,
+                                              height: 11,
+                                              borderRadius: '3px',
+                                              backgroundColor: segment.color,
+                                              flexShrink: 0,
+                                              boxShadow: `0 0 6px color-mix(in srgb, ${segment.color} 50%, transparent)`,
+                                            }}
+                                          />
+                                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>{segment.label}</Typography>
+                                        </Stack>
+                                        <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>
+                                          {formatContextChars(segment.value)}
+                                        </Typography>
+                                      </Stack>
+                                    ))}
+                                  </Stack>
+                                </>
+                              )
+                            })()}
                             {cardsContextOverflowChars > 0 ? (
                               <Alert
                                 severity="warning"

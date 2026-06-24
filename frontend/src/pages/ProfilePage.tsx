@@ -4686,7 +4686,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, #05080c 18%)',
               }}
             >
-              <Box sx={{ position: 'relative', height: { xs: 188, sm: 224, md: 268 } }}>
+              <Box sx={{ position: 'relative', height: { xs: 150, sm: 176, md: 200 } }}>
                 <ProgressiveImage
                   src={resolvedProfileBannerSrc}
                   alt=""
@@ -4861,7 +4861,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   <Stack
                     direction={{ xs: 'column', sm: 'row' }}
                     spacing={{ xs: 1.1, sm: 2 }}
-                    alignItems={{ xs: 'center', sm: 'flex-start' }}
+                    alignItems={{ xs: 'center', sm: (isEditing && isOwnProfile) ? 'flex-start' : 'center' }}
                     sx={{ minWidth: 0, flex: 1 }}
                   >
                     <Box
@@ -4941,7 +4941,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         minWidth: 0,
                         flex: 1,
                         width: '100%',
-                        pt: { sm: '10px' },
+                        pt: { sm: (isEditing && isOwnProfile) ? '6px' : 0 },
                         alignItems: { xs: (isEditing && isOwnProfile) ? 'stretch' : 'center', sm: 'flex-start' },
                         textAlign: { xs: (isEditing && isOwnProfile) ? 'left' : 'center', sm: 'left' },
                       }}
