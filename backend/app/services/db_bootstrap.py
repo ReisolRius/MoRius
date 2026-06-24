@@ -241,6 +241,8 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN auth_provider VARCHAR(32) NOT NULL DEFAULT 'email'")
     if "role" not in user_columns:
         alter_statements.append(f"ALTER TABLE users ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT '{DEFAULT_USER_ROLE}'")
+    if "profile_tag" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN profile_tag VARCHAR(40) NOT NULL DEFAULT ''")
     if "level" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN level INTEGER NOT NULL DEFAULT 1")
     if "is_banned" not in user_columns:

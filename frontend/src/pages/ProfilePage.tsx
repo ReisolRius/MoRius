@@ -9,6 +9,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   FormControlLabel,
   IconButton,
   Menu,
@@ -91,6 +92,7 @@ import {
   unfavoriteCommunityWorld,
 } from '../services/storyApi'
 import type { AuthUser } from '../types/auth'
+import { getDisplayedTagLabel } from '../types/auth'
 import type { AiAssistantChatResponse } from '../services/aiAssistantApi'
 import type {
   StoryCharacter,
@@ -589,7 +591,8 @@ function toAvatarUser(profileUser: ProfileView['user']): AuthUser {
     avatar_url: profileUser.avatar_url,
     avatar_scale: profileUser.avatar_scale,
     auth_provider: 'email',
-    role: 'user',
+    role: profileUser.role,
+    profile_tag: profileUser.profile_tag,
     level: 1,
     coins: 0,
     is_banned: false,
@@ -726,6 +729,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     avatar_frame_image_url: user.avatar_frame_image_url ?? null,
     avatar_url: user.avatar_url,
     avatar_scale: user.avatar_scale ?? 1,
+    role: user.role,
+    profile_tag: user.profile_tag ?? '',
     created_at: user.created_at,
   }
   const fallbackViewedProfileUser = {
@@ -738,10 +743,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     avatar_frame_image_url: null,
     avatar_url: null,
     avatar_scale: 1,
+    role: 'user',
+    profile_tag: '',
     created_at: user.created_at,
   }
   const resolvedProfileUser = profileView?.user ?? (isOwnProfile ? fallbackOwnProfileUser : fallbackViewedProfileUser)
   const resolvedProfileName = resolvedProfileUser.display_name?.trim() || (isOwnProfile ? profileName : 'Игрок')
+  const resolvedProfileRoleBadge = getDisplayedTagLabel(resolvedProfileUser.role, resolvedProfileUser.profile_tag)
   const resolvedProfileDescription = resolvedProfileUser.profile_description || ''
   const resolvedProfileBanner = getProfileBannerPreset(resolvedProfileUser.profile_banner_id)
   const resolvedPaidProfileBanner = shopProfileBanners.find((item) => item.selection_id === resolvedProfileUser.profile_banner_id) ?? null
@@ -1381,6 +1389,20 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     visiblePublicationWorlds.length,
     visibleUnpublishedWorlds.length,
   ])
+  const libraryTabCounts = useMemo<Partial<Record<TabId, number>>>(
+    () => ({
+      games: ownGames.length,
+      world_cards: worldCardTemplateCount,
+      characters: managedCharacters.length,
+      instructions: sortedTemplates.length,
+      gallery: profileGalleryImages.length,
+    }),
+    [managedCharacters.length, ownGames.length, profileGalleryImages.length, sortedTemplates.length, worldCardTemplateCount],
+  )
+  const libraryTotalCount = useMemo(
+    () => BASE_PROFILE_TABS.reduce((sum, item) => sum + (libraryTabCounts[item.id] ?? 0), 0),
+    [libraryTabCounts],
+  )
   const profileSidebarSubscriptions = useMemo(() => visibleSubscriptions.slice(0, 6), [visibleSubscriptions])
   const mobileContentTabs = useMemo(
     () => [
@@ -4630,52 +4652,188 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 display: isProfileShellBlocked ? 'none' : undefined,
                 position: 'relative',
                 overflow: 'hidden',
-                minHeight: { xs: 420, sm: 368, md: 328 },
-                p: { xs: 2, sm: 2.4, md: 4 },
                 borderRadius: { xs: '18px', md: '24px' },
                 border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
                 backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, #05080c 18%)',
               }}
             >
-              <ProgressiveImage
-                src={resolvedProfileBannerSrc}
-                alt=""
-                loading="lazy"
-                objectFit="cover"
-                objectPosition={resolvedProfileBannerObjectPosition}
-                loaderSize={30}
-                fallback={<Box sx={{ position: 'absolute', inset: 0, backgroundColor: 'var(--morius-card-bg)' }} />}
-                containerSx={{
-                  position: 'absolute',
-                  inset: 0,
-                  width: '100%',
-                  height: '100%',
-                  backgroundColor: 'var(--morius-card-bg)',
-                }}
-                imgSx={{ filter: 'saturate(0.96) contrast(1.02)' }}
-              />
-              <Box
-                aria-hidden
-                sx={{
-                  position: 'absolute',
-                  inset: 0,
-                  zIndex: 1,
-                  background:
-                    'linear-gradient(90deg, rgba(4, 7, 11, 0.76) 0%, rgba(4, 7, 11, 0.42) 44%, rgba(4, 7, 11, 0.7) 100%), linear-gradient(0deg, rgba(4, 7, 11, 0.78) 0%, rgba(4, 7, 11, 0.18) 56%, rgba(4, 7, 11, 0.1) 100%)',
-                }}
-              />
-              <Stack spacing={{ xs: 1.2, md: 1.45 }} sx={{ position: 'relative', zIndex: 2, minHeight: { xs: 372, sm: 320, md: 264 } }}>
+              <Box sx={{ position: 'relative', height: { xs: 148, sm: 176, md: 200 } }}>
+                <ProgressiveImage
+                  src={resolvedProfileBannerSrc}
+                  alt=""
+                  loading="lazy"
+                  objectFit="cover"
+                  objectPosition={resolvedProfileBannerObjectPosition}
+                  loaderSize={30}
+                  fallback={<Box sx={{ position: 'absolute', inset: 0, backgroundColor: 'var(--morius-card-bg)' }} />}
+                  containerSx={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: 'var(--morius-card-bg)',
+                  }}
+                  imgSx={{ filter: 'saturate(0.96) contrast(1.02)' }}
+                />
+                <Box
+                  aria-hidden
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    background:
+                      'linear-gradient(180deg, rgba(5, 8, 12, 0.18) 0%, rgba(5, 8, 12, 0.36) 58%, color-mix(in srgb, var(--morius-card-bg) 82%, #05080c 18%) 100%)',
+                  }}
+                />
                 <Stack
-                  direction={{ xs: 'column', lg: 'row' }}
+                  direction="row"
+                  spacing={0.75}
+                  alignItems="center"
+                  sx={{
+                    position: 'absolute',
+                    top: { xs: 12, md: 16 },
+                    right: { xs: 12, md: 16 },
+                    zIndex: 3,
+                    display: { xs: 'none', md: 'flex' },
+                  }}
+                >
+                  {isOwnProfile ? (
+                    <IconButton
+                      onClick={handleToggleNotificationPopover}
+                      aria-label="Уведомления"
+                      sx={{
+                        position: 'relative',
+                        overflow: 'visible',
+                        width: '38px !important',
+                        height: '38px !important',
+                        minWidth: '38px !important',
+                        minHeight: '38px !important',
+                        borderRadius: '50% !important',
+                        border: 'none',
+                        backgroundColor: 'var(--morius-elevated-bg) !important',
+                        color: 'color-mix(in srgb, var(--morius-title-text) 78%, transparent) !important',
+                        p: '0 !important',
+                        '&:hover': {
+                          backgroundColor: 'var(--morius-button-hover) !important',
+                          color: 'var(--morius-title-text) !important',
+                        },
+                      }}
+                    >
+                      <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+                        <path fill="currentColor" d="M12 22a2.6 2.6 0 0 0 2.45-1.74h-4.9A2.6 2.6 0 0 0 12 22Zm7-5.2-1.6-2.5V10a5.4 5.4 0 0 0-4.35-5.3V3a1.05 1.05 0 1 0-2.1 0v1.7A5.4 5.4 0 0 0 6.6 10v4.3L5 16.8V18h14v-1.2Z" />
+                      </SvgIcon>
+                      {notificationCounts.unread_count > 0 ? (
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            top: -3,
+                            right: -4,
+                            minWidth: 18,
+                            height: 16,
+                            px: 0.45,
+                            borderRadius: '99px',
+                            backgroundColor: 'var(--morius-accent)',
+                            color: '#fff',
+                            fontSize: '0.62rem',
+                            fontWeight: 900,
+                            lineHeight: '16px',
+                            textAlign: 'center',
+                          }}
+                        >
+                          {notificationCounts.unread_count > 99 ? '99+' : notificationCounts.unread_count}
+                        </Box>
+                      ) : null}
+                    </IconButton>
+                  ) : null}
+                  {!isOwnProfile ? (
+                    <Button
+                      onClick={() => void handleToggleFollow()}
+                      disabled={isFollowSaving || !profileView}
+                      sx={{
+                        minHeight: 38,
+                        px: 1.6,
+                        borderRadius: '12px',
+                        border: 'none',
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        color: 'var(--morius-title-text)',
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        fontSize: '0.84rem',
+                        '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                      }}
+                    >
+                      {isFollowSaving ? <CircularProgress size={16} sx={{ color: 'var(--morius-title-text)' }} /> : profileView?.is_following ? 'Отписаться' : 'Подписаться'}
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => setProfileDialogOpen(true)}
+                      sx={{
+                        minHeight: 38,
+                        px: 1.6,
+                        borderRadius: '12px',
+                        border: 'none',
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        color: 'var(--morius-title-text)',
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        fontSize: '0.84rem',
+                        '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                      }}
+                    >
+                      Настройки
+                    </Button>
+                  )}
+                  {isOwnProfile && resolvedCanOpenAdmin ? (
+                    <Button
+                      onClick={() => setAdminOpen(true)}
+                      sx={{
+                        minHeight: 38,
+                        px: 1.6,
+                        borderRadius: '12px',
+                        border: 'none',
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        color: 'var(--morius-title-text)',
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        fontSize: '0.84rem',
+                        '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                      }}
+                    >
+                      Админка
+                    </Button>
+                  ) : null}
+                  {isOwnProfile ? (
+                    <Button
+                      onClick={() => setLogoutOpen(true)}
+                      sx={{
+                        minHeight: 38,
+                        px: 1.6,
+                        borderRadius: '12px',
+                        border: 'none',
+                        backgroundColor: 'rgba(175, 72, 72, 0.26)',
+                        color: 'color-mix(in srgb, #ffd0d0 88%, var(--morius-title-text))',
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        fontSize: '0.84rem',
+                        '&:hover': { backgroundColor: 'rgba(175, 72, 72, 0.4)', color: '#ffe1e1' },
+                      }}
+                    >
+                      Выход
+                    </Button>
+                  ) : null}
+                </Stack>
+              </Box>
+              <Stack spacing={{ xs: 1.2, md: 1.45 }} sx={{ position: 'relative', zIndex: 2, p: { xs: 2, sm: 2.4, md: 3 }, pt: 0 }}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
                   justifyContent="space-between"
-                  spacing={{ xs: 1.25, lg: 2.2 }}
-                  alignItems={{ xs: 'stretch', lg: 'flex-start' }}
+                  spacing={{ xs: 1.4, md: 2.2 }}
+                  alignItems={{ xs: 'stretch', md: 'flex-start' }}
                   sx={{ minWidth: 0 }}
                 >
                   <Stack
-                    direction="column"
-                    spacing={{ xs: 1.65, md: 1.8 }}
-                    alignItems={{ xs: (isEditing && isOwnProfile) ? 'stretch' : 'center', sm: 'flex-start' }}
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={{ xs: 1.1, sm: 2 }}
+                    alignItems={{ xs: 'center', sm: 'flex-start' }}
                     sx={{ minWidth: 0, flex: 1 }}
                   >
                     <Box
@@ -4699,20 +4857,21 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       }}
                       sx={{
                         position: 'relative',
-                        width: 112,
-                        height: 112,
+                        width: 96,
+                        height: 96,
                         borderRadius: '50%',
                         overflow: 'visible',
                         cursor: isOwnProfile && !isAvatarSaving ? 'pointer' : 'default',
                         flexShrink: 0,
                         mx: { xs: 'auto', sm: 0 },
+                        mt: { xs: '-46px', sm: '-52px', md: '-60px' },
                         boxShadow: '0 0 0 4px var(--morius-app-base), 0 18px 42px rgba(0, 0, 0, 0.3)',
                         '&:hover .morius-profile-avatar-overlay': {
                           opacity: isOwnProfile && !isAvatarSaving ? 1 : 0,
                         },
                       }}
                     >
-                      <UserAvatar user={resolvedAvatarUser} frameImageUrl={resolvedProfileUser.avatar_frame_image_url} size={112} />
+                      <UserAvatar user={resolvedAvatarUser} frameImageUrl={resolvedProfileUser.avatar_frame_image_url} size={96} />
                       <Box
                         className="morius-profile-avatar-overlay"
                         sx={{
@@ -4745,12 +4904,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     </Box>
 
                     <Stack
-                      spacing={0.78}
+                      spacing={0.65}
                       sx={{
                         minWidth: 0,
                         flex: 1,
                         width: '100%',
-                        alignItems: { xs: (isEditing && isOwnProfile) ? 'stretch' : 'center', sm: 'stretch' },
+                        pt: { sm: '10px' },
+                        alignItems: { xs: (isEditing && isOwnProfile) ? 'stretch' : 'center', sm: 'flex-start' },
                         textAlign: { xs: (isEditing && isOwnProfile) ? 'left' : 'center', sm: 'left' },
                       }}
                     >
@@ -4817,9 +4977,30 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         </>
                       ) : (
                         <>
-                          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: { xs: '1.8rem', md: '2.15rem' }, fontWeight: 800, lineHeight: 1.05 }}>
-                            {resolvedProfileName}
-                          </Typography>
+                          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: { xs: '1.8rem', md: '2.15rem' }, fontWeight: 800, lineHeight: 1.05 }}>
+                              {resolvedProfileName}
+                            </Typography>
+                            <Box
+                              component="span"
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 0.4,
+                                height: 22,
+                                px: 1,
+                                borderRadius: '999px',
+                                backgroundColor: 'var(--morius-accent)',
+                                color: '#ffffff',
+                                fontSize: '0.7rem',
+                                fontWeight: 800,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <Box component="span" sx={{ fontSize: '0.78rem', lineHeight: 1 }}>+</Box>
+                              {resolvedProfileRoleBadge}
+                            </Box>
+                          </Stack>
                           {resolvedProfileDescription ? (
                             <Box>
                               <Typography
@@ -4878,21 +5059,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                               Описание пока не добавлено.
                             </Typography>
                           )}
-                          <Stack direction="row" spacing={1.2} alignItems="center" flexWrap="wrap" sx={{ pt: 0.15, maxWidth: 680 }}>
-                            {isOwnProfile && user.email ? (
-                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem', fontWeight: 700 }}>{user.email}</Typography>
-                            ) : null}
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
-                              {followersCount.toLocaleString('ru-RU')} {followersCount === 1 ? 'подписчик' : 'подписчика'}
-                            </Typography>
-                            {isOwnProfile || canViewSubscriptions ? (
-                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
-                                {subscriptionsCount.toLocaleString('ru-RU')} {subscriptionsCount === 1 ? 'подписка' : 'подписки'}
-                              </Typography>
-                            ) : null}
-                          </Stack>
                           {isOwnProfile ? (
-                            <Stack direction="row" spacing={0.85} useFlexGap flexWrap="wrap" sx={{ pt: 1 }}>
+                            <Stack direction="row" spacing={0.85} useFlexGap flexWrap="wrap" sx={{ pt: 1, display: { xs: 'flex', md: 'none' } }}>
                               <Button
                                 onClick={handleOpenTopUpDialog}
                                 sx={{
@@ -4944,36 +5112,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   <Stack
                     spacing={1.05}
                     sx={{
-                      width: { xs: '100%', lg: 'auto' },
-                      minWidth: { lg: 280 },
-                      alignItems: { xs: 'stretch', lg: 'flex-end' },
+                      width: { xs: '100%', md: 'auto' },
+                      minWidth: { md: 200 },
+                      alignItems: { xs: 'stretch', md: 'flex-end' },
+                      pt: { md: '10px' },
                     }}
                   >
-                    {isOwnProfile ? (
-                      <Box sx={{ display: 'none', justifyContent: { xs: 'flex-start', lg: 'flex-end' } }}>
-                        <Button
-                          onClick={handleOpenTopUpDialog}
-                          sx={{
-                            minHeight: 34,
-                            px: 1.6,
-                            borderRadius: '9999px',
-                            border: 'none',
-                            backgroundColor: 'var(--morius-accent)',
-                            color: '#ffffff',
-                            textTransform: 'none',
-                            fontWeight: 700,
-                            fontSize: '12px',
-                            '&:hover': {
-                              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 85%, #fff 15%)',
-                              color: '#ffffff',
-                            },
-                          }}
-                        >
-                          <SoulAmount amount={coins} iconSize={16} fontSize="12px" />
-                        </Button>
-                      </Box>
-                    ) : null}
-
                     {isOwnProfile ? (
                       <Box
                         sx={{
@@ -5031,7 +5175,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       flexWrap="wrap"
                       alignItems="center"
                       justifyContent={{ xs: 'flex-start', lg: 'flex-end' }}
-                      sx={{ display: { xs: 'none', md: 'flex' } }}
+                      sx={{ display: 'none' }}
                     >
                       {isOwnProfile ? (
                         <IconButton
@@ -5183,6 +5327,50 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       ) : null}
                     </Stack>
 
+                    {isOwnProfile ? (
+                      <Stack spacing={0.85} alignItems={{ xs: 'stretch', md: 'flex-end' }} sx={{ display: { xs: 'none', md: 'flex' }, width: '100%' }}>
+                        <Button
+                          onClick={handleOpenTopUpDialog}
+                          sx={{
+                            minHeight: 36,
+                            px: 1.8,
+                            borderRadius: '9999px',
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 45%, var(--morius-card-border))',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 70%, var(--morius-accent) 30%)',
+                            color: 'var(--morius-title-text)',
+                            textTransform: 'none',
+                            fontWeight: 800,
+                            fontSize: '13px',
+                            gap: 0.6,
+                            alignSelf: { xs: 'stretch', md: 'flex-end' },
+                            '&:hover': {
+                              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 60%, var(--morius-accent) 40%)',
+                            },
+                          }}
+                        >
+                          <SoulAmount amount={coins} iconSize={16} fontSize="13px" />
+                        </Button>
+                        <Button
+                          onClick={() => setIsEditing((previous) => !previous)}
+                          sx={{
+                            minHeight: 36,
+                            px: 1.8,
+                            borderRadius: '9999px',
+                            border: 'none',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            color: 'var(--morius-title-text)',
+                            textTransform: 'none',
+                            fontWeight: 700,
+                            fontSize: '13px',
+                            alignSelf: { xs: 'stretch', md: 'flex-end' },
+                            '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                          }}
+                        >
+                          {isEditing ? 'Свернуть редактор' : 'Редактировать профиль'}
+                        </Button>
+                      </Stack>
+                    ) : null}
+
                     <Stack direction="row" spacing={0.75} alignItems="center" sx={{ display: { xs: 'flex', md: 'none' } }}>
                       {isOwnProfile ? (
                         <Button
@@ -5247,6 +5435,39 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       </IconButton>
                     </Stack>
                   </Stack>
+                </Stack>
+
+                <Divider sx={{ borderColor: 'color-mix(in srgb, var(--morius-card-border) 84%, transparent)' }} />
+                <Stack
+                  direction="row"
+                  spacing={1.1}
+                  alignItems="center"
+                  flexWrap="wrap"
+                  useFlexGap
+                  divider={<Divider orientation="vertical" flexItem sx={{ borderColor: 'color-mix(in srgb, var(--morius-card-border) 70%, transparent)', my: 0.3 }} />}
+                  sx={{ minWidth: 0, justifyContent: { xs: 'center', sm: 'flex-start' } }}
+                >
+                  {isOwnProfile && user.email ? (
+                    <Stack direction="row" spacing={0.55} alignItems="center">
+                      <SvgIcon viewBox="0 0 24 24" sx={{ width: 15, height: 15, color: 'var(--morius-text-secondary)' }}>
+                        <path fill="currentColor" d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm8 7 8-5H4l8 5Zm0 2L4 9v9h16V9l-8 5Z" />
+                      </SvgIcon>
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem', fontWeight: 700 }}>{user.email}</Typography>
+                    </Stack>
+                  ) : null}
+                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
+                    {followersCount.toLocaleString('ru-RU')} {followersCount === 1 ? '\u043F\u043E\u0434\u043F\u0438\u0441\u0447\u0438\u043A' : '\u043F\u043E\u0434\u043F\u0438\u0441\u0447\u0438\u043A\u0430'}
+                  </Typography>
+                  {isOwnProfile || canViewSubscriptions ? (
+                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
+                      {subscriptionsCount.toLocaleString('ru-RU')} {subscriptionsCount === 1 ? '\u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0430' : '\u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0438'}
+                    </Typography>
+                  ) : null}
+                  {isOwnProfile ? (
+                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
+                      {libraryTotalCount.toLocaleString('ru-RU')} {libraryTotalCount === 1 ? '\u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u044F' : '\u043F\u0443\u0431\u043B\u0438\u043A\u0430\u0446\u0438\u0439'}
+                    </Typography>
+                  ) : null}
                 </Stack>
               </Stack>
             </Box>
@@ -5359,6 +5580,30 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       </Button>
                     ))}
                   </Box>
+                ) : null}
+
+                {profileMainSection === 'library' && isOwnProfile ? (
+                  <Stack direction="row" spacing={1.2} alignItems="center" sx={{ pt: 0.6 }}>
+                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem' }}>
+                      Показано {libraryTabCounts[tab] ?? libraryTotalCount}
+                    </Typography>
+                    <ButtonBase
+                      onClick={handleOpenContentSortMenu}
+                      disabled={activeContentSortOptions.length === 0}
+                      sx={{
+                        color: 'var(--morius-text-secondary)',
+                        fontSize: '0.82rem',
+                        fontWeight: 700,
+                        borderRadius: '8px',
+                        px: 0.6,
+                        gap: 0.4,
+                        '&:hover': { color: 'var(--morius-title-text)' },
+                      }}
+                    >
+                      {activeContentSortLabel}
+                      <Box component="img" src={icons.profileSearchFilter} alt="" sx={{ width: 12, height: 7, opacity: 0.8 }} />
+                    </ButtonBase>
+                  </Stack>
                 ) : null}
 
                 <Stack direction="row" spacing={0.6} sx={{ pt: 0.8, minWidth: 0, width: '100%' }}>
@@ -5537,13 +5782,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                           onClick={() => setPublicationSection(item.id)}
                           aria-pressed={isActive}
                           sx={{
-                            minHeight: 38,
+                            minHeight: 34,
                             borderRadius: '8px',
                             backgroundColor: isActive
                               ? 'color-mix(in srgb, var(--morius-elevated-bg) 78%, #000 22%)'
                               : 'var(--morius-elevated-bg)',
                             color: isActive ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
-                            fontSize: '0.9rem',
+                            fontSize: '0.84rem',
                             fontWeight: 800,
                             gap: 0.65,
                             transition: 'background-color 160ms ease, color 160ms ease',
@@ -5581,13 +5826,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                             setTab(item.id)
                           }}
                           sx={{
-                            minHeight: 38,
+                            minHeight: 34,
                             borderRadius: '8px',
                             backgroundColor: isActive
                               ? 'color-mix(in srgb, var(--morius-elevated-bg) 78%, #000 22%)'
                               : 'var(--morius-elevated-bg)',
                             color: isActive ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
-                            fontSize: '0.9rem',
+                            fontSize: '0.84rem',
                             fontWeight: 800,
                             gap: 0.65,
                             transition: 'background-color 160ms ease, color 160ms ease',
@@ -5601,6 +5846,26 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         >
                           {renderLibraryTabIcon(item.id)}
                           <Box component="span">{item.label}</Box>
+                          <Box
+                            component="span"
+                            sx={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              minWidth: 20,
+                              height: 20,
+                              px: 0.5,
+                              borderRadius: '999px',
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                              backgroundColor: isActive
+                                ? 'color-mix(in srgb, var(--morius-accent) 30%, transparent)'
+                                : 'color-mix(in srgb, var(--morius-card-bg) 70%, transparent)',
+                              color: isActive ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
+                            }}
+                          >
+                            {libraryTabCounts[item.id] ?? 0}
+                          </Box>
                         </ButtonBase>
                       )
                     })}

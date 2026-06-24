@@ -23,6 +23,7 @@ class UserOut(BaseModel):
     avatar_scale: float
     auth_provider: str
     role: str
+    profile_tag: str = ""
     level: int
     coins: int
     notifications_enabled: bool = True
@@ -157,6 +158,8 @@ class ProfileUserOut(BaseModel):
     avatar_frame_image_url: str | None = None
     avatar_url: str | None
     avatar_scale: float
+    role: str = "user"
+    profile_tag: str = ""
     created_at: datetime
 
 
@@ -441,6 +444,7 @@ class AdminUserOut(BaseModel):
     email: EmailStr
     display_name: str | None
     role: str
+    profile_tag: str = ""
     coins: int
     is_banned: bool
     ban_expires_at: datetime | None
@@ -460,6 +464,10 @@ class AdminUserTokensUpdateRequest(BaseModel):
 
 class AdminUserModeratorUpdateRequest(BaseModel):
     is_moderator: bool
+
+
+class AdminUserTagUpdateRequest(BaseModel):
+    tag: str = Field(default="", max_length=40)
 
 
 class AdminUserBanRequest(BaseModel):

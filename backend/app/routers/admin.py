@@ -46,6 +46,7 @@ from app.schemas import (
     AdminUserListResponse,
     AdminUserModeratorUpdateRequest,
     AdminUserOut,
+    AdminUserTagUpdateRequest,
     AdminUserTokensUpdateRequest,
     MaintenanceSettingsOut,
     MaintenanceSettingsUpdateRequest,
@@ -583,6 +584,22 @@ def update_user_moderator_role(
 
     target_user.role = ROLE_MODERATOR if payload.is_moderator else ROLE_USER
     sync_user_access_state(target_user)
+    db.commit()
+    db.refresh(target_user)
+    return AdminUserOut.model_validate(target_user)
+
+
+@router.post("/api/auth/admin/users/{user_id}/tag", response_model=AdminUserOut)
+def update_user_profile_tag(
+    user_id: int,
+    payload: AdminUserTagUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AdminUserOut:
+    _require_administrator(db=db, authorization=authorization)
+    target_user = _get_target_user_or_404(db, user_id=user_id)
+
+    target_user.profile_tag = payload.tag.strip()
     db.commit()
     db.refresh(target_user)
     return AdminUserOut.model_validate(target_user)

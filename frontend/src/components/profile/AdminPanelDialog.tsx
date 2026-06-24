@@ -49,6 +49,7 @@ import {
   searchUsersForAdminPanel,
   unbanUserAsAdmin,
   updateModeratorRoleAsAdmin,
+  updateProfileTagAsAdmin,
   updateModerationCharacterForAdmin,
   updateModerationInstructionTemplateForAdmin,
   updateModerationWorldForAdmin,
@@ -68,6 +69,7 @@ import {
   getCommunityWorld,
 } from '../../services/storyApi'
 import TextLimitIndicator from '../TextLimitIndicator'
+import { getDisplayedTagLabel } from '../../types/auth'
 import type {
   StoryCharacter,
   StoryCommunityCharacterSummary,
@@ -84,6 +86,7 @@ const ADMIN_PANEL_ALLOWED_ROLES = new Set(['administrator', 'moderator'])
 const ADMIN_SEARCH_QUERY_MAX_LENGTH = 120
 const ADMIN_TOKEN_AMOUNT_MAX_LENGTH = 10
 const ADMIN_BAN_DURATION_MAX_LENGTH = 5
+const ADMIN_CUSTOM_TAG_MAX_LENGTH = 40
 const ADMIN_USER_PAGE_SIZE = 40
 const MAINTENANCE_TITLE_MAX_LENGTH = 140
 const MAINTENANCE_MESSAGE_MAX_LENGTH = 2000
@@ -289,6 +292,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
   const [tokenAmountDraft, setTokenAmountDraft] = useState('100')
   const [banDurationDraft, setBanDurationDraft] = useState('24')
   const [banDurationUnit, setBanDurationUnit] = useState<'hours' | 'days'>('hours')
+  const [customTagDraft, setCustomTagDraft] = useState('')
   const [isLoadingUsers, setIsLoadingUsers] = useState(false)
   const [hasMoreUsers, setHasMoreUsers] = useState(false)
   const [usersTotalCount, setUsersTotalCount] = useState(0)
@@ -343,6 +347,9 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
     () => users.find((user) => user.id === selectedUserId) ?? null,
     [selectedUserId, users],
   )
+  useEffect(() => {
+    setCustomTagDraft(selectedUser?.profile_tag ?? '')
+  }, [selectedUser])
   const usersListContainerRef = useRef<HTMLDivElement | null>(null)
   const usersRequestInFlightRef = useRef(false)
   const moderationDetailRequestIdRef = useRef(0)
@@ -875,7 +882,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
         is_moderator: isModerator,
       })
       mergeUpdatedUser(updatedUser)
-      setSuccessMessage(isModerator ? 'Модератор выдан' : 'Модератор снят')
+      setSuccessMessage(isModerator ? 'Тег «Модератор» назначен' : 'Тег «Игрок» назначен')
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось изменить роль модератора'
       setErrorMessage(detail)
@@ -883,6 +890,33 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
       setIsApplyingUserAction(false)
     }
   }, [authToken, mergeUpdatedUser, selectedUser])
+
+  const handleUpdateProfileTag = useCallback(async (tagOverride?: string) => {
+    if (!selectedUser) {
+      setErrorMessage('Выберите пользователя')
+      return
+    }
+
+    const nextTag = (tagOverride ?? customTagDraft).trim()
+    setIsApplyingUserAction(true)
+    setErrorMessage('')
+    setSuccessMessage('')
+    try {
+      const updatedUser = await updateProfileTagAsAdmin({
+        token: authToken,
+        user_id: selectedUser.id,
+        tag: nextTag,
+      })
+      mergeUpdatedUser(updatedUser)
+      setCustomTagDraft(updatedUser.profile_tag)
+      setSuccessMessage(updatedUser.profile_tag ? `Тег «${updatedUser.profile_tag}» назначен` : 'Кастомный тег сброшен')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось изменить тег'
+      setErrorMessage(detail)
+    } finally {
+      setIsApplyingUserAction(false)
+    }
+  }, [authToken, customTagDraft, mergeUpdatedUser, selectedUser])
 
   const handleOpenReportedTarget = useCallback(
     async (report: AdminReport) => {
@@ -1495,7 +1529,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                                 {user.display_name || user.email}
                               </Typography>
                               <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem' }} noWrap>
-                                {user.email} · {user.role}
+                                {user.email} · {getDisplayedTagLabel(user.role, user.profile_tag)}
                               </Typography>
                             </Stack>
                             <Typography sx={{ color: 'text.secondary', ml: 1.2, fontSize: '0.85rem' }}>
@@ -1558,10 +1592,64 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                   </Button>
                 </Stack>
 
+                <Typography sx={{ color: 'text.secondary', fontSize: '0.82rem' }}>
+                  Тег, который видит пользователь:{' '}
+                  <Typography component="span" sx={{ color: 'var(--morius-text-primary)', fontWeight: 700 }}>
+                    {selectedUser ? getDisplayedTagLabel(selectedUser.role, selectedUser.profile_tag) : '—'}
+                  </Typography>
+                  {selectedUser && !canManageModeratorRole
+                    ? ' (менять тег может только администратор)'
+                    : null}
+                </Typography>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                   <Button
-                    variant="outlined"
+                    variant={selectedUser?.role === 'user' ? 'contained' : 'outlined'}
                     onClick={() => void handleUpdateModeratorRole(false)}
+                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                    sx={{
+                      minHeight: 40,
+                      borderColor: 'rgba(188, 202, 221, 0.36)',
+                      color: selectedUser?.role === 'user' ? '#ffffff' : 'var(--morius-text-primary)',
+                      backgroundColor: selectedUser?.role === 'user' ? 'rgba(89, 118, 191, 0.34)' : 'transparent',
+                    }}
+                  >
+                    Тег «Игрок»
+                  </Button>
+                  <Button
+                    variant={selectedUser?.role === 'moderator' ? 'contained' : 'outlined'}
+                    onClick={() => void handleUpdateModeratorRole(true)}
+                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                    sx={{
+                      minHeight: 40,
+                      borderRadius: 'var(--morius-radius)',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: selectedUser?.role === 'moderator' ? 'rgba(89, 118, 191, 0.34)' : 'transparent',
+                      color: selectedUser?.role === 'moderator' ? '#ffffff' : 'var(--morius-text-primary)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(104, 135, 212, 0.44)',
+                      },
+                    }}
+                  >
+                    Тег «Модератор»
+                  </Button>
+                </Stack>
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <TextField
+                    value={customTagDraft}
+                    onChange={(event) => setCustomTagDraft(event.target.value.slice(0, ADMIN_CUSTOM_TAG_MAX_LENGTH))}
+                    label="Свой тег (любой текст)"
+                    placeholder="Например: Создатель"
+                    size="small"
+                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                    inputProps={{ maxLength: ADMIN_CUSTOM_TAG_MAX_LENGTH }}
+                    helperText={<TextLimitIndicator currentLength={customTagDraft.length} maxLength={ADMIN_CUSTOM_TAG_MAX_LENGTH} />}
+                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                    sx={{ flex: 1 }}
+                  />
+                  <Button
+                    variant="outlined"
+                    onClick={() => void handleUpdateProfileTag('')}
                     disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
                     sx={{
                       minHeight: 40,
@@ -1569,24 +1657,21 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                       color: 'var(--morius-text-primary)',
                     }}
                   >
-                    Снять модератора
+                    Сбросить
                   </Button>
                   <Button
                     variant="contained"
-                    onClick={() => void handleUpdateModeratorRole(true)}
+                    onClick={() => void handleUpdateProfileTag()}
                     disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
                     sx={{
                       minHeight: 40,
                       borderRadius: 'var(--morius-radius)',
                       border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                      backgroundColor: 'rgba(89, 118, 191, 0.34)',
+                      backgroundColor: 'var(--morius-button-active)',
                       color: '#ffffff',
-                      '&:hover': {
-                        backgroundColor: 'rgba(104, 135, 212, 0.44)',
-                      },
                     }}
                   >
-                    Выдать модератора
+                    Сохранить тег
                   </Button>
                 </Stack>
 

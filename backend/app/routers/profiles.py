@@ -177,6 +177,8 @@ def _build_profile_user(db: Session, user: User) -> ProfileUserOut:
             version=getattr(user, "updated_at", None),
         ),
         avatar_scale=_normalize_user_avatar_scale(user),
+        role=str(getattr(user, "role", "") or "user").strip().lower() or "user",
+        profile_tag=str(getattr(user, "profile_tag", "") or "").strip(),
         created_at=user.created_at,
     )
 

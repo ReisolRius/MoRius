@@ -162,6 +162,8 @@ export type ProfileUserView = {
   avatar_frame_image_url?: string | null
   avatar_url: string | null
   avatar_scale: number
+  role: string
+  profile_tag: string
   created_at: string
 }
 
@@ -355,6 +357,7 @@ export type AdminManagedUser = {
   email: string
   display_name: string | null
   role: string
+  profile_tag: string
   coins: number
   is_banned: boolean
   ban_expires_at: string | null
@@ -624,6 +627,8 @@ function normalizeProfileUserView(value: ProfileView['user'] | null | undefined)
       avatar_frame_image_url: null,
       avatar_url: null,
       avatar_scale: 1,
+      role: 'user',
+      profile_tag: '',
       created_at: new Date(0).toISOString(),
     }
   }
@@ -640,6 +645,8 @@ function normalizeProfileUserView(value: ProfileView['user'] | null | undefined)
       typeof value.avatar_scale === 'number' && Number.isFinite(value.avatar_scale)
         ? Math.max(1, Math.min(3, value.avatar_scale))
         : 1,
+    role: typeof value.role === 'string' && value.role.trim() ? value.role.trim().toLowerCase() : 'user',
+    profile_tag: typeof value.profile_tag === 'string' ? value.profile_tag.trim() : '',
     created_at: typeof value.created_at === 'string' ? value.created_at : new Date(0).toISOString(),
   }
 }
@@ -1428,6 +1435,26 @@ export async function updateModeratorRoleAsAdmin(payload: {
       },
       body: JSON.stringify({
         is_moderator: payload.is_moderator,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function updateProfileTagAsAdmin(payload: {
+  token: string
+  user_id: number
+  tag: string
+}): Promise<AdminManagedUser> {
+  return requestJson<AdminManagedUser>(
+    `/api/auth/admin/users/${payload.user_id}/tag`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        tag: payload.tag,
       }),
     },
     AUTH_NETWORK_ERROR,

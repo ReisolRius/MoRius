@@ -133,6 +133,8 @@ def _profile_user_to_out(db: Session, user: User) -> ProfileUserOut:
             min_value=1.0,
             max_value=3.0,
         ),
+        role=str(getattr(user, "role", "") or "user").strip().lower() or "user",
+        profile_tag=str(getattr(user, "profile_tag", "") or "").strip(),
         created_at=user.created_at,
     )
 

@@ -11,6 +11,7 @@ export type AuthUser = {
   avatar_scale: number
   auth_provider: string
   role: string
+  profile_tag?: string
   level: number
   coins: number
   notifications_enabled?: boolean
@@ -42,4 +43,20 @@ export type AuthResponse = {
   token_type: 'bearer'
   user: AuthUser
   is_new_user?: boolean
+}
+
+const ROLE_BADGE_LABELS: Record<string, string> = {
+  administrator: 'Разработчик',
+  moderator: 'Модератор',
+  user: 'Игрок',
+}
+
+export function getRoleBadgeLabel(role: string | null | undefined): string {
+  const normalizedRole = (role ?? '').trim().toLowerCase()
+  return ROLE_BADGE_LABELS[normalizedRole] ?? ROLE_BADGE_LABELS.user
+}
+
+export function getDisplayedTagLabel(role: string | null | undefined, profileTag: string | null | undefined): string {
+  const customTag = (profileTag ?? '').trim()
+  return customTag || getRoleBadgeLabel(role)
 }

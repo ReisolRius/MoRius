@@ -33,6 +33,7 @@ class User(Base):
     vk_id_provider: Mapped[str | None] = mapped_column(String(16), nullable=True)
     auth_provider: Mapped[str] = mapped_column(String(32), default="email", nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user", server_default="user")
+    profile_tag: Mapped[str] = mapped_column(String(40), nullable=False, default="", server_default="")
     level: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     coins: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     is_banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
