@@ -19980,55 +19980,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             </Typography>
                           </Stack>
 
-                          <Stack direction="row" alignItems="baseline" spacing={0.7} sx={{ mt: 0.7 }}>
-                            <Box
-                              component="input"
-                              value={contextLimitDraft}
-                              maxLength={STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH}
-                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleContextLimitDraftChange(event.target.value)}
-                              onBlur={() => {
-                                void handleContextLimitDraftCommit()
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                  event.preventDefault()
-                                  void handleContextLimitDraftCommit()
-                                }
-                              }}
-                              disabled={isSavingStorySettings || isGenerating}
-                              inputMode="numeric"
-                              sx={{
-                                width: 150,
-                                maxWidth: '62%',
-                                border: 'var(--morius-border-width) solid transparent',
-                                borderRadius: '10px',
-                                backgroundColor: 'transparent',
-                                color: 'var(--morius-title-text)',
-                                px: 0.5,
-                                py: 0.1,
-                                outline: 'none',
-                                fontSize: '1.7rem',
-                                fontWeight: 800,
-                                letterSpacing: 0,
-                                lineHeight: 1.1,
-                                transition: 'border-color 150ms ease, background-color 150ms ease',
-                                '&:hover': {
-                                  borderColor: 'color-mix(in srgb, var(--morius-card-border) 90%, transparent)',
-                                },
-                                '&:focus': {
-                                  borderColor: 'var(--morius-accent)',
-                                  backgroundColor: 'var(--morius-elevated-bg)',
-                                },
-                              }}
-                            />
+                          <Stack direction="row" alignItems="baseline" spacing={0.65} sx={{ mt: 0.7 }}>
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.7rem', fontWeight: 800, lineHeight: 1.1, letterSpacing: 0 }}>
+                              {formatContextChars(contextLimitChars)}
+                            </Typography>
                             <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.86rem', fontWeight: 600 }}>токенов</Typography>
                             {isSavingContextLimit ? <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} /> : null}
                           </Stack>
-                          <TextLimitIndicator
-                            currentLength={contextLimitDraft.length}
-                            maxLength={STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH}
-                            sx={{ mt: 0.35 }}
-                          />
 
                           <Box sx={{ overflow: 'visible', px: 1.15, pt: 0.6 }}>
                             <Slider

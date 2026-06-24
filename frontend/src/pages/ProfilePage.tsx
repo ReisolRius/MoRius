@@ -4686,7 +4686,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, #05080c 18%)',
               }}
             >
-              <Box sx={{ position: 'relative', height: { xs: 150, sm: 176, md: 200 } }}>
+              <Box sx={{ position: 'relative', height: { xs: 188, sm: 224, md: 268 } }}>
                 <ProgressiveImage
                   src={resolvedProfileBannerSrc}
                   alt=""
@@ -4861,8 +4861,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   <Stack
                     direction={{ xs: 'column', sm: 'row' }}
                     spacing={{ xs: 1.1, sm: 2 }}
-                    alignItems={{ xs: 'center', sm: (isEditing && isOwnProfile) ? 'flex-start' : 'center' }}
-                    sx={{ minWidth: 0, flex: 1 }}
+                    alignItems={{ xs: 'center', sm: 'flex-start' }}
+                    sx={{ minWidth: 0, flex: 1, position: 'relative' }}
                   >
                     <Box
                       role="button"
@@ -4884,7 +4884,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         }
                       }}
                       sx={{
-                        position: 'relative',
+                        position: { xs: 'relative', sm: 'absolute' },
+                        zIndex: 5,
+                        top: { sm: `-${PROFILE_AVATAR_SIZE / 2}px` },
+                        left: { sm: 0 },
                         width: PROFILE_AVATAR_SIZE,
                         height: PROFILE_AVATAR_SIZE,
                         borderRadius: '50%',
@@ -4892,7 +4895,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         cursor: isOwnProfile && !isAvatarSaving ? 'pointer' : 'default',
                         flexShrink: 0,
                         mx: { xs: 'auto', sm: 0 },
-                        mt: { xs: '-62px', sm: '-68px', md: '-72px' },
+                        mt: { xs: `-${PROFILE_AVATAR_SIZE / 2}px`, sm: 0 },
                         boxShadow: '0 0 0 4px var(--morius-app-base), 0 18px 42px rgba(0, 0, 0, 0.3)',
                         '&:hover .morius-profile-avatar-overlay': {
                           opacity: isOwnProfile && !isAvatarSaving ? 1 : 0,
@@ -4941,7 +4944,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         minWidth: 0,
                         flex: 1,
                         width: '100%',
-                        pt: { sm: (isEditing && isOwnProfile) ? '6px' : 0 },
+                        pt: { sm: (isEditing && isOwnProfile) ? '6px' : '6px' },
+                        pl: { sm: `${PROFILE_AVATAR_SIZE + 20}px` },
+                        minHeight: { sm: `${PROFILE_AVATAR_SIZE / 2 + 10}px` },
                         alignItems: { xs: (isEditing && isOwnProfile) ? 'stretch' : 'center', sm: 'flex-start' },
                         textAlign: { xs: (isEditing && isOwnProfile) ? 'left' : 'center', sm: 'left' },
                       }}
