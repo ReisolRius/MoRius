@@ -148,7 +148,7 @@ const PROFILE_SERVER_REQUEST_SIZE = PROFILE_CARD_BATCH_SIZE + 1
 const PROFILE_NOTIFICATION_PAGE_SIZE = 12
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
-const PROFILE_AVATAR_SIZE = 96
+const PROFILE_AVATAR_SIZE = 128
 const CARD_MIN_HEIGHT = 174
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
@@ -907,18 +907,31 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const favoriteSortMode = contentSortModeByTab.favorites ?? PROFILE_TAB_DEFAULT_SORT_MODE.favorites ?? 'popular_desc'
   const publicationSortMode = contentSortModeByTab.publications ?? PROFILE_TAB_DEFAULT_SORT_MODE.publications ?? 'popular_desc'
   const subscriptionSortMode = contentSortModeByTab.subscriptions ?? PROFILE_TAB_DEFAULT_SORT_MODE.subscriptions ?? 'name_asc'
+  const activeContentSortTab: TabId =
+    profileMainSection === 'publications' && isOwnProfile
+      ? publicationSection === 'worlds'
+        ? 'games'
+        : publicationSection === 'characters'
+          ? 'characters'
+          : 'instructions'
+      : tab
   const activeContentSortOptions = useMemo(
-    () => (tab === 'notifications' ? NOTIFICATION_SORT_OPTIONS : PROFILE_TAB_SORT_OPTIONS[tab] ?? []),
-    [tab],
+    () =>
+      activeContentSortTab === 'notifications'
+        ? NOTIFICATION_SORT_OPTIONS
+        : PROFILE_TAB_SORT_OPTIONS[activeContentSortTab] ?? [],
+    [activeContentSortTab],
   )
-  const activeContentSortMode = tab === 'notifications'
+  const activeContentSortMode = activeContentSortTab === 'notifications'
     ? notificationSortMode
-    : contentSortModeByTab[tab] ?? PROFILE_TAB_DEFAULT_SORT_MODE[tab] ?? ''
+    : contentSortModeByTab[activeContentSortTab] ?? PROFILE_TAB_DEFAULT_SORT_MODE[activeContentSortTab] ?? ''
   const activeContentSortLabel = useMemo(
     () => activeContentSortOptions.find((option) => option.value === activeContentSortMode)?.label ?? 'Сортировка',
     [activeContentSortMode, activeContentSortOptions],
   )
-  const isActiveContentSortDefault = activeContentSortMode === (tab === 'notifications' ? 'newest' : PROFILE_TAB_DEFAULT_SORT_MODE[tab] ?? '')
+  const isActiveContentSortDefault =
+    activeContentSortMode ===
+    (activeContentSortTab === 'notifications' ? 'newest' : PROFILE_TAB_DEFAULT_SORT_MODE[activeContentSortTab] ?? '')
   const filteredOwnGames = useMemo(
     () =>
       sortProfileGames(
@@ -1057,25 +1070,25 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     () =>
       sortProfileGames(
         profilePublicationGames,
-        'updated_desc',
+        gameSortMode,
       ),
-    [profilePublicationGames],
+    [gameSortMode, profilePublicationGames],
   )
   const filteredProfilePublicationCharacters = useMemo(
     () =>
       sortProfileCharacters(
         profilePublicationCharacters,
-        'updated_desc',
+        characterSortMode,
       ),
-    [profilePublicationCharacters],
+    [characterSortMode, profilePublicationCharacters],
   )
   const filteredProfilePublicationTemplates = useMemo(
     () =>
       sortProfileTemplates(
         profilePublicationTemplates,
-        'updated_desc',
+        instructionSortMode,
       ),
-    [profilePublicationTemplates],
+    [instructionSortMode, profilePublicationTemplates],
   )
   const loadMoreOwnGames = useCallback(async () => {
     if (!isOwnProfile || isOwnGamesLoading || isOwnGamesLoadingMore || !hasMoreOwnGamesServer) {
@@ -1403,6 +1416,22 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     () => BASE_PROFILE_TABS.reduce((sum, item) => sum + (libraryTabCounts[item.id] ?? 0), 0),
     [libraryTabCounts],
   )
+  const activeProfileItemCount =
+    tab === 'notifications'
+      ? notificationCounts.total_count
+      : profileMainSection === 'publications' && isOwnProfile
+        ? publicationSection === 'worlds'
+          ? filteredProfilePublicationGames.length
+          : publicationSection === 'characters'
+            ? filteredProfilePublicationCharacters.length
+            : filteredProfilePublicationTemplates.length
+        : tab === 'publications'
+          ? visiblePublicationWorlds.length + visiblePublicationCharacters.length + visiblePublicationTemplates.length
+          : tab === 'subscriptions'
+            ? visibleSubscriptions.length
+            : tab === 'favorites'
+              ? favoriteWorlds.length
+              : libraryTabCounts[tab] ?? 0
   const profileSidebarSubscriptions = useMemo(() => visibleSubscriptions.slice(0, 6), [visibleSubscriptions])
   const mobileContentTabs = useMemo(
     () => [
@@ -2431,17 +2460,17 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
   const handleSelectContentSortMode = useCallback(
     (nextValue: string) => {
-      if (tab === 'notifications') {
+      if (activeContentSortTab === 'notifications') {
         setNotificationSortMode(nextValue as NotificationSortMode)
       } else {
         setContentSortModeByTab((previous) => ({
           ...previous,
-          [tab]: nextValue as ProfileContentSortMode,
+          [activeContentSortTab]: nextValue as ProfileContentSortMode,
         }))
       }
       setContentSortMenuAnchorEl(null)
     },
-    [tab],
+    [activeContentSortTab],
   )
 
   const handleMobilePrimaryTabChange = useCallback(
@@ -4657,7 +4686,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, #05080c 18%)',
               }}
             >
-              <Box sx={{ position: 'relative', height: { xs: 148, sm: 176, md: 200 } }}>
+              <Box sx={{ position: 'relative', height: { xs: 188, sm: 224, md: 268 } }}>
                 <ProgressiveImage
                   src={resolvedProfileBannerSrc}
                   alt=""
@@ -4680,8 +4709,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   sx={{
                     position: 'absolute',
                     inset: 0,
-                    background:
-                      'linear-gradient(180deg, rgba(5, 8, 12, 0.18) 0%, rgba(5, 8, 12, 0.36) 58%, color-mix(in srgb, var(--morius-card-bg) 82%, #05080c 18%) 100%)',
+                    backgroundColor: 'rgba(5, 8, 12, 0.1)',
                   }}
                 />
                 <Stack
@@ -4857,21 +4885,25 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       }}
                       sx={{
                         position: 'relative',
-                        width: 96,
-                        height: 96,
+                        width: PROFILE_AVATAR_SIZE,
+                        height: PROFILE_AVATAR_SIZE,
                         borderRadius: '50%',
                         overflow: 'visible',
                         cursor: isOwnProfile && !isAvatarSaving ? 'pointer' : 'default',
                         flexShrink: 0,
                         mx: { xs: 'auto', sm: 0 },
-                        mt: { xs: '-46px', sm: '-52px', md: '-60px' },
+                        mt: { xs: '-62px', sm: '-68px', md: '-72px' },
                         boxShadow: '0 0 0 4px var(--morius-app-base), 0 18px 42px rgba(0, 0, 0, 0.3)',
                         '&:hover .morius-profile-avatar-overlay': {
                           opacity: isOwnProfile && !isAvatarSaving ? 1 : 0,
                         },
                       }}
                     >
-                      <UserAvatar user={resolvedAvatarUser} frameImageUrl={resolvedProfileUser.avatar_frame_image_url} size={96} />
+                      <UserAvatar
+                        user={resolvedAvatarUser}
+                        frameImageUrl={resolvedProfileUser.avatar_frame_image_url}
+                        size={PROFILE_AVATAR_SIZE}
+                      />
                       <Box
                         className="morius-profile-avatar-overlay"
                         sx={{
@@ -5350,52 +5382,17 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         >
                           <SoulAmount amount={coins} iconSize={16} fontSize="13px" />
                         </Button>
-                        <Button
-                          onClick={() => setIsEditing((previous) => !previous)}
-                          sx={{
-                            minHeight: 36,
-                            px: 1.8,
-                            borderRadius: '9999px',
-                            border: 'none',
-                            backgroundColor: 'var(--morius-elevated-bg)',
-                            color: 'var(--morius-title-text)',
-                            textTransform: 'none',
-                            fontWeight: 700,
-                            fontSize: '13px',
-                            alignSelf: { xs: 'stretch', md: 'flex-end' },
-                            '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
-                          }}
-                        >
-                          {isEditing ? 'Свернуть редактор' : 'Редактировать профиль'}
-                        </Button>
                       </Stack>
                     ) : null}
 
-                    <Stack direction="row" spacing={0.75} alignItems="center" sx={{ display: { xs: 'flex', md: 'none' } }}>
-                      {isOwnProfile ? (
-                        <Button
-                          onClick={() => {
-                            if (resolvedCanOpenAdmin) {
-                              setAdminOpen(true)
-                              return
-                            }
-                            setIsEditing((previous) => !previous)
-                          }}
-                          sx={{
-                            minHeight: 40,
-                            px: 1.45,
-                            borderRadius: '14px',
-                            border: 'none',
-                            backgroundColor: 'var(--morius-button-active)',
-                            color: 'var(--morius-title-text)',
-                            textTransform: 'none',
-                            fontWeight: 700,
-                            flex: 1,
-                          }}
-                        >
-                          {resolvedCanOpenAdmin ? 'Админка' : (isEditing ? 'Свернуть' : 'Редактировать')}
-                        </Button>
-                      ) : (
+                    <Stack
+                      direction="row"
+                      spacing={0.75}
+                      alignItems="center"
+                      justifyContent={isOwnProfile ? 'flex-end' : 'flex-start'}
+                      sx={{ display: { xs: 'flex', md: 'none' } }}
+                    >
+                      {!isOwnProfile ? (
                         <Button
                           onClick={() => void handleToggleFollow()}
                           disabled={isFollowSaving || !profileView}
@@ -5413,7 +5410,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         >
                           {isFollowSaving ? 'Обновление...' : profileView?.is_following ? 'Отписаться' : 'Подписаться'}
                         </Button>
-                      )}
+                      ) : null}
                       <IconButton
                         onClick={handleOpenMobileProfileMenu}
                         aria-label="Действия профиля"
@@ -5649,88 +5646,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 </Stack>
               </Box>
 
-              <Stack spacing={1.15} sx={{ display: 'flex', mb: 1.15, width: '100%', minWidth: 0 }}>
-                {tab === 'notifications' || !isOwnProfile ? (
-                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2rem', fontWeight: 800, lineHeight: 1.02 }}>
-                    {tab === 'notifications' ? 'Уведомления' : 'Библиотека'}
-                  </Typography>
-                ) : (
-                  <Stack direction="row" spacing={2.05} alignItems="baseline" sx={{ minWidth: 0, flexWrap: 'wrap' }}>
-                    {([
-                      { id: 'library' as const, label: 'Библиотека' },
-                      { id: 'publications' as const, label: 'Публикации' },
-                    ]).map((item) => {
-                      const isActive = profileMainSection === item.id
-                      return (
-                        <ButtonBase
-                          key={`profile-main-section-${item.id}`}
-                          onClick={() => setProfileMainSection(item.id)}
-                          aria-pressed={isActive}
-                          sx={{
-                            color: isActive ? 'var(--morius-accent)' : 'var(--morius-title-text)',
-                            fontSize: { xs: '1.42rem', sm: '1.7rem', md: '2rem' },
-                            fontWeight: 800,
-                            lineHeight: 1.02,
-                            letterSpacing: 0,
-                            backgroundColor: 'transparent !important',
-                            border: 'none',
-                            borderRadius: 0,
-                            textAlign: 'left',
-                            transition: 'color 160ms ease',
-                            '&:hover': {
-                              backgroundColor: 'transparent !important',
-                              color: 'var(--morius-accent)',
-                            },
-                          }}
-                        >
-                          {item.label}
-                        </ButtonBase>
-                      )
-                    })}
-                  </Stack>
-                )}
-                <Stack direction="row" spacing={0.7} alignItems="center" sx={{ display: 'none', width: '100%', minWidth: 0 }}>
-                  <TextField
-                    size="small"
-                    value={contentSearchQuery}
-                    onChange={(event) => setContentSearchQuery(event.target.value.slice(0, PROFILE_CONTENT_SEARCH_MAX))}
-                    placeholder="Поиск"
-                    inputProps={{ maxLength: PROFILE_CONTENT_SEARCH_MAX }}
-                    sx={{
-                      flex: 1,
-                      '& .MuiInputBase-root': {
-                        borderRadius: '14px',
-                        minHeight: 46,
-                        backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
-                      },
-                    }}
-                  />
-                  <IconButton
-                    onClick={handleOpenContentSortMenu}
-                    disabled={activeContentSortOptions.length === 0}
-                    title={activeContentSortLabel}
-                    aria-label={activeContentSortLabel}
-                    sx={{
-                      width: 46,
-                      height: 46,
-                      borderRadius: '14px',
-                      border:
-                        !isActiveContentSortDefault || Boolean(contentSortMenuAnchorEl)
-                          ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 52%, var(--morius-card-border))'
-                          : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 90%, transparent)',
-                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
-                      '&:hover': {
-                        backgroundColor:
-                          activeContentSortOptions.length > 0
-                            ? 'color-mix(in srgb, var(--morius-card-bg) 90%, #000 10%)'
-                            : 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
-                      },
-                    }}
-                  >
-                    <Box component="img" src={icons.profileSearchFilter} alt="" sx={{ width: 18, height: 10, opacity: 0.95 }} />
-                  </IconButton>
-                </Stack>
+              <Stack spacing={1.3} sx={{ display: 'flex', mb: 1.4, width: '100%', minWidth: 0 }}>
                 {tab === 'notifications' ? (
+                  <>
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2rem', fontWeight: 800, lineHeight: 1.02 }}>
+                      Уведомления
+                    </Typography>
                   <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
                     <Button
                       onClick={() => setTab('games')}
@@ -5764,112 +5685,183 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       Отметить все прочитанными
                     </Button>
                   </Stack>
-                ) : profileMainSection === 'publications' && isOwnProfile ? (
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      gridTemplateColumns: { xs: 'repeat(3, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' },
-                      gap: 0.85,
-                      pb: 1.15,
-                      borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
-                    }}
-                  >
-                    {PROFILE_PUBLICATION_TABS.map((item) => {
-                      const isActive = publicationSection === item.id
-                      return (
-                        <ButtonBase
-                          key={`profile-publication-tab-${item.id}`}
-                          onClick={() => setPublicationSection(item.id)}
-                          aria-pressed={isActive}
-                          sx={{
-                            minHeight: 34,
-                            borderRadius: '8px',
-                            backgroundColor: isActive
-                              ? 'color-mix(in srgb, var(--morius-elevated-bg) 78%, #000 22%)'
-                              : 'var(--morius-elevated-bg)',
-                            color: isActive ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
-                            fontSize: '0.84rem',
-                            fontWeight: 800,
-                            gap: 0.65,
-                            transition: 'background-color 160ms ease, color 160ms ease',
-                            '&:hover': {
-                              backgroundColor: isActive
-                                ? 'color-mix(in srgb, var(--morius-elevated-bg) 70%, #000 30%)'
-                                : 'color-mix(in srgb, var(--morius-elevated-bg) 84%, #000 16%)',
-                              color: isActive ? 'var(--morius-accent)' : 'var(--morius-title-text)',
-                            },
-                          }}
-                        >
-                          {renderLibraryTabIcon(item.iconTab)}
-                          <Box component="span">{item.label}</Box>
-                        </ButtonBase>
-                      )
-                    })}
-                  </Box>
+                  </>
                 ) : (
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, minmax(0, 1fr))' },
-                      gap: 0.85,
-                      pb: 1.15,
-                      borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
-                    }}
-                  >
-                    {tabs.map((item) => {
-                      const isActive = tab === item.id
-                      return (
-                        <ButtonBase
-                          key={`profile-library-tab-${item.id}`}
-                          onClick={() => {
-                            setProfileMainSection('library')
-                            setTab(item.id)
-                          }}
+                  <>
+                    <Stack
+                      direction={{ xs: 'column', sm: 'row' }}
+                      justifyContent="space-between"
+                      alignItems={{ xs: 'stretch', sm: 'center' }}
+                      spacing={1}
+                      sx={{
+                        pb: 1.3,
+                        borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
+                      }}
+                    >
+                      {isOwnProfile ? (
+                        <Box
                           sx={{
-                            minHeight: 34,
-                            borderRadius: '8px',
-                            backgroundColor: isActive
-                              ? 'color-mix(in srgb, var(--morius-elevated-bg) 78%, #000 22%)'
-                              : 'var(--morius-elevated-bg)',
-                            color: isActive ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
-                            fontSize: '0.84rem',
-                            fontWeight: 800,
-                            gap: 0.65,
-                            transition: 'background-color 160ms ease, color 160ms ease',
+                            display: 'inline-flex',
+                            alignSelf: { xs: 'flex-start', sm: 'center' },
+                            p: 0.45,
+                            borderRadius: '10px',
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 84%, #000 16%)',
+                          }}
+                        >
+                          {([
+                            { id: 'library' as const, label: 'Библиотека' },
+                            { id: 'publications' as const, label: 'Публикации' },
+                          ]).map((item) => {
+                            const isActive = profileMainSection === item.id
+                            return (
+                              <ButtonBase
+                                key={`profile-main-section-${item.id}`}
+                                onClick={() => setProfileMainSection(item.id)}
+                                aria-pressed={isActive}
+                                sx={{
+                                  minHeight: 36,
+                                  px: { xs: 1.6, sm: 2.2 },
+                                  borderRadius: '7px',
+                                  color: isActive ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
+                                  backgroundColor: isActive ? 'var(--morius-button-active)' : 'transparent',
+                                  fontSize: '0.86rem',
+                                  fontWeight: 800,
+                                  lineHeight: 1,
+                                  transition: 'background-color 160ms ease, color 160ms ease',
+                                  '&:hover': {
+                                    backgroundColor: isActive ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
+                                    color: 'var(--morius-title-text)',
+                                  },
+                                }}
+                              >
+                                {item.label}
+                              </ButtonBase>
+                            )
+                          })}
+                        </Box>
+                      ) : (
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.45rem', fontWeight: 800, lineHeight: 1.05 }}>
+                          Библиотека
+                        </Typography>
+                      )}
+
+                      <Stack direction="row" spacing={1} alignItems="center" justifyContent={{ xs: 'space-between', sm: 'flex-end' }}>
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                          Показано {activeProfileItemCount.toLocaleString('ru-RU')}
+                        </Typography>
+                        <ButtonBase
+                          onClick={handleOpenContentSortMenu}
+                          disabled={activeContentSortOptions.length === 0}
+                          aria-label={activeContentSortLabel}
+                          sx={{
+                            minHeight: 38,
+                            px: 1.35,
+                            borderRadius: '9px',
+                            border:
+                              !isActiveContentSortDefault || Boolean(contentSortMenuAnchorEl)
+                                ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 56%, var(--morius-card-border))'
+                                : 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            color: activeContentSortOptions.length > 0 ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
+                            fontSize: '0.82rem',
+                            fontWeight: 700,
+                            gap: 0.8,
+                            whiteSpace: 'nowrap',
                             '&:hover': {
-                              backgroundColor: isActive
-                                ? 'color-mix(in srgb, var(--morius-elevated-bg) 70%, #000 30%)'
-                                : 'color-mix(in srgb, var(--morius-elevated-bg) 84%, #000 16%)',
-                              color: isActive ? 'var(--morius-accent)' : 'var(--morius-title-text)',
+                              backgroundColor:
+                                activeContentSortOptions.length > 0
+                                  ? 'var(--morius-button-hover)'
+                                  : 'var(--morius-elevated-bg)',
                             },
                           }}
                         >
-                          {renderLibraryTabIcon(item.id)}
-                          <Box component="span">{item.label}</Box>
-                          <Box
-                            component="span"
+                          {activeContentSortLabel}
+                          <Box component="img" src={icons.profileSearchFilter} alt="" sx={{ width: 12, height: 7, opacity: 0.85 }} />
+                        </ButtonBase>
+                      </Stack>
+                    </Stack>
+
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 1,
+                        pb: 1.3,
+                        borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
+                      }}
+                    >
+                      {(profileMainSection === 'publications' && isOwnProfile ? PROFILE_PUBLICATION_TABS : tabs).map((item) => {
+                        const itemId = item.id
+                        const iconTab = 'iconTab' in item ? item.iconTab : item.id
+                        const isActive =
+                          profileMainSection === 'publications' && isOwnProfile
+                            ? publicationSection === itemId
+                            : tab === itemId
+                        const itemCount =
+                          profileMainSection === 'publications' && isOwnProfile
+                            ? itemId === 'worlds'
+                              ? filteredProfilePublicationGames.length
+                              : itemId === 'characters'
+                                ? filteredProfilePublicationCharacters.length
+                                : filteredProfilePublicationTemplates.length
+                            : libraryTabCounts[itemId as TabId] ?? 0
+                        return (
+                          <ButtonBase
+                            key={`profile-content-tab-${itemId}`}
+                            onClick={() => {
+                              if (profileMainSection === 'publications' && isOwnProfile) {
+                                setPublicationSection(itemId as PublicationSection)
+                              } else {
+                                setProfileMainSection('library')
+                                setTab(itemId as TabId)
+                              }
+                            }}
+                            aria-pressed={isActive}
                             sx={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              minWidth: 20,
-                              height: 20,
-                              px: 0.5,
-                              borderRadius: '999px',
-                              fontSize: '0.72rem',
+                              minHeight: 40,
+                              px: 1.55,
+                              borderRadius: '9px',
+                              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                              backgroundColor: isActive ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
+                              color: isActive ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
+                              fontSize: '0.84rem',
                               fontWeight: 800,
-                              backgroundColor: isActive
-                                ? 'color-mix(in srgb, var(--morius-accent) 30%, transparent)'
-                                : 'color-mix(in srgb, var(--morius-card-bg) 70%, transparent)',
-                              color: isActive ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
+                              gap: 0.65,
+                              transition: 'background-color 160ms ease, color 160ms ease, border-color 160ms ease',
+                              '&:hover': {
+                                backgroundColor: isActive ? 'var(--morius-button-active)' : 'var(--morius-button-hover)',
+                                color: 'var(--morius-title-text)',
+                              },
                             }}
                           >
-                            {libraryTabCounts[item.id] ?? 0}
-                          </Box>
-                        </ButtonBase>
-                      )
-                    })}
-                  </Box>
+                            {renderLibraryTabIcon(iconTab)}
+                            <Box component="span">{item.label}</Box>
+                            <Box
+                              component="span"
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                minWidth: 20,
+                                height: 20,
+                                px: 0.5,
+                                borderRadius: '999px',
+                                fontSize: '0.72rem',
+                                fontWeight: 800,
+                                backgroundColor: isActive
+                                  ? 'color-mix(in srgb, var(--morius-accent) 34%, transparent)'
+                                  : 'color-mix(in srgb, var(--morius-card-bg) 72%, transparent)',
+                                color: isActive ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
+                              }}
+                            >
+                              {itemCount}
+                            </Box>
+                          </ButtonBase>
+                        )
+                      })}
+                    </Box>
+                  </>
                 )}
               </Stack>
 
