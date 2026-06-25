@@ -91,6 +91,8 @@ def upsert_story_character_publication_copy_from_source(
             triggers=serialize_triggers(deserialize_triggers(source_character.triggers)),
             name_color=normalize_story_character_text_color(getattr(source_character, "name_color", "")),
             speech_color=normalize_story_character_text_color(getattr(source_character, "speech_color", "")),
+            bubble_color=normalize_story_character_text_color(getattr(source_character, "bubble_color", "")),
+            thought_bubble_color=normalize_story_character_text_color(getattr(source_character, "thought_bubble_color", "")),
             avatar_url=normalize_story_character_avatar_url(source_character.avatar_url, db=db),
             avatar_original_url=(
                 normalize_story_character_avatar_original_url(
@@ -135,6 +137,8 @@ def upsert_story_character_publication_copy_from_source(
     publication.triggers = serialize_triggers(deserialize_triggers(source_character.triggers))
     publication.name_color = normalize_story_character_text_color(getattr(source_character, "name_color", ""))
     publication.speech_color = normalize_story_character_text_color(getattr(source_character, "speech_color", ""))
+    publication.bubble_color = normalize_story_character_text_color(getattr(source_character, "bubble_color", ""))
+    publication.thought_bubble_color = normalize_story_character_text_color(getattr(source_character, "thought_bubble_color", ""))
     publication.avatar_url = normalize_story_character_avatar_url(source_character.avatar_url, db=db)
     publication.avatar_original_url = (
         normalize_story_character_avatar_original_url(

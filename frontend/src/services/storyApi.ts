@@ -52,6 +52,9 @@
   StoryWorldDetailType,
 } from '../types/story'
 import { buildApiUrl, normalizeApiMediaPayload, parseApiError, requestNoContent } from './httpClient'
+import { dispatchServiceUnavailable } from '../utils/serviceAvailability'
+
+const GATEWAY_ERROR_STATUSES_STORY = new Set([502, 503, 504])
 
 type RequestOptions = RequestInit & {
   skipJsonContentType?: boolean
@@ -285,6 +288,8 @@ export type StoryWorldCardInput = {
   health_status?: string
   name_color?: string | null
   speech_color?: string | null
+  bubble_color?: string | null
+  thought_bubble_color?: string | null
   triggers: string[]
   detail_type?: string
 }
@@ -301,6 +306,8 @@ export type StoryCharacterInput = {
   note?: string
   name_color?: string | null
   speech_color?: string | null
+  bubble_color?: string | null
+  thought_bubble_color?: string | null
   triggers: string[]
   avatar_url: string | null
   avatar_original_url?: string | null
@@ -368,6 +375,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       continue
     }
 
+    if (GATEWAY_ERROR_STATUSES_STORY.has(response.status)) {
+      dispatchServiceUnavailable()
+    }
     const parsedError = await parseApiError(response)
     throw new Error(normalizeStoryProviderErrorMessage(parsedError.message))
   }
@@ -689,6 +699,8 @@ function normalizeStoryWorldCardPayload(rawCard: StoryWorldCard): StoryWorldCard
     triggers: normalizeStoryStringArray(card.triggers),
     name_color: normalizeStoryCharacterTextColor(card.name_color),
     speech_color: normalizeStoryCharacterTextColor(card.speech_color),
+    bubble_color: normalizeStoryCharacterTextColor(card.bubble_color),
+    thought_bubble_color: normalizeStoryCharacterTextColor(card.thought_bubble_color),
     kind: card.kind === 'npc' || card.kind === 'main_hero' || card.kind === 'world_profile' ? card.kind : 'world',
     detail_type: typeof card.detail_type === 'string' ? card.detail_type : '',
     avatar_url: typeof card.avatar_url === 'string' ? card.avatar_url : null,
@@ -817,6 +829,8 @@ function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryChar
     triggers: normalizedTriggers,
     name_color: normalizeStoryCharacterTextColor(character.name_color),
     speech_color: normalizeStoryCharacterTextColor(character.speech_color),
+    bubble_color: normalizeStoryCharacterTextColor(character.bubble_color),
+    thought_bubble_color: normalizeStoryCharacterTextColor(character.thought_bubble_color),
     avatar_url: typeof character.avatar_url === 'string' ? character.avatar_url : null,
     avatar_original_url: typeof character.avatar_original_url === 'string' ? character.avatar_original_url : null,
     avatar_scale:
@@ -940,6 +954,8 @@ function normalizeStoryCommunityCharacterSummaryPayload(
     triggers: normalizedTriggers,
     name_color: normalizeStoryCharacterTextColor(character.name_color),
     speech_color: normalizeStoryCharacterTextColor(character.speech_color),
+    bubble_color: normalizeStoryCharacterTextColor(character.bubble_color),
+    thought_bubble_color: normalizeStoryCharacterTextColor(character.thought_bubble_color),
     avatar_url: typeof character.avatar_url === 'string' ? character.avatar_url : null,
     avatar_original_url: typeof character.avatar_original_url === 'string' ? character.avatar_original_url : null,
     avatar_scale:
@@ -3032,6 +3048,8 @@ export async function createStoryWorldCard(payload: {
   health_status?: string
   name_color?: string | null
   speech_color?: string | null
+  bubble_color?: string | null
+  thought_bubble_color?: string | null
   triggers: string[]
   kind?: 'world' | 'world_profile' | 'npc' | 'main_hero'
   detail_type?: string
@@ -3050,6 +3068,8 @@ export async function createStoryWorldCard(payload: {
     health_status: payload.health_status ?? '',
     name_color: payload.name_color ?? null,
     speech_color: payload.speech_color ?? null,
+    bubble_color: payload.bubble_color ?? null,
+    thought_bubble_color: payload.thought_bubble_color ?? null,
     triggers: payload.triggers,
     kind: payload.kind ?? 'world',
     detail_type: payload.detail_type ?? '',
@@ -3176,6 +3196,8 @@ export async function updateStoryWorldCard(payload: {
   health_status?: string
   name_color?: string | null
   speech_color?: string | null
+  bubble_color?: string | null
+  thought_bubble_color?: string | null
   triggers: string[]
   detail_type?: string
   character_id?: number | null
@@ -3190,6 +3212,8 @@ export async function updateStoryWorldCard(payload: {
     health_status: payload.health_status ?? '',
     name_color: payload.name_color ?? null,
     speech_color: payload.speech_color ?? null,
+    bubble_color: payload.bubble_color ?? null,
+    thought_bubble_color: payload.thought_bubble_color ?? null,
     triggers: payload.triggers,
     detail_type: payload.detail_type ?? '',
   }

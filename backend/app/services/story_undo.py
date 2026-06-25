@@ -373,6 +373,8 @@ def restore_story_world_card_from_snapshot(
     health_status = normalize_story_character_health_status(snapshot.get("health_status"))
     name_color = normalize_story_character_text_color(snapshot.get("name_color"))
     speech_color = normalize_story_character_text_color(snapshot.get("speech_color"))
+    bubble_color = normalize_story_character_text_color(snapshot.get("bubble_color"))
+    thought_bubble_color = normalize_story_character_text_color(snapshot.get("thought_bubble_color"))
     detail_type = normalize_story_world_detail_type(snapshot.get("detail_type"))
     raw_avatar = snapshot.get("avatar_url")
     avatar_url = normalize_avatar_value(raw_avatar) if isinstance(raw_avatar, str) else None
@@ -454,6 +456,8 @@ def restore_story_world_card_from_snapshot(
             triggers=serialize_story_world_card_triggers(triggers),
             name_color=name_color,
             speech_color=speech_color,
+            bubble_color=bubble_color,
+            thought_bubble_color=thought_bubble_color,
             kind=kind,
             detail_type=detail_type,
             avatar_url=avatar_url,
@@ -478,6 +482,8 @@ def restore_story_world_card_from_snapshot(
     world_card.triggers = serialize_story_world_card_triggers(triggers)
     world_card.name_color = name_color
     world_card.speech_color = speech_color
+    world_card.bubble_color = bubble_color
+    world_card.thought_bubble_color = thought_bubble_color
     world_card.kind = kind
     world_card.detail_type = detail_type
     world_card.avatar_url = avatar_url

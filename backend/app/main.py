@@ -3411,6 +3411,8 @@ def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]
         "triggers": _deserialize_story_world_card_triggers(card.triggers),
         "name_color": _normalize_story_character_text_color(getattr(card, "name_color", "")),
         "speech_color": _normalize_story_character_text_color(getattr(card, "speech_color", "")),
+        "bubble_color": _normalize_story_character_text_color(getattr(card, "bubble_color", "")),
+        "thought_bubble_color": _normalize_story_character_text_color(getattr(card, "thought_bubble_color", "")),
         "kind": card_kind,
         "detail_type": " ".join(str(getattr(card, "detail_type", "") or "").replace("\r\n", " ").split()).strip(),
         "avatar_url": _normalize_avatar_value(card.avatar_url),

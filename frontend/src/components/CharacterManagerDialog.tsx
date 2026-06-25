@@ -358,16 +358,24 @@ function CharacterTextColorField({ label, value, onChange, disabled = false }: C
 type CharacterTextColorControlsProps = {
   nameColor: string
   speechColor: string
+  bubbleColor: string
+  thoughtBubbleColor: string
   onNameColorChange: (value: string) => void
   onSpeechColorChange: (value: string) => void
+  onBubbleColorChange: (value: string) => void
+  onThoughtBubbleColorChange: (value: string) => void
   disabled?: boolean
 }
 
 function CharacterTextColorControls({
   nameColor,
   speechColor,
+  bubbleColor,
+  thoughtBubbleColor,
   onNameColorChange,
   onSpeechColorChange,
+  onBubbleColorChange,
+  onThoughtBubbleColorChange,
   disabled = false,
 }: CharacterTextColorControlsProps) {
   return (
@@ -382,6 +390,18 @@ function CharacterTextColorControls({
         label="Цвет реплик"
         value={speechColor}
         onChange={onSpeechColorChange}
+        disabled={disabled}
+      />
+      <CharacterTextColorField
+        label="Цвет фона реплик"
+        value={bubbleColor}
+        onChange={onBubbleColorChange}
+        disabled={disabled}
+      />
+      <CharacterTextColorField
+        label="Цвет фона «В голове»"
+        value={thoughtBubbleColor}
+        onChange={onThoughtBubbleColorChange}
         disabled={disabled}
       />
     </Stack>
@@ -627,6 +647,8 @@ function CharacterManagerDialog({
   const [triggersDraft, setTriggersDraft] = useState('')
   const [nameColorDraft, setNameColorDraft] = useState('')
   const [speechColorDraft, setSpeechColorDraft] = useState('')
+  const [bubbleColorDraft, setBubbleColorDraft] = useState('')
+  const [thoughtBubbleColorDraft, setThoughtBubbleColorDraft] = useState('')
   const [avatarDraft, setAvatarDraft] = useState<string | null>(null)
   const [avatarSourceDraft, setAvatarSourceDraft] = useState<string | null>(null)
   const [avatarScaleDraft, setAvatarScaleDraft] = useState(1)
@@ -976,6 +998,8 @@ function CharacterManagerDialog({
     setTriggersDraft(character.triggers.join(', '))
     setNameColorDraft(normalizeCharacterTextColorValue(character.name_color))
     setSpeechColorDraft(normalizeCharacterTextColorValue(character.speech_color))
+    setBubbleColorDraft(normalizeCharacterTextColorValue(character.bubble_color))
+    setThoughtBubbleColorDraft(normalizeCharacterTextColorValue(character.thought_bubble_color))
     setAvatarDraft(character.avatar_url)
     setAvatarSourceDraft(character.avatar_original_url ?? character.avatar_url)
     setAvatarScaleDraft(Math.max(1, Math.min(3, character.avatar_scale ?? 1)))
@@ -1371,6 +1395,8 @@ function CharacterManagerDialog({
     const normalizedNote = normalizeCharacterNoteDraft(noteDraft)
     const normalizedNameColor = normalizeCharacterTextColorDraft(nameColorDraft)
     const normalizedSpeechColor = normalizeCharacterTextColorDraft(speechColorDraft)
+    const normalizedBubbleColor = normalizeCharacterTextColorDraft(bubbleColorDraft)
+    const normalizedThoughtBubbleColor = normalizeCharacterTextColorDraft(thoughtBubbleColorDraft)
 
     if (!normalizedName) {
       setErrorMessage('Имя персонажа не может быть пустым')
@@ -1411,6 +1437,8 @@ function CharacterManagerDialog({
             note: normalizedNote,
             name_color: normalizedNameColor,
             speech_color: normalizedSpeechColor,
+            bubble_color: normalizedBubbleColor,
+            thought_bubble_color: normalizedThoughtBubbleColor,
             triggers: normalizedTriggers,
             avatar_url: preparedAvatarPayload.avatarUrl,
             avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
@@ -1437,6 +1465,8 @@ function CharacterManagerDialog({
             note: normalizedNote,
             name_color: normalizedNameColor,
             speech_color: normalizedSpeechColor,
+            bubble_color: normalizedBubbleColor,
+            thought_bubble_color: normalizedThoughtBubbleColor,
             triggers: normalizedTriggers,
             avatar_url: preparedAvatarPayload.avatarUrl,
             avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
@@ -2057,8 +2087,12 @@ function CharacterManagerDialog({
                 <CharacterTextColorControls
                   nameColor={nameColorDraft}
                   speechColor={speechColorDraft}
+                  bubbleColor={bubbleColorDraft}
+                  thoughtBubbleColor={thoughtBubbleColorDraft}
                   onNameColorChange={setNameColorDraft}
                   onSpeechColorChange={setSpeechColorDraft}
+                  onBubbleColorChange={setBubbleColorDraft}
+                  onThoughtBubbleColorChange={setThoughtBubbleColorDraft}
                   disabled={isAvatarActionsLocked}
                 />
                 {extraEditorContent ? <Box>{extraEditorContent}</Box> : null}

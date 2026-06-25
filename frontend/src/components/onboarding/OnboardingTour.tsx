@@ -389,31 +389,29 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
     if (collectVisibleElements(['[data-tour-id="story-right-subtabs"]']).length > 0) {
       return
     }
-    if (clickFirstVisible(['[data-tour-id="header-right-panel-toggle"]'])) {
+    if (clickFirstVisible(['[data-tour-id="story-game-menu-toggle"]', '[data-tour-id="header-right-panel-toggle"]'])) {
       await sleep(ACTION_SETTLE_DELAY_MS)
     }
   }, [])
 
   const ensureStoryMode = useCallback(
-    async (mode: 'ai' | 'world' | 'memory', subtab: 'primary' | 'secondary' = 'primary') => {
+    async (mode: 'ai' | 'world') => {
       await ensureRightPanelOpen()
-      clickFirstVisible([
-        mode === 'ai'
-          ? '[data-tour-id="story-right-mode-ai"]'
-          : mode === 'world'
-            ? '[data-tour-id="story-right-mode-world"]'
-            : '[data-tour-id="story-right-mode-memory"]',
-      ])
-      await sleep(ACTION_SETTLE_DELAY_MS)
-      clickFirstVisible([subtab === 'primary' ? '[data-tour-id="story-right-subtab-primary"]' : '[data-tour-id="story-right-subtab-secondary"]'])
+      clickFirstVisible([mode === 'world' ? '[data-tour-id="story-right-subtab-primary"]' : '[data-tour-id="story-right-subtab-secondary"]'])
       await sleep(ACTION_SETTLE_DELAY_MS)
     },
     [ensureRightPanelOpen],
   )
 
+  const ensureStoryPlotMemory = useCallback(async () => {
+    await ensureStoryMode('world')
+    clickFirstVisible(['[data-tour-id="story-cards-tab-plot"]'])
+    await sleep(ACTION_SETTLE_DELAY_MS)
+  }, [ensureStoryMode])
+
   const ensureStorySettingsSection = useCallback(
     async (options: { toggleSelector: string; panelSelector: string }) => {
-      await ensureStoryMode('ai', 'secondary')
+      await ensureStoryMode('ai')
       for (const section of STORY_SETTINGS_SECTIONS) {
         if (section.panelSelector === options.panelSelector) {
           continue
@@ -568,7 +566,6 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
         chapterId: 'game',
         path: (tutorialGameId) => (tutorialGameId ? `/home/${tutorialGameId}` : '/home'),
         selectors: [
-          '[data-tour-id="story-right-mode-ai"]',
           '[data-tour-id="story-right-subtabs"]',
           '[data-tour-id="story-ai-instructions-panel"]',
           '[data-tour-id="story-ai-instructions-add-first"]',
@@ -580,14 +577,14 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
         padding: 16,
         menuAction: 'close',
         enter: async () => {
-          await ensureStoryMode('ai', 'primary')
+          await ensureStoryMode('ai')
         },
       },
       {
         id: 'story-settings-narrator',
         chapterId: 'game',
         path: (tutorialGameId) => (tutorialGameId ? `/home/${tutorialGameId}` : '/home'),
-        selectors: ['[data-tour-id="story-right-mode-ai"]', '[data-tour-id="story-right-subtabs"]', '[data-tour-id="story-settings-narrator-section"]'],
+        selectors: ['[data-tour-id="story-right-subtabs"]', '[data-tour-id="story-settings-narrator-section"]'],
         title: 'Рассказчик',
         description: 'Модель, которая ведет игру. На любой вкус и цвет!',
         padding: 16,
@@ -639,9 +636,9 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
         id: 'story-navigation',
         chapterId: 'game',
         path: (tutorialGameId) => (tutorialGameId ? `/home/${tutorialGameId}` : '/home'),
-        selectors: ['[data-tour-id="story-right-mode-world"]', '[data-tour-id="story-right-mode-ai"]', '[data-tour-id="story-right-mode-memory"]'],
+        selectors: ['[data-tour-id="story-right-subtabs"]'],
         title: 'Навигация игры',
-        description: 'Это основные кнопки навигации в шапке игры: Мир, ИИ и Память.',
+        description: 'Переключайтесь между Карточками и Рассказчиком прямо в этом меню — кнопка слева от аватара его открывает и закрывает.',
         padding: 12,
         menuAction: 'close',
         enter: ensureRightPanelOpen,
@@ -650,34 +647,34 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
         id: 'story-plot',
         chapterId: 'game',
         path: (tutorialGameId) => (tutorialGameId ? `/home/${tutorialGameId}` : '/home'),
-        selectors: ['[data-tour-id="story-right-mode-world"]', '[data-tour-id="story-right-subtabs"]', '[data-tour-id="story-world-plot-panel"]'],
+        selectors: ['[data-tour-id="story-right-subtabs"]', '[data-tour-id="story-world-cards-panel"]'],
         title: 'Сюжет',
         description: 'Предустановленные события, которые включаются вами или по триггерам.',
         padding: 16,
         menuAction: 'close',
-        enter: async () => { await ensureStoryMode('world', 'primary') },
+        enter: async () => { await ensureStoryMode('world') },
       },
       {
         id: 'story-world',
         chapterId: 'game',
         path: (tutorialGameId) => (tutorialGameId ? `/home/${tutorialGameId}` : '/home'),
-        selectors: ['[data-tour-id="story-right-mode-world"]', '[data-tour-id="story-right-subtabs"]', '[data-tour-id="story-world-world-panel"]'],
+        selectors: ['[data-tour-id="story-right-subtabs"]', '[data-tour-id="story-world-cards-panel"]'],
         title: 'Мир',
         description: 'Здесь мы задаем нашего ГГ и NPC из персонажей, что создали. Важно: ГГ ИИ помнит всегда, а NPC только когда активируется триггер.',
         padding: 16,
         menuAction: 'close',
-        enter: async () => { await ensureStoryMode('world', 'secondary') },
+        enter: async () => { await ensureStoryMode('world') },
       },
       {
         id: 'story-memory',
         chapterId: 'game',
         path: (tutorialGameId) => (tutorialGameId ? `/home/${tutorialGameId}` : '/home'),
-        selectors: ['[data-tour-id="story-right-mode-memory"]', '[data-tour-id="story-right-subtabs"]', '[data-tour-id="story-memory-panel"]'],
+        selectors: ['[data-tour-id="story-cards-tab-plot"]', '[data-tour-id="story-world-cards-panel"]'],
         title: 'Память',
-        description: 'Блок важных событий. Здесь ИИ записывает важные моменты, которые выделяет сама. Вы можете редактировать их или добавлять свои, если что-то не выделилось.',
+        description: 'Блок важных событий теперь внутри Сюжета: вкладки Карточки, Память и Dev Память (для модераторов). Здесь ИИ записывает важные моменты, которые выделяет сама. Вы можете редактировать их или добавлять свои, если что-то не выделилось.',
         padding: 16,
         menuAction: 'close',
-        enter: async () => { await ensureStoryMode('memory', 'primary') },
+        enter: ensureStoryPlotMemory,
       },
       {
         id: 'story-input',
@@ -712,7 +709,7 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
         menuAction: 'open',
       },
     ],
-    [ensureRightPanelOpen, ensureStoryMode, ensureStorySettingsSection, ensureTutorialGame, ensureWorldCreateTitleFilled, onNavigate],
+    [ensureRightPanelOpen, ensureStoryMode, ensureStoryPlotMemory, ensureStorySettingsSection, ensureTutorialGame, ensureWorldCreateTitleFilled, onNavigate],
   )
 
   const stepIndexById = useMemo(() => new Map(steps.map((step, index) => [step.id, index])), [steps])

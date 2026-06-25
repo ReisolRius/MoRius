@@ -275,12 +275,11 @@ type CharacterRaceOption = {
 
 
 
-type RightPanelMode = 'ai' | 'world' | 'memory'
+type RightPanelMode = 'ai' | 'world'
 type AiPanelTab = 'instructions' | 'settings'
 type WorldPanelTab = 'story' | 'world'
 type CardsPanelTab = 'characters' | 'world' | 'instructions' | 'plot'
 type NpcPanelSortMode = 'recent' | 'alphabetical_asc' | 'alphabetical_desc' | 'active_first'
-type MemoryPanelTab = 'memory' | 'dev'
 type EnvironmentModuleCardId = 'place' | 'time' | 'weather'
 type EnvironmentModuleCardPosition = {
   x: number
@@ -536,6 +535,8 @@ type SpeakerAvatarEntry = {
   character: StoryCharacter | null
 }
 const STORY_CHARACTER_DEFAULT_TEXT_COLOR = '#DFE8F3'
+const STORY_CHARACTER_DEFAULT_BUBBLE_COLOR = 'var(--morius-accent)'
+const STORY_CHARACTER_DEFAULT_THOUGHT_BUBBLE_COLOR = '#7A7E96'
 const STORY_CHARACTER_TEXT_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
 
 function normalizeStoryCharacterTextColor(value: string | null | undefined): string {
@@ -560,6 +561,21 @@ function resolveSpeakerSpeechColor(entry: SpeakerAvatarEntry | null, fallbackCol
     normalizeStoryCharacterTextColor(entry?.card?.speech_color) ||
     normalizeStoryCharacterTextColor(entry?.character?.speech_color) ||
     fallbackColor
+  )
+}
+
+function resolveSpeakerBubbleColor(entry: SpeakerAvatarEntry | null, isThought: boolean): string {
+  if (isThought) {
+    return (
+      normalizeStoryCharacterTextColor(entry?.card?.thought_bubble_color) ||
+      normalizeStoryCharacterTextColor(entry?.character?.thought_bubble_color) ||
+      STORY_CHARACTER_DEFAULT_THOUGHT_BUBBLE_COLOR
+    )
+  }
+  return (
+    normalizeStoryCharacterTextColor(entry?.card?.bubble_color) ||
+    normalizeStoryCharacterTextColor(entry?.character?.bubble_color) ||
+    STORY_CHARACTER_DEFAULT_BUBBLE_COLOR
   )
 }
 
@@ -634,16 +650,24 @@ function StoryCharacterTextColorField({
 type StoryCharacterTextColorControlsProps = {
   nameColor: string
   speechColor: string
+  bubbleColor: string
+  thoughtBubbleColor: string
   onNameColorChange: (value: string) => void
   onSpeechColorChange: (value: string) => void
+  onBubbleColorChange: (value: string) => void
+  onThoughtBubbleColorChange: (value: string) => void
   disabled?: boolean
 }
 
 function StoryCharacterTextColorControls({
   nameColor,
   speechColor,
+  bubbleColor,
+  thoughtBubbleColor,
   onNameColorChange,
   onSpeechColorChange,
+  onBubbleColorChange,
+  onThoughtBubbleColorChange,
   disabled = false,
 }: StoryCharacterTextColorControlsProps) {
   return (
@@ -658,6 +682,18 @@ function StoryCharacterTextColorControls({
         label="Цвет реплик"
         value={speechColor}
         onChange={onSpeechColorChange}
+        disabled={disabled}
+      />
+      <StoryCharacterTextColorField
+        label="Цвет фона реплик"
+        value={bubbleColor}
+        onChange={onBubbleColorChange}
+        disabled={disabled}
+      />
+      <StoryCharacterTextColorField
+        label="Цвет фона «В голове»"
+        value={thoughtBubbleColor}
+        onChange={onThoughtBubbleColorChange}
         disabled={disabled}
       />
     </Stack>
@@ -762,6 +798,7 @@ const STORY_MESSAGE_MAX_LENGTH = 20000
 const STORY_CONTEXT_LIMIT_MIN = 6000
 const STORY_CONTEXT_LIMIT_STANDARD_MAX = 64000
 const STORY_CONTEXT_LIMIT_GLM51_MAX = 128000
+const STORY_CONTEXT_LIMIT_STEP = 2000
 const STORY_DEFAULT_CONTEXT_LIMIT = 6000
 const STORY_KEY_MEMORY_BUDGET_SHARE = 0.1
 const STORY_KEY_MEMORY_MIN_BUDGET_TOKENS = 500
@@ -1488,17 +1525,6 @@ function SettingsSectionLabel({ text, tooltip }: { text: string; tooltip?: strin
   )
 }
 
-function RightPanelWorldIcon() {
-  return (
-    <SvgIcon viewBox="0 0 20 20" sx={{ width: 22, height: 22 }}>
-      <path
-        d="M10 0C15.523 0 20 4.477 20 10C20 15.523 15.523 20 10 20C4.477 20 0 15.523 0 10C0 4.477 4.477 0 10 0ZM12 11.4L10.436 12.651C10.3811 12.6949 10.3361 12.75 10.3039 12.8125C10.2717 12.875 10.2531 12.9436 10.2492 13.0138C10.2453 13.084 10.2563 13.1543 10.2814 13.22C10.3066 13.2856 10.3453 13.3453 10.395 13.395L11.634 14.634C11.8739 14.8742 12.0487 15.1715 12.142 15.498L12.317 16.111C12.3896 16.3682 12.5185 16.606 12.6944 16.8072C12.8703 17.0083 13.0888 17.1678 13.334 17.274C14.2908 16.835 15.1516 16.2114 15.867 15.439L15.633 13.562C15.5921 13.2354 15.4711 12.924 15.281 12.6554C15.0909 12.3868 14.8374 12.1692 14.543 12.022L13.073 11.286C12.902 11.2004 12.71 11.1657 12.5198 11.1859C12.3296 11.2061 12.1492 11.2804 12 11.4ZM10 2C8.77609 1.99918 7.56835 2.27955 6.46996 2.81947C5.37158 3.35938 4.41191 4.14442 3.665 5.114L3.5 5.335V7.02C3.49987 7.6305 3.68601 8.22651 4.03355 8.72844C4.38109 9.23036 4.87349 9.61431 5.445 9.829L5.623 9.889L6.913 10.284C8.286 10.704 9.623 9.587 9.49 8.188L9.471 8.043L9.296 6.994C9.25733 6.76163 9.30193 6.52307 9.42194 6.32037C9.54195 6.11767 9.72967 5.96384 9.952 5.886L10.06 5.856L10.672 5.716C11.0192 5.63663 11.3471 5.48851 11.6361 5.28038C11.9252 5.07225 12.1696 4.80833 12.355 4.50419C12.5404 4.20005 12.663 3.86185 12.7155 3.50955C12.7681 3.15726 12.7496 2.79801 12.661 2.453C11.8061 2.15237 10.9063 1.99919 10 2Z"
-        fill="currentColor"
-      />
-    </SvgIcon>
-  )
-}
-
 function RightPanelAiIcon() {
   return (
     <SvgIcon viewBox="0 0 20 20" sx={{ width: 22, height: 22 }}>
@@ -1510,14 +1536,211 @@ function RightPanelAiIcon() {
   )
 }
 
-function RightPanelMemoryIcon() {
+function RightPanelCardsIcon() {
   return (
     <SvgIcon viewBox="0 0 24 24" sx={{ width: 21, height: 21 }}>
-      <path
-        d="M7 4h10a2 2 0 0 1 2 2v3h1a1 1 0 1 1 0 2h-1v2h1a1 1 0 1 1 0 2h-1v3a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3H4a1 1 0 1 1 0-2h1v-2H4a1 1 0 1 1 0-2h1V6a2 2 0 0 1 2-2Zm0 2v12h10V6H7Zm2 2h6v2H9V8Zm0 4h2v2H9v-2Zm4 0h2v2h-2v-2Z"
-        fill="currentColor"
-      />
+      <rect x="3" y="9.5" width="14" height="10" rx="2.4" transform="rotate(-6 10 14.5)" fill="currentColor" opacity="0.45" />
+      <rect x="5.5" y="6.5" width="14" height="10" rx="2.4" transform="rotate(-2 12.5 11.5)" fill="currentColor" opacity="0.7" />
+      <rect x="7" y="4" width="14" height="10" rx="2.4" fill="currentColor" />
     </SvgIcon>
+  )
+}
+
+function RightPanelSectionHeading({
+  title,
+  count,
+  action,
+}: {
+  title: string
+  count?: ReactNode
+  action?: ReactNode
+}) {
+  return (
+    <Stack direction="row" alignItems="center" spacing={0.85} sx={{ minWidth: 0 }}>
+      <Typography
+        sx={{
+          color: 'color-mix(in srgb, var(--morius-title-text) 80%, var(--morius-text-secondary))',
+          fontSize: { xs: '0.82rem', md: '0.86rem' },
+          fontWeight: 900,
+          letterSpacing: '0.015em',
+          lineHeight: 1,
+          textTransform: 'uppercase',
+          flexShrink: 0,
+        }}
+      >
+        {title}
+      </Typography>
+      {count !== undefined && count !== null ? (
+        <Box
+          sx={{
+            minWidth: 28,
+            height: 21,
+            px: 0.75,
+            borderRadius: '999px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent)',
+            backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 42%, transparent)',
+            fontSize: '0.76rem',
+            fontWeight: 900,
+            lineHeight: 1,
+            flexShrink: 0,
+          }}
+        >
+          {count}
+        </Box>
+      ) : null}
+      <Box sx={{ height: 1, flex: 1, minWidth: 24, backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 74%, transparent)' }} />
+      {action}
+    </Stack>
+  )
+}
+
+function RightPanelInitialAvatar({
+  label,
+  size = 70,
+  seed = 1,
+  imageUrl,
+  imageScale = 1,
+}: {
+  label: string
+  size?: number
+  seed?: number
+  imageUrl?: string | null
+  imageScale?: number | null
+}) {
+  if (imageUrl) {
+    return (
+      <CharacterAvatar
+        avatarUrl={resolveApiResourceUrl(imageUrl)}
+        avatarScale={imageScale ?? 1}
+        fallbackLabel={label}
+        size={size}
+      />
+    )
+  }
+  const fallback = buildWorldFallbackArtwork(seed)
+  return (
+    <Box
+      sx={{
+        width: size,
+        height: size,
+        minWidth: size,
+        borderRadius: '16px',
+        display: 'grid',
+        placeItems: 'center',
+        color: 'rgba(255, 255, 255, 0.92)',
+        border: 'var(--morius-border-width) solid color-mix(in srgb, #fff 10%, transparent)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+        overflow: 'hidden',
+        ...fallback,
+      }}
+    >
+      <Typography
+        sx={{
+          color: 'inherit',
+          fontFamily: 'Georgia, "Times New Roman", serif',
+          fontSize: Math.max(18, Math.round(size * 0.35)),
+          fontWeight: 800,
+          lineHeight: 1,
+          textShadow: '0 1px 10px rgba(0,0,0,0.28)',
+        }}
+      >
+        {label.trim().charAt(0).toUpperCase() || '•'}
+      </Typography>
+    </Box>
+  )
+}
+
+function RightPanelSettingRow({
+  title,
+  description,
+  checked,
+  disabled,
+  onToggle,
+  tooltip,
+}: {
+  title: string
+  description: string
+  checked: boolean
+  disabled?: boolean
+  onToggle: () => void
+  tooltip?: string
+}) {
+  return (
+    <Stack
+      direction="row"
+      alignItems="center"
+      justifyContent="space-between"
+      spacing={1.4}
+      sx={{
+        minHeight: 54,
+        py: 0.55,
+        px: 0.2,
+      }}
+    >
+      <Stack spacing={0.22} sx={{ minWidth: 0, flex: 1 }}>
+        <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
+          <Typography
+            sx={{
+              color: 'var(--morius-title-text)',
+              fontSize: { xs: '0.94rem', md: '0.98rem' },
+              fontWeight: 900,
+              lineHeight: 1.12,
+            }}
+          >
+            {title}
+          </Typography>
+          {tooltip ? <SettingsInfoTooltipIcon text={tooltip} /> : null}
+        </Stack>
+        <Typography
+          sx={{
+            color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)',
+            fontSize: { xs: '0.8rem', md: '0.84rem' },
+            fontWeight: 650,
+            lineHeight: 1.24,
+          }}
+        >
+          {description}
+        </Typography>
+      </Stack>
+      <Switch
+        checked={checked}
+        onChange={onToggle}
+        disabled={disabled}
+        sx={{
+          flexShrink: 0,
+          mr: -0.2,
+          width: 52,
+          height: 30,
+          p: 0,
+          '& .MuiSwitch-switchBase': {
+            p: '3px',
+            transitionDuration: '180ms',
+            '&.Mui-checked': {
+              transform: 'translateX(22px)',
+              color: '#fff',
+              '& + .MuiSwitch-track': {
+                backgroundColor: '#4F8DFF',
+                opacity: 1,
+              },
+            },
+          },
+          '& .MuiSwitch-thumb': {
+            width: 24,
+            height: 24,
+            backgroundColor: '#fff',
+            boxShadow: '0 3px 10px rgba(0,0,0,0.34)',
+          },
+          '& .MuiSwitch-track': {
+            borderRadius: 999,
+            backgroundColor: 'rgba(91, 93, 105, 0.5)',
+            opacity: 1,
+          },
+        }}
+      />
+    </Stack>
   )
 }
 
@@ -2080,9 +2303,9 @@ function truncateContentEditableText(element: HTMLDivElement, maxLength: number)
   return nextText
 }
 
-const RIGHT_PANEL_WIDTH_MIN = 300
-const RIGHT_PANEL_WIDTH_MAX = 460
-const RIGHT_PANEL_WIDTH_DEFAULT = 332
+const RIGHT_PANEL_WIDTH_MIN = 380
+const RIGHT_PANEL_WIDTH_MAX = 520
+const RIGHT_PANEL_WIDTH_DEFAULT = 440
 const STORY_STAGE_MAX_WIDTH = 1180
 const RIGHT_PANEL_CARD_HEIGHT = 198
 const ASSISTANT_DIALOGUE_AVATAR_SIZE = 30
@@ -2468,6 +2691,8 @@ function normalizeStoryWorldCardItem(card: StoryWorldCard): StoryWorldCard {
     triggers: toStoryStringList(card.triggers),
     name_color: normalizeStoryCharacterTextColor(card.name_color),
     speech_color: normalizeStoryCharacterTextColor(card.speech_color),
+    bubble_color: normalizeStoryCharacterTextColor(card.bubble_color),
+    thought_bubble_color: normalizeStoryCharacterTextColor(card.thought_bubble_color),
     memory_turns: typeof card.memory_turns === 'number' && Number.isFinite(card.memory_turns) ? card.memory_turns : null,
   }
 }
@@ -3574,6 +3799,7 @@ type StreamingAssistantMessageContentProps = {
     size?: number
     profileCard?: StoryWorldCard | null
     profileCharacter?: StoryCharacter | null
+    avatarBgColor?: string
   }) => ReactNode
   resolveDialogueAvatar: (speakerName: string) => string | null
   resolveDialogueAvatarPreview: (speakerName: string) => string | null
@@ -3641,49 +3867,73 @@ function StreamingAssistantMessageContent({
           )
           const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
           const speakerEntry = resolveDialogueSpeakerEntry(resolvedSpeakerName)
+          const isThoughtBlock = block.delivery === 'thought'
           const speakerLabelColor = resolveSpeakerNameColor(
             speakerEntry,
-            block.delivery === 'thought' ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
+            isThoughtBlock ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
           )
           const speakerTextColor = resolveSpeakerSpeechColor(
             speakerEntry,
             isGrayTheme
               ? assistantReplyTextColor
-              : block.delivery === 'thought'
+              : isThoughtBlock
                 ? assistantThoughtTextColor
                 : 'var(--morius-title-text)',
           )
+          const bubbleColor = resolveSpeakerBubbleColor(speakerEntry, isThoughtBlock)
+          const bubbleBg = `color-mix(in srgb, ${bubbleColor} 16%, transparent)`
           return (
             <Stack
               key={`${messageId}-${index}-stream-character`}
-              direction="row"
-              spacing={ASSISTANT_DIALOGUE_AVATAR_GAP}
-              alignItems="flex-start"
-              sx={{
-                px: 0.05,
-                py: 0.05,
-              }}
+              spacing={0.4}
+              sx={{ px: 0.05, py: 0.45 }}
             >
-              {renderPreviewableCharacterAvatar({
-                avatarUrl: speakerAvatar,
-                previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
-                fallbackLabel: resolvedSpeakerName,
-                size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
-                profileCard: speakerEntry?.card ?? null,
-                profileCharacter: speakerEntry?.character ?? null,
-              })}
-              <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
-                <Typography
-                  sx={{
-                    color: speakerLabelColor,
-                    fontSize: '0.84rem',
-                    lineHeight: 1.2,
-                    fontWeight: 700,
-                    letterSpacing: 0.18,
-                  }}
-                >
-                  {block.delivery === 'thought' ? `${resolvedSpeakerName} (В голове)` : resolvedSpeakerName}
-                </Typography>
+              <Stack direction="row" spacing={0.75} alignItems="center">
+                {renderPreviewableCharacterAvatar({
+                  avatarUrl: speakerAvatar,
+                  previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
+                  fallbackLabel: resolvedSpeakerName,
+                  size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                  profileCard: speakerEntry?.card ?? null,
+                  profileCharacter: speakerEntry?.character ?? null,
+                  avatarBgColor: bubbleColor,
+                })}
+                <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
+                  <Typography
+                    noWrap
+                    sx={{
+                      color: speakerLabelColor,
+                      fontSize: '0.84rem',
+                      lineHeight: 1.2,
+                      fontWeight: 700,
+                      letterSpacing: 0.1,
+                    }}
+                  >
+                    {resolvedSpeakerName}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      color: 'var(--morius-text-secondary)',
+                      fontSize: '0.65rem',
+                      fontWeight: 800,
+                      letterSpacing: '0.08em',
+                      flexShrink: 0,
+                    }}
+                  >
+                    ·{isThoughtBlock ? ' В ГОЛОВЕ' : ' РЕПЛИКА'}
+                  </Typography>
+                </Stack>
+              </Stack>
+              <Box
+                sx={{
+                  ml: `${ASSISTANT_DIALOGUE_AVATAR_SIZE + 6}px`,
+                  borderLeft: `2.5px solid ${bubbleColor}`,
+                  backgroundColor: bubbleBg,
+                  borderRadius: '0 8px 8px 0',
+                  px: 1.5,
+                  py: 0.85,
+                }}
+              >
                 <Box
                   component="div"
                   sx={{
@@ -3691,7 +3941,7 @@ function StreamingAssistantMessageContent({
                     lineHeight: 1.54,
                     fontSize: { xs: '1rem', md: '1.08rem' },
                     ...storyHistoryTextSx,
-                    fontStyle: block.delivery === 'thought' ? 'italic' : 'normal',
+                    fontStyle: isThoughtBlock ? 'italic' : 'normal',
                     whiteSpace: 'pre-wrap',
                   }}
                 >
@@ -3700,7 +3950,7 @@ function StreamingAssistantMessageContent({
                     <Box component="span" className={STREAMING_CARET_CLASS_NAME} aria-hidden="true" />
                   ) : null}
                 </Box>
-              </Stack>
+              </Box>
             </Stack>
           )
         }
@@ -4039,7 +4289,8 @@ function clampStoryContextLimit(value: number, modelId?: StoryNarratorModelId | 
   if (!Number.isFinite(value)) {
     return STORY_DEFAULT_CONTEXT_LIMIT
   }
-  return Math.min(getStoryContextLimitMax(modelId), Math.max(STORY_CONTEXT_LIMIT_MIN, Math.round(value)))
+  const roundedValue = Math.round(value / STORY_CONTEXT_LIMIT_STEP) * STORY_CONTEXT_LIMIT_STEP
+  return Math.min(getStoryContextLimitMax(modelId), Math.max(STORY_CONTEXT_LIMIT_MIN, roundedValue))
 }
 
 function clampStoryResponseMaxTokens(value: number): number {
@@ -5488,9 +5739,10 @@ type CharacterAvatarProps = {
   avatarScale?: number
   fallbackLabel: string
   size?: number
+  bgColor?: string
 }
 
-function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 }: CharacterAvatarProps) {
+function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44, bgColor }: CharacterAvatarProps) {
   return (
     <ProgressiveAvatar
       src={avatarUrl}
@@ -5503,6 +5755,7 @@ function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 
         minWidth: size,
         minHeight: size,
         aspectRatio: '1 / 1',
+        ...(bgColor ? { backgroundColor: bgColor } : {}),
       }}
     />
   )
@@ -5851,6 +6104,32 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       boxShadow: 'none',
     },
   })
+  const rightPanelModeSegmentSx = (isActive: boolean) => ({
+    '&&&': {
+      color: `${isActive ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)'} !important`,
+      opacity: 1,
+      fontWeight: isActive ? 800 : 650,
+      backgroundColor: `${isActive ? 'var(--morius-accent)' : 'transparent'} !important`,
+      border: 'none',
+      boxShadow: isActive ? '0 8px 18px color-mix(in srgb, var(--morius-accent) 35%, transparent)' : 'none',
+    },
+    minHeight: 44,
+    borderRadius: '12px',
+    textTransform: 'none',
+    fontSize: 'var(--morius-body-size)',
+    transition: 'background-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
+    '&&&:hover': {
+      backgroundColor: `${isActive ? 'var(--morius-accent)' : 'color-mix(in srgb, var(--morius-card-border) 45%, transparent)'} !important`,
+      color: 'var(--morius-title-text) !important',
+      boxShadow: isActive ? '0 8px 18px color-mix(in srgb, var(--morius-accent) 35%, transparent)' : 'none',
+    },
+    '&&&:active': {
+      transform: 'translateY(1px)',
+    },
+    '&&&.Mui-focusVisible': {
+      boxShadow: 'none',
+    },
+  })
   const storySettingsTabButtonSx = (isActive: boolean) => ({
     '&&&': {
       color: `${isActive ? 'var(--morius-accent)' : 'var(--morius-title-text)'} !important`,
@@ -6061,7 +6340,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [cardsViewMode, setCardsViewMode] = useState<'compact' | 'full'>(() => {
     try { return (localStorage.getItem('morius-cards-view-mode') as 'compact' | 'full') ?? 'full' } catch { return 'full' }
   })
-  const [activeMemoryPanelTab, setActiveMemoryPanelTab] = useState<MemoryPanelTab>('memory')
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [instructionTemplateDialogOpen, setInstructionTemplateDialogOpen] = useState(false)
   const [instructionTemplateDialogMode, setInstructionTemplateDialogMode] = useState<'manage' | 'picker'>('picker')
@@ -6148,6 +6426,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [characterTriggersDraft, setCharacterTriggersDraft] = useState('')
   const [characterNameColorDraft, setCharacterNameColorDraft] = useState('')
   const [characterSpeechColorDraft, setCharacterSpeechColorDraft] = useState('')
+  const [characterBubbleColorDraft, setCharacterBubbleColorDraft] = useState('')
+  const [characterThoughtBubbleColorDraft, setCharacterThoughtBubbleColorDraft] = useState('')
   const [characterAvatarDraft, setCharacterAvatarDraft] = useState<string | null>(null)
   const [characterAvatarSourceDraft, setCharacterAvatarSourceDraft] = useState<string | null>(null)
   const [characterAvatarCropSource, setCharacterAvatarCropSource] = useState<string | null>(null)
@@ -6201,6 +6481,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [worldCardTriggersDraft, setWorldCardTriggersDraft] = useState('')
   const [worldCardNameColorDraft, setWorldCardNameColorDraft] = useState('')
   const [worldCardSpeechColorDraft, setWorldCardSpeechColorDraft] = useState('')
+  const [worldCardBubbleColorDraft, setWorldCardBubbleColorDraft] = useState('')
+  const [worldCardThoughtBubbleColorDraft, setWorldCardThoughtBubbleColorDraft] = useState('')
   const [worldCardMemoryTurnsDraft, setWorldCardMemoryTurnsDraft] = useState<NpcMemoryTurnsOption>(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
   const [worldCardAvatarDraft, setWorldCardAvatarDraft] = useState<string | null>(null)
   const [worldCardAvatarOriginalDraft, setWorldCardAvatarOriginalDraft] = useState<string | null>(null)
@@ -6219,6 +6501,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [characterAvatarPreview, setCharacterAvatarPreview] = useState<CharacterAvatarPreviewState | null>(null)
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
   const [contextLimitDraft, setContextLimitDraft] = useState(String(STORY_DEFAULT_CONTEXT_LIMIT))
+  const autoRoundedContextLimitKeyRef = useRef<string | null>(null)
   const [storySettingsTab, setStorySettingsTab] = useState<StorySettingsTab>('generation')
   const [isNarratorSettingsExpanded, setIsNarratorSettingsExpanded] = useState(false)
   const [isVisualizationSettingsExpanded, setIsVisualizationSettingsExpanded] = useState(false)
@@ -6449,6 +6732,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       size?: number
       profileCard?: StoryWorldCard | null
       profileCharacter?: StoryCharacter | null
+      avatarBgColor?: string
     }) => {
       const avatarNode = (
         <CharacterAvatar
@@ -6456,6 +6740,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           avatarScale={options.avatarScale}
           fallbackLabel={options.fallbackLabel}
           size={options.size}
+          bgColor={options.avatarBgColor}
         />
       )
 
@@ -7144,28 +7429,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     currentRerollAssistantMessage !== null &&
     continueHiddenForMessageId !== currentRerollAssistantMessage.id
   const canEditStoryAppearance = Boolean(user)
-  const canViewDevMemoryTab = isAdministrator
-  const isRightPanelSecondTabVisible = rightPanelMode === 'memory' && canViewDevMemoryTab
-  const leftPanelTabLabel =
+  const canViewDevMemoryTab = canUseStoryGraph
+  const rightPanelModeMeta =
     rightPanelMode === 'ai'
-      ? 'Настройки'
-      : rightPanelMode === 'world'
-        ? 'Карточки'
-        : 'Память'
-  const rightPanelTabLabel =
-    rightPanelMode === 'world' ? 'Окружение' : 'Дев Память'
-  const isLeftPanelTabActive =
-    rightPanelMode === 'ai'
-      ? true
-      : rightPanelMode === 'world'
-        ? activeWorldPanelTab === 'story'
-        : activeMemoryPanelTab === 'memory'
+      ? { title: 'Рассказчик', subtitle: 'Настройки ведущего истории' }
+      : { title: 'Карточки', subtitle: 'Знания рассказчика о мире' }
   const rightPanelContentKey =
-    rightPanelMode === 'ai'
-      ? `ai-${activeAiPanelTab}`
-      : rightPanelMode === 'world'
-        ? `world-${activeWorldPanelTab}`
-        : `memory-${activeMemoryPanelTab}`
+    rightPanelMode === 'ai' ? `ai-${activeAiPanelTab}` : `world-${activeWorldPanelTab}`
   const environmentTimeEnabled = Boolean(
     activeGameSummary?.environment_time_enabled ?? activeGameSummary?.environment_enabled,
   )
@@ -7219,10 +7489,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [activeWorldPanelTab])
 
   useEffect(() => {
-    if (!canViewDevMemoryTab && activeMemoryPanelTab === 'dev') {
-      setActiveMemoryPanelTab('memory')
+    if (!canViewDevMemoryTab && plotPanelSubTab === 'dev') {
+      setPlotPanelSubTab('cards')
     }
-  }, [activeMemoryPanelTab, canViewDevMemoryTab])
+  }, [canViewDevMemoryTab, plotPanelSubTab])
   const visibleWorldCardEvents = useMemo(
     () => worldCardEvents.filter((event) => !dismissedWorldCardEventIds.includes(event.id)),
     [dismissedWorldCardEventIds, worldCardEvents],
@@ -8348,6 +8618,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       worldCardTriggersDraft !== editingWorldCard.triggers.join(', ') ||
       worldCardNameColorDraft !== normalizeStoryCharacterTextColor(editingWorldCard.name_color) ||
       worldCardSpeechColorDraft !== normalizeStoryCharacterTextColor(editingWorldCard.speech_color) ||
+      worldCardBubbleColorDraft !== normalizeStoryCharacterTextColor(editingWorldCard.bubble_color) ||
+      worldCardThoughtBubbleColorDraft !== normalizeStoryCharacterTextColor(editingWorldCard.thought_bubble_color) ||
       worldCardMemoryTurnsDraft !== toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(editingWorldCard)) ||
       worldCardAvatarDraft !== originalAvatar ||
       worldCardAvatarOriginalDraft !== originalPreviewAvatar ||
@@ -9368,6 +9640,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterTriggersDraft('')
     setCharacterNameColorDraft('')
     setCharacterSpeechColorDraft('')
+    setCharacterBubbleColorDraft('')
+    setCharacterThoughtBubbleColorDraft('')
     setCharacterAvatarDraft(null)
     setCharacterAvatarSourceDraft(null)
     setCharacterAvatarCropSource(null)
@@ -9482,6 +9756,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               setWorldCardTriggersDraft(createdCard.triggers.join(', '))
               setWorldCardNameColorDraft(normalizeStoryCharacterTextColor(createdCard.name_color))
               setWorldCardSpeechColorDraft(normalizeStoryCharacterTextColor(createdCard.speech_color))
+              setWorldCardBubbleColorDraft(normalizeStoryCharacterTextColor(createdCard.bubble_color))
+              setWorldCardThoughtBubbleColorDraft(normalizeStoryCharacterTextColor(createdCard.thought_bubble_color))
               setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(createdCard)))
               setIsWorldCardAdditionalExpanded(
                 Boolean(
@@ -9538,6 +9814,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           health_status: normalizeCharacterAdditionalValue(linkedCharacter.health_status),
           name_color: normalizeStoryCharacterTextColor(linkedCharacter.name_color) || null,
           speech_color: normalizeStoryCharacterTextColor(linkedCharacter.speech_color) || null,
+          bubble_color: normalizeStoryCharacterTextColor(linkedCharacter.bubble_color) || null,
+          thought_bubble_color: normalizeStoryCharacterTextColor(linkedCharacter.thought_bubble_color) || null,
           triggers: normalizedTriggers,
           memory_turns:
             targetCardKind === 'npc'
@@ -9963,6 +10241,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterTriggersDraft(character.triggers.join(', '))
     setCharacterNameColorDraft(normalizeStoryCharacterTextColor(character.name_color))
     setCharacterSpeechColorDraft(normalizeStoryCharacterTextColor(character.speech_color))
+    setCharacterBubbleColorDraft(normalizeStoryCharacterTextColor(character.bubble_color))
+    setCharacterThoughtBubbleColorDraft(normalizeStoryCharacterTextColor(character.thought_bubble_color))
     setCharacterAvatarDraft(character.avatar_url)
     setCharacterAvatarSourceDraft(character.avatar_original_url ?? character.avatar_url)
     setCharacterAvatarCropSource(null)
@@ -10030,6 +10310,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const normalizedNote = normalizeCharacterNoteValue(characterNoteDraft)
     const normalizedNameColor = normalizeStoryCharacterTextColorDraft(characterNameColorDraft)
     const normalizedSpeechColor = normalizeStoryCharacterTextColorDraft(characterSpeechColorDraft)
+    const normalizedBubbleColor = normalizeStoryCharacterTextColorDraft(characterBubbleColorDraft)
+    const normalizedThoughtBubbleColor = normalizeStoryCharacterTextColorDraft(characterThoughtBubbleColorDraft)
     if (!normalizedName) {
       setErrorMessage('мя персонажа не может быть пустым')
       return
@@ -10059,6 +10341,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             triggers: normalizedTriggers,
             name_color: normalizedNameColor,
             speech_color: normalizedSpeechColor,
+            bubble_color: normalizedBubbleColor,
+            thought_bubble_color: normalizedThoughtBubbleColor,
             avatar_url: preparedAvatarPayload.avatarUrl,
             avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
           },
@@ -10084,6 +10368,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             triggers: normalizedTriggers,
             name_color: normalizedNameColor,
             speech_color: normalizedSpeechColor,
+            bubble_color: normalizedBubbleColor,
+            thought_bubble_color: normalizedThoughtBubbleColor,
             avatar_url: preparedAvatarPayload.avatarUrl,
             avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
             emotion_assets: existingCharacter?.emotion_assets ?? {},
@@ -10270,6 +10556,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setWorldCardTriggersDraft(createdCard.triggers.join(', '))
           setWorldCardNameColorDraft(normalizeStoryCharacterTextColor(createdCard.name_color))
           setWorldCardSpeechColorDraft(normalizeStoryCharacterTextColor(createdCard.speech_color))
+          setWorldCardBubbleColorDraft(normalizeStoryCharacterTextColor(createdCard.bubble_color))
+          setWorldCardThoughtBubbleColorDraft(normalizeStoryCharacterTextColor(createdCard.thought_bubble_color))
           setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(createdCard)))
           setIsWorldCardAdditionalExpanded(
             Boolean(
@@ -10369,6 +10657,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               triggers: character.triggers,
               name_color: normalizeStoryCharacterTextColor(character.name_color) || null,
               speech_color: normalizeStoryCharacterTextColor(character.speech_color) || null,
+              bubble_color: normalizeStoryCharacterTextColor(character.bubble_color) || null,
+              thought_bubble_color: normalizeStoryCharacterTextColor(character.thought_bubble_color) || null,
               avatar_url: preparedCharacterAvatarPayload.avatarUrl,
               avatar_original_url: preparedCharacterAvatarPayload.avatarOriginalUrl,
               avatar_scale: character.avatar_scale,
@@ -10428,6 +10718,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setWorldCardTriggersDraft(createdCard.triggers.join(', '))
           setWorldCardNameColorDraft(normalizeStoryCharacterTextColor(createdCard.name_color))
           setWorldCardSpeechColorDraft(normalizeStoryCharacterTextColor(createdCard.speech_color))
+          setWorldCardBubbleColorDraft(normalizeStoryCharacterTextColor(createdCard.bubble_color))
+          setWorldCardThoughtBubbleColorDraft(normalizeStoryCharacterTextColor(createdCard.thought_bubble_color))
           setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(createdCard)))
           setIsWorldCardAdditionalExpanded(
             Boolean(
@@ -11123,6 +11415,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardTriggersDraft('')
     setWorldCardNameColorDraft('')
     setWorldCardSpeechColorDraft('')
+    setWorldCardBubbleColorDraft('')
+    setWorldCardThoughtBubbleColorDraft('')
     setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setDeletingWorldCardId(null)
   }, [activeGameId, isCreatingGame, isSavingWorldCard])
@@ -12115,6 +12409,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardTriggersDraft('')
     setWorldCardNameColorDraft('')
     setWorldCardSpeechColorDraft('')
+    setWorldCardBubbleColorDraft('')
+    setWorldCardThoughtBubbleColorDraft('')
     setWorldCardMemoryTurnsDraft(kind === 'npc' ? NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS : WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setWorldCardAvatarDraft(null)
     setWorldCardAvatarOriginalDraft(null)
@@ -12181,6 +12477,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               note: '',
               name_color: normalizeStoryCharacterTextColor(card.name_color) || null,
               speech_color: normalizeStoryCharacterTextColor(card.speech_color) || null,
+              bubble_color: normalizeStoryCharacterTextColor(card.bubble_color) || null,
+              thought_bubble_color: normalizeStoryCharacterTextColor(card.thought_bubble_color) || null,
               triggers: normalizedTriggers,
               avatar_url: preparedMirroredAvatarPayload.avatarUrl,
               avatar_original_url: preparedMirroredAvatarPayload.avatarOriginalUrl,
@@ -12225,6 +12523,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardTriggersDraft(card.triggers.join(', '))
     setWorldCardNameColorDraft(normalizeStoryCharacterTextColor(card.name_color))
     setWorldCardSpeechColorDraft(normalizeStoryCharacterTextColor(card.speech_color))
+    setWorldCardBubbleColorDraft(normalizeStoryCharacterTextColor(card.bubble_color))
+    setWorldCardThoughtBubbleColorDraft(normalizeStoryCharacterTextColor(card.thought_bubble_color))
     setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(card)))
     setWorldCardAvatarDraft(resolveWorldCardAvatar(card))
     setWorldCardAvatarOriginalDraft(resolveWorldCardPreviewAvatar(card) ?? resolveWorldCardAvatar(card))
@@ -12262,6 +12562,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardTriggersDraft('')
     setWorldCardNameColorDraft('')
     setWorldCardSpeechColorDraft('')
+    setWorldCardBubbleColorDraft('')
+    setWorldCardThoughtBubbleColorDraft('')
     setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setWorldCardAvatarDraft(null)
     setWorldCardAvatarOriginalDraft(null)
@@ -12446,6 +12748,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const normalizedSpeechColor = shouldPersistCharacterTextColors
       ? normalizeStoryCharacterTextColorDraft(worldCardSpeechColorDraft)
       : null
+    const normalizedBubbleColor = shouldPersistCharacterTextColors
+      ? normalizeStoryCharacterTextColorDraft(worldCardBubbleColorDraft)
+      : null
+    const normalizedThoughtBubbleColor = shouldPersistCharacterTextColors
+      ? normalizeStoryCharacterTextColorDraft(worldCardThoughtBubbleColorDraft)
+      : null
 
     if (!normalizedTitle) {
       setErrorMessage('Название карточки мира не может быть пустым')
@@ -12520,6 +12828,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           health_status: normalizedHealthStatus,
           name_color: normalizedNameColor,
           speech_color: normalizedSpeechColor,
+          bubble_color: normalizedBubbleColor,
+          thought_bubble_color: normalizedThoughtBubbleColor,
           triggers: normalizedTriggers,
           kind: editingWorldCardKind,
           detail_type: editingWorldCardKind === 'world' ? normalizedDetailType : '',
@@ -12549,6 +12859,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           health_status: normalizedHealthStatus,
           name_color: normalizedNameColor,
           speech_color: normalizedSpeechColor,
+          bubble_color: normalizedBubbleColor,
+          thought_bubble_color: normalizedThoughtBubbleColor,
           triggers: normalizedTriggers,
           detail_type: editingWorldCardKind === 'world' ? normalizedDetailType : '',
           memory_turns: normalizedMemoryTurns,
@@ -12581,6 +12893,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setWorldCardTriggersDraft('')
       setWorldCardNameColorDraft('')
       setWorldCardSpeechColorDraft('')
+      setWorldCardBubbleColorDraft('')
+      setWorldCardThoughtBubbleColorDraft('')
       setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
       setWorldCardAvatarDraft(null)
       setWorldCardAvatarOriginalDraft(null)
@@ -13372,13 +13686,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars, persistedModel)
         setContextLimitChars(persistedContextLimit)
         setContextLimitDraft(String(persistedContextLimit))
-        setGames((previousGames) =>
-          sortGamesByActivity(
-            previousGames.map((game) =>
-              game.id === updatedGame.id ? { ...updatedGame, context_limit_chars: persistedContextLimit } : game,
-            ),
-          ),
-        )
+        applyUpdatedGameSummary({ ...updatedGame, context_limit_chars: persistedContextLimit })
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось обновить лимит контекста'
         setErrorMessage(detail)
@@ -13388,6 +13696,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [
       activeGameId,
+      applyUpdatedGameSummary,
       authToken,
       isSavingAmbientEnabled,
       isSavingContextLimit,
@@ -13404,6 +13713,59 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       storyLlmModel,
     ],
   )
+
+  useEffect(() => {
+    const targetGameId = activeGameId
+    const rawContextLimit = activeGameSummary?.context_limit_chars
+    if (
+      !targetGameId ||
+      activeGameSummary?.id !== targetGameId ||
+      typeof rawContextLimit !== 'number' ||
+      !Number.isFinite(rawContextLimit) ||
+      isSavingContextLimit ||
+      isSavingResponseMaxTokens ||
+      isSavingResponseMaxTokensEnabled ||
+      isSavingResponseTokenLimit ||
+      isSavingStoryLlmModel ||
+      isSavingMemoryOptimization ||
+      isSavingStorySampling ||
+      isSavingThoughtVisibility ||
+      isSavingAmbientEnabled
+    ) {
+      return
+    }
+
+    const roundedContextLimit = clampStoryContextLimit(rawContextLimit, storyLlmModel)
+    if (roundedContextLimit === rawContextLimit) {
+      autoRoundedContextLimitKeyRef.current = null
+      return
+    }
+
+    const autoRoundKey = `${targetGameId}:${rawContextLimit}:${roundedContextLimit}:${storyLlmModel}`
+    if (autoRoundedContextLimitKeyRef.current === autoRoundKey) {
+      return
+    }
+
+    autoRoundedContextLimitKeyRef.current = autoRoundKey
+    setContextLimitChars(roundedContextLimit)
+    setContextLimitDraft(String(roundedContextLimit))
+    void persistContextLimit(roundedContextLimit)
+  }, [
+    activeGameId,
+    activeGameSummary?.context_limit_chars,
+    activeGameSummary?.id,
+    isSavingAmbientEnabled,
+    isSavingContextLimit,
+    isSavingMemoryOptimization,
+    isSavingResponseMaxTokens,
+    isSavingResponseMaxTokensEnabled,
+    isSavingResponseTokenLimit,
+    isSavingStoryLlmModel,
+    isSavingStorySampling,
+    isSavingThoughtVisibility,
+    persistContextLimit,
+    storyLlmModel,
+  ])
 
   const persistStoryResponseMaxTokens = useCallback(
     async (nextValue: number) => {
@@ -17264,6 +17626,69 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const avatarPreviewProfileHealthStatus =
     avatarPreviewProfileCard?.health_status || avatarPreviewProfileCharacter?.health_status || ''
   const avatarPreviewProfileTriggers = avatarPreviewProfileCard?.triggers ?? avatarPreviewProfileCharacter?.triggers ?? []
+  const selectedImageModelOption = STORY_IMAGE_MODEL_OPTIONS.find((option) => option.id === storyImageModel) ?? STORY_IMAGE_MODEL_OPTIONS[0]
+  const activeInstructionCardsCount = instructionCards.filter((card) => card.is_active).length
+  const rightPanelContextUsageSegments = [
+    { key: 'instructions', label: 'Инструкции', value: instructionContextTokensUsed, color: '#F0B15D' },
+    { key: 'memory', label: 'Память', value: storyMemoryTokensUsed, color: '#4F8DFF' },
+    { key: 'world', label: 'Карточки мира', value: worldContextTokensUsed, color: '#55D58D' },
+  ]
+  const worldProfileBannerUrl = worldProfileCard ? resolveApiResourceUrl(resolveWorldCardAvatar(worldProfileCard)) : null
+  const rightPanelCardSx = {
+    borderRadius: '18px',
+    border: 'var(--morius-border-width) solid rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(22, 23, 30, 0.78)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
+  } as const
+  const rightPanelActiveCardSx = {
+    borderColor: 'rgba(78, 139, 255, 0.62)',
+    backgroundColor: 'rgba(24, 34, 58, 0.72)',
+  } as const
+  const rightPanelGreenCardSx = {
+    borderColor: 'rgba(67, 205, 137, 0.34)',
+    backgroundColor: 'rgba(18, 39, 34, 0.72)',
+  } as const
+  const rightPanelOverflowButtonSx = {
+    width: 30,
+    height: 30,
+    minWidth: 30,
+    minHeight: 30,
+    color: 'rgba(156, 158, 171, 0.82)',
+    backgroundColor: 'transparent !important',
+    '&:hover': {
+      color: 'var(--morius-title-text)',
+      backgroundColor: 'rgba(255,255,255,0.045) !important',
+    },
+  } as const
+  const rightPanelPrimaryButtonSx = {
+    minHeight: 44,
+    borderRadius: '14px',
+    textTransform: 'none',
+    color: '#dce8ff',
+    fontSize: '0.9rem',
+    fontWeight: 900,
+    border: 'var(--morius-border-width) solid rgba(78, 139, 255, 0.46)',
+    backgroundColor: 'rgba(35, 56, 98, 0.48)',
+    '&:hover': {
+      backgroundColor: 'rgba(47, 76, 132, 0.62)',
+      borderColor: 'rgba(106, 161, 255, 0.7)',
+    },
+  } as const
+  const rightPanelSecondaryButtonSx = {
+    minHeight: 44,
+    borderRadius: '14px',
+    textTransform: 'none',
+    color: 'color-mix(in srgb, var(--morius-title-text) 78%, transparent)',
+    fontSize: '0.9rem',
+    fontWeight: 900,
+    border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+    backgroundColor: 'rgba(32, 32, 39, 0.82)',
+    '&:hover': {
+      backgroundColor: 'rgba(44, 44, 53, 0.9)',
+      borderColor: 'rgba(255,255,255,0.16)',
+    },
+  } as const
+  const shouldRenderLegacyRightPanel = activeGameId === Number.MIN_SAFE_INTEGER
 
   return (
     <Box
@@ -17303,84 +17728,52 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         showAiAssistantAction={user.ai_assistant_visible ?? true}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         onOpenBugReportDialog={handleOpenBugReportDialog}
-        rightActionsWidth={420}
+        rightActionsWidth={124}
         rightActions={
-          <Stack data-tour-id="story-right-mode-buttons" direction="row" alignItems="center" sx={{ gap: 'var(--morius-icon-gap)' }}>
-            <IconButton
-              data-tour-id="story-right-mode-world"
-              aria-label="Сюжет и мир"
-              onClick={() => {
-                if (rightPanelMode === 'world' && isRightPanelOpen) {
-                  handleToggleRightPanel()
-                } else {
-                  setRightPanelMode('world')
-                  setActiveWorldPanelTab('story')
-                  if (!isRightPanelOpen) handleToggleRightPanel()
-                }
-              }}
-              sx={rightPanelModeButtonSx(rightPanelMode === 'world' && isRightPanelOpen)}
-            >
-              <RightPanelWorldIcon />
-            </IconButton>
-            <IconButton
-              data-tour-id="story-right-mode-ai"
-              aria-label="Настройки ИИ"
-              onClick={() => {
-                if (rightPanelMode === 'ai' && isRightPanelOpen) {
-                  handleToggleRightPanel()
-                } else {
-                  setRightPanelMode('ai')
-                  setActiveAiPanelTab('settings')
-                  if (!isRightPanelOpen) handleToggleRightPanel()
-                }
-              }}
-              sx={rightPanelModeButtonSx(rightPanelMode === 'ai' && isRightPanelOpen)}
-            >
-              <RightPanelAiIcon />
-            </IconButton>
-            <IconButton
-              data-tour-id="story-right-mode-memory"
-              aria-label="Память"
-              onClick={() => {
-                if (rightPanelMode === 'memory' && isRightPanelOpen) {
-                  handleToggleRightPanel()
-                } else {
-                  setRightPanelMode('memory')
-                  setActiveMemoryPanelTab('memory')
-                  if (!isRightPanelOpen) handleToggleRightPanel()
-                }
-              }}
-              sx={rightPanelModeButtonSx(rightPanelMode === 'memory' && isRightPanelOpen)}
-            >
-              <RightPanelMemoryIcon />
-            </IconButton>
+          <Stack data-tour-id="story-game-menu-toggle-group" direction="row" alignItems="center" sx={{ gap: 'var(--morius-icon-gap)' }}>
             <Tooltip disableInteractive title={isRightPanelOpen ? 'Закрыть игровое меню' : 'Открыть игровое меню'}>
               <IconButton
                 data-tour-id="story-game-menu-toggle"
                 aria-label={isRightPanelOpen ? 'Закрыть игровое меню' : 'Открыть игровое меню'}
                 onClick={handleToggleRightPanel}
                 sx={{
-                  ...rightPanelModeButtonSx(isRightPanelOpen),
-                  width: 38,
-                  height: 38,
-                  borderRadius: '10px',
+                  width: 42,
+                  height: 42,
+                  borderRadius: '14px',
                   position: 'relative',
-                  transition: 'color 180ms ease, background-color 180ms ease, transform 180ms ease',
-                  '&:active': { transform: 'scale(0.92)' },
+                  color: isRightPanelOpen ? '#fff' : 'color-mix(in srgb, var(--morius-title-text) 78%, transparent)',
+                  border: isRightPanelOpen
+                    ? 'var(--morius-border-width) solid rgba(111, 165, 255, 0.7)'
+                    : 'var(--morius-border-width) solid rgba(255,255,255,0.08)',
+                  backgroundColor: isRightPanelOpen ? 'rgba(78, 139, 255, 0.86) !important' : 'rgba(20, 22, 29, 0.68) !important',
+                  boxShadow: isRightPanelOpen ? '0 10px 24px rgba(78, 139, 255, 0.24)' : 'none',
+                  transition: 'color 180ms ease, background-color 180ms ease, transform 180ms ease, border-color 180ms ease',
+                  '&:hover': {
+                    color: '#fff',
+                    backgroundColor: isRightPanelOpen ? 'rgba(78, 139, 255, 0.94) !important' : 'rgba(34, 38, 50, 0.82) !important',
+                    borderColor: 'rgba(111, 165, 255, 0.65)',
+                  },
+                  '& .MuiSvgIcon-root': {
+                    color: isRightPanelOpen ? '#fff !important' : 'currentColor',
+                    opacity: 1,
+                  },
+                  '& .MuiSvgIcon-root path': {
+                    fill: isRightPanelOpen ? '#fff !important' : 'currentColor',
+                  },
+                  '&:active': { transform: 'scale(0.94)' },
                 }}
               >
                 <SvgIcon
+                  viewBox="0 0 24 24"
                   sx={{
-                    fontSize: 19,
+                    fontSize: 23,
                     transition: 'transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1)',
-                    transform: isRightPanelOpen ? 'rotate(0deg)' : 'rotate(0deg)',
                   }}
                 >
-                  {isRightPanelOpen ? (
-                    <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-                  ) : (
-                    <path d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z" />
-                  )}
+                  <path
+                    d="M4.2 6.7 12 3l7.8 3.7L12 10.4 4.2 6.7Zm0 5.05 2.05-.98L12 13.52l5.75-2.75 2.05.98L12 15.45l-7.8-3.7Zm0 5.05 2.05-.98L12 18.57l5.75-2.75 2.05.98L12 20.5l-7.8-3.7Z"
+                    fill="currentColor"
+                  />
                 </SvgIcon>
               </IconButton>
             </Tooltip>
@@ -17934,15 +18327,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           left: 'auto',
           right: { xs: 0, md: 'var(--morius-interface-gap)' },
           bottom: { xs: 0, md: 'var(--morius-interface-gap)' },
-          width: { xs: 'min(420px, 100vw)', md: rightPanelWidth },
+          width: { xs: 'min(400px, 100vw)', md: rightPanelWidth },
           maxWidth: { xs: '100vw', md: 'none' },
           maxHeight: { xs: 'calc(100svh - var(--morius-header-menu-top))', md: 'none' },
           zIndex: 47,
-          borderRadius: { xs: '26px 0 0 26px', md: 'var(--morius-radius)' },
-          border: { xs: 'none', md: 'var(--morius-border-width) solid var(--morius-card-border)' },
-          borderLeft: { xs: 'var(--morius-border-width) solid var(--morius-card-border)', md: 'none' },
+          borderRadius: { xs: '24px 0 0 24px', md: '28px' },
+          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, rgba(120, 142, 190, 0.24))',
           background:
-            'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 94%, #05070d 6%) 0%, color-mix(in srgb, var(--morius-card-bg) 88%, #020304 12%) 100%)',
+            'radial-gradient(circle at 72% -12%, rgba(73, 119, 235, 0.22), transparent 34%), linear-gradient(180deg, rgba(23, 27, 41, 0.98) 0%, rgba(12, 13, 18, 0.985) 38%, rgba(10, 11, 15, 0.99) 100%)',
           transform: {
             xs: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 24px), 0, 0)',
             md: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + var(--morius-interface-gap)), 0, 0)',
@@ -17955,7 +18347,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          boxShadow: { xs: '-24px 0 48px rgba(0, 0, 0, 0.38)', md: '0 18px 40px rgba(0, 0, 0, 0.28)' },
+          boxShadow: {
+            xs: '-28px 0 58px rgba(0, 0, 0, 0.48)',
+            md: '0 22px 70px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.035)',
+          },
         }}
       >
         <Box
@@ -17988,9 +18383,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         />
         <Box
           sx={{
-            px: { xs: 1.5, md: '10px' },
-            pt: { xs: '16px', md: 'var(--morius-story-right-padding)' },
-            borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)',
+            px: { xs: 1.55, md: 1.8 },
+            pt: { xs: 1.45, md: 1.7 },
+            pb: { xs: 0.9, md: 1.05 },
           }}
         >
           <Box
@@ -18004,81 +18399,151 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               display: 'none',
             }}
           />
+          <Stack
+            data-tour-id="story-right-panel-heading"
+            direction="row"
+            alignItems="flex-start"
+            justifyContent="space-between"
+            spacing={1}
+            sx={{ pb: { xs: 1.35, md: 1.55 } }}
+          >
+            <Stack direction="row" spacing={1.05} alignItems="center" sx={{ minWidth: 0 }}>
+              <Box
+                sx={{
+                  flexShrink: 0,
+                  width: { xs: 48, md: 52 },
+                  height: { xs: 48, md: 52 },
+                  borderRadius: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  background: rightPanelMode === 'ai'
+                    ? 'linear-gradient(135deg, #7E64F7 0%, #4E91FF 100%)'
+                    : 'linear-gradient(135deg, #5B8DFF 0%, #3978F0 100%)',
+                  boxShadow: '0 12px 24px rgba(62, 124, 255, 0.26)',
+                  '& .MuiSvgIcon-root': {
+                    width: { xs: 25, md: 27 },
+                    height: { xs: 25, md: 27 },
+                  },
+                }}
+              >
+                {rightPanelMode === 'ai' ? <RightPanelAiIcon /> : <RightPanelCardsIcon />}
+              </Box>
+              <Stack spacing={0.2} sx={{ minWidth: 0 }}>
+                <Typography
+                  sx={{
+                    color: 'var(--morius-title-text)',
+                    fontFamily: 'Georgia, "Times New Roman", serif',
+                    fontSize: { xs: '1.48rem', md: '1.62rem' },
+                    fontWeight: 900,
+                    lineHeight: 1,
+                    letterSpacing: '-0.025em',
+                  }}
+                >
+                  {rightPanelModeMeta.title}
+                </Typography>
+                <Typography
+                  sx={{
+                    color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)',
+                    fontSize: { xs: '0.82rem', md: '0.88rem' },
+                    fontWeight: 650,
+                    lineHeight: 1.16,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {rightPanelModeMeta.subtitle}
+                </Typography>
+              </Stack>
+            </Stack>
+            <IconButton
+              aria-label="Закрыть"
+              onClick={() => setIsRightPanelOpen(false)}
+              sx={{
+                ...rightPanelModeButtonSx(false),
+                flexShrink: 0,
+                width: { xs: 42, md: 46 },
+                height: { xs: 42, md: 46 },
+                borderRadius: '15px',
+                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, rgba(255,255,255,0.12))',
+                backgroundColor: 'rgba(44, 49, 66, 0.68) !important',
+                color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
+                '&:hover': {
+                  backgroundColor: 'rgba(58, 64, 84, 0.78) !important',
+                  color: 'var(--morius-title-text) !important',
+                },
+              }}
+            >
+              <SvgIcon sx={{ fontSize: 21 }}>
+                <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+              </SvgIcon>
+            </IconButton>
+          </Stack>
           <Box
             data-tour-id="story-right-subtabs"
             sx={{
               display: 'grid',
-              gridTemplateColumns: isRightPanelSecondTabVisible ? '1fr 1fr' : '1fr',
+              gridTemplateColumns: '1fr 1fr',
               alignItems: 'center',
-              gap: 0.55,
-              pb: 0.35,
+              gap: 0,
+              p: 0.42,
+              minHeight: { xs: 58, md: 64 },
+              borderRadius: '18px',
+              backgroundColor: 'rgba(2, 3, 8, 0.72)',
+              border: 'var(--morius-border-width) solid rgba(255,255,255,0.035)',
+              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.015), 0 10px 24px rgba(0,0,0,0.24)',
             }}
           >
             <Button
               data-tour-id="story-right-subtab-primary"
-              onClick={() =>
-                rightPanelMode === 'ai'
-                  ? setActiveAiPanelTab('settings')
-                  : rightPanelMode === 'world'
-                    ? setActiveWorldPanelTab('story')
-                    : setActiveMemoryPanelTab('memory')
-              }
+              onClick={() => {
+                setRightPanelMode('world')
+                setActiveWorldPanelTab('story')
+              }}
               sx={{
-                ...rightPanelTextTabButtonSx(isLeftPanelTabActive, false),
-                fontSize: 'var(--morius-body-size)',
-                lineHeight: 1.1,
-                textAlign: 'center',
-                px: 1.4,
-                py: 0.9,
-                minHeight: 44,
-                borderRadius: '12px',
+                ...rightPanelModeSegmentSx(rightPanelMode === 'world'),
+                minHeight: { xs: 48, md: 54 },
+                borderRadius: '14px',
+                gap: 0.62,
+                fontSize: { xs: '0.96rem', md: '1.02rem' },
+                fontWeight: rightPanelMode === 'world' ? 950 : 850,
+                color: rightPanelMode === 'world'
+                  ? '#fff !important'
+                  : 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent) !important',
               }}
             >
-              {leftPanelTabLabel}
+              <RightPanelCardsIcon />
+              Карточки
             </Button>
-            {isRightPanelSecondTabVisible ? (
-              <Button
-                data-tour-id="story-right-subtab-secondary"
-                onClick={() => setActiveMemoryPanelTab('dev')}
-                sx={{
-                  ...rightPanelTextTabButtonSx(!isLeftPanelTabActive, false),
-                  fontSize: 'var(--morius-body-size)',
-                  lineHeight: 1.1,
-                  textAlign: 'center',
-                  px: 1.4,
-                  py: 0.9,
-                  minHeight: 44,
-                  borderRadius: '12px',
-                }}
-              >
-                {rightPanelTabLabel}
-              </Button>
-            ) : null}
-          </Box>
-          <Box
-            sx={{
-              display: 'none',
-            }}
-          >
-            <Box
-              sx={{
-                width: isRightPanelSecondTabVisible ? '50%' : '100%',
-                height: '100%',
-                backgroundColor: 'var(--morius-accent)',
-                transform: isRightPanelSecondTabVisible
-                  ? isLeftPanelTabActive
-                    ? 'translateX(0)'
-                    : 'translateX(100%)'
-                  : 'translateX(0)',
-                transition: 'transform 220ms ease',
+            <Button
+              data-tour-id="story-right-subtab-secondary"
+              onClick={() => {
+                setRightPanelMode('ai')
+                setActiveAiPanelTab('settings')
               }}
-            />
+              sx={{
+                ...rightPanelModeSegmentSx(rightPanelMode === 'ai'),
+                minHeight: { xs: 48, md: 54 },
+                borderRadius: '14px',
+                gap: 0.62,
+                fontSize: { xs: '0.96rem', md: '1.02rem' },
+                fontWeight: rightPanelMode === 'ai' ? 950 : 850,
+                color: rightPanelMode === 'ai'
+                  ? '#fff !important'
+                  : 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent) !important',
+              }}
+            >
+              <RightPanelAiIcon />
+              Рассказчик
+            </Button>
           </Box>
         </Box>
         <Box
           sx={{
-            px: { xs: 1.5, md: '10px' },
-            py: { xs: 1.4, md: 'var(--morius-story-right-padding)' },
+            px: { xs: 1.55, md: 1.8 },
+            py: { xs: 1.05, md: 1.25 },
             display: 'flex',
             flexDirection: 'column',
             flex: 1,
@@ -18108,7 +18573,990 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           >
           {shouldShowRightPanelLoadingSkeleton ? <StoryRightPanelLoadingSkeleton /> : null}
 
-          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' && activeWorldPanelTab === 'story' ? (
+          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' ? (
+            <Stack data-tour-id="story-world-cards-panel" spacing={1.35} sx={{ minHeight: 0, flex: 1 }}>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                  gap: { xs: 0.45, md: 0.52 },
+                }}
+              >
+                {[
+                  { key: 'characters' as const, label: 'Персонажи', iconMarkup: cardsCharactersTabIconMarkup },
+                  { key: 'world' as const, label: 'Мир', iconMarkup: cardsWorldTabIconMarkup },
+                  { key: 'instructions' as const, label: 'Правила', iconMarkup: cardsRulesTabIconMarkup },
+                  { key: 'plot' as const, label: 'Сюжет', iconMarkup: cardsPlotTabIconMarkup },
+                ].map((tab) => {
+                  const isActive = cardsPanelTab === tab.key
+                  return (
+                    <Button
+                      key={tab.key}
+                      data-tour-id={tab.key === 'plot' ? 'story-cards-tab-plot' : undefined}
+                      onClick={() => handleCardsPanelTabSelect(tab.key)}
+                      sx={{
+                        minHeight: { xs: 66, md: 72 },
+                        borderRadius: '14px',
+                        px: 0.3,
+                        py: 0.72,
+                        flexDirection: 'column',
+                        gap: 0.42,
+                        textTransform: 'none',
+                        color: isActive
+                          ? 'color-mix(in srgb, var(--morius-title-text) 88%, #dce8ff)'
+                          : 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent)',
+                        border: isActive
+                          ? 'var(--morius-border-width) solid rgba(78, 139, 255, 0.72)'
+                          : 'var(--morius-border-width) solid rgba(255,255,255,0.075)',
+                        backgroundColor: isActive ? 'rgba(30, 43, 74, 0.86)' : 'rgba(24, 25, 31, 0.72)',
+                        boxShadow: isActive ? 'inset 0 1px 0 rgba(255,255,255,0.035)' : 'none',
+                        '&:hover': {
+                          backgroundColor: isActive ? 'rgba(34, 50, 88, 0.92)' : 'rgba(31, 32, 40, 0.82)',
+                          borderColor: isActive ? 'rgba(96, 156, 255, 0.78)' : 'rgba(255,255,255,0.13)',
+                        },
+                      }}
+                    >
+                      <ThemedSvgIcon markup={tab.iconMarkup} size={21} sx={{ color: 'currentColor', opacity: isActive ? 1 : 0.84 }} />
+                      <Typography sx={{ color: 'inherit', fontSize: { xs: '0.74rem', md: '0.8rem' }, fontWeight: 900, lineHeight: 1, whiteSpace: 'nowrap' }}>
+                        {tab.label}
+                      </Typography>
+                    </Button>
+                  )
+                })}
+              </Box>
+
+              {cardsPanelTab === 'characters' ? (
+                <Stack spacing={1.35}>
+                  <RightPanelSectionHeading
+                    title="Главный герой"
+                    action={
+                      <Button
+                        onClick={() => void handleOpenCharacterSelectorForMainHero()}
+                        disabled={isGenerating || isCreatingGame}
+                        sx={{
+                          minHeight: 30,
+                          px: 1.05,
+                          borderRadius: '999px',
+                          textTransform: 'none',
+                          color: 'color-mix(in srgb, var(--morius-accent) 88%, #fff)',
+                          fontSize: '0.78rem',
+                          fontWeight: 900,
+                          backgroundColor: 'rgba(78, 139, 255, 0.12)',
+                          '&:hover': { backgroundColor: 'rgba(78, 139, 255, 0.18)' },
+                        }}
+                      >
+                        Добавить
+                      </Button>
+                    }
+                  />
+                  {mainHeroCard ? (
+                    <Box
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleOpenEditWorldCardDialog(mainHeroCard)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          handleOpenEditWorldCardDialog(mainHeroCard)
+                        }
+                      }}
+                      sx={{
+                        ...rightPanelCardSx,
+                        ...rightPanelActiveCardSx,
+                        p: { xs: 1.05, md: 1.15 },
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        cursor: 'pointer',
+                        outline: 'none',
+                      }}
+                    >
+                      <RightPanelInitialAvatar
+                        label={mainHeroCard.title}
+                        seed={mainHeroCard.id}
+                        size={54}
+                        imageUrl={resolveWorldCardAvatar(mainHeroCard)}
+                        imageScale={mainHeroCard.avatar_scale}
+                      />
+                      <Stack spacing={0.28} sx={{ minWidth: 0, flex: 1 }}>
+                        <Stack direction="row" spacing={0.65} alignItems="center" sx={{ minWidth: 0 }}>
+                          <Typography
+                            sx={{
+                              color: 'var(--morius-title-text)',
+                              fontSize: { xs: '1.02rem', md: '1.08rem' },
+                              fontWeight: 950,
+                              lineHeight: 1.06,
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {mainHeroCard.title}
+                          </Typography>
+                          {mainHeroCard.race ? (
+                            <Typography
+                              component="span"
+                              sx={{
+                                px: 0.56,
+                                py: 0.18,
+                                borderRadius: '7px',
+                                color: '#bdd3ff',
+                                backgroundColor: 'rgba(78, 139, 255, 0.24)',
+                                fontSize: '0.64rem',
+                                fontWeight: 950,
+                                lineHeight: 1,
+                                textTransform: 'uppercase',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {mainHeroCard.race}
+                            </Typography>
+                          ) : null}
+                        </Stack>
+                        <Typography
+                          sx={{
+                            color: 'color-mix(in srgb, var(--morius-text-secondary) 94%, transparent)',
+                            fontSize: { xs: '0.82rem', md: '0.86rem' },
+                            fontWeight: 650,
+                            lineHeight: 1.24,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {replaceMainHeroInlineTags(mainHeroCard.content, mainHeroCard.title)}
+                        </Typography>
+                      </Stack>
+                      <IconButton
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleOpenCardMenu(event, 'world', mainHeroCard.id)
+                        }}
+                        disabled={isWorldCardActionLocked}
+                        sx={rightPanelOverflowButtonSx}
+                      >
+                        <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                      </IconButton>
+                    </Box>
+                  ) : (
+                    <RightPanelEmptyState
+                      iconSrc={icons.world}
+                      title="Герой не выбран"
+                      description="Выберите главного героя, чтобы рассказчик держал его роль и внешность в фокусе."
+                    />
+                  )}
+
+                  <RightPanelSectionHeading title="Персонажи" count={`${displayedNpcCards.length}/${rawNpcCards.length}`} />
+                  <Stack spacing={1.25}>
+                    <Stack direction="row" spacing={0.65} alignItems="center">
+                      <Box
+                        sx={{
+                          flex: 1,
+                          minWidth: 0,
+                          height: 42,
+                          borderRadius: '14px',
+                          border: 'var(--morius-border-width) solid rgba(255,255,255,0.075)',
+                          backgroundColor: 'rgba(7, 8, 13, 0.64)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.75,
+                          px: 1,
+                        }}
+                      >
+                        <Box component="img" src={icons.search} alt="" sx={{ width: 18, height: 18, opacity: 0.72, flexShrink: 0 }} />
+                        <Box
+                          component="input"
+                          value={npcPanelSearchQuery}
+                          placeholder="Найти персонажа"
+                          onChange={(event: ChangeEvent<HTMLInputElement>) => setNpcPanelSearchQuery(event.target.value)}
+                          sx={{
+                            width: '100%',
+                            minWidth: 0,
+                            border: 0,
+                            p: 0,
+                            outline: 'none',
+                            backgroundColor: 'transparent',
+                            color: 'var(--morius-title-text)',
+                            font: 'inherit',
+                            fontSize: '0.88rem',
+                            fontWeight: 750,
+                            '&::placeholder': {
+                              color: 'color-mix(in srgb, var(--morius-text-secondary) 72%, transparent)',
+                              opacity: 1,
+                            },
+                          }}
+                        />
+                        {npcPanelSearchQuery ? (
+                          <IconButton
+                            aria-label="Очистить поиск"
+                            onClick={() => setNpcPanelSearchQuery('')}
+                            sx={{ width: 24, height: 24, color: 'var(--morius-text-secondary)' }}
+                          >
+                            <Box component="img" src={icons.searchClose} alt="" sx={{ width: 12, height: 12, display: 'block' }} />
+                          </IconButton>
+                        ) : null}
+                      </Box>
+                      {rawNpcCards.length > 1 ? (
+                        <Select<NpcPanelSortMode>
+                          value={npcPanelSortMode}
+                          onChange={(event: SelectChangeEvent<NpcPanelSortMode>) => setNpcPanelSortMode(event.target.value as NpcPanelSortMode)}
+                          size="small"
+                          sx={{
+                            flex: '0 0 98px',
+                            height: 42,
+                            borderRadius: '14px',
+                            color: 'color-mix(in srgb, var(--morius-title-text) 82%, transparent)',
+                            fontSize: '0.74rem',
+                            fontWeight: 900,
+                            backgroundColor: 'rgba(24, 25, 31, 0.72)',
+                            '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.075)' },
+                            '& .MuiSvgIcon-root': { color: 'var(--morius-text-secondary)' },
+                          }}
+                        >
+                          {NPC_PANEL_SORT_OPTIONS.map((option) => (
+                            <MenuItem key={option.value} value={option.value}>
+                              {option.label}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      ) : null}
+                    </Stack>
+
+                    {displayedNpcCards.length === 0 ? (
+                      <RightPanelEmptyState
+                        iconSrc={npcPanelSearchIsActive ? icons.search : icons.world}
+                        title={npcPanelSearchIsActive ? 'Ничего не найдено' : 'NPC пока нет'}
+                        description={
+                          npcPanelSearchIsActive
+                            ? 'Измените поиск, чтобы вернуть персонажей в список.'
+                            : 'Добавляйте спутников, противников и важных персонажей, чтобы рассказчик помнил их.'
+                        }
+                      />
+                    ) : (
+                      <Stack spacing={0.75}>
+                        {displayedNpcCards.map((card) => {
+                          const contextState = worldCardContextStateById.get(card.id)
+                          const isCardContextActive = Boolean(contextState?.isActive)
+                          const isPinnedNpcCard = pinnedNpcCardIdSet.has(card.id)
+                          return (
+                            <Box
+                              key={card.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => handleOpenEditWorldCardDialog(card)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault()
+                                  handleOpenEditWorldCardDialog(card)
+                                }
+                              }}
+                              sx={{
+                                ...rightPanelCardSx,
+                                ...(isCardContextActive ? rightPanelActiveCardSx : {}),
+                                p: 0.9,
+                                minHeight: 70,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.85,
+                                cursor: 'pointer',
+                                opacity: card.is_locked ? 0.86 : 1,
+                                outline: 'none',
+                              }}
+                            >
+                              <RightPanelInitialAvatar
+                                label={card.title}
+                                seed={card.id}
+                                size={46}
+                                imageUrl={resolveWorldCardAvatar(card)}
+                                imageScale={card.avatar_scale}
+                              />
+                              <Stack spacing={0.22} sx={{ minWidth: 0, flex: 1 }}>
+                                <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
+                                  <Typography
+                                    sx={{
+                                      color: 'var(--morius-title-text)',
+                                      fontSize: '0.94rem',
+                                      fontWeight: 950,
+                                      lineHeight: 1.1,
+                                      minWidth: 0,
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {card.title}
+                                  </Typography>
+                                  {isCardContextActive ? (
+                                    <Box sx={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#6EA2FF', flexShrink: 0 }} />
+                                  ) : null}
+                                  {isPinnedNpcCard ? (
+                                    <Box sx={{ color: '#ffd783', display: 'flex', flexShrink: 0 }}>
+                                      <NpcPinIcon size={14} />
+                                    </Box>
+                                  ) : null}
+                                </Stack>
+                                <Typography
+                                  sx={{
+                                    color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)',
+                                      fontSize: '0.82rem',
+                                      fontWeight: 650,
+                                      lineHeight: 1.22,
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {card.content}
+                                </Typography>
+                              </Stack>
+                              <IconButton
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  handleOpenCardMenu(event, 'world', card.id)
+                                }}
+                                disabled={isWorldCardActionLocked}
+                                sx={rightPanelOverflowButtonSx}
+                              >
+                                <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                              </IconButton>
+                            </Box>
+                          )
+                        })}
+                      </Stack>
+                    )}
+                  </Stack>
+                </Stack>
+              ) : cardsPanelTab === 'world' ? (
+                <Stack spacing={1.35}>
+                  {worldProfileCard ? (
+                    <Box sx={{ ...rightPanelCardSx, overflow: 'hidden' }}>
+                      <Box
+                        sx={{
+                          position: 'relative',
+                          height: 72,
+                          overflow: 'hidden',
+                          ...buildWorldFallbackArtwork(worldProfileCard.id),
+                        }}
+                      >
+                        {worldProfileBannerUrl ? (
+                          <Box
+                            component="img"
+                            src={worldProfileBannerUrl}
+                            alt=""
+                            decoding="async"
+                            referrerPolicy="no-referrer"
+                            sx={{
+                              position: 'absolute',
+                              inset: 0,
+                              width: '100%',
+                              height: '100%',
+                              display: 'block',
+                              objectFit: 'cover',
+                              objectPosition: 'center center',
+                              transform: `scale(${Math.max(1, Math.min(3, worldProfileCard.avatar_scale || 1))})`,
+                            }}
+                          />
+                        ) : null}
+                        <Box
+                          aria-hidden
+                          sx={{
+                            position: 'absolute',
+                            inset: 0,
+                            background:
+                              'linear-gradient(180deg, rgba(8, 12, 18, 0.04) 0%, rgba(8, 12, 18, 0.14) 100%)',
+                          }}
+                        />
+                      </Box>
+                      <Stack spacing={0.9} sx={{ p: { xs: 1.05, md: 1.15 } }}>
+                        <Stack spacing={0.35}>
+                          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.08rem', fontWeight: 950, lineHeight: 1.08 }}>
+                            {worldProfileCard.title}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              color: 'color-mix(in srgb, var(--morius-text-secondary) 94%, transparent)',
+                              fontSize: '0.86rem',
+                              fontWeight: 650,
+                              lineHeight: 1.3,
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {replaceMainHeroInlineTags(worldProfileCard.content, mainHeroDisplayNameForTags)}
+                          </Typography>
+                        </Stack>
+                        <Stack direction="row" spacing={0.65}>
+                          <Button
+                            onClick={() => handleOpenEditWorldCardDialog(worldProfileCard)}
+                            disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
+                            sx={{ ...rightPanelPrimaryButtonSx, flex: 1 }}
+                          >
+                            <SvgIcon sx={{ fontSize: 17, mr: 0.6 }}>
+                              <path d="M3 17.46V21h3.54L17.06 10.48l-3.54-3.54L3 17.46Zm16.77-9.75a.94.94 0 0 0 0-1.33l-2.15-2.15a.94.94 0 0 0-1.33 0l-1.68 1.68 3.54 3.54 1.62-1.74Z" fill="currentColor" />
+                            </SvgIcon>
+                            Редактировать
+                          </Button>
+                          <Button
+                            onClick={() => handleOpenWorldCardTemplatePicker('world_profile')}
+                            disabled={isGenerating || isSavingWorldCard || isCreatingGame || Boolean(worldProfileCard)}
+                            sx={rightPanelSecondaryButtonSx}
+                          >
+                            Шаблон
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    </Box>
+                  ) : (
+                    <Stack spacing={1}>
+                      <RightPanelEmptyState
+                        iconSrc={icons.world}
+                        title="Мир не описан"
+                        description="Создайте профиль мира или возьмите шаблон, чтобы рассказчик понимал жанр и основу сеттинга."
+                      />
+                      <Stack direction="row" spacing={0.65}>
+                        <Button
+                          onClick={() => handleOpenCreateWorldCardDialog('world_profile')}
+                          disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
+                          sx={{ ...rightPanelPrimaryButtonSx, flex: 1 }}
+                        >
+                          Создать
+                        </Button>
+                        <Button
+                          onClick={() => handleOpenWorldCardTemplatePicker('world_profile')}
+                          disabled={isGenerating || isSavingWorldCard || isCreatingGame}
+                          sx={{ ...rightPanelSecondaryButtonSx, flex: 1 }}
+                        >
+                          Шаблон
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  )}
+
+                  <RightPanelSectionHeading title="Локации и лор" count={displayedDetailCards.length} />
+                  {displayedDetailCards.length === 0 ? (
+                    <RightPanelEmptyState
+                      iconSrc={icons.world}
+                      title="Деталей пока нет"
+                      description="Добавляйте места, организации, предметы и законы мира без связей — только чистый список лора."
+                    />
+                  ) : (
+                    <Stack spacing={0.75}>
+                      {displayedDetailCards.map((card) => {
+                        const contextState = worldCardContextStateById.get(card.id)
+                        const isCardContextActive = Boolean(contextState?.isActive)
+                        return (
+                          <Box
+                            key={card.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => handleOpenEditWorldCardDialog(card)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                handleOpenEditWorldCardDialog(card)
+                              }
+                            }}
+                            sx={{
+                              ...rightPanelCardSx,
+                              ...(isCardContextActive ? rightPanelActiveCardSx : {}),
+                              p: 0.9,
+                              minHeight: 68,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 0.85,
+                              cursor: 'pointer',
+                              outline: 'none',
+                            }}
+                          >
+                            <RightPanelInitialAvatar
+                              label={card.title}
+                              seed={card.id}
+                              size={44}
+                              imageUrl={resolveWorldCardAvatar(card)}
+                              imageScale={card.avatar_scale}
+                            />
+                            <Stack spacing={0.22} sx={{ minWidth: 0, flex: 1 }}>
+                              <Stack direction="row" spacing={0.62} alignItems="center" sx={{ minWidth: 0 }}>
+                                <Typography
+                                  sx={{
+                                    color: 'var(--morius-title-text)',
+                                    fontSize: '0.94rem',
+                                    fontWeight: 950,
+                                    lineHeight: 1.08,
+                                    minWidth: 0,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {card.title}
+                                </Typography>
+                                {card.detail_type ? (
+                                  <Typography
+                                    component="span"
+                                    sx={{
+                                      px: 0.5,
+                                      py: 0.18,
+                                      borderRadius: '7px',
+                                      color: 'color-mix(in srgb, var(--morius-text-secondary) 86%, #fff)',
+                                      backgroundColor: 'rgba(255,255,255,0.065)',
+                                      fontSize: '0.64rem',
+                                      fontWeight: 900,
+                                      lineHeight: 1,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {card.detail_type}
+                                  </Typography>
+                                ) : null}
+                              </Stack>
+                              <Typography
+                                sx={{
+                                  color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)',
+                                  fontSize: '0.82rem',
+                                  fontWeight: 650,
+                                  lineHeight: 1.22,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
+                              </Typography>
+                            </Stack>
+                            <IconButton
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handleOpenCardMenu(event, 'world', card.id)
+                              }}
+                              disabled={isWorldCardActionLocked}
+                              sx={rightPanelOverflowButtonSx}
+                            >
+                              <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                            </IconButton>
+                          </Box>
+                        )
+                      })}
+                    </Stack>
+                  )}
+                  <Stack direction="row" spacing={0.65}>
+                    <Button
+                      onClick={() => handleOpenCreateWorldCardDialog('world')}
+                      disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
+                      sx={{ ...rightPanelPrimaryButtonSx, flex: 1 }}
+                    >
+                      Создать
+                    </Button>
+                    <Button
+                      onClick={() => handleOpenWorldCardTemplatePicker('world')}
+                      disabled={isGenerating || isSavingWorldCard || isCreatingGame}
+                      sx={{ ...rightPanelSecondaryButtonSx, flex: 1 }}
+                    >
+                      Из шаблона
+                    </Button>
+                  </Stack>
+                </Stack>
+              ) : cardsPanelTab === 'instructions' ? (
+                <Stack spacing={0.85}>
+                  <Box
+                    sx={{
+                      borderRadius: '18px',
+                      border: 'var(--morius-border-width) solid rgba(68, 205, 137, 0.36)',
+                      backgroundColor: 'rgba(18, 45, 38, 0.72)',
+                      p: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.85,
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: '12px',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: '#70F0A8',
+                        backgroundColor: 'rgba(68, 205, 137, 0.16)',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <SvgIcon sx={{ fontSize: 21 }}>
+                        <path d="m9 16.2-3.5-3.5L4 14.2 9 19 20.4 7.6 18.9 6.1 9 16.2Z" fill="currentColor" />
+                      </SvgIcon>
+                    </Box>
+                    <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 950, lineHeight: 1.08 }}>
+                        {activeInstructionCardsCount} из {instructionCards.length} правил активны
+                      </Typography>
+                      <Typography sx={{ color: '#9BD7B4', fontSize: '0.82rem', fontWeight: 700, lineHeight: 1.2 }}>
+                        Влияют на каждый ответ рассказчика
+                      </Typography>
+                    </Stack>
+                  </Box>
+
+                  {instructionCards.length === 0 ? (
+                    <RightPanelEmptyState
+                      iconSrc={icons.ai}
+                      title="Правила пока не заданы"
+                      description="Создайте правила или выберите шаблон, чтобы зафиксировать стиль, ограничения и важные указания."
+                    />
+                  ) : (
+                    <Stack spacing={0.75}>
+                      {instructionCards.map((card) => (
+                        <Box
+                          key={card.id}
+                          sx={{
+                            ...rightPanelCardSx,
+                            ...(card.is_active ? rightPanelGreenCardSx : {}),
+                            p: 1,
+                            minHeight: 74,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            opacity: card.is_active ? 1 : 0.82,
+                          }}
+                        >
+                          <Stack spacing={0.25} sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography
+                              sx={{
+                                color: 'var(--morius-title-text)',
+                                fontSize: '0.98rem',
+                                fontWeight: 950,
+                                lineHeight: 1.12,
+                              }}
+                            >
+                              {card.title}
+                            </Typography>
+                            <Typography
+                              sx={{
+                                color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)',
+                                fontSize: '0.82rem',
+                                fontWeight: 650,
+                                lineHeight: 1.22,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
+                            </Typography>
+                          </Stack>
+                          <IconButton
+                            onClick={(event) => handleOpenCardMenu(event, 'instruction', card.id)}
+                            disabled={isInstructionCardActionLocked}
+                            sx={rightPanelOverflowButtonSx}
+                          >
+                            <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                          </IconButton>
+                        </Box>
+                      ))}
+                    </Stack>
+                  )}
+                  <Stack direction="row" spacing={0.65}>
+                    <Button
+                      onClick={handleOpenCreateInstructionDialog}
+                      disabled={isGenerating || isSavingInstruction || isCreatingGame}
+                      sx={{ ...rightPanelPrimaryButtonSx, flex: 1 }}
+                    >
+                      Создать
+                    </Button>
+                    <Button
+                      onClick={handleOpenInstructionTemplateDialog}
+                      disabled={isGenerating || isSavingInstruction || isCreatingGame}
+                      sx={{ ...rightPanelSecondaryButtonSx, flex: 1 }}
+                    >
+                      Из шаблона
+                    </Button>
+                  </Stack>
+                </Stack>
+              ) : (
+                <Stack spacing={0.95} sx={{ minHeight: 0, flex: 1 }}>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: canViewDevMemoryTab ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))',
+                      gap: 0,
+                      p: 0.35,
+                      minHeight: 46,
+                      borderRadius: '14px',
+                      backgroundColor: 'rgba(2, 3, 8, 0.72)',
+                      border: 'var(--morius-border-width) solid rgba(255,255,255,0.05)',
+                    }}
+                  >
+                    {([
+                      { key: 'cards' as const, label: 'Карточки' },
+                      { key: 'memory' as const, label: 'Память' },
+                      ...(canViewDevMemoryTab ? [{ key: 'dev' as const, label: 'Дев-память' }] : []),
+                    ]).map((tab) => {
+                      const isActive = plotPanelSubTab === tab.key
+                      return (
+                        <Button
+                          key={tab.key}
+                          onClick={() => setPlotPanelSubTab(tab.key)}
+                          sx={{
+                            minHeight: 38,
+                            borderRadius: '11px',
+                            textTransform: 'none',
+                            color: isActive ? '#fff' : 'color-mix(in srgb, var(--morius-text-secondary) 86%, transparent)',
+                            backgroundColor: isActive ? '#4F8DFF' : 'transparent',
+                            fontSize: '0.82rem',
+                            fontWeight: 950,
+                            boxShadow: isActive ? '0 10px 24px rgba(78, 139, 255, 0.3)' : 'none',
+                            '&:hover': {
+                              backgroundColor: isActive ? '#4F8DFF' : 'rgba(255,255,255,0.045)',
+                            },
+                          }}
+                        >
+                          {tab.label}
+                        </Button>
+                      )
+                    })}
+                  </Box>
+
+                  {plotPanelSubTab === 'cards' ? (
+                    <Stack spacing={0.85}>
+                      <RightPanelSectionHeading title="Карточки сюжета" count={plotCards.length} />
+                      {plotCards.length === 0 ? (
+                        <RightPanelEmptyState
+                          iconSrc={icons.communityInfo}
+                          title="Сюжет пока пуст"
+                          description="Записывайте сюда важные события и незакрытые линии. Связей между карточками пока нет."
+                        />
+                      ) : (
+                        <Stack spacing={0.75}>
+                          {plotCards.map((card) => {
+                            const contextState = plotCardContextStateById.get(card.id)
+                            const resolvedPlotMemoryTurns = resolvePlotCardMemoryTurns(card)
+                            const isPlotCardDisabled = isPlotCardManuallyDisabled(card)
+                            const isPlotCardContextActive = Boolean(contextState?.isActive)
+                            return (
+                              <Box
+                                key={card.id}
+                                sx={{
+                                  ...rightPanelCardSx,
+                                  ...(isPlotCardContextActive && !isPlotCardDisabled ? rightPanelActiveCardSx : {}),
+                                  p: 1,
+                                  opacity: isPlotCardDisabled ? 0.72 : 1,
+                                  display: 'flex',
+                                  gap: 1,
+                                }}
+                              >
+                                <Stack spacing={0.28} sx={{ minWidth: 0, flex: 1 }}>
+                                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950, lineHeight: 1.12 }}>
+                                    {card.title}
+                                  </Typography>
+                                  <Typography
+                                    sx={{
+                                      color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)',
+                                      fontSize: '0.82rem',
+                                      fontWeight: 650,
+                                      lineHeight: 1.22,
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
+                                  </Typography>
+                                  <Stack direction="row" spacing={0.65} alignItems="center">
+                                    <Typography sx={{ color: 'rgba(155, 158, 174, 0.72)', fontSize: '0.72rem', fontWeight: 900 }}>
+                                      #{card.id}
+                                    </Typography>
+                                    <Typography
+                                      sx={{
+                                        color: isPlotCardContextActive ? '#70F0A8' : 'rgba(155, 158, 174, 0.78)',
+                                        fontSize: '0.7rem',
+                                        fontWeight: 950,
+                                      }}
+                                    >
+                                      {formatPlotCardContextStatus(contextState)}
+                                    </Typography>
+                                    <Typography sx={{ color: 'rgba(155, 158, 174, 0.72)', fontSize: '0.7rem', fontWeight: 800 }}>
+                                      {resolvedPlotMemoryTurns === null ? 'память выкл' : `${resolvedPlotMemoryTurns} ${formatTurnsWord(resolvedPlotMemoryTurns)}`}
+                                    </Typography>
+                                  </Stack>
+                                </Stack>
+                                <IconButton
+                                  onClick={(event) => handleOpenCardMenu(event, 'plot', card.id)}
+                                  disabled={isPlotCardActionLocked}
+                                  sx={rightPanelOverflowButtonSx}
+                                >
+                                  <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                </IconButton>
+                              </Box>
+                            )
+                          })}
+                        </Stack>
+                      )}
+                      <Button
+                        onClick={handleOpenCreatePlotCardDialog}
+                        disabled={isGenerating || isSavingPlotCard || deletingPlotCardId !== null || isCreatingGame}
+                        sx={rightPanelPrimaryButtonSx}
+                      >
+                        Создать карточку
+                      </Button>
+                    </Stack>
+                  ) : plotPanelSubTab === 'memory' ? (
+                    <Stack spacing={0.9}>
+                      <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 94%, transparent)', fontSize: '0.86rem', lineHeight: 1.32 }}>
+                        Авто-сводки ключевых событий. Рассказчик опирается на них, чтобы помнить сюжет.
+                      </Typography>
+                      <Button
+                        onClick={handleOpenCreateMemoryBlockDialog}
+                        disabled={isMemoryCardActionLocked || !activeGameId}
+                        sx={rightPanelPrimaryButtonSx}
+                      >
+                        {importantMemoryBlocks.length === 0 ? 'Добавить первую карточку' : 'Добавить карточку'}
+                      </Button>
+                      {importantMemoryBlocks.length === 0 ? (
+                        <RightPanelEmptyState
+                          iconSrc={icons.communityInfo}
+                          title="Память"
+                          description="Здесь появятся только действительно важные моменты сюжета."
+                        />
+                      ) : (
+                        <Box sx={{ position: 'relative', pl: 2.45 }}>
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              left: 7,
+                              top: 12,
+                              bottom: 12,
+                              width: 2,
+                              borderRadius: '999px',
+                              backgroundColor: 'rgba(78, 139, 255, 0.72)',
+                            }}
+                          />
+                          <Stack spacing={0.85}>
+                            {importantMemoryBlocks.map((block) => (
+                              <Box key={block.id} sx={{ position: 'relative' }}>
+                                <Box
+                                  sx={{
+                                    position: 'absolute',
+                                    left: -23,
+                                    top: 22,
+                                    width: 14,
+                                    height: 14,
+                                    borderRadius: '50%',
+                                    border: '3px solid rgba(11, 12, 17, 1)',
+                                    backgroundColor: '#6EA2FF',
+                                    boxShadow: '0 0 0 2px #6EA2FF',
+                                  }}
+                                />
+                                <Button
+                                  onClick={() => setOpenedAiMemoryBlockId(block.id)}
+                                  sx={{
+                                    ...rightPanelCardSx,
+                                    width: '100%',
+                                    p: 1,
+                                    minHeight: 86,
+                                    textTransform: 'none',
+                                    justifyContent: 'flex-start',
+                                    alignItems: 'stretch',
+                                    textAlign: 'left',
+                                    '&:hover': { backgroundColor: 'rgba(28, 30, 38, 0.86)' },
+                                  }}
+                                >
+                                  <Stack spacing={0.35} sx={{ minWidth: 0, width: '100%' }}>
+                                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.94rem', fontWeight: 950, lineHeight: 1.14 }}>
+                                      {block.title}
+                                    </Typography>
+                                    <Typography
+                                      sx={{
+                                        color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)',
+                                        fontSize: '0.82rem',
+                                        fontWeight: 650,
+                                        lineHeight: 1.26,
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden',
+                                      }}
+                                    >
+                                      {block.content}
+                                    </Typography>
+                                    <Typography sx={{ color: 'rgba(155, 158, 174, 0.74)', fontSize: '0.72rem', fontWeight: 900 }}>
+                                      #{block.id} · высокий вес
+                                    </Typography>
+                                  </Stack>
+                                </Button>
+                              </Box>
+                            ))}
+                          </Stack>
+                        </Box>
+                      )}
+                    </Stack>
+                  ) : (
+                    <Stack spacing={0.75}>
+                      <RightPanelSectionHeading title="Dev-память" />
+                      {(['raw', 'compressed', 'super'] as const).map((layer) => {
+                        const layerBlocks = aiMemoryBlocksByLayer.get(layer) ?? []
+                        return (
+                          <Box key={`plot-dev-memory-${layer}`} sx={{ ...rightPanelCardSx, p: 1 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.65 }}>
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.86rem', fontWeight: 950 }}>
+                                {getStoryMemoryLayerLabel(layer, memoryOptimizationMode)}
+                              </Typography>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem', fontWeight: 900 }}>
+                                {layerBlocks.length}
+                              </Typography>
+                            </Stack>
+                            {layerBlocks.length === 0 ? (
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>Пусто</Typography>
+                            ) : (
+                              <Stack spacing={0.5}>
+                                {layerBlocks.map((block) => (
+                                  <Button
+                                    key={block.id}
+                                    onClick={() => setOpenedAiMemoryBlockId(block.id)}
+                                    sx={{
+                                      borderRadius: '12px',
+                                      px: 0.8,
+                                      py: 0.6,
+                                      textTransform: 'none',
+                                      justifyContent: 'flex-start',
+                                      textAlign: 'left',
+                                      backgroundColor: 'rgba(255,255,255,0.035)',
+                                      '&:hover': { backgroundColor: 'rgba(255,255,255,0.06)' },
+                                    }}
+                                  >
+                                    <Stack spacing={0.25} sx={{ minWidth: 0, width: '100%' }}>
+                                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.78rem', fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        #{block.id} · {block.title}
+                                      </Typography>
+                                      <Typography
+                                        sx={{
+                                          color: 'var(--morius-text-secondary)',
+                                          fontSize: '0.74rem',
+                                          lineHeight: 1.22,
+                                          display: '-webkit-box',
+                                          WebkitLineClamp: 2,
+                                          WebkitBoxOrient: 'vertical',
+                                          overflow: 'hidden',
+                                        }}
+                                      >
+                                        {block.content}
+                                      </Typography>
+                                    </Stack>
+                                  </Button>
+                                ))}
+                              </Stack>
+                            )}
+                          </Box>
+                        )
+                      })}
+                    </Stack>
+                  )}
+                </Stack>
+              )}
+            </Stack>
+          ) : null}
+
+          {shouldRenderLegacyRightPanel && !shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' && activeWorldPanelTab === 'story' ? (
             <Box data-tour-id="story-world-cards-panel" sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               <Box
                 ref={cardsPanelTabsScrollerRef}
@@ -18145,6 +19593,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   return (
                     <Button
                       key={tab.key}
+                      data-tour-id={tab.key === 'plot' ? 'story-cards-tab-plot' : undefined}
                       onClick={() => handleCardsPanelTabSelect(tab.key)}
                       sx={{
                         ...rightPanelTextTabButtonSx(isActive),
@@ -19577,6 +21026,849 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             )
           })() : null}
 
+          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'ai' ? (
+            <Stack data-tour-id="story-ai-settings-panel-redesigned" spacing={1.35} sx={{ minHeight: 0, flex: 1 }}>
+              {!activeGameId ? (
+                <RightPanelEmptyState
+                  iconSrc={icons.ai}
+                  title="Рассказчик"
+                  description="Настройки появятся после создания игры."
+                />
+              ) : (
+                <>
+                  <Box sx={{ ...rightPanelCardSx, ...rightPanelActiveCardSx, p: { xs: 1.15, md: 1.25 } }}>
+                    <Stack spacing={0.95}>
+                      <Stack direction="row" alignItems="center" spacing={0.75} useFlexGap flexWrap="wrap">
+                        <Typography
+                          sx={{
+                            color: 'var(--morius-title-text)',
+                            fontFamily: 'Georgia, "Times New Roman", serif',
+                            fontSize: { xs: '1.22rem', md: '1.34rem' },
+                            fontWeight: 900,
+                            lineHeight: 1.05,
+                            letterSpacing: '-0.02em',
+                          }}
+                        >
+                          {selectedNarratorOption.title}
+                        </Typography>
+                        {/\bpro\b/i.test(selectedNarratorOption.title) ? (
+                          <Box
+                            component="span"
+                            sx={{
+                              height: 20,
+                              px: 0.65,
+                              borderRadius: '7px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              color: '#BFD4FF',
+                              backgroundColor: 'rgba(78, 139, 255, 0.22)',
+                              fontSize: '0.62rem',
+                              fontWeight: 950,
+                              lineHeight: 1,
+                              letterSpacing: '0.08em',
+                            }}
+                          >
+                            PRO
+                          </Box>
+                        ) : null}
+                      </Stack>
+                      <Typography
+                        sx={{
+                          color: 'color-mix(in srgb, var(--morius-text-secondary) 94%, transparent)',
+                          fontSize: { xs: '0.84rem', md: '0.88rem' },
+                          fontWeight: 650,
+                          lineHeight: 1.32,
+                        }}
+                      >
+                        {selectedNarratorOption.description}
+                      </Typography>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 0.75 }}>
+                        {selectedNarratorOption.stats.map((stat, statIndex) => {
+                          const statLabel = resolveNarratorStatLabel(stat.label, statIndex)
+                          return (
+                            <Stack key={`${selectedNarratorOption.id}-${statIndex}`} spacing={0.42}>
+                              <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 82%, #fff)', fontSize: '0.74rem', fontWeight: 900 }}>
+                                {statLabel}
+                              </Typography>
+                              <Stack direction="row" spacing={0.28}>
+                                {Array.from({ length: NARRATOR_STAT_DOT_COUNT }).map((_, dotIndex) => (
+                                  <Box
+                                    key={`${selectedNarratorOption.id}-${statIndex}-${dotIndex}`}
+                                    sx={{
+                                      width: 12,
+                                      height: 5,
+                                      borderRadius: '999px',
+                                      backgroundColor: dotIndex < stat.value ? '#5A94FF' : 'rgba(91, 93, 105, 0.55)',
+                                    }}
+                                  />
+                                ))}
+                              </Stack>
+                            </Stack>
+                          )
+                        })}
+                      </Box>
+                      <FormControl fullWidth size="small">
+                        <Select
+                          value={storyLlmModel}
+                          disabled={isSavingStorySettings || isGenerating}
+                          renderValue={() => (
+                            <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
+                              <Typography sx={{ color: '#fff', fontSize: '0.94rem', fontWeight: 950 }}>
+                                Сменить рассказчика
+                              </Typography>
+                              <SvgIcon sx={{ fontSize: 20, color: '#fff' }}>
+                                <path d="m9 18 6-6-6-6v12Z" fill="currentColor" />
+                              </SvgIcon>
+                            </Stack>
+                          )}
+                          onChange={(event: SelectChangeEvent<string>) => {
+                            const nextModel = normalizeStoryNarratorModelId(event.target.value)
+                            void persistStoryNarratorModel(nextModel)
+                          }}
+                          sx={{
+                            mt: 0.2,
+                            height: 46,
+                            borderRadius: '14px',
+                            color: '#fff',
+                            backgroundColor: '#4F8DFF',
+                            fontWeight: 950,
+                            '& .MuiSelect-select': { py: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+                            '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                            '& .MuiSelect-icon': { display: 'none' },
+                          }}
+                        >
+                          {STORY_NARRATOR_MODEL_OPTIONS.map((option) => (
+                            <MenuItem key={option.id} value={option.id}>
+                              {option.title}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Stack>
+                  </Box>
+
+                  <FormControl fullWidth size="small">
+                    <Select
+                      value={storyImageModel}
+                      disabled={isSavingStorySettings || isGenerating}
+                      renderValue={() => (
+                        <Stack direction="row" spacing={0.85} alignItems="center" sx={{ width: '100%', minWidth: 0 }}>
+                          <Box
+                            sx={{
+                              width: 42,
+                              height: 42,
+                              borderRadius: '13px',
+                              display: 'grid',
+                              placeItems: 'center',
+                              color: '#fff',
+                              background: 'linear-gradient(135deg, #FFB36A 0%, #D94683 48%, #765AF6 100%)',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <SvgIcon sx={{ fontSize: 23 }}>
+                              <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2ZM8.5 8.5A1.5 1.5 0 1 1 7 7a1.5 1.5 0 0 1 1.5 1.5ZM5 18l4.2-5.6 3 3.6 2.1-2.8L19 18H5Z" fill="currentColor" />
+                            </SvgIcon>
+                          </Box>
+                          <Stack spacing={0.22} sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent)', fontSize: '0.76rem', fontWeight: 900 }}>
+                              Художник изображений
+                            </Typography>
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {selectedImageModelOption.title} · {selectedImageModelOption.priceLabel}
+                            </Typography>
+                          </Stack>
+                          <SvgIcon sx={{ fontSize: 21, color: 'color-mix(in srgb, var(--morius-text-secondary) 74%, transparent)' }}>
+                            <path d="m9 18 6-6-6-6v12Z" fill="currentColor" />
+                          </SvgIcon>
+                        </Stack>
+                      )}
+                      onChange={(event: SelectChangeEvent<string>) => {
+                        const nextModel = normalizeStoryImageModelId(event.target.value)
+                        void persistStoryImageModel(nextModel)
+                      }}
+                      sx={{
+                        minHeight: 62,
+                        borderRadius: '18px',
+                        backgroundColor: 'rgba(22, 23, 30, 0.78)',
+                        '& .MuiSelect-select': { py: 0.9, px: 1, display: 'flex', alignItems: 'center' },
+                        '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.08)' },
+                        '& .MuiSelect-icon': { display: 'none' },
+                      }}
+                    >
+                      {STORY_IMAGE_MODEL_OPTIONS.map((option) => (
+                        <MenuItem key={option.id} value={option.id}>
+                          {formatStoryImageModelLabel(option)}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <Box
+                    component="input"
+                    value={imageStylePromptDraft}
+                    placeholder="Стиль и запреты для изображений..."
+                    maxLength={STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => handleImageStylePromptDraftChange(event.target.value)}
+                    onBlur={() => {
+                      void handleImageStylePromptCommit()
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        void handleImageStylePromptCommit()
+                      }
+                    }}
+                    disabled={isSavingStorySettings || isGenerating}
+                    sx={{
+                      width: '100%',
+                      minHeight: 42,
+                      borderRadius: '14px',
+                      border: 'var(--morius-border-width) solid rgba(255,255,255,0.08)',
+                      backgroundColor: 'rgba(7, 8, 13, 0.58)',
+                      color: 'var(--morius-title-text)',
+                      px: 1,
+                      outline: 'none',
+                      fontSize: '0.86rem',
+                      fontWeight: 750,
+                      '&::placeholder': {
+                        color: 'color-mix(in srgb, var(--morius-text-secondary) 74%, transparent)',
+                        opacity: 1,
+                      },
+                    }}
+                  />
+
+                  <Stack spacing={0.85}>
+                    <RightPanelSectionHeading
+                      title="Память контекста"
+                      count={`${formatContextChars(cardsContextCharsUsed)} / ${formatContextChars(contextLimitChars)}`}
+                    />
+                    <Box sx={{ height: 9, borderRadius: '999px', backgroundColor: 'rgba(91, 93, 105, 0.36)', overflow: 'hidden', display: 'flex' }}>
+                      {rightPanelContextUsageSegments.map((segment) => {
+                        const widthPercent = contextLimitChars > 0 ? Math.max(0, Math.min(100, (segment.value / contextLimitChars) * 100)) : 0
+                        return widthPercent > 0 ? (
+                          <Box key={segment.key} sx={{ width: `${widthPercent}%`, height: '100%', backgroundColor: segment.color, flexShrink: 0 }} />
+                        ) : null
+                      })}
+                    </Box>
+                    <Stack direction="row" spacing={1.25} useFlexGap flexWrap="wrap">
+                      {rightPanelContextUsageSegments.map((segment) => (
+                        <Stack key={segment.key} direction="row" spacing={0.55} alignItems="center">
+                          <Box sx={{ width: 9, height: 9, borderRadius: '3px', backgroundColor: segment.color, flexShrink: 0 }} />
+                          <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)', fontSize: '0.8rem', fontWeight: 750 }}>
+                            {segment.label}
+                          </Typography>
+                          <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 78%, transparent)', fontSize: '0.8rem', fontWeight: 950 }}>
+                            {formatContextChars(segment.value)}
+                          </Typography>
+                        </Stack>
+                      ))}
+                    </Stack>
+                    <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
+                      <Stack spacing={0.8}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="baseline">
+                          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950 }}>
+                            Лимит контекста
+                          </Typography>
+                          <Typography sx={{ color: '#BFD4FF', fontSize: '0.98rem', fontWeight: 950 }}>
+                            {formatContextChars(contextLimitChars)}
+                          </Typography>
+                        </Stack>
+                        <Slider
+                          value={contextLimitChars}
+                          min={STORY_CONTEXT_LIMIT_MIN}
+                          max={currentStoryContextLimitMax}
+                          step={STORY_CONTEXT_LIMIT_STEP}
+                          onChange={handleContextLimitSliderChange}
+                          onChangeCommitted={(event, value) => {
+                            void handleContextLimitSliderCommit(event, value)
+                          }}
+                          disabled={isSavingStorySettings || isGenerating}
+                          sx={{
+                            color: '#4F8DFF',
+                            '& .MuiSlider-thumb': {
+                              width: 22,
+                              height: 22,
+                              backgroundColor: '#4F8DFF',
+                              border: 'none',
+                              boxShadow: '0 0 0 4px rgba(78, 139, 255, 0.15)',
+                            },
+                            '& .MuiSlider-track': { height: 5, border: 'none' },
+                            '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
+                          }}
+                        />
+                        <Stack direction="row" justifyContent="space-between">
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{STORY_CONTEXT_LIMIT_MIN}</Typography>
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{currentStoryContextLimitMax}</Typography>
+                        </Stack>
+                      </Stack>
+                    </Box>
+                    {cardsContextOverflowChars > 0 ? (
+                      <Alert
+                        severity="warning"
+                        sx={{
+                          borderRadius: '14px',
+                          backgroundColor: 'rgba(171, 57, 26, 0.16)',
+                          color: 'var(--morius-text-primary)',
+                          border: 'var(--morius-border-width) solid rgba(214, 116, 82, 0.32)',
+                        }}
+                      >
+                        Карточки превышают лимит на {formatContextChars(cardsContextOverflowChars)} токенов.
+                      </Alert>
+                    ) : null}
+                  </Stack>
+
+                  <Stack spacing={0.18}>
+                    <RightPanelSectionHeading title="Поведение" />
+                    <RightPanelSettingRow
+                      title="Мысли NPC"
+                      description="Показывать, о чём думают персонажи, перед их репликой"
+                      checked={showNpcThoughts}
+                      onToggle={() => {
+                        void toggleShowNpcThoughts()
+                      }}
+                      disabled={isSavingStorySettings || isGenerating}
+                      tooltip={STORY_SETTINGS_INFO_TEXT.showNpcThoughts}
+                    />
+                    <RightPanelSettingRow
+                      title="Плавная печать"
+                      description="Ответ печатается постепенно, как живой набор текста"
+                      checked={smoothStreamingEnabled}
+                      onToggle={toggleSmoothStreamingEnabled}
+                      disabled={isGenerating}
+                    />
+                    <RightPanelSettingRow
+                      title="Авто-карточки"
+                      description="Создавать карточки персонажей и мест автоматически"
+                      checked={autoNpcCardsEnabled}
+                      onToggle={() => {
+                        void toggleAutoNpcCardsEnabled()
+                      }}
+                      disabled={isSavingStorySettings || isGenerating}
+                    />
+                    <RightPanelSettingRow
+                      title="Авто-состояния"
+                      description="Следить за ранами, инвентарём и статусами по ходу"
+                      checked={characterStateEnabled}
+                      onToggle={() => {
+                        void toggleCharacterStateEnabled()
+                      }}
+                      disabled={isSavingStorySettings || isGenerating}
+                    />
+                    {isSavingThoughtVisibility || isSavingAutoNpcCardsEnabled || isSavingCharacterStateEnabled ? (
+                      <CircularProgress size={16} sx={{ color: 'var(--morius-accent)' }} />
+                    ) : null}
+                  </Stack>
+
+                  <Stack spacing={0.8}>
+                    <RightPanelSectionHeading title="Длина ответа" />
+                    <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
+                      <RightPanelSettingRow
+                        title="Ограничивать длину"
+                        description="ИИ может отвечать короче заданного предела"
+                        checked={responseMaxTokensEnabled}
+                        onToggle={() => {
+                          void toggleResponseMaxTokensEnabled()
+                        }}
+                        disabled={isSavingResponseMaxTokensEnabled || isSavingResponseMaxTokens || isSavingResponseTokenLimit || isGenerating}
+                        tooltip={STORY_SETTINGS_INFO_TEXT.responseTokens}
+                      />
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.45 }}>
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', fontWeight: 900 }}>
+                          Максимум токенов
+                        </Typography>
+                        <Typography sx={{ color: '#AFC8FF', fontSize: '0.92rem', fontWeight: 950 }}>{responseMaxTokens}</Typography>
+                      </Stack>
+                      <Slider
+                        value={responseMaxTokens}
+                        min={STORY_RESPONSE_MAX_TOKENS_MIN}
+                        max={STORY_RESPONSE_MAX_TOKENS_MAX}
+                        step={1}
+                        onChange={handleResponseMaxTokensSliderChange}
+                        onChangeCommitted={(event, value) => {
+                          void handleResponseMaxTokensSliderCommit(event, value)
+                        }}
+                        disabled={!responseMaxTokensEnabled || isSavingStorySettings || isSavingResponseTokenLimit || isGenerating}
+                        sx={{
+                          mt: 0.5,
+                          color: '#4F8DFF',
+                          '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: '#4F8DFF' },
+                          '& .MuiSlider-track': { height: 5, border: 'none' },
+                          '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
+                        }}
+                      />
+                    </Box>
+                  </Stack>
+
+                  {(
+                    <Stack spacing={0.8}>
+                      <Button
+                        data-tour-id="story-settings-advanced-section"
+                        onClick={() => setIsAdvancedSettingsExpanded((previous) => !previous)}
+                        sx={{
+                          ...rightPanelCardSx,
+                          width: '100%',
+                          minHeight: 58,
+                          px: 1,
+                          py: 0.85,
+                          textTransform: 'none',
+                          justifyContent: 'space-between',
+                          color: 'var(--morius-title-text)',
+                          '&:hover': { backgroundColor: 'rgba(28, 30, 38, 0.86)' },
+                        }}
+                      >
+                        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0 }}>
+                          <Box
+                            sx={{
+                              width: 38,
+                              height: 38,
+                              borderRadius: '12px',
+                              display: 'grid',
+                              placeItems: 'center',
+                              color: 'color-mix(in srgb, var(--morius-title-text) 82%, transparent)',
+                              backgroundColor: 'rgba(255,255,255,0.055)',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <SvgIcon sx={{ fontSize: 22 }}>
+                              <path d="M4 7h10v2H4V7Zm12-2a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM10 15h10v2H10v-2Zm-2-2a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z" fill="currentColor" />
+                            </SvgIcon>
+                          </Box>
+                          <Stack spacing={0.18} sx={{ minWidth: 0 }}>
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950, lineHeight: 1.12 }}>
+                              Продвинутые настройки
+                            </Typography>
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontWeight: 650, lineHeight: 1.18 }}>
+                              Температура, sampling и режимы движка
+                            </Typography>
+                          </Stack>
+                        </Stack>
+                        <SvgIcon
+                          sx={{
+                            fontSize: 22,
+                            color: 'var(--morius-text-secondary)',
+                            transform: isAdvancedSettingsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transition: 'transform 180ms ease',
+                          }}
+                        >
+                          <path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41Z" fill="currentColor" />
+                        </SvgIcon>
+                      </Button>
+                      <Collapse in={isAdvancedSettingsExpanded} timeout={220} unmountOnExit>
+                        <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
+                          <Stack spacing={1}>
+                            <Box>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
+                                  Температура
+                                </Typography>
+                                <Typography sx={{ color: '#BFD4FF', fontSize: '0.92rem', fontWeight: 950 }}>{storyTemperature.toFixed(2)}</Typography>
+                              </Stack>
+                              <Slider
+                                value={storyTemperature}
+                                min={STORY_TEMPERATURE_MIN}
+                                max={STORY_TEMPERATURE_MAX}
+                                step={0.01}
+                                onChange={handleStoryTemperatureSliderChange}
+                                onChangeCommitted={(event, value) => {
+                                  void handleStoryTemperatureSliderCommit(event, value)
+                                }}
+                                disabled={isSavingStorySettings || isGenerating}
+                                sx={{
+                                  mt: 0.35,
+                                  color: '#4F8DFF',
+                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: '#4F8DFF' },
+                                  '& .MuiSlider-track': { height: 5, border: 'none' },
+                                  '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
+                                }}
+                              />
+                            </Box>
+
+                            <Box>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
+                                  Топ-K
+                                </Typography>
+                                <Typography sx={{ color: '#BFD4FF', fontSize: '0.92rem', fontWeight: 950 }}>{storyTopK}</Typography>
+                              </Stack>
+                              <Slider
+                                value={storyTopK}
+                                min={STORY_TOP_K_MIN}
+                                max={STORY_TOP_K_MAX}
+                                step={1}
+                                onChange={handleStoryTopKSliderChange}
+                                onChangeCommitted={(event, value) => {
+                                  void handleStoryTopKSliderCommit(event, value)
+                                }}
+                                disabled={isSavingStorySettings || isGenerating}
+                                sx={{
+                                  mt: 0.35,
+                                  color: '#4F8DFF',
+                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: '#4F8DFF' },
+                                  '& .MuiSlider-track': { height: 5, border: 'none' },
+                                  '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
+                                }}
+                              />
+                            </Box>
+
+                            <Box>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
+                                  Топ-P
+                                </Typography>
+                                <Typography sx={{ color: '#BFD4FF', fontSize: '0.92rem', fontWeight: 950 }}>{storyTopR.toFixed(2)}</Typography>
+                              </Stack>
+                              <Slider
+                                value={storyTopR}
+                                min={STORY_TOP_R_MIN}
+                                max={STORY_TOP_R_MAX}
+                                step={0.01}
+                                onChange={handleStoryTopRSliderChange}
+                                onChangeCommitted={(event, value) => {
+                                  void handleStoryTopRSliderCommit(event, value)
+                                }}
+                                disabled={isSavingStorySettings || isGenerating}
+                                sx={{
+                                  mt: 0.35,
+                                  color: '#4F8DFF',
+                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: '#4F8DFF' },
+                                  '& .MuiSlider-track': { height: 5, border: 'none' },
+                                  '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
+                                }}
+                              />
+                            </Box>
+
+                            <Box>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
+                                  Repetition penalty
+                                </Typography>
+                                <Typography sx={{ color: '#BFD4FF', fontSize: '0.92rem', fontWeight: 950 }}>{storyRepetitionPenalty.toFixed(2)}</Typography>
+                              </Stack>
+                              <Slider
+                                value={storyRepetitionPenalty}
+                                min={STORY_REPETITION_PENALTY_MIN}
+                                max={STORY_REPETITION_PENALTY_MAX}
+                                step={0.01}
+                                onChange={handleStoryRepetitionPenaltySliderChange}
+                                onChangeCommitted={(event, value) => {
+                                  void handleStoryRepetitionPenaltySliderCommit(event, value)
+                                }}
+                                disabled={isSavingStorySettings || isGenerating}
+                                sx={{
+                                  mt: 0.35,
+                                  color: '#4F8DFF',
+                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: '#4F8DFF' },
+                                  '& .MuiSlider-track': { height: 5, border: 'none' },
+                                  '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
+                                }}
+                              />
+                            </Box>
+
+                            <Box sx={{ height: 1, backgroundColor: 'rgba(255,255,255,0.08)', my: 0.25 }} />
+
+                            <RightPanelSettingRow
+                              title="Режим игры"
+                              description="Проверки навыков и случайные исходы в духе настолки"
+                              checked={storyDisplayMode === 'visual_novel'}
+                              onToggle={() => {
+                                void toggleStoryDisplayMode(storyDisplayMode !== 'visual_novel')
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                            />
+                            <RightPanelSettingRow
+                              title="Спрайты эмоций"
+                              description="Портрет говорящего с его текущей эмоцией"
+                              checked={emotionVisualizationEnabled}
+                              onToggle={() => {
+                                void toggleEmotionVisualizationEnabled()
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                            />
+                            <RightPanelSettingRow
+                              title="Эмбиент-подсветка"
+                              description="Фон страницы мягко подсвечивается под настроение сцены"
+                              checked={ambientEnabled}
+                              onToggle={() => {
+                                void toggleAmbientEnabled()
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                            />
+                            <RightPanelSettingRow
+                              title="Лимит ответов"
+                              description="Включает серверное ограничение ответа"
+                              checked={responseTokenLimitEnabled}
+                              onToggle={() => {
+                                void toggleResponseTokenLimitEnabled()
+                              }}
+                              disabled={isSavingResponseTokenLimit || isSavingResponseMaxTokens || isSavingResponseMaxTokensEnabled || isGenerating}
+                            />
+                            <RightPanelSettingRow
+                              title="Продвинутая перегенерация"
+                              description="Больше вариантов при перегенерации ответа"
+                              checked={advancedRegenerationEnabled}
+                              onToggle={toggleAdvancedRegenerationEnabled}
+                              disabled={isGenerating}
+                              tooltip={STORY_SETTINGS_INFO_TEXT.advancedRegeneration}
+                            />
+                            <RightPanelSettingRow
+                              title="RPG pipeline v1"
+                              description="Расширенная обработка правил и механик"
+                              checked={canonicalStatePipelineEnabled}
+                              onToggle={() => {
+                                void toggleCanonicalStatePipelineEnabled()
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              tooltip={STORY_SETTINGS_INFO_TEXT.canonicalStatePipeline}
+                            />
+                            <RightPanelSettingRow
+                              title="Safe fallback"
+                              description="Подстраховка, если модель отвечает некорректно"
+                              checked={canonicalStatePipelineEnabled && canonicalStateSafeFallbackEnabled}
+                              onToggle={() => {
+                                void toggleCanonicalStateSafeFallbackEnabled()
+                              }}
+                              disabled={!canonicalStatePipelineEnabled || isSavingStorySettings || isGenerating}
+                              tooltip={STORY_SETTINGS_INFO_TEXT.canonicalStateSafeFallback}
+                            />
+
+                            <Stack direction="row" spacing={0.85}>
+                              <FormControl fullWidth size="small">
+                                <Select
+                                  value={memoryOptimizationMode}
+                                  disabled={isSavingStorySettings || isSavingResponseTokenLimit || isGenerating}
+                                  onChange={(event: SelectChangeEvent<string>) => {
+                                    const nextMode = normalizeStoryMemoryOptimizationMode(event.target.value)
+                                    void persistStoryMemoryOptimizationMode(nextMode)
+                                  }}
+                                  sx={{
+                                    height: 44,
+                                    borderRadius: '14px',
+                                    fontSize: '0.84rem',
+                                    color: 'var(--morius-title-text)',
+                                    fontWeight: 900,
+                                    backgroundColor: 'rgba(255,255,255,0.04)',
+                                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.08)' },
+                                    '& .MuiSvgIcon-root': { color: 'var(--morius-text-secondary)' },
+                                  }}
+                                >
+                                  {STORY_MEMORY_OPTIMIZATION_MODE_OPTIONS.map((option) => (
+                                    <MenuItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                              <Button
+                                onClick={() => {
+                                  void handleResetStorySampling()
+                                }}
+                                disabled={
+                                  isSavingStorySettings ||
+                                  isGenerating ||
+                                  (storyTemperature === selectedNarratorSamplingDefaults.storyTemperature &&
+                                    storyRepetitionPenalty === selectedNarratorSamplingDefaults.storyRepetitionPenalty &&
+                                    storyTopK === selectedNarratorSamplingDefaults.storyTopK &&
+                                    storyTopR === selectedNarratorSamplingDefaults.storyTopR)
+                                }
+                                sx={{ ...rightPanelSecondaryButtonSx, flex: '0 0 108px' }}
+                              >
+                                Сбросить
+                              </Button>
+                            </Stack>
+
+                            {isSavingStorySampling ||
+                            isSavingAmbientEnabled ||
+                            isSavingEmotionVisualizationEnabled ||
+                            isSavingStoryDisplayMode ||
+                            isSavingCanonicalStatePipeline ||
+                            isSavingCanonicalStateSafeFallback ? (
+                              <CircularProgress size={16} sx={{ color: 'var(--morius-accent)' }} />
+                            ) : null}
+                          </Stack>
+                        </Box>
+                      </Collapse>
+                    </Stack>
+                  )}
+
+                  {canEditStoryAppearance ? (
+                    <Stack spacing={0.8}>
+                      <Button
+                        onClick={() => setIsAppearanceSettingsExpanded((previous) => !previous)}
+                        sx={{
+                          ...rightPanelCardSx,
+                          width: '100%',
+                          minHeight: 58,
+                          px: 1,
+                          textTransform: 'none',
+                          justifyContent: 'space-between',
+                          color: 'var(--morius-title-text)',
+                          '&:hover': { backgroundColor: 'rgba(28, 30, 38, 0.86)' },
+                        }}
+                      >
+                        <Stack spacing={0.18} sx={{ textAlign: 'left' }}>
+                          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950 }}>Оформление</Typography>
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontWeight: 650 }}>Фон, стиль UI и текста</Typography>
+                        </Stack>
+                        <SvgIcon
+                          sx={{
+                            fontSize: 22,
+                            color: 'var(--morius-text-secondary)',
+                            transform: isAppearanceSettingsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transition: 'transform 180ms ease',
+                          }}
+                        >
+                          <path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41Z" fill="currentColor" />
+                        </SvgIcon>
+                      </Button>
+                      <Collapse in={isAppearanceSettingsExpanded} timeout={220} unmountOnExit>
+                        <Stack spacing={0.85} sx={{ ...rightPanelCardSx, p: 1 }}>
+                          <Box
+                            sx={{
+                              height: 54,
+                              borderRadius: '14px',
+                              border: 'var(--morius-border-width) solid rgba(255,255,255,0.08)',
+                              background: appearanceGradientEnabled
+                                ? `linear-gradient(135deg, ${appearanceGradientFrom}, ${appearanceGradientTo})`
+                                : 'linear-gradient(135deg, var(--morius-card-bg), var(--morius-elevated-bg))',
+                            }}
+                          />
+                          <RightPanelSettingRow
+                            title="Градиент"
+                            description="Цветной фон истории"
+                            checked={appearanceGradientEnabled}
+                            onToggle={() => {
+                              const nextGradientEnabled = !appearanceGradientEnabled
+                              void persistStoryAppearanceSettings({
+                                appearanceGradientEnabled: nextGradientEnabled,
+                                appearanceBackgroundMode: nextGradientEnabled ? 'custom' : 'default',
+                              })
+                            }}
+                            disabled={isSavingStorySettings || isGenerating}
+                          />
+                          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 0.65 }}>
+                            {([
+                              ['Начало', appearanceGradientFrom, 'appearanceGradientFrom'] as const,
+                              ['Конец', appearanceGradientTo, 'appearanceGradientTo'] as const,
+                            ]).map(([label, value, fieldName]) => (
+                              <Box
+                                key={fieldName}
+                                component="label"
+                                sx={{
+                                  minHeight: 44,
+                                  borderRadius: '14px',
+                                  border: 'var(--morius-border-width) solid rgba(255,255,255,0.08)',
+                                  backgroundColor: 'rgba(255,255,255,0.04)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 0.65,
+                                  px: 0.85,
+                                  position: 'relative',
+                                  overflow: 'hidden',
+                                  cursor: isSavingStorySettings || isGenerating ? 'default' : 'pointer',
+                                }}
+                              >
+                                <Box sx={{ width: 20, height: 20, borderRadius: '7px', backgroundColor: value, flexShrink: 0 }} />
+                                <Stack spacing={0.05} sx={{ minWidth: 0 }}>
+                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.66rem', fontWeight: 900 }}>{label}</Typography>
+                                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.74rem', fontWeight: 900 }}>{value.toUpperCase()}</Typography>
+                                </Stack>
+                                <Box
+                                  component="input"
+                                  type="color"
+                                  value={value}
+                                  disabled={isSavingStorySettings || isGenerating}
+                                  onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                                    const nextColor = normalizeStoryAppearanceColor(event.target.value, value)
+                                    if (fieldName === 'appearanceGradientFrom') {
+                                      setAppearanceGradientFrom(nextColor)
+                                      void persistStoryAppearanceSettings({
+                                        appearanceBackgroundMode: 'custom',
+                                        appearanceGradientEnabled: true,
+                                        appearanceGradientFrom: nextColor,
+                                      })
+                                    } else {
+                                      setAppearanceGradientTo(nextColor)
+                                      void persistStoryAppearanceSettings({
+                                        appearanceBackgroundMode: 'custom',
+                                        appearanceGradientEnabled: true,
+                                        appearanceGradientTo: nextColor,
+                                      })
+                                    }
+                                  }}
+                                  sx={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'inherit' }}
+                                />
+                              </Box>
+                            ))}
+                          </Box>
+                          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 0.65 }}>
+                            {STORY_APPEARANCE_UI_STYLE_OPTIONS.map((option) => {
+                              const isSelected = appearanceUiStyle === option.id
+                              return (
+                                <Button
+                                  key={option.id}
+                                  onClick={() => {
+                                    void persistStoryAppearanceSettings({ appearanceUiStyle: option.id })
+                                  }}
+                                  disabled={isSavingStorySettings || isGenerating}
+                                  sx={{
+                                    minHeight: 46,
+                                    borderRadius: '13px',
+                                    textTransform: 'none',
+                                    color: 'var(--morius-title-text)',
+                                    border: isSelected ? `var(--morius-border-width) solid ${option.accent}` : 'var(--morius-border-width) solid rgba(255,255,255,0.08)',
+                                    backgroundColor: isSelected ? 'rgba(78,139,255,0.12)' : 'rgba(255,255,255,0.04)',
+                                    fontSize: '0.82rem',
+                                    fontWeight: 950,
+                                  }}
+                                >
+                                  {option.label}
+                                </Button>
+                              )
+                            })}
+                          </Box>
+                          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 0.55 }}>
+                            {STORY_APPEARANCE_TEXT_STYLE_OPTIONS.map((option) => {
+                              const isSelected = appearanceTextStyle === option.id
+                              return (
+                                <Button
+                                  key={option.id}
+                                  onClick={() => {
+                                    void persistStoryAppearanceSettings({ appearanceTextStyle: option.id })
+                                  }}
+                                  disabled={isSavingStorySettings || isGenerating}
+                                  sx={{
+                                    minHeight: 44,
+                                    borderRadius: '12px',
+                                    flexDirection: 'column',
+                                    gap: 0.25,
+                                    textTransform: 'none',
+                                    color: 'var(--morius-title-text)',
+                                    border: isSelected
+                                      ? 'var(--morius-border-width) solid rgba(111, 165, 255, 0.72)'
+                                      : 'var(--morius-border-width) solid rgba(255,255,255,0.08)',
+                                    backgroundColor: isSelected ? 'rgba(78,139,255,0.12)' : 'rgba(255,255,255,0.04)',
+                                    fontWeight: 950,
+                                  }}
+                                >
+                                  <Typography sx={{ color: 'inherit', fontFamily: option.cssFontFamily, fontSize: '0.86rem', fontWeight: 950, lineHeight: 1 }}>
+                                    Aa
+                                  </Typography>
+                                  <Typography sx={{ color: 'inherit', fontSize: '0.64rem', fontWeight: 900, lineHeight: 1 }}>
+                                    {option.label}
+                                  </Typography>
+                                </Button>
+                              )
+                            })}
+                          </Box>
+                        </Stack>
+                      </Collapse>
+                    </Stack>
+                  ) : null}
+                </>
+              )}
+            </Stack>
+          ) : null}
+
           {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'ai' && activeAiPanelTab === 'instructions' ? (
             <Box data-tour-id="story-ai-instructions-panel" sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               {instructionCards.length === 0 ? (
@@ -19726,7 +22018,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Box>
           ) : null}
 
-          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'ai' && activeAiPanelTab === 'settings' ? (
+          {shouldRenderLegacyRightPanel && !shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'ai' && activeAiPanelTab === 'settings' ? (
             <Box
               sx={{
                 px: 0,
@@ -20265,7 +22557,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               value={contextLimitChars}
                               min={STORY_CONTEXT_LIMIT_MIN}
                               max={currentStoryContextLimitMax}
-                              step={1}
+                              step={STORY_CONTEXT_LIMIT_STEP}
                               onChange={handleContextLimitSliderChange}
                               onChangeCommitted={(event, value) => {
                                 void handleContextLimitSliderCommit(event, value)
@@ -20567,8 +22859,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Collapse>
                   </Box>
 
-                  {/* ── Продвинутая настройка (admin only) ──────────── */}
-                  {isAdministrator ? (
+                  {/* ── Продвинутая настройка ──────────── */}
+                  {(
                     <Box
                       data-tour-id="story-settings-advanced-section"
                       sx={{
@@ -20757,7 +23049,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         </Box>
                       </Collapse>
                     </Box>
-                  ) : null}
+                  )}
 
                   <Box
                     data-tour-id="story-settings-finetune-section"
@@ -20852,7 +23144,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             value={contextLimitChars}
                             min={STORY_CONTEXT_LIMIT_MIN}
                             max={currentStoryContextLimitMax}
-                            step={1}
+                            step={STORY_CONTEXT_LIMIT_STEP}
                             onChange={handleContextLimitSliderChange}
                             onChangeCommitted={(event, value) => {
                               void handleContextLimitSliderCommit(event, value)
@@ -21707,197 +23999,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Box>
           ) : null}
 
-          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'memory' && activeMemoryPanelTab === 'memory' ? (
-            <Box data-tour-id="story-memory-panel" sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
-              <Button
-                onClick={handleOpenCreateMemoryBlockDialog}
-                disabled={isMemoryCardActionLocked || !activeGameId}
-                sx={{
-                  minHeight: 44,
-                  borderRadius: '13px',
-                  textTransform: 'none',
-                  color: 'var(--morius-title-text)',
-                  border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
-                  backgroundColor: 'var(--morius-elevated-bg)',
-                  '&:hover': {
-                    backgroundColor: 'color-mix(in srgb, var(--morius-button-hover) 88%, var(--morius-elevated-bg))',
-                  },
-                }}
-              >
-                {importantMemoryBlocks.length === 0 ? 'Добавить первую карточку' : 'Добавить карточку'}
-              </Button>
-              {importantMemoryBlocks.length === 0 ? (
-                <RightPanelEmptyState
-                  iconSrc={icons.communityInfo}
-                  title="Память"
-                  description="Здесь появятся только действительно важные моменты сюжета. Обычные ходы сюда не попадают."
-                />
-              ) : (
-                <Box
-                  className="morius-scrollbar"
-                  sx={{
-                    flex: 1,
-                    minHeight: 0,
-                    overflowY: 'auto',
-                    pr: 0,
-                  }}
-                >
-                  <Stack spacing={0.75}>
-                    {importantMemoryBlocks.map((block) => (
-                      <Button
-                        key={block.id}
-                        onClick={() => setOpenedAiMemoryBlockId(block.id)}
-                        sx={{
-                          borderRadius: '12px',
-                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                          backgroundColor: 'var(--morius-elevated-bg)',
-                          px: 0.8,
-                          py: 0.72,
-                          minHeight: 66,
-                          textTransform: 'none',
-                          justifyContent: 'flex-start',
-                          alignItems: 'flex-start',
-                          '&:hover': {
-                            backgroundColor: 'transparent',
-                          },
-                        }}
-                      >
-                        <Stack spacing={0.28} sx={{ width: '100%' }}>
-                          <Typography
-                            sx={{
-                              color: 'var(--morius-title-text)',
-                              fontSize: '0.83rem',
-                              fontWeight: 700,
-                              textAlign: 'left',
-                              lineHeight: 1.24,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}
-                          >
-                            #{block.id} В· {block.title}
-                          </Typography>
-                          <Typography
-                            sx={{
-                              color: 'var(--morius-text-secondary)',
-                              fontSize: '0.76rem',
-                              textAlign: 'left',
-                              lineHeight: 1.35,
-                              whiteSpace: 'pre-wrap',
-                              display: '-webkit-box',
-                              WebkitLineClamp: 3,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {block.content}
-                          </Typography>
-                        </Stack>
-                      </Button>
-                    ))}
-                  </Stack>
-                </Box>
-              )}
-            </Box>
-          ) : null}
-
-          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'memory' && canViewDevMemoryTab && activeMemoryPanelTab === 'dev' ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.7 }}>
-                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 700 }}>
-                  DEV В?  память
-                </Typography>
-                {(['raw', 'compressed', 'super'] as const).map((layer) => {
-                  const layerBlocks = aiMemoryBlocksByLayer.get(layer) ?? []
-                  return (
-                    <Box
-                      key={`ai-memory-${layer}`}
-                      sx={{
-                        borderRadius: '12px',
-                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                        backgroundColor: 'var(--morius-elevated-bg)',
-                        px: 0.8,
-                        py: 0.75,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 0.6,
-                      }}
-                    >
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.82rem', fontWeight: 700 }}>
-                          {getStoryMemoryLayerLabel(layer, memoryOptimizationMode)}
-                        </Typography>
-                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem' }}>
-                          {layerBlocks.length}
-                        </Typography>
-                      </Stack>
-                      {layerBlocks.length === 0 ? (
-                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.75rem' }}>
-                          Пусто
-                        </Typography>
-                      ) : (
-                        <Stack spacing={0.45}>
-                          {layerBlocks.map((block) => (
-                            <Button
-                              key={block.id}
-                              onClick={() => setOpenedAiMemoryBlockId(block.id)}
-                              sx={{
-                                minHeight: 38,
-                                borderRadius: '10px',
-                                px: 0.65,
-                                py: 0.5,
-                                textTransform: 'none',
-                                justifyContent: 'flex-start',
-                                alignItems: 'flex-start',
-                                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
-                                backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 78%, transparent)',
-                                '&:hover': {
-                                  backgroundColor: 'transparent',
-                                },
-                              }}
-                            >
-                              <Stack spacing={0.22} sx={{ width: '100%' }}>
-                                <Typography
-                                  sx={{
-                                    color: 'var(--morius-title-text)',
-                                    fontSize: '0.78rem',
-                                    fontWeight: 700,
-                                    textAlign: 'left',
-                                    lineHeight: 1.25,
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                  }}
-                                >
-                                  #{block.id} В· {block.title}
-                                </Typography>
-                                <Typography
-                                  sx={{
-                                    color: 'var(--morius-text-secondary)',
-                                    fontSize: '0.74rem',
-                                    textAlign: 'left',
-                                    lineHeight: 1.3,
-                                    whiteSpace: 'pre-wrap',
-                                    display: '-webkit-box',
-                                    WebkitLineClamp: 2,
-                                    WebkitBoxOrient: 'vertical',
-                                    overflow: 'hidden',
-                                  }}
-                                >
-                                  {block.content}
-                                </Typography>
-                              </Stack>
-                            </Button>
-                          ))}
-                        </Stack>
-                      )}
-                    </Box>
-                  )
-                })}
-              </Box>
-            </Box>
-          ) : null}
-
           {STORY_ENABLE_LEGACY_WORLD_EDITOR && !shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' && activeWorldPanelTab === 'story' ? (
             <Box data-tour-id="story-world-plot-panel" sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               {plotCards.length === 0 ? (
@@ -22726,62 +24827,85 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 	                        )
 	                        const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
 	                        const speakerEntry = resolveDialogueSpeakerEntry(resolvedSpeakerName)
+	                        const isThoughtQS = block.delivery === 'thought'
 	                        const speakerLabelColor = resolveSpeakerNameColor(
 	                          speakerEntry,
-	                          block.delivery === 'thought' ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
+	                          isThoughtQS ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
 	                        )
 	                        const speakerTextColor = resolveSpeakerSpeechColor(
 	                          speakerEntry,
 	                          isGrayTheme
 	                            ? assistantReplyTextColor
-	                            : block.delivery === 'thought'
+	                            : isThoughtQS
 	                              ? assistantThoughtTextColor
 	                              : 'var(--morius-title-text)',
 	                        )
+	                        const bubbleColorQS = resolveSpeakerBubbleColor(speakerEntry, isThoughtQS)
 	                        return (
 	                          <Stack
                             key={`quick-start-character-${index}`}
-                            direction="row"
-                            spacing={ASSISTANT_DIALOGUE_AVATAR_GAP}
-                            alignItems="flex-start"
-                            sx={{
-                              px: 0.05,
-                              py: 0.05,
-                            }}
+                            spacing={0.4}
+                            sx={{ px: 0.05, py: 0.45 }}
                           >
-                            {renderPreviewableCharacterAvatar({
-                              avatarUrl: speakerAvatar,
-                              previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
-                              fallbackLabel: resolvedSpeakerName,
-                              size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
-                              profileCard: speakerEntry?.card ?? null,
-                              profileCharacter: speakerEntry?.character ?? null,
-                            })}
-                            <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
-                              <Typography
-                                sx={{
-                                  color: speakerLabelColor,
-                                  fontSize: '0.84rem',
-                                  lineHeight: 1.2,
-                                  fontWeight: 700,
-                                  letterSpacing: 0.18,
-                                }}
-                              >
-                                {block.delivery === 'thought' ? `${resolvedSpeakerName} (В голове)` : resolvedSpeakerName}
-                              </Typography>
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                              {renderPreviewableCharacterAvatar({
+                                avatarUrl: speakerAvatar,
+                                previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
+                                fallbackLabel: resolvedSpeakerName,
+                                size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                                profileCard: speakerEntry?.card ?? null,
+                                profileCharacter: speakerEntry?.character ?? null,
+                                avatarBgColor: bubbleColorQS,
+                              })}
+                              <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
+                                <Typography
+                                  noWrap
+                                  sx={{
+                                    color: speakerLabelColor,
+                                    fontSize: '0.84rem',
+                                    lineHeight: 1.2,
+                                    fontWeight: 700,
+                                    letterSpacing: 0.1,
+                                  }}
+                                >
+                                  {resolvedSpeakerName}
+                                </Typography>
+                                <Typography
+                                  sx={{
+                                    color: 'var(--morius-text-secondary)',
+                                    fontSize: '0.65rem',
+                                    fontWeight: 800,
+                                    letterSpacing: '0.08em',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {isThoughtQS ? '· В ГОЛОВЕ' : '· РЕПЛИКА'}
+                                </Typography>
+                              </Stack>
+                            </Stack>
+                            <Box
+                              sx={{
+                                ml: `${ASSISTANT_DIALOGUE_AVATAR_SIZE + 6}px`,
+                                borderLeft: `2.5px solid ${bubbleColorQS}`,
+                                backgroundColor: `color-mix(in srgb, ${bubbleColorQS} 16%, transparent)`,
+                                borderRadius: '0 8px 8px 0',
+                                px: 1.5,
+                                py: 0.85,
+                              }}
+                            >
                               <Typography
                                 sx={{
                                   color: speakerTextColor,
                                   lineHeight: 1.54,
                                   fontSize: { xs: '1rem', md: '1.08rem' },
                                   ...storyHistoryTextSx,
-                                  fontStyle: block.delivery === 'thought' ? 'italic' : 'normal',
+                                  fontStyle: isThoughtQS ? 'italic' : 'normal',
                                   whiteSpace: 'pre-wrap',
                                 }}
                               >
                                 {block.text}
                               </Typography>
-                            </Stack>
+                            </Box>
                           </Stack>
                         )
                       }
@@ -22992,49 +25116,72 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 	                              )
 	                              const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
 	                              const speakerEntry = resolveDialogueSpeakerEntry(resolvedSpeakerName)
+	                              const isThoughtH = block.delivery === 'thought'
 	                              const speakerLabelColor = resolveSpeakerNameColor(
 	                                speakerEntry,
-	                                block.delivery === 'thought' ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
+	                                isThoughtH ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
 	                              )
 	                              const speakerTextColor = resolveSpeakerSpeechColor(
 	                                speakerEntry,
 	                                isGrayTheme
 	                                  ? assistantReplyTextColor
-	                                  : block.delivery === 'thought'
+	                                  : isThoughtH
 	                                    ? assistantThoughtTextColor
 	                                    : 'var(--morius-title-text)',
 	                              )
+	                              const bubbleColorH = resolveSpeakerBubbleColor(speakerEntry, isThoughtH)
 	                              return (
 	                                <Stack
                                   key={`${message.id}-${index}-character`}
-                                  direction="row"
-                                  spacing={ASSISTANT_DIALOGUE_AVATAR_GAP}
-                                  alignItems="flex-start"
-                                  sx={{
-                                    px: 0.05,
-                                    py: 0.05,
-                                  }}
+                                  spacing={0.4}
+                                  sx={{ px: 0.05, py: 0.45 }}
                                 >
-                                  {renderPreviewableCharacterAvatar({
-                                    avatarUrl: speakerAvatar,
-                                    previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
-                                    fallbackLabel: resolvedSpeakerName,
-                                    size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
-                                    profileCard: speakerEntry?.card ?? null,
-                                    profileCharacter: speakerEntry?.character ?? null,
-                                  })}
-                                  <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
-                                    <Typography
-                                      sx={{
-                                        color: speakerLabelColor,
-                                        fontSize: '0.84rem',
-                                        lineHeight: 1.2,
-                                        fontWeight: 700,
-                                        letterSpacing: 0.18,
-                                      }}
-                                    >
-                                      {block.delivery === 'thought' ? `${resolvedSpeakerName} (В голове)` : resolvedSpeakerName}
-                                    </Typography>
+                                  <Stack direction="row" spacing={0.75} alignItems="center">
+                                    {renderPreviewableCharacterAvatar({
+                                      avatarUrl: speakerAvatar,
+                                      previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
+                                      fallbackLabel: resolvedSpeakerName,
+                                      size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                                      profileCard: speakerEntry?.card ?? null,
+                                      profileCharacter: speakerEntry?.character ?? null,
+                                      avatarBgColor: bubbleColorH,
+                                    })}
+                                    <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
+                                      <Typography
+                                        noWrap
+                                        sx={{
+                                          color: speakerLabelColor,
+                                          fontSize: '0.84rem',
+                                          lineHeight: 1.2,
+                                          fontWeight: 700,
+                                          letterSpacing: 0.1,
+                                        }}
+                                      >
+                                        {resolvedSpeakerName}
+                                      </Typography>
+                                      <Typography
+                                        sx={{
+                                          color: 'var(--morius-text-secondary)',
+                                          fontSize: '0.65rem',
+                                          fontWeight: 800,
+                                          letterSpacing: '0.08em',
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        {isThoughtH ? '· В ГОЛОВЕ' : '· РЕПЛИКА'}
+                                      </Typography>
+                                    </Stack>
+                                  </Stack>
+                                  <Box
+                                    sx={{
+                                      ml: `${ASSISTANT_DIALOGUE_AVATAR_SIZE + 6}px`,
+                                      borderLeft: `2.5px solid ${bubbleColorH}`,
+                                      backgroundColor: `color-mix(in srgb, ${bubbleColorH} 16%, transparent)`,
+                                      borderRadius: '0 8px 8px 0',
+                                      px: 1.5,
+                                      py: 0.85,
+                                    }}
+                                  >
                                     <Box
                                       component="div"
                                       contentEditable={!isGenerating && !isSavingMessage}
@@ -23067,7 +25214,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         lineHeight: 1.54,
                                         fontSize: { xs: '1rem', md: '1.08rem' },
                                         ...storyHistoryTextSx,
-                                        fontStyle: block.delivery === 'thought' ? 'italic' : 'normal',
+                                        fontStyle: isThoughtH ? 'italic' : 'normal',
                                         whiteSpace: 'pre-wrap',
                                         outline: 'none',
                                         cursor: isGenerating ? 'default' : 'text',
@@ -23075,7 +25222,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     >
                                       {block.text}
                                     </Box>
-                                  </Stack>
+                                  </Box>
                                 </Stack>
                               )
                             }
@@ -25259,8 +27406,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 <StoryCharacterTextColorControls
                   nameColor={worldCardNameColorDraft}
                   speechColor={worldCardSpeechColorDraft}
+                  bubbleColor={worldCardBubbleColorDraft}
+                  thoughtBubbleColor={worldCardThoughtBubbleColorDraft}
                   onNameColorChange={setWorldCardNameColorDraft}
                   onSpeechColorChange={setWorldCardSpeechColorDraft}
+                  onBubbleColorChange={setWorldCardBubbleColorDraft}
+                  onThoughtBubbleColorChange={setWorldCardThoughtBubbleColorDraft}
                   disabled={isWorldCardActionLocked}
                 />
               ) : null}
@@ -25558,8 +27709,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 <StoryCharacterTextColorControls
                   nameColor={worldCardNameColorDraft}
                   speechColor={worldCardSpeechColorDraft}
+                  bubbleColor={worldCardBubbleColorDraft}
+                  thoughtBubbleColor={worldCardThoughtBubbleColorDraft}
                   onNameColorChange={setWorldCardNameColorDraft}
                   onSpeechColorChange={setWorldCardSpeechColorDraft}
+                  onBubbleColorChange={setWorldCardBubbleColorDraft}
+                  onThoughtBubbleColorChange={setWorldCardThoughtBubbleColorDraft}
                   disabled={isWorldCardActionLocked}
                 />
               ) : null}
@@ -25909,8 +28064,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 <StoryCharacterTextColorControls
                   nameColor={worldCardNameColorDraft}
                   speechColor={worldCardSpeechColorDraft}
+                  bubbleColor={worldCardBubbleColorDraft}
+                  thoughtBubbleColor={worldCardThoughtBubbleColorDraft}
                   onNameColorChange={setWorldCardNameColorDraft}
                   onSpeechColorChange={setWorldCardSpeechColorDraft}
+                  onBubbleColorChange={setWorldCardBubbleColorDraft}
+                  onThoughtBubbleColorChange={setWorldCardThoughtBubbleColorDraft}
                   disabled={isWorldCardActionLocked}
                 />
               ) : null}
@@ -26421,8 +28580,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 <StoryCharacterTextColorControls
                   nameColor={worldCardNameColorDraft}
                   speechColor={worldCardSpeechColorDraft}
+                  bubbleColor={worldCardBubbleColorDraft}
+                  thoughtBubbleColor={worldCardThoughtBubbleColorDraft}
                   onNameColorChange={setWorldCardNameColorDraft}
                   onSpeechColorChange={setWorldCardSpeechColorDraft}
+                  onBubbleColorChange={setWorldCardBubbleColorDraft}
+                  onThoughtBubbleColorChange={setWorldCardThoughtBubbleColorDraft}
                   disabled={isWorldCardActionLocked}
                 />
               ) : null}
@@ -26988,8 +29151,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   <StoryCharacterTextColorControls
                     nameColor={characterNameColorDraft}
                     speechColor={characterSpeechColorDraft}
+                    bubbleColor={characterBubbleColorDraft}
+                    thoughtBubbleColor={characterThoughtBubbleColorDraft}
                     onNameColorChange={setCharacterNameColorDraft}
                     onSpeechColorChange={setCharacterSpeechColorDraft}
+                    onBubbleColorChange={setCharacterBubbleColorDraft}
+                    onThoughtBubbleColorChange={setCharacterThoughtBubbleColorDraft}
                     disabled={isSavingCharacter}
                   />
                   {characterAvatarError ? <Alert severity="error">{characterAvatarError}</Alert> : null}

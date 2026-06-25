@@ -1614,37 +1614,43 @@ function AppHeader({
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               {headerAiActionNode}
               {headerQuickActionsNode}
-              <IconButton
-                data-tour-id="header-right-panel-toggle"
-                aria-label={isRightPanelOpen ? rightToggleLabels.expanded : rightToggleLabels.collapsed}
-                onClick={onToggleRightPanel}
-                sx={shellButtonSx}
-              >
-                <Box
-                  component="img"
-                  src={icons.arrowback}
-                  alt=""
-                  sx={{
-                    width: 20,
-                    height: 20,
-                    opacity: 0.9,
-                    ...(neutralImageIconFilter !== 'none' ? { filter: neutralImageIconFilter } : {}),
-                    transform: isRightPanelOpen ? 'none' : 'rotate(180deg)',
-                    transition: 'transform 220ms ease',
-                  }}
-                />
-              </IconButton>
+              {!shouldHideRightToggle ? (
+                <IconButton
+                  data-tour-id="header-right-panel-toggle"
+                  aria-label={isRightPanelOpen ? rightToggleLabels.expanded : rightToggleLabels.collapsed}
+                  onClick={onToggleRightPanel}
+                  sx={shellButtonSx}
+                >
+                  <Box
+                    component="img"
+                    src={icons.arrowback}
+                    alt=""
+                    sx={{
+                      width: 20,
+                      height: 20,
+                      opacity: 0.9,
+                      ...(neutralImageIconFilter !== 'none' ? { filter: neutralImageIconFilter } : {}),
+                      transform: isRightPanelOpen ? 'none' : 'rotate(180deg)',
+                      transition: 'transform 220ms ease',
+                    }}
+                  />
+                </IconButton>
+              ) : null}
 
               <Box
-                sx={{
-                  ml: isRightPanelOpen ? 1 : 0,
-                  maxWidth: isRightPanelOpen ? rightActionsWidth : 0,
-                  opacity: isRightPanelOpen ? 1 : 0,
-                  transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(14px)',
-                  pointerEvents: isRightPanelOpen ? 'auto' : 'none',
-                  overflow: 'hidden',
-                  transition: 'max-width 260ms ease, margin-left 260ms ease, opacity 220ms ease, transform 220ms ease',
-                }}
+                sx={
+                  shouldHideRightToggle
+                    ? undefined
+                    : {
+                        ml: isRightPanelOpen ? 1 : 0,
+                        maxWidth: isRightPanelOpen ? rightActionsWidth : 0,
+                        opacity: isRightPanelOpen ? 1 : 0,
+                        transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(14px)',
+                        pointerEvents: isRightPanelOpen ? 'auto' : 'none',
+                        overflow: 'hidden',
+                        transition: 'max-width 260ms ease, margin-left 260ms ease, opacity 220ms ease, transform 220ms ease',
+                      }
+                }
               >
                 {rightActions}
               </Box>

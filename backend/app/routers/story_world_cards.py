@@ -549,12 +549,20 @@ def create_story_world_card(
     )
     normalized_name_color = normalize_story_character_text_color(payload.name_color) if is_character_card else ""
     normalized_speech_color = normalize_story_character_text_color(payload.speech_color) if is_character_card else ""
+    normalized_bubble_color = normalize_story_character_text_color(payload.bubble_color) if is_character_card else ""
+    normalized_thought_bubble_color = normalize_story_character_text_color(payload.thought_bubble_color) if is_character_card else ""
     if is_character_card and linked_character is not None:
         normalized_name_color = normalized_name_color or normalize_story_character_text_color(
             getattr(linked_character, "name_color", "")
         )
         normalized_speech_color = normalized_speech_color or normalize_story_character_text_color(
             getattr(linked_character, "speech_color", "")
+        )
+        normalized_bubble_color = normalized_bubble_color or normalize_story_character_text_color(
+            getattr(linked_character, "bubble_color", "")
+        )
+        normalized_thought_bubble_color = normalized_thought_bubble_color or normalize_story_character_text_color(
+            getattr(linked_character, "thought_bubble_color", "")
         )
     normalized_memory_turns = normalize_story_world_card_memory_turns_for_storage(
         payload.memory_turns,
@@ -613,6 +621,8 @@ def create_story_world_card(
         triggers=serialize_story_world_card_triggers(normalized_triggers),
         name_color=normalized_name_color,
         speech_color=normalized_speech_color,
+        bubble_color=normalized_bubble_color,
+        thought_bubble_color=normalized_thought_bubble_color,
         kind=normalized_kind,
         detail_type=normalized_detail_type,
         avatar_url=normalized_avatar,
@@ -677,6 +687,8 @@ def update_story_world_card(
     normalized_health_status = normalize_story_character_health_status(payload.health_status) if is_character_card else ""
     normalized_name_color = normalize_story_character_text_color(payload.name_color) if is_character_card else ""
     normalized_speech_color = normalize_story_character_text_color(payload.speech_color) if is_character_card else ""
+    normalized_bubble_color = normalize_story_character_text_color(payload.bubble_color) if is_character_card else ""
+    normalized_thought_bubble_color = normalize_story_character_text_color(payload.thought_bubble_color) if is_character_card else ""
     normalized_detail_type = normalize_story_world_detail_type(payload.detail_type) if normalized_kind == STORY_WORLD_CARD_KIND_WORLD else ""
     if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and _is_public_story_game(game):
         raise HTTPException(
@@ -709,6 +721,8 @@ def update_story_world_card(
     world_card.triggers = serialize_story_world_card_triggers(normalized_triggers)
     world_card.name_color = normalized_name_color
     world_card.speech_color = normalized_speech_color
+    world_card.bubble_color = normalized_bubble_color
+    world_card.thought_bubble_color = normalized_thought_bubble_color
     world_card.detail_type = normalized_detail_type
     if not is_character_card:
         world_card.character_id = None

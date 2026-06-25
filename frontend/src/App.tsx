@@ -26,6 +26,7 @@ import {
 } from './utils/referrals'
 import { normalizeProfileBannerId } from './constants/profileBanners'
 import { normalizeAvatarFrameId } from './constants/avatarFrames'
+import { ServiceUnavailableOverlay } from './components/ServiceUnavailableOverlay'
 
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
 const USER_STORAGE_KEY = 'morius.auth.user'
@@ -1013,6 +1014,7 @@ function App() {
           {authNotice?.message ?? ''}
         </Alert>
       </Snackbar>
+      <ServiceUnavailableOverlay />
     </>
   )
 }

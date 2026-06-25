@@ -4,6 +4,9 @@ import {
   PAYMENTS_API_BASE_URL,
   STORY_API_BASE_URL,
 } from '../config/env'
+import { dispatchServiceUnavailable } from '../utils/serviceAvailability'
+
+const GATEWAY_ERROR_STATUSES = new Set([502, 503, 504])
 
 export type RequestOptions = RequestInit & {
   skipJsonContentType?: boolean
@@ -171,6 +174,9 @@ export async function requestJson<T>(
 ): Promise<T> {
   const response = await executeRequest(path, options, networkErrorMessage)
   if (!response.ok) {
+    if (GATEWAY_ERROR_STATUSES.has(response.status)) {
+      dispatchServiceUnavailable()
+    }
     throw await parseApiError(response)
   }
   return normalizeApiMediaPayload((await response.json()) as T)
@@ -183,6 +189,9 @@ export async function requestNoContent(
 ): Promise<void> {
   const response = await executeRequest(path, options, networkErrorMessage)
   if (!response.ok) {
+    if (GATEWAY_ERROR_STATUSES.has(response.status)) {
+      dispatchServiceUnavailable()
+    }
     throw await parseApiError(response)
   }
 }

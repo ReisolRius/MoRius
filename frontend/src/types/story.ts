@@ -276,6 +276,8 @@ export type StoryWorldCard = {
   triggers: string[]
   name_color: string
   speech_color: string
+  bubble_color: string
+  thought_bubble_color: string
   kind: StoryWorldCardKind
   detail_type: string
   avatar_url: string | null
@@ -303,6 +305,8 @@ export type StoryWorldCardSnapshot = {
   triggers: string[]
   name_color: string
   speech_color: string
+  bubble_color: string
+  thought_bubble_color: string
   kind: StoryWorldCardKind
   detail_type: string
   avatar_url: string | null
@@ -343,6 +347,8 @@ export type StoryCharacter = {
   triggers: string[]
   name_color: string
   speech_color: string
+  bubble_color: string
+  thought_bubble_color: string
   avatar_url: string | null
   avatar_original_url?: string | null
   avatar_scale: number

@@ -314,6 +314,8 @@ def story_character_to_out(character: StoryCharacter, *, include_emotion_assets:
         triggers=deserialize_triggers(character.triggers),
         name_color=normalize_story_character_text_color(getattr(character, "name_color", "")),
         speech_color=normalize_story_character_text_color(getattr(character, "speech_color", "")),
+        bubble_color=normalize_story_character_text_color(getattr(character, "bubble_color", "")),
+        thought_bubble_color=normalize_story_character_text_color(getattr(character, "thought_bubble_color", "")),
         avatar_url=avatar_url,
         avatar_original_url=avatar_original_url,
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),

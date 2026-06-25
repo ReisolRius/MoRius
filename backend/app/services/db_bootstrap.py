@@ -778,6 +778,16 @@ def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefa
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
             "ADD COLUMN speech_color VARCHAR(16) NOT NULL DEFAULT ''"
         )
+    if "bubble_color" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN bubble_color VARCHAR(16) NOT NULL DEFAULT ''"
+        )
+    if "thought_bubble_color" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN thought_bubble_color VARCHAR(16) NOT NULL DEFAULT ''"
+        )
     if "memory_turns" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
@@ -1005,6 +1015,16 @@ def _ensure_story_character_community_columns_exist(private_visibility: str) -> 
         alter_statements.append(
             f"ALTER TABLE {StoryCharacter.__tablename__} "
             "ADD COLUMN speech_color VARCHAR(16) NOT NULL DEFAULT ''"
+        )
+    if "bubble_color" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN bubble_color VARCHAR(16) NOT NULL DEFAULT ''"
+        )
+    if "thought_bubble_color" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN thought_bubble_color VARCHAR(16) NOT NULL DEFAULT ''"
         )
     if "visibility" not in existing_columns:
         alter_statements.append(

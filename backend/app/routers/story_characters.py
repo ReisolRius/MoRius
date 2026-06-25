@@ -333,6 +333,8 @@ def _build_story_community_character_summary(
         triggers=character_out.triggers,
         name_color=character_out.name_color,
         speech_color=character_out.speech_color,
+        bubble_color=character_out.bubble_color,
+        thought_bubble_color=character_out.thought_bubble_color,
         avatar_url=character_out.avatar_url,
         avatar_original_url=character_out.avatar_original_url,
         avatar_scale=character_out.avatar_scale,
@@ -373,6 +375,8 @@ def _create_story_character_publication_copy_from_source(
         triggers=serialize_triggers(deserialize_triggers(source_character.triggers)),
         name_color=normalize_story_character_text_color(getattr(source_character, "name_color", "")),
         speech_color=normalize_story_character_text_color(getattr(source_character, "speech_color", "")),
+        bubble_color=normalize_story_character_text_color(getattr(source_character, "bubble_color", "")),
+        thought_bubble_color=normalize_story_character_text_color(getattr(source_character, "thought_bubble_color", "")),
         avatar_url=normalize_story_character_avatar_url(source_character.avatar_url, db=db),
         avatar_original_url=(
             normalize_story_character_avatar_original_url(
@@ -655,6 +659,8 @@ def list_story_community_characters(
                 triggers=character_out.triggers,
                 name_color=character_out.name_color,
                 speech_color=character_out.speech_color,
+                bubble_color=character_out.bubble_color,
+                thought_bubble_color=character_out.thought_bubble_color,
                 avatar_url=character_out.avatar_url,
                 avatar_original_url=character_out.avatar_original_url,
                 avatar_scale=character_out.avatar_scale,
@@ -874,6 +880,8 @@ def add_story_community_character_to_account(
                 triggers=serialize_triggers(deserialize_triggers(character.triggers)),
                 name_color=normalize_story_character_text_color(getattr(character, "name_color", "")),
                 speech_color=normalize_story_character_text_color(getattr(character, "speech_color", "")),
+                bubble_color=normalize_story_character_text_color(getattr(character, "bubble_color", "")),
+                thought_bubble_color=normalize_story_character_text_color(getattr(character, "thought_bubble_color", "")),
                 avatar_url=normalize_story_character_avatar_url(character.avatar_url, db=db),
                 avatar_original_url=(
                     normalize_story_character_avatar_original_url(
@@ -986,6 +994,8 @@ def create_story_character(
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
     normalized_name_color = normalize_story_character_text_color(payload.name_color)
     normalized_speech_color = normalize_story_character_text_color(payload.speech_color)
+    normalized_bubble_color = normalize_story_character_text_color(payload.bubble_color)
+    normalized_thought_bubble_color = normalize_story_character_text_color(payload.thought_bubble_color)
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url, db=db)
     avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url, db=db)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
@@ -1010,6 +1020,8 @@ def create_story_character(
         triggers=serialize_triggers(normalized_triggers),
         name_color=normalized_name_color,
         speech_color=normalized_speech_color,
+        bubble_color=normalized_bubble_color,
+        thought_bubble_color=normalized_thought_bubble_color,
         avatar_url=avatar_url,
         avatar_original_url=avatar_original_url if avatar_url else None,
         avatar_scale=avatar_scale,
@@ -1064,6 +1076,8 @@ def update_story_character(
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
     normalized_name_color = normalize_story_character_text_color(payload.name_color)
     normalized_speech_color = normalize_story_character_text_color(payload.speech_color)
+    normalized_bubble_color = normalize_story_character_text_color(payload.bubble_color)
+    normalized_thought_bubble_color = normalize_story_character_text_color(payload.thought_bubble_color)
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url, db=db)
     avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url, db=db)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
@@ -1086,6 +1100,8 @@ def update_story_character(
     character.triggers = serialize_triggers(normalized_triggers)
     character.name_color = normalized_name_color
     character.speech_color = normalized_speech_color
+    character.bubble_color = normalized_bubble_color
+    character.thought_bubble_color = normalized_thought_bubble_color
     character.avatar_url = avatar_url
     character.avatar_original_url = avatar_original_url if avatar_url else None
     character.avatar_scale = avatar_scale

@@ -1187,6 +1187,8 @@ class StoryWorldCardCreateRequest(BaseModel):
     triggers: list[str] = Field(default_factory=list, max_length=40)
     name_color: str | None = Field(default=None, max_length=16)
     speech_color: str | None = Field(default=None, max_length=16)
+    bubble_color: str | None = Field(default=None, max_length=16)
+    thought_bubble_color: str | None = Field(default=None, max_length=16)
     kind: str | None = Field(default=None, max_length=16)
     detail_type: str = Field(default="", max_length=120)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
@@ -1206,6 +1208,8 @@ class StoryWorldCardUpdateRequest(BaseModel):
     triggers: list[str] = Field(default_factory=list, max_length=40)
     name_color: str | None = Field(default=None, max_length=16)
     speech_color: str | None = Field(default=None, max_length=16)
+    bubble_color: str | None = Field(default=None, max_length=16)
+    thought_bubble_color: str | None = Field(default=None, max_length=16)
     detail_type: str = Field(default="", max_length=120)
     character_id: int | None = Field(default=None, ge=1)
     memory_turns: int | None = Field(default=None)
@@ -1240,6 +1244,8 @@ class StoryCharacterCreateRequest(BaseModel):
     triggers: list[str] = Field(default_factory=list, max_length=40)
     name_color: str | None = Field(default=None, max_length=16)
     speech_color: str | None = Field(default=None, max_length=16)
+    bubble_color: str | None = Field(default=None, max_length=16)
+    thought_bubble_color: str | None = Field(default=None, max_length=16)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
@@ -1262,6 +1268,8 @@ class StoryCharacterUpdateRequest(BaseModel):
     triggers: list[str] = Field(default_factory=list, max_length=40)
     name_color: str | None = Field(default=None, max_length=16)
     speech_color: str | None = Field(default=None, max_length=16)
+    bubble_color: str | None = Field(default=None, max_length=16)
+    thought_bubble_color: str | None = Field(default=None, max_length=16)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
@@ -1494,6 +1502,8 @@ class StoryWorldCardOut(BaseModel):
     triggers: list[str]
     name_color: str = ""
     speech_color: str = ""
+    bubble_color: str = ""
+    thought_bubble_color: str = ""
     kind: str
     detail_type: str = ""
     avatar_url: str | None
@@ -1521,6 +1531,8 @@ class StoryCharacterOut(BaseModel):
     triggers: list[str]
     name_color: str = ""
     speech_color: str = ""
+    bubble_color: str = ""
+    thought_bubble_color: str = ""
     avatar_url: str | None
     avatar_original_url: str | None = None
     avatar_scale: float
@@ -1612,6 +1624,8 @@ class StoryWorldCardSnapshotOut(BaseModel):
     triggers: list[str]
     name_color: str = ""
     speech_color: str = ""
+    bubble_color: str = ""
+    thought_bubble_color: str = ""
     kind: str
     detail_type: str = ""
     avatar_url: str | None
@@ -1766,6 +1780,8 @@ class StoryCommunityCharacterSummaryOut(BaseModel):
     triggers: list[str]
     name_color: str = ""
     speech_color: str = ""
+    bubble_color: str = ""
+    thought_bubble_color: str = ""
     avatar_url: str | None
     avatar_original_url: str | None = None
     avatar_scale: float
