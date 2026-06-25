@@ -1,0 +1,478 @@
+import { createHotContext as __vite__createHotContext } from "/@vite/client";import.meta.hot = __vite__createHotContext("/src/components/AppDownloadDialog.tsx");import __vite__cjsImport0_react_jsxDevRuntime from "/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=be683146"; const jsxDEV = __vite__cjsImport0_react_jsxDevRuntime["jsxDEV"];
+var _s = $RefreshSig$();
+import __vite__cjsImport1_react from "/node_modules/.vite/deps/react.js?v=be683146"; const useCallback = __vite__cjsImport1_react["useCallback"]; const useEffect = __vite__cjsImport1_react["useEffect"]; const useState = __vite__cjsImport1_react["useState"];
+import { Box, LinearProgress, Stack, SvgIcon, Typography } from "/node_modules/.vite/deps/@mui_material.js?v=be683146";
+import BaseDialog from "/src/components/dialogs/BaseDialog.tsx";
+import { buildApiUrl } from "/src/services/httpClient.ts";
+const APK_DOWNLOAD_PATH = "/api/downloads/android/morius-ai.apk";
+const APK_FILENAME = "morius-ai.apk";
+const APK_MEDIA_TYPE = "application/vnd.android.package-archive";
+function AndroidDownloadIcon() {
+  return /* @__PURE__ */ jsxDEV(SvgIcon, { viewBox: "0 0 24 24", sx: { width: 30, height: 30 }, children: /* @__PURE__ */ jsxDEV(
+    "path",
+    {
+      d: "M7.2 9.4c0-1.04.37-1.93.98-2.62L6.86 5.46a.72.72 0 0 1 1.02-1.02l1.42 1.42A5.3 5.3 0 0 1 12 5.18c.98 0 1.9.25 2.7.68l1.42-1.42a.72.72 0 1 1 1.02 1.02l-1.32 1.32c.61.69.98 1.58.98 2.62v.18H7.2V9.4Zm2.35-1.1a.68.68 0 1 0 0-1.36.68.68 0 0 0 0 1.36Zm4.9 0a.68.68 0 1 0 0-1.36.68.68 0 0 0 0 1.36ZM6.9 10.9h10.2v5.7c0 .88-.72 1.6-1.6 1.6h-.6v1.45a.95.95 0 1 1-1.9 0V18.2h-2v1.45a.95.95 0 1 1-1.9 0V18.2h-.6c-.88 0-1.6-.72-1.6-1.6v-5.7Zm-2.4.25c.53 0 .95.42.95.95v3.9a.95.95 0 1 1-1.9 0v-3.9c0-.53.42-.95.95-.95Zm15 0c.53 0 .95.42.95.95v3.9a.95.95 0 1 1-1.9 0v-3.9c0-.53.42-.95.95-.95Z",
+      fill: "currentColor"
+    },
+    void 0,
+    false,
+    {
+      fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+      lineNumber: 21,
+      columnNumber: 7
+    },
+    this
+  ) }, void 0, false, {
+    fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+    lineNumber: 20,
+    columnNumber: 5
+  }, this);
+}
+_c = AndroidDownloadIcon;
+function DownloadArrowIcon() {
+  return /* @__PURE__ */ jsxDEV(SvgIcon, { viewBox: "0 0 24 24", sx: { width: 22, height: 22 }, children: /* @__PURE__ */ jsxDEV(
+    "path",
+    {
+      d: "M12 3.5c.55 0 1 .45 1 1v8.08l2.3-2.3a1 1 0 1 1 1.4 1.42l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.42l2.3 2.3V4.5c0-.55.45-1 1-1Zm-6.5 13c.55 0 1 .45 1 1v1h11v-1a1 1 0 1 1 2 0v2c0 .55-.45 1-1 1h-13c-.55 0-1-.45-1-1v-2c0-.55.45-1 1-1Z",
+      fill: "currentColor"
+    },
+    void 0,
+    false,
+    {
+      fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+      lineNumber: 32,
+      columnNumber: 7
+    },
+    this
+  ) }, void 0, false, {
+    fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+    lineNumber: 31,
+    columnNumber: 5
+  }, this);
+}
+_c2 = DownloadArrowIcon;
+function triggerBrowserDownload(blob) {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = APK_FILENAME;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 6e4);
+}
+function getErrorMessage(error) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return "Не удалось скачать APK. Попробуйте еще раз.";
+}
+export default function AppDownloadDialog({ open, onClose }) {
+  _s();
+  const [downloadState, setDownloadState] = useState("idle");
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadError, setDownloadError] = useState("");
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setDownloadState("idle");
+    setDownloadProgress(0);
+    setDownloadError("");
+  }, [open]);
+  const handleClose = () => {
+    if (downloadState === "downloading") {
+      return;
+    }
+    onClose();
+  };
+  const handleDownload = useCallback(async () => {
+    if (downloadState === "downloading") {
+      return;
+    }
+    setDownloadState("downloading");
+    setDownloadProgress(0);
+    setDownloadError("");
+    try {
+      const response = await fetch(buildApiUrl(APK_DOWNLOAD_PATH), { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`Не удалось получить APK с сервера (HTTP ${response.status}).`);
+      }
+      const contentType = response.headers.get("Content-Type") || APK_MEDIA_TYPE;
+      const totalBytes = Number(response.headers.get("Content-Length") || "");
+      const hasKnownSize = Number.isFinite(totalBytes) && totalBytes > 0;
+      let apkBlob;
+      if (response.body) {
+        const reader = response.body.getReader();
+        const chunks = [];
+        let receivedBytes = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+          if (!value) {
+            continue;
+          }
+          chunks.push(value);
+          receivedBytes += value.byteLength;
+          if (hasKnownSize) {
+            setDownloadProgress(Math.min(99, Math.max(4, Math.round(receivedBytes / totalBytes * 100))));
+          }
+        }
+        apkBlob = new Blob(chunks, { type: contentType });
+      } else {
+        apkBlob = await response.blob();
+      }
+      setDownloadProgress(100);
+      triggerBrowserDownload(apkBlob);
+      setDownloadState("finished");
+    } catch (error) {
+      setDownloadError(getErrorMessage(error));
+      setDownloadProgress(0);
+      setDownloadState("error");
+    }
+  }, [downloadState]);
+  const isDownloading = downloadState === "downloading";
+  const isFinished = downloadState === "finished";
+  const progressLabel = isDownloading ? downloadProgress > 0 ? `${downloadProgress}%` : "Подготовка файла..." : isFinished ? "Файл готов" : "Около 67 МБ";
+  return /* @__PURE__ */ jsxDEV(
+    BaseDialog,
+    {
+      open,
+      onClose: handleClose,
+      maxWidth: "sm",
+      disableBackdropClose: isDownloading,
+      header: /* @__PURE__ */ jsxDEV(Stack, { spacing: 0.55, children: [
+        /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-title-text)", fontSize: "1.2rem", fontWeight: 900 }, children: "Скачать приложение" }, void 0, false, {
+          fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+          lineNumber: 152,
+          columnNumber: 11
+        }, this),
+        /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-text-secondary)", fontSize: "0.9rem", lineHeight: 1.45 }, children: "Сейчас доступна только Android-версия MoRius." }, void 0, false, {
+          fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+          lineNumber: 155,
+          columnNumber: 11
+        }, this)
+      ] }, void 0, true, {
+        fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+        lineNumber: 151,
+        columnNumber: 7
+      }, this),
+      paperSx: {
+        borderRadius: "14px",
+        border: "var(--morius-border-width) solid var(--morius-card-border)",
+        background: "var(--morius-card-bg)",
+        animation: "morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)"
+      },
+      contentSx: { px: { xs: 1.2, sm: 2 }, pb: { xs: 1.2, sm: 1.8 } },
+      actions: null,
+      children: /* @__PURE__ */ jsxDEV(Stack, { spacing: 1.25, children: [
+        /* @__PURE__ */ jsxDEV(
+          Box,
+          {
+            sx: {
+              minHeight: 154,
+              borderRadius: "12px",
+              border: "var(--morius-border-width) solid var(--morius-card-border)",
+              background: "linear-gradient(135deg, color-mix(in srgb, var(--morius-elevated-bg) 88%, transparent), var(--morius-card-bg))",
+              display: "grid",
+              placeItems: "center",
+              position: "relative",
+              overflow: "hidden",
+              "@keyframes morius-download-device": {
+                "0%, 100%": { transform: "translateY(0)" },
+                "50%": { transform: "translateY(-5px)" }
+              },
+              "@keyframes morius-download-arrow": {
+                "0%": { transform: "translateY(-7px)", opacity: 0 },
+                "38%": { opacity: 1 },
+                "100%": { transform: "translateY(12px)", opacity: 0 }
+              }
+            },
+            children: [
+              /* @__PURE__ */ jsxDEV(
+                Box,
+                {
+                  sx: {
+                    width: 82,
+                    height: 118,
+                    borderRadius: "18px",
+                    border: "var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, var(--morius-accent) 22%)",
+                    backgroundColor: "color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)",
+                    display: "grid",
+                    placeItems: "center",
+                    color: "var(--morius-accent)",
+                    boxShadow: "0 18px 34px rgba(0, 0, 0, 0.28)",
+                    animation: isDownloading ? "morius-download-device 1.4s ease-in-out infinite" : "none"
+                  },
+                  children: /* @__PURE__ */ jsxDEV(AndroidDownloadIcon, {}, void 0, false, {
+                    fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+                    lineNumber: 206,
+                    columnNumber: 13
+                  }, this)
+                },
+                void 0,
+                false,
+                {
+                  fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+                  lineNumber: 192,
+                  columnNumber: 11
+                },
+                this
+              ),
+              /* @__PURE__ */ jsxDEV(
+                Box,
+                {
+                  sx: {
+                    position: "absolute",
+                    top: 24,
+                    color: "var(--morius-title-text)",
+                    opacity: isDownloading ? 1 : 0.84,
+                    animation: isDownloading ? "morius-download-arrow 1.1s ease-in-out infinite" : "none"
+                  },
+                  children: /* @__PURE__ */ jsxDEV(DownloadArrowIcon, {}, void 0, false, {
+                    fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+                    lineNumber: 217,
+                    columnNumber: 13
+                  }, this)
+                },
+                void 0,
+                false,
+                {
+                  fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+                  lineNumber: 208,
+                  columnNumber: 11
+                },
+                this
+              )
+            ]
+          },
+          void 0,
+          true,
+          {
+            fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+            lineNumber: 170,
+            columnNumber: 9
+          },
+          this
+        ),
+        /* @__PURE__ */ jsxDEV(Stack, { spacing: 0.65, children: [
+          /* @__PURE__ */ jsxDEV(Stack, { direction: "row", justifyContent: "space-between", alignItems: "center", spacing: 1, children: [
+            /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-title-text)", fontSize: "0.92rem", fontWeight: 800 }, children: APK_FILENAME }, void 0, false, {
+              fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+              lineNumber: 223,
+              columnNumber: 13
+            }, this),
+            /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-text-secondary)", fontSize: "0.82rem", fontWeight: 700 }, children: progressLabel }, void 0, false, {
+              fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+              lineNumber: 226,
+              columnNumber: 13
+            }, this)
+          ] }, void 0, true, {
+            fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+            lineNumber: 222,
+            columnNumber: 11
+          }, this),
+          /* @__PURE__ */ jsxDEV(
+            LinearProgress,
+            {
+              variant: isDownloading && downloadProgress <= 0 ? "indeterminate" : "determinate",
+              value: isDownloading || isFinished ? downloadProgress : 0,
+              sx: {
+                height: 8,
+                borderRadius: "999px",
+                backgroundColor: "color-mix(in srgb, var(--morius-card-border) 54%, transparent)",
+                "& .MuiLinearProgress-bar": {
+                  borderRadius: "999px",
+                  backgroundColor: "var(--morius-accent)"
+                }
+              }
+            },
+            void 0,
+            false,
+            {
+              fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+              lineNumber: 230,
+              columnNumber: 11
+            },
+            this
+          )
+        ] }, void 0, true, {
+          fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+          lineNumber: 221,
+          columnNumber: 9
+        }, this),
+        /* @__PURE__ */ jsxDEV(
+          Box,
+          {
+            sx: {
+              borderRadius: "10px",
+              border: "var(--morius-border-width) solid var(--morius-card-border)",
+              backgroundColor: "var(--morius-elevated-bg)",
+              px: 1.15,
+              py: 1
+            },
+            children: [
+              /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-title-text)", fontSize: "0.9rem", fontWeight: 800, mb: 0.45 }, children: "Как установить" }, void 0, false, {
+                fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+                lineNumber: 254,
+                columnNumber: 11
+              }, this),
+              /* @__PURE__ */ jsxDEV(Stack, { spacing: 0.45, children: [
+                /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-text-secondary)", fontSize: "0.84rem", lineHeight: 1.45 }, children: "1. Скачайте APK и откройте файл на Android-устройстве." }, void 0, false, {
+                  fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+                  lineNumber: 258,
+                  columnNumber: 13
+                }, this),
+                /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-text-secondary)", fontSize: "0.84rem", lineHeight: 1.45 }, children: "2. Если Android попросит разрешить установку из браузера, разрешите ее в настройках." }, void 0, false, {
+                  fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+                  lineNumber: 261,
+                  columnNumber: 13
+                }, this),
+                /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-text-secondary)", fontSize: "0.84rem", lineHeight: 1.45 }, children: "3. При предупреждении Play Защиты нажмите «Установить без проверки»." }, void 0, false, {
+                  fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+                  lineNumber: 264,
+                  columnNumber: 13
+                }, this)
+              ] }, void 0, true, {
+                fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+                lineNumber: 257,
+                columnNumber: 11
+              }, this)
+            ]
+          },
+          void 0,
+          true,
+          {
+            fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+            lineNumber: 245,
+            columnNumber: 9
+          },
+          this
+        ),
+        downloadError ? /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "#ff8f8f", fontSize: "0.86rem", lineHeight: 1.4 }, children: downloadError }, void 0, false, {
+          fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+          lineNumber: 271,
+          columnNumber: 9
+        }, this) : null,
+        /* @__PURE__ */ jsxDEV(Stack, { direction: { xs: "column", sm: "row" }, spacing: 0.8, justifyContent: "flex-end", children: [
+          /* @__PURE__ */ jsxDEV(
+            Box,
+            {
+              component: "button",
+              type: "button",
+              onClick: handleClose,
+              disabled: isDownloading,
+              sx: {
+                minHeight: 42,
+                px: 1.5,
+                borderRadius: "10px",
+                border: "none",
+                backgroundColor: "transparent",
+                color: "var(--morius-text-secondary)",
+                font: "inherit",
+                fontWeight: 800,
+                cursor: isDownloading ? "default" : "pointer",
+                opacity: isDownloading ? 0.52 : 1,
+                "&:hover": {
+                  color: isDownloading ? "var(--morius-text-secondary)" : "var(--morius-title-text)"
+                }
+              },
+              children: "Закрыть"
+            },
+            void 0,
+            false,
+            {
+              fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+              lineNumber: 275,
+              columnNumber: 11
+            },
+            this
+          ),
+          /* @__PURE__ */ jsxDEV(
+            Box,
+            {
+              component: "button",
+              type: "button",
+              onClick: handleDownload,
+              disabled: isDownloading,
+              sx: {
+                minHeight: 42,
+                px: 1.65,
+                borderRadius: "10px",
+                border: "var(--morius-border-width) solid var(--morius-card-border)",
+                backgroundColor: "var(--morius-accent)",
+                color: "var(--morius-on-accent, #091016)",
+                font: "inherit",
+                fontWeight: 900,
+                cursor: isDownloading ? "default" : "pointer",
+                opacity: isDownloading ? 0.72 : 1,
+                transition: "transform 160ms ease, opacity 160ms ease",
+                "&:hover": {
+                  transform: isDownloading ? "none" : "translateY(-1px)"
+                }
+              },
+              children: isDownloading ? "Скачиваем..." : "Скачать для Android"
+            },
+            void 0,
+            false,
+            {
+              fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+              lineNumber: 298,
+              columnNumber: 11
+            },
+            this
+          )
+        ] }, void 0, true, {
+          fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+          lineNumber: 274,
+          columnNumber: 9
+        }, this)
+      ] }, void 0, true, {
+        fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+        lineNumber: 169,
+        columnNumber: 7
+      }, this)
+    },
+    void 0,
+    false,
+    {
+      fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx",
+      lineNumber: 145,
+      columnNumber: 5
+    },
+    this
+  );
+}
+_s(AppDownloadDialog, "32GV45g15r56jtFA+tKUcmkzhGQ=");
+_c3 = AppDownloadDialog;
+var _c, _c2, _c3;
+$RefreshReg$(_c, "AndroidDownloadIcon");
+$RefreshReg$(_c2, "DownloadArrowIcon");
+$RefreshReg$(_c3, "AppDownloadDialog");
+import * as RefreshRuntime from "/@react-refresh";
+const inWebWorker = typeof WorkerGlobalScope !== "undefined" && self instanceof WorkerGlobalScope;
+if (import.meta.hot && !inWebWorker) {
+  if (!window.$RefreshReg$) {
+    throw new Error(
+      "@vitejs/plugin-react can't detect preamble. Something is wrong."
+    );
+  }
+  RefreshRuntime.__hmr_import(import.meta.url).then((currentExports) => {
+    RefreshRuntime.registerExportsForReactRefresh("C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx", currentExports);
+    import.meta.hot.accept((nextExports) => {
+      if (!nextExports) return;
+      const invalidateMessage = RefreshRuntime.validateRefreshBoundaryAndEnqueueUpdate("C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx", currentExports, nextExports);
+      if (invalidateMessage) import.meta.hot.invalidate(invalidateMessage);
+    });
+  });
+}
+function $RefreshReg$(type, id) {
+  return RefreshRuntime.register(type, "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/AppDownloadDialog.tsx " + id);
+}
+function $RefreshSig$() {
+  return RefreshRuntime.createSignatureFunctionForTransform();
+}
+
+//# sourceMappingURL=data:application/json;base64,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NVF1QkgsbUJBQWlCO0FBQUEsTUFBakJBO0FBQWlCLElBQUF6QixJQUFBRSxLQUFBNkY7QUFBQSxhQUFBL0YsSUFBQTtBQUFBLGFBQUFFLEtBQUE7QUFBQSxhQUFBNkYsS0FBQSIsIm5hbWVzIjpbInVzZUNhbGxiYWNrIiwidXNlRWZmZWN0IiwidXNlU3RhdGUiLCJCb3giLCJMaW5lYXJQcm9ncmVzcyIsIlN0YWNrIiwiU3ZnSWNvbiIsIlR5cG9ncmFwaHkiLCJCYXNlRGlhbG9nIiwiYnVpbGRBcGlVcmwiLCJBUEtfRE9XTkxPQURfUEFUSCIsIkFQS19GSUxFTkFNRSIsIkFQS19NRURJQV9UWVBFIiwiQW5kcm9pZERvd25sb2FkSWNvbiIsIndpZHRoIiwiaGVpZ2h0IiwiX2MiLCJEb3dubG9hZEFycm93SWNvbiIsIl9jMiIsInRyaWdnZXJCcm93c2VyRG93bmxvYWQiLCJibG9iIiwib2JqZWN0VXJsIiwiVVJMIiwiY3JlYXRlT2JqZWN0VVJMIiwibGluayIsImRvY3VtZW50IiwiY3JlYXRlRWxlbWVudCIsImhyZWYiLCJkb3dubG9hZCIsImJvZHkiLCJhcHBlbmRDaGlsZCIsImNsaWNrIiwicmVtb3ZlIiwid2luZG93Iiwic2V0VGltZW91dCIsInJldm9rZU9iamVjdFVSTCIsImdldEVycm9yTWVzc2FnZSIsImVycm9yIiwiRXJyb3IiLCJtZXNzYWdlIiwidHJpbSIsIkFwcERvd25sb2FkRGlhbG9nIiwib3BlbiIsIm9uQ2xvc2UiLCJfcyIsImRvd25sb2FkU3RhdGUiLCJzZXREb3dubG9hZFN0YXRlIiwiZG93bmxvYWRQcm9ncmVzcyIsInNldERvd25sb2FkUHJvZ3Jlc3MiLCJkb3dubG9hZEVycm9yIiwic2V0RG93bmxvYWRFcnJvciIsImhhbmRsZUNsb3NlIiwiaGFuZGxlRG93bmxvYWQiLCJyZXNwb25zZSIsImZldGNoIiwiY2FjaGUiLCJvayIsInN0YXR1cyIsImNvbnRlbnRUeXBlIiwiaGVhZGVycyIsImdldCIsInRvdGFsQnl0ZXMiLCJOdW1iZXIiLCJoYXNLbm93blNpemUiLCJpc0Zpbml0ZSIsImFwa0Jsb2IiLCJyZWFkZXIiLCJnZXRSZWFkZXIiLCJjaHVua3MiLCJyZWNlaXZlZEJ5dGVzIiwiZG9uZSIsInZhbHVlIiwicmVhZCIsInB1c2giLCJieXRlTGVuZ3RoIiwiTWF0aCIsIm1pbiIsIm1heCIsInJvdW5kIiwiQmxvYiIsInR5cGUiLCJpc0Rvd25sb2FkaW5nIiwiaXNGaW5pc2hlZCIsInByb2dyZXNzTGFiZWwiLCJjb2xvciIsImZvbnRTaXplIiwiZm9udFdlaWdodCIsImxpbmVIZWlnaHQiLCJib3JkZXJSYWRpdXMiLCJib3JkZXIiLCJiYWNrZ3JvdW5kIiwiYW5pbWF0aW9uIiwicHgiLCJ4cyIsInNtIiwicGIiLCJtaW5IZWlnaHQiLCJkaXNwbGF5IiwicGxhY2VJdGVtcyIsInBvc2l0aW9uIiwib3ZlcmZsb3ciLCJ0cmFuc2Zvcm0iLCJvcGFjaXR5IiwiYmFja2dyb3VuZENvbG9yIiwiYm94U2hhZG93IiwidG9wIiwicHkiLCJtYiIsImZvbnQiLCJjdXJzb3IiLCJ0cmFuc2l0aW9uIiwiX2MzIl0sImlnbm9yZUxpc3QiOltdLCJzb3VyY2VzIjpbIkFwcERvd25sb2FkRGlhbG9nLnRzeCJdLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQgeyB1c2VDYWxsYmFjaywgdXNlRWZmZWN0LCB1c2VTdGF0ZSB9IGZyb20gJ3JlYWN0J1xuaW1wb3J0IHsgQm94LCBMaW5lYXJQcm9ncmVzcywgU3RhY2ssIFN2Z0ljb24sIFR5cG9ncmFwaHkgfSBmcm9tICdAbXVpL21hdGVyaWFsJ1xuXG5pbXBvcnQgQmFzZURpYWxvZyBmcm9tICcuL2RpYWxvZ3MvQmFzZURpYWxvZydcbmltcG9ydCB7IGJ1aWxkQXBpVXJsIH0gZnJvbSAnLi4vc2VydmljZXMvaHR0cENsaWVudCdcblxudHlwZSBBcHBEb3dubG9hZERpYWxvZ1Byb3BzID0ge1xuICBvcGVuOiBib29sZWFuXG4gIG9uQ2xvc2U6ICgpID0+IHZvaWRcbn1cblxudHlwZSBEb3dubG9hZFN0YXRlID0gJ2lkbGUnIHwgJ2Rvd25sb2FkaW5nJyB8ICdmaW5pc2hlZCcgfCAnZXJyb3InXG5cbmNvbnN0IEFQS19ET1dOTE9BRF9QQVRIID0gJy9hcGkvZG93bmxvYWRzL2FuZHJvaWQvbW9yaXVzLWFpLmFwaydcbmNvbnN0IEFQS19GSUxFTkFNRSA9ICdtb3JpdXMtYWkuYXBrJ1xuY29uc3QgQVBLX01FRElBX1RZUEUgPSAnYXBwbGljYXRpb24vdm5kLmFuZHJvaWQucGFja2FnZS1hcmNoaXZlJ1xuXG5mdW5jdGlvbiBBbmRyb2lkRG93bmxvYWRJY29uKCkge1xuICByZXR1cm4gKFxuICAgIDxTdmdJY29uIHZpZXdCb3g9XCIwIDAgMjQgMjRcIiBzeD17eyB3aWR0aDogMzAsIGhlaWdodDogMzAgfX0+XG4gICAgICA8cGF0aFxuICAgICAgICBkPVwiTTcuMiA5LjRjMC0xLjA0LjM3LTEuOTMuOTgtMi42Mkw2Ljg2IDUuNDZhLjcyLjcyIDAgMCAxIDEuMDItMS4wMmwxLjQyIDEuNDJBNS4zIDUuMyAwIDAgMSAxMiA1LjE4Yy45OCAwIDEuOS4yNSAyLjcuNjhsMS40Mi0xLjQyYS43Mi43MiAwIDEgMSAxLjAyIDEuMDJsLTEuMzIgMS4zMmMuNjEuNjkuOTggMS41OC45OCAyLjYydi4xOEg3LjJWOS40Wm0yLjM1LTEuMWEuNjguNjggMCAxIDAgMC0xLjM2LjY4LjY4IDAgMCAwIDAgMS4zNlptNC45IDBhLjY4LjY4IDAgMSAwIDAtMS4zNi42OC42OCAwIDAgMCAwIDEuMzZaTTYuOSAxMC45aDEwLjJ2NS43YzAgLjg4LS43MiAxLjYtMS42IDEuNmgtLjZ2MS40NWEuOTUuOTUgMCAxIDEtMS45IDBWMTguMmgtMnYxLjQ1YS45NS45NSAwIDEgMS0xLjkgMFYxOC4yaC0uNmMtLjg4IDAtMS42LS43Mi0xLjYtMS42di01LjdabS0yLjQuMjVjLjUzIDAgLjk1LjQyLjk1Ljk1djMuOWEuOTUuOTUgMCAxIDEtMS45IDB2LTMuOWMwLS41My40Mi0uOTUuOTUtLjk1Wm0xNSAwYy41MyAwIC45NS40Mi45NS45NXYzLjlhLjk1Ljk1IDAgMSAxLTEuOSAwdi0zLjljMC0uNTMuNDItLjk1Ljk1LS45NVpcIlxuICAgICAgICBmaWxsPVwiY3VycmVudENvbG9yXCJcbiAgICAgIC8+XG4gICAgPC9TdmdJY29uPlxuICApXG59XG5cbmZ1bmN0aW9uIERvd25sb2FkQXJyb3dJY29uKCkge1xuICByZXR1cm4gKFxuICAgIDxTdmdJY29uIHZpZXdCb3g9XCIwIDAgMjQgMjRcIiBzeD17eyB3aWR0aDogMjIsIGhlaWdodDogMjIgfX0+XG4gICAgICA8cGF0aFxuICAgICAgICBkPVwiTTEyIDMuNWMuNTUgMCAxIC40NSAxIDF2OC4wOGwyLjMtMi4zYTEgMSAwIDEgMSAxLjQgMS40MmwtNCA0YTEgMSAwIDAgMS0xLjQgMGwtNC00YTEgMSAwIDEgMSAxLjQtMS40MmwyLjMgMi4zVjQuNWMwLS41NS40NS0xIDEtMVptLTYuNSAxM2MuNTUgMCAxIC40NSAxIDF2MWgxMXYtMWExIDEgMCAxIDEgMiAwdjJjMCAuNTUtLjQ1IDEtMSAxaC0xM2MtLjU1IDAtMS0uNDUtMS0xdi0yYzAtLjU1LjQ1LTEgMS0xWlwiXG4gICAgICAgIGZpbGw9XCJjdXJyZW50Q29sb3JcIlxuICAgICAgLz5cbiAgICA8L1N2Z0ljb24+XG4gIClcbn1cblxuZnVuY3Rpb24gdHJpZ2dlckJyb3dzZXJEb3dubG9hZChibG9iOiBCbG9iKSB7XG4gIGNvbnN0IG9iamVjdFVybCA9IFVSTC5jcmVhdGVPYmplY3RVUkwoYmxvYilcbiAgY29uc3QgbGluayA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoJ2EnKVxuICBsaW5rLmhyZWYgPSBvYmplY3RVcmxcbiAgbGluay5kb3dubG9hZCA9IEFQS19GSUxFTkFNRVxuICBkb2N1bWVudC5ib2R5LmFwcGVuZENoaWxkKGxpbmspXG4gIGxpbmsuY2xpY2soKVxuICBsaW5rLnJlbW92ZSgpXG4gIHdpbmRvdy5zZXRUaW1lb3V0KCgpID0+IFVSTC5yZXZva2VPYmplY3RVUkwob2JqZWN0VXJsKSwgNjBfMDAwKVxufVxuXG5mdW5jdGlvbiBnZXRFcnJvck1lc3NhZ2UoZXJyb3I6IHVua25vd24pOiBzdHJpbmcge1xuICBpZiAoZXJyb3IgaW5zdGFuY2VvZiBFcnJvciAmJiBlcnJvci5tZXNzYWdlLnRyaW0oKSkge1xuICAgIHJldHVybiBlcnJvci5tZXNzYWdlXG4gIH1cbiAgcmV0dXJuICfQndC1INGD0LTQsNC70L7RgdGMINGB0LrQsNGH0LDRgtGMIEFQSy4g0J/QvtC/0YDQvtCx0YPQudGC0LUg0LXRidC1INGA0LDQty4nXG59XG5cbmV4cG9ydCBkZWZhdWx0IGZ1bmN0aW9uIEFwcERvd25sb2FkRGlhbG9nKHsgb3Blbiwgb25DbG9zZSB9OiBBcHBEb3dubG9hZERpYWxvZ1Byb3BzKSB7XG4gIGNvbnN0IFtkb3dubG9hZFN0YXRlLCBzZXREb3dubG9hZFN0YXRlXSA9IHVzZVN0YXRlPERvd25sb2FkU3RhdGU+KCdpZGxlJylcbiAgY29uc3QgW2Rvd25sb2FkUHJvZ3Jlc3MsIHNldERvd25sb2FkUHJvZ3Jlc3NdID0gdXNlU3RhdGUoMClcbiAgY29uc3QgW2Rvd25sb2FkRXJyb3IsIHNldERvd25sb2FkRXJyb3JdID0gdXNlU3RhdGUoJycpXG5cbiAgdXNlRWZmZWN0KCgpID0+IHtcbiAgICBpZiAoIW9wZW4pIHtcbiAgICAgIHJldHVyblxuICAgIH1cbiAgICBzZXREb3dubG9hZFN0YXRlKCdpZGxlJylcbiAgICBzZXREb3dubG9hZFByb2dyZXNzKDApXG4gICAgc2V0RG93bmxvYWRFcnJvcignJylcbiAgfSwgW29wZW5dKVxuXG4gIGNvbnN0IGhhbmRsZUNsb3NlID0gKCkgPT4ge1xuICAgIGlmIChkb3dubG9hZFN0YXRlID09PSAnZG93bmxvYWRpbmcnKSB7XG4gICAgICByZXR1cm5cbiAgICB9XG4gICAgb25DbG9zZSgpXG4gIH1cblxuICBjb25zdCBoYW5kbGVEb3dubG9hZCA9IHVzZUNhbGxiYWNrKGFzeW5jICgpID0+IHtcbiAgICBpZiAoZG93bmxvYWRTdGF0ZSA9PT0gJ2Rvd25sb2FkaW5nJykge1xuICAgICAgcmV0dXJuXG4gICAgfVxuXG4gICAgc2V0RG93bmxvYWRTdGF0ZSgnZG93bmxvYWRpbmcnKVxuICAgIHNldERvd25sb2FkUHJvZ3Jlc3MoMClcbiAgICBzZXREb3dubG9hZEVycm9yKCcnKVxuXG4gICAgdHJ5IHtcbiAgICAgIGNvbnN0IHJlc3BvbnNlID0gYXdhaXQgZmV0Y2goYnVpbGRBcGlVcmwoQVBLX0RPV05MT0FEX1BBVEgpLCB7IGNhY2hlOiAnbm8tc3RvcmUnIH0pXG4gICAgICBpZiAoIXJlc3BvbnNlLm9rKSB7XG4gICAgICAgIHRocm93IG5ldyBFcnJvcihg0J3QtSDRg9C00LDQu9C+0YHRjCDQv9C+0LvRg9GH0LjRgtGMIEFQSyDRgSDRgdC10YDQstC10YDQsCAoSFRUUCAke3Jlc3BvbnNlLnN0YXR1c30pLmApXG4gICAgICB9XG5cbiAgICAgIGNvbnN0IGNvbnRlbnRUeXBlID0gcmVzcG9uc2UuaGVhZGVycy5nZXQoJ0NvbnRlbnQtVHlwZScpIHx8IEFQS19NRURJQV9UWVBFXG4gICAgICBjb25zdCB0b3RhbEJ5dGVzID0gTnVtYmVyKHJlc3BvbnNlLmhlYWRlcnMuZ2V0KCdDb250ZW50LUxlbmd0aCcpIHx8ICcnKVxuICAgICAgY29uc3QgaGFzS25vd25TaXplID0gTnVtYmVyLmlzRmluaXRlKHRvdGFsQnl0ZXMpICYmIHRvdGFsQnl0ZXMgPiAwXG5cbiAgICAgIGxldCBhcGtCbG9iOiBCbG9iXG4gICAgICBpZiAocmVzcG9uc2UuYm9keSkge1xuICAgICAgICBjb25zdCByZWFkZXIgPSByZXNwb25zZS5ib2R5LmdldFJlYWRlcigpXG4gICAgICAgIGNvbnN0IGNodW5rczogQmxvYlBhcnRbXSA9IFtdXG4gICAgICAgIGxldCByZWNlaXZlZEJ5dGVzID0gMFxuXG4gICAgICAgIHdoaWxlICh0cnVlKSB7XG4gICAgICAgICAgY29uc3QgeyBkb25lLCB2YWx1ZSB9ID0gYXdhaXQgcmVhZGVyLnJlYWQoKVxuICAgICAgICAgIGlmIChkb25lKSB7XG4gICAgICAgICAgICBicmVha1xuICAgICAgICAgIH1cbiAgICAgICAgICBpZiAoIXZhbHVlKSB7XG4gICAgICAgICAgICBjb250aW51ZVxuICAgICAgICAgIH1cbiAgICAgICAgICBjaHVua3MucHVzaCh2YWx1ZSBhcyBCbG9iUGFydClcbiAgICAgICAgICByZWNlaXZlZEJ5dGVzICs9IHZhbHVlLmJ5dGVMZW5ndGhcbiAgICAgICAgICBpZiAoaGFzS25vd25TaXplKSB7XG4gICAgICAgICAgICBzZXREb3dubG9hZFByb2dyZXNzKE1hdGgubWluKDk5LCBNYXRoLm1heCg0LCBNYXRoLnJvdW5kKChyZWNlaXZlZEJ5dGVzIC8gdG90YWxCeXRlcykgKiAxMDApKSkpXG4gICAgICAgICAgfVxuICAgICAgICB9XG5cbiAgICAgICAgYXBrQmxvYiA9IG5ldyBCbG9iKGNodW5rcywgeyB0eXBlOiBjb250ZW50VHlwZSB9KVxuICAgICAgfSBlbHNlIHtcbiAgICAgICAgYXBrQmxvYiA9IGF3YWl0IHJlc3BvbnNlLmJsb2IoKVxuICAgICAgfVxuXG4gICAgICBzZXREb3dubG9hZFByb2dyZXNzKDEwMClcbiAgICAgIHRyaWdnZXJCcm93c2VyRG93bmxvYWQoYXBrQmxvYilcbiAgICAgIHNldERvd25sb2FkU3RhdGUoJ2ZpbmlzaGVkJylcbiAgICB9IGNhdGNoIChlcnJvcikge1xuICAgICAgc2V0RG93bmxvYWRFcnJvcihnZXRFcnJvck1lc3NhZ2UoZXJyb3IpKVxuICAgICAgc2V0RG93bmxvYWRQcm9ncmVzcygwKVxuICAgICAgc2V0RG93bmxvYWRTdGF0ZSgnZXJyb3InKVxuICAgIH1cbiAgfSwgW2Rvd25sb2FkU3RhdGVdKVxuXG4gIGNvbnN0IGlzRG93bmxvYWRpbmcgPSBkb3dubG9hZFN0YXRlID09PSAnZG93bmxvYWRpbmcnXG4gIGNvbnN0IGlzRmluaXNoZWQgPSBkb3dubG9hZFN0YXRlID09PSAnZmluaXNoZWQnXG4gIGNvbnN0IHByb2dyZXNzTGFiZWwgPSBpc0Rvd25sb2FkaW5nXG4gICAgPyBkb3dubG9hZFByb2dyZXNzID4gMFxuICAgICAgPyBgJHtkb3dubG9hZFByb2dyZXNzfSVgXG4gICAgICA6ICfQn9C+0LTQs9C+0YLQvtCy0LrQsCDRhNCw0LnQu9CwLi4uJ1xuICAgIDogaXNGaW5pc2hlZFxuICAgICAgPyAn0KTQsNC50Lsg0LPQvtGC0L7QsidcbiAgICAgIDogJ9Ce0LrQvtC70L4gNjcg0JzQkSdcblxuICByZXR1cm4gKFxuICAgIDxCYXNlRGlhbG9nXG4gICAgICBvcGVuPXtvcGVufVxuICAgICAgb25DbG9zZT17aGFuZGxlQ2xvc2V9XG4gICAgICBtYXhXaWR0aD1cInNtXCJcbiAgICAgIGRpc2FibGVCYWNrZHJvcENsb3NlPXtpc0Rvd25sb2FkaW5nfVxuICAgICAgaGVhZGVyPXtcbiAgICAgICAgPFN0YWNrIHNwYWNpbmc9ezAuNTV9PlxuICAgICAgICAgIDxUeXBvZ3JhcGh5IHN4PXt7IGNvbG9yOiAndmFyKC0tbW9yaXVzLXRpdGxlLXRleHQpJywgZm9udFNpemU6ICcxLjJyZW0nLCBmb250V2VpZ2h0OiA5MDAgfX0+XG4gICAgICAgICAgICDQodC60LDRh9Cw0YLRjCDQv9GA0LjQu9C+0LbQtdC90LjQtVxuICAgICAgICAgIDwvVHlwb2dyYXBoeT5cbiAgICAgICAgICA8VHlwb2dyYXBoeSBzeD17eyBjb2xvcjogJ3ZhcigtLW1vcml1cy10ZXh0LXNlY29uZGFyeSknLCBmb250U2l6ZTogJzAuOXJlbScsIGxpbmVIZWlnaHQ6IDEuNDUgfX0+XG4gICAgICAgICAgICDQodC10LnRh9Cw0YEg0LTQvtGB0YLRg9C/0L3QsCDRgtC+0LvRjNC60L4gQW5kcm9pZC3QstC10YDRgdC40Y8gTW9SaXVzLlxuICAgICAgICAgIDwvVHlwb2dyYXBoeT5cbiAgICAgICAgPC9TdGFjaz5cbiAgICAgIH1cbiAgICAgIHBhcGVyU3g9e3tcbiAgICAgICAgYm9yZGVyUmFkaXVzOiAnMTRweCcsXG4gICAgICAgIGJvcmRlcjogJ3ZhcigtLW1vcml1cy1ib3JkZXItd2lkdGgpIHNvbGlkIHZhcigtLW1vcml1cy1jYXJkLWJvcmRlciknLFxuICAgICAgICBiYWNrZ3JvdW5kOiAndmFyKC0tbW9yaXVzLWNhcmQtYmcpJyxcbiAgICAgICAgYW5pbWF0aW9uOiAnbW9yaXVzLWRpYWxvZy1wb3AgMzIwbXMgY3ViaWMtYmV6aWVyKDAuMjIsIDEsIDAuMzYsIDEpJyxcbiAgICAgIH19XG4gICAgICBjb250ZW50U3g9e3sgcHg6IHsgeHM6IDEuMiwgc206IDIgfSwgcGI6IHsgeHM6IDEuMiwgc206IDEuOCB9IH19XG4gICAgICBhY3Rpb25zPXtudWxsfVxuICAgID5cbiAgICAgIDxTdGFjayBzcGFjaW5nPXsxLjI1fT5cbiAgICAgICAgPEJveFxuICAgICAgICAgIHN4PXt7XG4gICAgICAgICAgICBtaW5IZWlnaHQ6IDE1NCxcbiAgICAgICAgICAgIGJvcmRlclJhZGl1czogJzEycHgnLFxuICAgICAgICAgICAgYm9yZGVyOiAndmFyKC0tbW9yaXVzLWJvcmRlci13aWR0aCkgc29saWQgdmFyKC0tbW9yaXVzLWNhcmQtYm9yZGVyKScsXG4gICAgICAgICAgICBiYWNrZ3JvdW5kOlxuICAgICAgICAgICAgICAnbGluZWFyLWdyYWRpZW50KDEzNWRlZywgY29sb3ItbWl4KGluIHNyZ2IsIHZhcigtLW1vcml1cy1lbGV2YXRlZC1iZykgODglLCB0cmFuc3BhcmVudCksIHZhcigtLW1vcml1cy1jYXJkLWJnKSknLFxuICAgICAgICAgICAgZGlzcGxheTogJ2dyaWQnLFxuICAgICAgICAgICAgcGxhY2VJdGVtczogJ2NlbnRlcicsXG4gICAgICAgICAgICBwb3NpdGlvbjogJ3JlbGF0aXZlJyxcbiAgICAgICAgICAgIG92ZXJmbG93OiAnaGlkZGVuJyxcbiAgICAgICAgICAgICdAa2V5ZnJhbWVzIG1vcml1cy1kb3dubG9hZC1kZXZpY2UnOiB7XG4gICAgICAgICAgICAgICcwJSwgMTAwJSc6IHsgdHJhbnNmb3JtOiAndHJhbnNsYXRlWSgwKScgfSxcbiAgICAgICAgICAgICAgJzUwJSc6IHsgdHJhbnNmb3JtOiAndHJhbnNsYXRlWSgtNXB4KScgfSxcbiAgICAgICAgICAgIH0sXG4gICAgICAgICAgICAnQGtleWZyYW1lcyBtb3JpdXMtZG93bmxvYWQtYXJyb3cnOiB7XG4gICAgICAgICAgICAgICcwJSc6IHsgdHJhbnNmb3JtOiAndHJhbnNsYXRlWSgtN3B4KScsIG9wYWNpdHk6IDAgfSxcbiAgICAgICAgICAgICAgJzM4JSc6IHsgb3BhY2l0eTogMSB9LFxuICAgICAgICAgICAgICAnMTAwJSc6IHsgdHJhbnNmb3JtOiAndHJhbnNsYXRlWSgxMnB4KScsIG9wYWNpdHk6IDAgfSxcbiAgICAgICAgICAgIH0sXG4gICAgICAgICAgfX1cbiAgICAgICAgPlxuICAgICAgICAgIDxCb3hcbiAgICAgICAgICAgIHN4PXt7XG4gICAgICAgICAgICAgIHdpZHRoOiA4MixcbiAgICAgICAgICAgICAgaGVpZ2h0OiAxMTgsXG4gICAgICAgICAgICAgIGJvcmRlclJhZGl1czogJzE4cHgnLFxuICAgICAgICAgICAgICBib3JkZXI6ICd2YXIoLS1tb3JpdXMtYm9yZGVyLXdpZHRoKSBzb2xpZCBjb2xvci1taXgoaW4gc3JnYiwgdmFyKC0tbW9yaXVzLWNhcmQtYm9yZGVyKSA3OCUsIHZhcigtLW1vcml1cy1hY2NlbnQpIDIyJSknLFxuICAgICAgICAgICAgICBiYWNrZ3JvdW5kQ29sb3I6ICdjb2xvci1taXgoaW4gc3JnYiwgdmFyKC0tbW9yaXVzLWVsZXZhdGVkLWJnKSA4MiUsIHRyYW5zcGFyZW50KScsXG4gICAgICAgICAgICAgIGRpc3BsYXk6ICdncmlkJyxcbiAgICAgICAgICAgICAgcGxhY2VJdGVtczogJ2NlbnRlcicsXG4gICAgICAgICAgICAgIGNvbG9yOiAndmFyKC0tbW9yaXVzLWFjY2VudCknLFxuICAgICAgICAgICAgICBib3hTaGFkb3c6ICcwIDE4cHggMzRweCByZ2JhKDAsIDAsIDAsIDAuMjgpJyxcbiAgICAgICAgICAgICAgYW5pbWF0aW9uOiBpc0Rvd25sb2FkaW5nID8gJ21vcml1cy1kb3dubG9hZC1kZXZpY2UgMS40cyBlYXNlLWluLW91dCBpbmZpbml0ZScgOiAnbm9uZScsXG4gICAgICAgICAgICB9fVxuICAgICAgICAgID5cbiAgICAgICAgICAgIDxBbmRyb2lkRG93bmxvYWRJY29uIC8+XG4gICAgICAgICAgPC9Cb3g+XG4gICAgICAgICAgPEJveFxuICAgICAgICAgICAgc3g9e3tcbiAgICAgICAgICAgICAgcG9zaXRpb246ICdhYnNvbHV0ZScsXG4gICAgICAgICAgICAgIHRvcDogMjQsXG4gICAgICAgICAgICAgIGNvbG9yOiAndmFyKC0tbW9yaXVzLXRpdGxlLXRleHQpJyxcbiAgICAgICAgICAgICAgb3BhY2l0eTogaXNEb3dubG9hZGluZyA/IDEgOiAwLjg0LFxuICAgICAgICAgICAgICBhbmltYXRpb246IGlzRG93bmxvYWRpbmcgPyAnbW9yaXVzLWRvd25sb2FkLWFycm93IDEuMXMgZWFzZS1pbi1vdXQgaW5maW5pdGUnIDogJ25vbmUnLFxuICAgICAgICAgICAgfX1cbiAgICAgICAgICA+XG4gICAgICAgICAgICA8RG93bmxvYWRBcnJvd0ljb24gLz5cbiAgICAgICAgICA8L0JveD5cbiAgICAgICAgPC9Cb3g+XG5cbiAgICAgICAgPFN0YWNrIHNwYWNpbmc9ezAuNjV9PlxuICAgICAgICAgIDxTdGFjayBkaXJlY3Rpb249XCJyb3dcIiBqdXN0aWZ5Q29udGVudD1cInNwYWNlLWJldHdlZW5cIiBhbGlnbkl0ZW1zPVwiY2VudGVyXCIgc3BhY2luZz17MX0+XG4gICAgICAgICAgICA8VHlwb2dyYXBoeSBzeD17eyBjb2xvcjogJ3ZhcigtLW1vcml1cy10aXRsZS10ZXh0KScsIGZvbnRTaXplOiAnMC45MnJlbScsIGZvbnRXZWlnaHQ6IDgwMCB9fT5cbiAgICAgICAgICAgICAge0FQS19GSUxFTkFNRX1cbiAgICAgICAgICAgIDwvVHlwb2dyYXBoeT5cbiAgICAgICAgICAgIDxUeXBvZ3JhcGh5IHN4PXt7IGNvbG9yOiAndmFyKC0tbW9yaXVzLXRleHQtc2Vjb25kYXJ5KScsIGZvbnRTaXplOiAnMC44MnJlbScsIGZvbnRXZWlnaHQ6IDcwMCB9fT5cbiAgICAgICAgICAgICAge3Byb2dyZXNzTGFiZWx9XG4gICAgICAgICAgICA8L1R5cG9ncmFwaHk+XG4gICAgICAgICAgPC9TdGFjaz5cbiAgICAgICAgICA8TGluZWFyUHJvZ3Jlc3NcbiAgICAgICAgICAgIHZhcmlhbnQ9e2lzRG93bmxvYWRpbmcgJiYgZG93bmxvYWRQcm9ncmVzcyA8PSAwID8gJ2luZGV0ZXJtaW5hdGUnIDogJ2RldGVybWluYXRlJ31cbiAgICAgICAgICAgIHZhbHVlPXtpc0Rvd25sb2FkaW5nIHx8IGlzRmluaXNoZWQgPyBkb3dubG9hZFByb2dyZXNzIDogMH1cbiAgICAgICAgICAgIHN4PXt7XG4gICAgICAgICAgICAgIGhlaWdodDogOCxcbiAgICAgICAgICAgICAgYm9yZGVyUmFkaXVzOiAnOTk5cHgnLFxuICAgICAgICAgICAgICBiYWNrZ3JvdW5kQ29sb3I6ICdjb2xvci1taXgoaW4gc3JnYiwgdmFyKC0tbW9yaXVzLWNhcmQtYm9yZGVyKSA1NCUsIHRyYW5zcGFyZW50KScsXG4gICAgICAgICAgICAgICcmIC5NdWlMaW5lYXJQcm9ncmVzcy1iYXInOiB7XG4gICAgICAgICAgICAgICAgYm9yZGVyUmFkaXVzOiAnOTk5cHgnLFxuICAgICAgICAgICAgICAgIGJhY2tncm91bmRDb2xvcjogJ3ZhcigtLW1vcml1cy1hY2NlbnQpJyxcbiAgICAgICAgICAgICAgfSxcbiAgICAgICAgICAgIH19XG4gICAgICAgICAgLz5cbiAgICAgICAgPC9TdGFjaz5cblxuICAgICAgICA8Qm94XG4gICAgICAgICAgc3g9e3tcbiAgICAgICAgICAgIGJvcmRlclJhZGl1czogJzEwcHgnLFxuICAgICAgICAgICAgYm9yZGVyOiAndmFyKC0tbW9yaXVzLWJvcmRlci13aWR0aCkgc29saWQgdmFyKC0tbW9yaXVzLWNhcmQtYm9yZGVyKScsXG4gICAgICAgICAgICBiYWNrZ3JvdW5kQ29sb3I6ICd2YXIoLS1tb3JpdXMtZWxldmF0ZWQtYmcpJyxcbiAgICAgICAgICAgIHB4OiAxLjE1LFxuICAgICAgICAgICAgcHk6IDEsXG4gICAgICAgICAgfX1cbiAgICAgICAgPlxuICAgICAgICAgIDxUeXBvZ3JhcGh5IHN4PXt7IGNvbG9yOiAndmFyKC0tbW9yaXVzLXRpdGxlLXRleHQpJywgZm9udFNpemU6ICcwLjlyZW0nLCBmb250V2VpZ2h0OiA4MDAsIG1iOiAwLjQ1IH19PlxuICAgICAgICAgICAg0JrQsNC6INGD0YHRgtCw0L3QvtCy0LjRgtGMXG4gICAgICAgICAgPC9UeXBvZ3JhcGh5PlxuICAgICAgICAgIDxTdGFjayBzcGFjaW5nPXswLjQ1fT5cbiAgICAgICAgICAgIDxUeXBvZ3JhcGh5IHN4PXt7IGNvbG9yOiAndmFyKC0tbW9yaXVzLXRleHQtc2Vjb25kYXJ5KScsIGZvbnRTaXplOiAnMC44NHJlbScsIGxpbmVIZWlnaHQ6IDEuNDUgfX0+XG4gICAgICAgICAgICAgIDEuINCh0LrQsNGH0LDQudGC0LUgQVBLINC4INC+0YLQutGA0L7QudGC0LUg0YTQsNC50Lsg0L3QsCBBbmRyb2lkLdGD0YHRgtGA0L7QudGB0YLQstC1LlxuICAgICAgICAgICAgPC9UeXBvZ3JhcGh5PlxuICAgICAgICAgICAgPFR5cG9ncmFwaHkgc3g9e3sgY29sb3I6ICd2YXIoLS1tb3JpdXMtdGV4dC1zZWNvbmRhcnkpJywgZm9udFNpemU6ICcwLjg0cmVtJywgbGluZUhlaWdodDogMS40NSB9fT5cbiAgICAgICAgICAgICAgMi4g0JXRgdC70LggQW5kcm9pZCDQv9C+0L/RgNC+0YHQuNGCINGA0LDQt9GA0LXRiNC40YLRjCDRg9GB0YLQsNC90L7QstC60YMg0LjQtyDQsdGA0LDRg9C30LXRgNCwLCDRgNCw0LfRgNC10YjQuNGC0LUg0LXQtSDQsiDQvdCw0YHRgtGA0L7QudC60LDRhS5cbiAgICAgICAgICAgIDwvVHlwb2dyYXBoeT5cbiAgICAgICAgICAgIDxUeXBvZ3JhcGh5IHN4PXt7IGNvbG9yOiAndmFyKC0tbW9yaXVzLXRleHQtc2Vjb25kYXJ5KScsIGZvbnRTaXplOiAnMC44NHJlbScsIGxpbmVIZWlnaHQ6IDEuNDUgfX0+XG4gICAgICAgICAgICAgIDMuINCf0YDQuCDQv9GA0LXQtNGD0L/RgNC10LbQtNC10L3QuNC4IFBsYXkg0JfQsNGJ0LjRgtGLINC90LDQttC80LjRgtC1IMKr0KPRgdGC0LDQvdC+0LLQuNGC0Ywg0LHQtdC3INC/0YDQvtCy0LXRgNC60LjCuy5cbiAgICAgICAgICAgIDwvVHlwb2dyYXBoeT5cbiAgICAgICAgICA8L1N0YWNrPlxuICAgICAgICA8L0JveD5cblxuICAgICAgICB7ZG93bmxvYWRFcnJvciA/IChcbiAgICAgICAgICA8VHlwb2dyYXBoeSBzeD17eyBjb2xvcjogJyNmZjhmOGYnLCBmb250U2l6ZTogJzAuODZyZW0nLCBsaW5lSGVpZ2h0OiAxLjQgfX0+e2Rvd25sb2FkRXJyb3J9PC9UeXBvZ3JhcGh5PlxuICAgICAgICApIDogbnVsbH1cblxuICAgICAgICA8U3RhY2sgZGlyZWN0aW9uPXt7IHhzOiAnY29sdW1uJywgc206ICdyb3cnIH19IHNwYWNpbmc9ezAuOH0ganVzdGlmeUNvbnRlbnQ9XCJmbGV4LWVuZFwiPlxuICAgICAgICAgIDxCb3hcbiAgICAgICAgICAgIGNvbXBvbmVudD1cImJ1dHRvblwiXG4gICAgICAgICAgICB0eXBlPVwiYnV0dG9uXCJcbiAgICAgICAgICAgIG9uQ2xpY2s9e2hhbmRsZUNsb3NlfVxuICAgICAgICAgICAgZGlzYWJsZWQ9e2lzRG93bmxvYWRpbmd9XG4gICAgICAgICAgICBzeD17e1xuICAgICAgICAgICAgICBtaW5IZWlnaHQ6IDQyLFxuICAgICAgICAgICAgICBweDogMS41LFxuICAgICAgICAgICAgICBib3JkZXJSYWRpdXM6ICcxMHB4JyxcbiAgICAgICAgICAgICAgYm9yZGVyOiAnbm9uZScsXG4gICAgICAgICAgICAgIGJhY2tncm91bmRDb2xvcjogJ3RyYW5zcGFyZW50JyxcbiAgICAgICAgICAgICAgY29sb3I6ICd2YXIoLS1tb3JpdXMtdGV4dC1zZWNvbmRhcnkpJyxcbiAgICAgICAgICAgICAgZm9udDogJ2luaGVyaXQnLFxuICAgICAgICAgICAgICBmb250V2VpZ2h0OiA4MDAsXG4gICAgICAgICAgICAgIGN1cnNvcjogaXNEb3dubG9hZGluZyA/ICdkZWZhdWx0JyA6ICdwb2ludGVyJyxcbiAgICAgICAgICAgICAgb3BhY2l0eTogaXNEb3dubG9hZGluZyA/IDAuNTIgOiAxLFxuICAgICAgICAgICAgICAnJjpob3Zlcic6IHtcbiAgICAgICAgICAgICAgICBjb2xvcjogaXNEb3dubG9hZGluZyA/ICd2YXIoLS1tb3JpdXMtdGV4dC1zZWNvbmRhcnkpJyA6ICd2YXIoLS1tb3JpdXMtdGl0bGUtdGV4dCknLFxuICAgICAgICAgICAgICB9LFxuICAgICAgICAgICAgfX1cbiAgICAgICAgICA+XG4gICAgICAgICAgICDQl9Cw0LrRgNGL0YLRjFxuICAgICAgICAgIDwvQm94PlxuICAgICAgICAgIDxCb3hcbiAgICAgICAgICAgIGNvbXBvbmVudD1cImJ1dHRvblwiXG4gICAgICAgICAgICB0eXBlPVwiYnV0dG9uXCJcbiAgICAgICAgICAgIG9uQ2xpY2s9e2hhbmRsZURvd25sb2FkfVxuICAgICAgICAgICAgZGlzYWJsZWQ9e2lzRG93bmxvYWRpbmd9XG4gICAgICAgICAgICBzeD17e1xuICAgICAgICAgICAgICBtaW5IZWlnaHQ6IDQyLFxuICAgICAgICAgICAgICBweDogMS42NSxcbiAgICAgICAgICAgICAgYm9yZGVyUmFkaXVzOiAnMTBweCcsXG4gICAgICAgICAgICAgIGJvcmRlcjogJ3ZhcigtLW1vcml1cy1ib3JkZXItd2lkdGgpIHNvbGlkIHZhcigtLW1vcml1cy1jYXJkLWJvcmRlciknLFxuICAgICAgICAgICAgICBiYWNrZ3JvdW5kQ29sb3I6ICd2YXIoLS1tb3JpdXMtYWNjZW50KScsXG4gICAgICAgICAgICAgIGNvbG9yOiAndmFyKC0tbW9yaXVzLW9uLWFjY2VudCwgIzA5MTAxNiknLFxuICAgICAgICAgICAgICBmb250OiAnaW5oZXJpdCcsXG4gICAgICAgICAgICAgIGZvbnRXZWlnaHQ6IDkwMCxcbiAgICAgICAgICAgICAgY3Vyc29yOiBpc0Rvd25sb2FkaW5nID8gJ2RlZmF1bHQnIDogJ3BvaW50ZXInLFxuICAgICAgICAgICAgICBvcGFjaXR5OiBpc0Rvd25sb2FkaW5nID8gMC43MiA6IDEsXG4gICAgICAgICAgICAgIHRyYW5zaXRpb246ICd0cmFuc2Zvcm0gMTYwbXMgZWFzZSwgb3BhY2l0eSAxNjBtcyBlYXNlJyxcbiAgICAgICAgICAgICAgJyY6aG92ZXInOiB7XG4gICAgICAgICAgICAgICAgdHJhbnNmb3JtOiBpc0Rvd25sb2FkaW5nID8gJ25vbmUnIDogJ3RyYW5zbGF0ZVkoLTFweCknLFxuICAgICAgICAgICAgICB9LFxuICAgICAgICAgICAgfX1cbiAgICAgICAgICA+XG4gICAgICAgICAgICB7aXNEb3dubG9hZGluZyA/ICfQodC60LDRh9C40LLQsNC10LwuLi4nIDogJ9Ch0LrQsNGH0LDRgtGMINC00LvRjyBBbmRyb2lkJ31cbiAgICAgICAgICA8L0JveD5cbiAgICAgICAgPC9TdGFjaz5cbiAgICAgIDwvU3RhY2s+XG4gICAgPC9CYXNlRGlhbG9nPlxuICApXG59XG4iXSwiZmlsZSI6IkM6L1VzZXJzL2FsZXh1L09uZURyaXZlL0Rlc2t0b3AvTW9SaXVzL2Zyb250ZW5kL3NyYy9jb21wb25lbnRzL0FwcERvd25sb2FkRGlhbG9nLnRzeCJ9

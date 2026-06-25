@@ -1,0 +1,341 @@
+import { createHotContext as __vite__createHotContext } from "/@vite/client";import.meta.hot = __vite__createHotContext("/src/components/story/AdvancedRegenerationDialog.tsx");import __vite__cjsImport0_react_jsxDevRuntime from "/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=be683146"; const jsxDEV = __vite__cjsImport0_react_jsxDevRuntime["jsxDEV"];
+import { Box, Button, Checkbox, CircularProgress, Stack, ToggleButton, ToggleButtonGroup, Typography } from "/node_modules/.vite/deps/@mui_material.js?v=be683146";
+import {
+  SMART_REGENERATION_MODE_DEFINITIONS,
+  SMART_REGENERATION_OPTION_DEFINITIONS
+} from "/src/utils/advancedRegeneration.ts";
+import BaseDialog from "/src/components/dialogs/BaseDialog.tsx";
+function AdvancedRegenerationDialog({
+  open,
+  selectedMode,
+  selectedOptions,
+  disabled = false,
+  onClose,
+  onModeChange,
+  onToggleOption,
+  onDefaultRegenerate,
+  onSmartRegenerate
+}) {
+  const selectedOptionSet = new Set(selectedOptions);
+  const hasSelectedMutableOptions = selectedOptions.some((option) => option !== "preserve_format");
+  return /* @__PURE__ */ jsxDEV(
+    BaseDialog,
+    {
+      open,
+      onClose: disabled ? () => void 0 : onClose,
+      maxWidth: "md",
+      header: /* @__PURE__ */ jsxDEV(Stack, { spacing: 0.45, children: [
+        /* @__PURE__ */ jsxDEV(Typography, { sx: { fontSize: "1.16rem", fontWeight: 800, color: "var(--morius-title-text)" }, children: "Что изменить в ответе?" }, void 0, false, {
+          fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+          lineNumber: 42,
+          columnNumber: 11
+        }, this),
+        /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-text-secondary)", fontSize: "0.92rem", lineHeight: 1.45 }, children: "Выберите режим и один или несколько пунктов. Формат реплик и персонажей будет сохранён." }, void 0, false, {
+          fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+          lineNumber: 45,
+          columnNumber: 11
+        }, this)
+      ] }, void 0, true, {
+        fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+        lineNumber: 41,
+        columnNumber: 7
+      }, this),
+      contentSx: {
+        maxHeight: { xs: "68vh", sm: "64vh" },
+        overflowY: "auto"
+      },
+      actions: /* @__PURE__ */ jsxDEV(
+        Stack,
+        {
+          direction: { xs: "column", sm: "row" },
+          spacing: 0.75,
+          justifyContent: "flex-end",
+          sx: { width: "100%" },
+          children: [
+            /* @__PURE__ */ jsxDEV(Button, { onClick: onClose, disabled, sx: { color: "var(--morius-text-secondary)" }, children: "Отмена" }, void 0, false, {
+              fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+              lineNumber: 61,
+              columnNumber: 11
+            }, this),
+            /* @__PURE__ */ jsxDEV(
+              Button,
+              {
+                onClick: onDefaultRegenerate,
+                disabled,
+                sx: {
+                  color: "var(--morius-title-text)",
+                  border: "var(--morius-border-width) solid var(--morius-card-border)",
+                  backgroundColor: "color-mix(in srgb, var(--morius-elevated-bg) 72%, #000 28%)"
+                },
+                children: "Обычная перегенерация"
+              },
+              void 0,
+              false,
+              {
+                fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+                lineNumber: 64,
+                columnNumber: 11
+              },
+              this
+            ),
+            /* @__PURE__ */ jsxDEV(
+              Button,
+              {
+                onClick: onSmartRegenerate,
+                disabled: disabled || !hasSelectedMutableOptions,
+                sx: {
+                  color: "var(--morius-text-primary)",
+                  border: "var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 52%, var(--morius-card-border))",
+                  backgroundColor: "var(--morius-button-active)",
+                  "&.Mui-disabled": {
+                    color: "var(--morius-text-secondary)",
+                    opacity: 0.56
+                  }
+                },
+                children: disabled ? /* @__PURE__ */ jsxDEV(Stack, { direction: "row", spacing: 0.75, alignItems: "center", children: [
+                  /* @__PURE__ */ jsxDEV(CircularProgress, { size: 14, sx: { color: "currentColor" } }, void 0, false, {
+                    fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+                    lineNumber: 90,
+                    columnNumber: 17
+                  }, this),
+                  /* @__PURE__ */ jsxDEV("span", { children: "Перегенерация..." }, void 0, false, {
+                    fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+                    lineNumber: 91,
+                    columnNumber: 17
+                  }, this)
+                ] }, void 0, true, {
+                  fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+                  lineNumber: 89,
+                  columnNumber: 11
+                }, this) : "Перегенерировать"
+              },
+              void 0,
+              false,
+              {
+                fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+                lineNumber: 75,
+                columnNumber: 11
+              },
+              this
+            )
+          ]
+        },
+        void 0,
+        true,
+        {
+          fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+          lineNumber: 55,
+          columnNumber: 7
+        },
+        this
+      ),
+      children: [
+        /* @__PURE__ */ jsxDEV(Stack, { spacing: 0.55, sx: { mb: 1 }, children: [
+          /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-title-text)", fontSize: "0.88rem", fontWeight: 800 }, children: "Режим:" }, void 0, false, {
+            fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+            lineNumber: 101,
+            columnNumber: 9
+          }, this),
+          /* @__PURE__ */ jsxDEV(
+            ToggleButtonGroup,
+            {
+              exclusive: true,
+              size: "small",
+              value: selectedMode,
+              onChange: (_, nextMode) => {
+                if (nextMode !== null) {
+                  onModeChange(nextMode);
+                }
+              },
+              disabled,
+              sx: {
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" },
+                gap: 0.6,
+                "& .MuiToggleButtonGroup-grouped": {
+                  minWidth: 0,
+                  m: "0 !important",
+                  borderRadius: "8px !important",
+                  border: "var(--morius-border-width) solid var(--morius-card-border) !important"
+                }
+              },
+              children: SMART_REGENERATION_MODE_DEFINITIONS.map(
+                (mode) => /* @__PURE__ */ jsxDEV(
+                  ToggleButton,
+                  {
+                    value: mode.id,
+                    title: mode.description,
+                    sx: {
+                      minHeight: 36,
+                      px: 1.2,
+                      color: "var(--morius-text-secondary)",
+                      fontSize: "0.86rem",
+                      fontWeight: 800,
+                      textTransform: "none",
+                      backgroundColor: "color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)",
+                      "&.Mui-selected": {
+                        color: "var(--morius-text-primary)",
+                        backgroundColor: "color-mix(in srgb, var(--morius-accent) 20%, var(--morius-elevated-bg))"
+                      },
+                      "&.Mui-selected:hover": {
+                        backgroundColor: "color-mix(in srgb, var(--morius-accent) 25%, var(--morius-elevated-bg))"
+                      }
+                    },
+                    children: mode.label
+                  },
+                  mode.id,
+                  false,
+                  {
+                    fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+                    lineNumber: 127,
+                    columnNumber: 11
+                  },
+                  this
+                )
+              )
+            },
+            void 0,
+            false,
+            {
+              fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+              lineNumber: 104,
+              columnNumber: 9
+            },
+            this
+          )
+        ] }, void 0, true, {
+          fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+          lineNumber: 100,
+          columnNumber: 7
+        }, this),
+        /* @__PURE__ */ jsxDEV(
+          Box,
+          {
+            sx: {
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" },
+              gap: 0.8
+            },
+            children: SMART_REGENERATION_OPTION_DEFINITIONS.map((option) => {
+              const checked = selectedOptionSet.has(option.id);
+              const optionDisabled = disabled || option.disabled === true;
+              return /* @__PURE__ */ jsxDEV(
+                Box,
+                {
+                  component: "label",
+                  sx: {
+                    minWidth: 0,
+                    display: "grid",
+                    gridTemplateColumns: "auto minmax(0, 1fr)",
+                    gap: 0.72,
+                    alignItems: "flex-start",
+                    p: 1,
+                    borderRadius: "8px",
+                    border: "var(--morius-border-width) solid var(--morius-card-border)",
+                    backgroundColor: checked ? "color-mix(in srgb, var(--morius-accent) 15%, var(--morius-elevated-bg))" : "color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)",
+                    cursor: optionDisabled ? "default" : "pointer",
+                    opacity: optionDisabled && option.id !== "preserve_format" ? 0.58 : 1
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxDEV(
+                      Checkbox,
+                      {
+                        checked,
+                        disabled: optionDisabled,
+                        onChange: () => onToggleOption(option.id),
+                        sx: {
+                          p: 0.1,
+                          color: "var(--morius-text-secondary)",
+                          "&.Mui-checked": {
+                            color: "var(--morius-accent)"
+                          }
+                        }
+                      },
+                      void 0,
+                      false,
+                      {
+                        fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+                        lineNumber: 184,
+                        columnNumber: 15
+                      },
+                      this
+                    ),
+                    /* @__PURE__ */ jsxDEV(Stack, { spacing: 0.25, sx: { minWidth: 0 }, children: [
+                      /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-title-text)", fontSize: "0.92rem", fontWeight: 800 }, children: option.label }, void 0, false, {
+                        fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+                        lineNumber: 197,
+                        columnNumber: 17
+                      }, this),
+                      /* @__PURE__ */ jsxDEV(Typography, { sx: { color: "var(--morius-text-secondary)", fontSize: "0.82rem", lineHeight: 1.38 }, children: option.description }, void 0, false, {
+                        fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+                        lineNumber: 200,
+                        columnNumber: 17
+                      }, this)
+                    ] }, void 0, true, {
+                      fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+                      lineNumber: 196,
+                      columnNumber: 15
+                    }, this)
+                  ]
+                },
+                option.id,
+                true,
+                {
+                  fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+                  lineNumber: 165,
+                  columnNumber: 13
+                },
+                this
+              );
+            })
+          },
+          void 0,
+          false,
+          {
+            fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+            lineNumber: 154,
+            columnNumber: 7
+          },
+          this
+        )
+      ]
+    },
+    void 0,
+    true,
+    {
+      fileName: "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx",
+      lineNumber: 36,
+      columnNumber: 5
+    },
+    this
+  );
+}
+_c = AdvancedRegenerationDialog;
+export default AdvancedRegenerationDialog;
+var _c;
+$RefreshReg$(_c, "AdvancedRegenerationDialog");
+import * as RefreshRuntime from "/@react-refresh";
+const inWebWorker = typeof WorkerGlobalScope !== "undefined" && self instanceof WorkerGlobalScope;
+if (import.meta.hot && !inWebWorker) {
+  if (!window.$RefreshReg$) {
+    throw new Error(
+      "@vitejs/plugin-react can't detect preamble. Something is wrong."
+    );
+  }
+  RefreshRuntime.__hmr_import(import.meta.url).then((currentExports) => {
+    RefreshRuntime.registerExportsForReactRefresh("C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx", currentExports);
+    import.meta.hot.accept((nextExports) => {
+      if (!nextExports) return;
+      const invalidateMessage = RefreshRuntime.validateRefreshBoundaryAndEnqueueUpdate("C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx", currentExports, nextExports);
+      if (invalidateMessage) import.meta.hot.invalidate(invalidateMessage);
+    });
+  });
+}
+function $RefreshReg$(type, id) {
+  return RefreshRuntime.register(type, "C:/Users/alexu/OneDrive/Desktop/MoRius/frontend/src/components/story/AdvancedRegenerationDialog.tsx " + id);
+}
+function $RefreshSig$() {
+  return RefreshRuntime.createSignatureFunctionForTransform();
+}
+
+//# sourceMappingURL=data:application/json;base64,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Q2lyY3VsYXJQcm9ncmVzcyIsIlN0YWNrIiwiVG9nZ2xlQnV0dG9uIiwiVG9nZ2xlQnV0dG9uR3JvdXAiLCJUeXBvZ3JhcGh5IiwiU01BUlRfUkVHRU5FUkFUSU9OX01PREVfREVGSU5JVElPTlMiLCJTTUFSVF9SRUdFTkVSQVRJT05fT1BUSU9OX0RFRklOSVRJT05TIiwiQmFzZURpYWxvZyIsIkFkdmFuY2VkUmVnZW5lcmF0aW9uRGlhbG9nIiwib3BlbiIsInNlbGVjdGVkTW9kZSIsInNlbGVjdGVkT3B0aW9ucyIsImRpc2FibGVkIiwib25DbG9zZSIsIm9uTW9kZUNoYW5nZSIsIm9uVG9nZ2xlT3B0aW9uIiwib25EZWZhdWx0UmVnZW5lcmF0ZSIsIm9uU21hcnRSZWdlbmVyYXRlIiwic2VsZWN0ZWRPcHRpb25TZXQiLCJTZXQiLCJoYXNTZWxlY3RlZE11dGFibGVPcHRpb25zIiwic29tZSIsIm9wdGlvbiIsInVuZGVmaW5lZCIsImZvbnRTaXplIiwiZm9udFdlaWdodCIsImNvbG9yIiwibGluZUhlaWdodCIsIm1heEhlaWdodCIsInhzIiwic20iLCJvdmVyZmxvd1kiLCJ3aWR0aCIsImJvcmRlciIsImJhY2tncm91bmRDb2xvciIsIm9wYWNpdHkiLCJtYiIsIl8iLCJuZXh0TW9kZSIsImRpc3BsYXkiLCJncmlkVGVtcGxhdGVDb2x1bW5zIiwiZ2FwIiwibWluV2lkdGgiLCJtIiwiYm9yZGVyUmFkaXVzIiwibWFwIiwibW9kZSIsImlkIiwiZGVzY3JpcHRpb24iLCJtaW5IZWlnaHQiLCJweCIsInRleHRUcmFuc2Zvcm0iLCJsYWJlbCIsImNoZWNrZWQiLCJoYXMiLCJvcHRpb25EaXNhYmxlZCIsImFsaWduSXRlbXMiLCJwIiwiY3Vyc29yIiwiX2MiXSwiaWdub3JlTGlzdCI6W10sInNvdXJjZXMiOlsiQWR2YW5jZWRSZWdlbmVyYXRpb25EaWFsb2cudHN4Il0sInNvdXJjZXNDb250ZW50IjpbImltcG9ydCB7IEJveCwgQnV0dG9uLCBDaGVja2JveCwgQ2lyY3VsYXJQcm9ncmVzcywgU3RhY2ssIFRvZ2dsZUJ1dHRvbiwgVG9nZ2xlQnV0dG9uR3JvdXAsIFR5cG9ncmFwaHkgfSBmcm9tICdAbXVpL21hdGVyaWFsJ1xuaW1wb3J0IHR5cGUgeyBTbWFydFJlZ2VuZXJhdGlvbk1vZGUsIFNtYXJ0UmVnZW5lcmF0aW9uT3B0aW9uIH0gZnJvbSAnLi4vLi4vdHlwZXMvc3RvcnknXG5pbXBvcnQge1xuICBTTUFSVF9SRUdFTkVSQVRJT05fTU9ERV9ERUZJTklUSU9OUyxcbiAgU01BUlRfUkVHRU5FUkFUSU9OX09QVElPTl9ERUZJTklUSU9OUyxcbn0gZnJvbSAnLi4vLi4vdXRpbHMvYWR2YW5jZWRSZWdlbmVyYXRpb24nXG5pbXBvcnQgQmFzZURpYWxvZyBmcm9tICcuLi9kaWFsb2dzL0Jhc2VEaWFsb2cnXG5cbnR5cGUgQWR2YW5jZWRSZWdlbmVyYXRpb25EaWFsb2dQcm9wcyA9IHtcbiAgb3BlbjogYm9vbGVhblxuICBzZWxlY3RlZE1vZGU6IFNtYXJ0UmVnZW5lcmF0aW9uTW9kZVxuICBzZWxlY3RlZE9wdGlvbnM6IFNtYXJ0UmVnZW5lcmF0aW9uT3B0aW9uW11cbiAgZGlzYWJsZWQ/OiBib29sZWFuXG4gIG9uQ2xvc2U6ICgpID0+IHZvaWRcbiAgb25Nb2RlQ2hhbmdlOiAobW9kZTogU21hcnRSZWdlbmVyYXRpb25Nb2RlKSA9PiB2b2lkXG4gIG9uVG9nZ2xlT3B0aW9uOiAob3B0aW9uOiBTbWFydFJlZ2VuZXJhdGlvbk9wdGlvbikgPT4gdm9pZFxuICBvbkRlZmF1bHRSZWdlbmVyYXRlOiAoKSA9PiB2b2lkXG4gIG9uU21hcnRSZWdlbmVyYXRlOiAoKSA9PiB2b2lkXG59XG5cbmZ1bmN0aW9uIEFkdmFuY2VkUmVnZW5lcmF0aW9uRGlhbG9nKHtcbiAgb3BlbixcbiAgc2VsZWN0ZWRNb2RlLFxuICBzZWxlY3RlZE9wdGlvbnMsXG4gIGRpc2FibGVkID0gZmFsc2UsXG4gIG9uQ2xvc2UsXG4gIG9uTW9kZUNoYW5nZSxcbiAgb25Ub2dnbGVPcHRpb24sXG4gIG9uRGVmYXVsdFJlZ2VuZXJhdGUsXG4gIG9uU21hcnRSZWdlbmVyYXRlLFxufTogQWR2YW5jZWRSZWdlbmVyYXRpb25EaWFsb2dQcm9wcykge1xuICBjb25zdCBzZWxlY3RlZE9wdGlvblNldCA9IG5ldyBTZXQoc2VsZWN0ZWRPcHRpb25zKVxuICBjb25zdCBoYXNTZWxlY3RlZE11dGFibGVPcHRpb25zID0gc2VsZWN0ZWRPcHRpb25zLnNvbWUoKG9wdGlvbikgPT4gb3B0aW9uICE9PSAncHJlc2VydmVfZm9ybWF0JylcblxuICByZXR1cm4gKFxuICAgIDxCYXNlRGlhbG9nXG4gICAgICBvcGVuPXtvcGVufVxuICAgICAgb25DbG9zZT17ZGlzYWJsZWQgPyAoKSA9PiB1bmRlZmluZWQgOiBvbkNsb3NlfVxuICAgICAgbWF4V2lkdGg9XCJtZFwiXG4gICAgICBoZWFkZXI9e1xuICAgICAgICA8U3RhY2sgc3BhY2luZz17MC40NX0+XG4gICAgICAgICAgPFR5cG9ncmFwaHkgc3g9e3sgZm9udFNpemU6ICcxLjE2cmVtJywgZm9udFdlaWdodDogODAwLCBjb2xvcjogJ3ZhcigtLW1vcml1cy10aXRsZS10ZXh0KScgfX0+XG4gICAgICAgICAgICDQp9GC0L4g0LjQt9C80LXQvdC40YLRjCDQsiDQvtGC0LLQtdGC0LU/XG4gICAgICAgICAgPC9UeXBvZ3JhcGh5PlxuICAgICAgICAgIDxUeXBvZ3JhcGh5IHN4PXt7IGNvbG9yOiAndmFyKC0tbW9yaXVzLXRleHQtc2Vjb25kYXJ5KScsIGZvbnRTaXplOiAnMC45MnJlbScsIGxpbmVIZWlnaHQ6IDEuNDUgfX0+XG4gICAgICAgICAgICDQktGL0LHQtdGA0LjRgtC1INGA0LXQttC40Lwg0Lgg0L7QtNC40L0g0LjQu9C4INC90LXRgdC60L7Qu9GM0LrQviDQv9GD0L3QutGC0L7Qsi4g0KTQvtGA0LzQsNGCINGA0LXQv9C70LjQuiDQuCDQv9C10YDRgdC+0L3QsNC20LXQuSDQsdGD0LTQtdGCINGB0L7RhdGA0LDQvdGR0L0uXG4gICAgICAgICAgPC9UeXBvZ3JhcGh5PlxuICAgICAgICA8L1N0YWNrPlxuICAgICAgfVxuICAgICAgY29udGVudFN4PXt7XG4gICAgICAgIG1heEhlaWdodDogeyB4czogJzY4dmgnLCBzbTogJzY0dmgnIH0sXG4gICAgICAgIG92ZXJmbG93WTogJ2F1dG8nLFxuICAgICAgfX1cbiAgICAgIGFjdGlvbnM9e1xuICAgICAgICA8U3RhY2tcbiAgICAgICAgICBkaXJlY3Rpb249e3sgeHM6ICdjb2x1bW4nLCBzbTogJ3JvdycgfX1cbiAgICAgICAgICBzcGFjaW5nPXswLjc1fVxuICAgICAgICAgIGp1c3RpZnlDb250ZW50PVwiZmxleC1lbmRcIlxuICAgICAgICAgIHN4PXt7IHdpZHRoOiAnMTAwJScgfX1cbiAgICAgICAgPlxuICAgICAgICAgIDxCdXR0b24gb25DbGljaz17b25DbG9zZX0gZGlzYWJsZWQ9e2Rpc2FibGVkfSBzeD17eyBjb2xvcjogJ3ZhcigtLW1vcml1cy10ZXh0LXNlY29uZGFyeSknIH19PlxuICAgICAgICAgICAg0J7RgtC80LXQvdCwXG4gICAgICAgICAgPC9CdXR0b24+XG4gICAgICAgICAgPEJ1dHRvblxuICAgICAgICAgICAgb25DbGljaz17b25EZWZhdWx0UmVnZW5lcmF0ZX1cbiAgICAgICAgICAgIGRpc2FibGVkPXtkaXNhYmxlZH1cbiAgICAgICAgICAgIHN4PXt7XG4gICAgICAgICAgICAgIGNvbG9yOiAndmFyKC0tbW9yaXVzLXRpdGxlLXRleHQpJyxcbiAgICAgICAgICAgICAgYm9yZGVyOiAndmFyKC0tbW9yaXVzLWJvcmRlci13aWR0aCkgc29saWQgdmFyKC0tbW9yaXVzLWNhcmQtYm9yZGVyKScsXG4gICAgICAgICAgICAgIGJhY2tncm91bmRDb2xvcjogJ2NvbG9yLW1peChpbiBzcmdiLCB2YXIoLS1tb3JpdXMtZWxldmF0ZWQtYmcpIDcyJSwgIzAwMCAyOCUpJyxcbiAgICAgICAgICAgIH19XG4gICAgICAgICAgPlxuICAgICAgICAgICAg0J7QsdGL0YfQvdCw0Y8g0L/QtdGA0LXQs9C10L3QtdGA0LDRhtC40Y9cbiAgICAgICAgICA8L0J1dHRvbj5cbiAgICAgICAgICA8QnV0dG9uXG4gICAgICAgICAgICBvbkNsaWNrPXtvblNtYXJ0UmVnZW5lcmF0ZX1cbiAgICAgICAgICAgIGRpc2FibGVkPXtkaXNhYmxlZCB8fCAhaGFzU2VsZWN0ZWRNdXRhYmxlT3B0aW9uc31cbiAgICAgICAgICAgIHN4PXt7XG4gICAgICAgICAgICAgIGNvbG9yOiAndmFyKC0tbW9yaXVzLXRleHQtcHJpbWFyeSknLFxuICAgICAgICAgICAgICBib3JkZXI6ICd2YXIoLS1tb3JpdXMtYm9yZGVyLXdpZHRoKSBzb2xpZCBjb2xvci1taXgoaW4gc3JnYiwgdmFyKC0tbW9yaXVzLWFjY2VudCkgNTIlLCB2YXIoLS1tb3JpdXMtY2FyZC1ib3JkZXIpKScsXG4gICAgICAgICAgICAgIGJhY2tncm91bmRDb2xvcjogJ3ZhcigtLW1vcml1cy1idXR0b24tYWN0aXZlKScsXG4gICAgICAgICAgICAgICcmLk11aS1kaXNhYmxlZCc6IHtcbiAgICAgICAgICAgICAgICBjb2xvcjogJ3ZhcigtLW1vcml1cy10ZXh0LXNlY29uZGFyeSknLFxuICAgICAgICAgICAgICAgIG9wYWNpdHk6IDAuNTYsXG4gICAgICAgICAgICAgIH0sXG4gICAgICAgICAgICB9fVxuICAgICAgICAgID5cbiAgICAgICAgICAgIHtkaXNhYmxlZCA/IChcbiAgICAgICAgICAgICAgPFN0YWNrIGRpcmVjdGlvbj1cInJvd1wiIHNwYWNpbmc9ezAuNzV9IGFsaWduSXRlbXM9XCJjZW50ZXJcIj5cbiAgICAgICAgICAgICAgICA8Q2lyY3VsYXJQcm9ncmVzcyBzaXplPXsxNH0gc3g9e3sgY29sb3I6ICdjdXJyZW50Q29sb3InIH19IC8+XG4gICAgICAgICAgICAgICAgPHNwYW4+0J/QtdGA0LXQs9C10L3QtdGA0LDRhtC40Y8uLi48L3NwYW4+XG4gICAgICAgICAgICAgIDwvU3RhY2s+XG4gICAgICAgICAgICApIDogKFxuICAgICAgICAgICAgICAn0J/QtdGA0LXQs9C10L3QtdGA0LjRgNC+0LLQsNGC0YwnXG4gICAgICAgICAgICApfVxuICAgICAgICAgIDwvQnV0dG9uPlxuICAgICAgICA8L1N0YWNrPlxuICAgICAgfVxuICAgID5cbiAgICAgIDxTdGFjayBzcGFjaW5nPXswLjU1fSBzeD17eyBtYjogMSB9fT5cbiAgICAgICAgPFR5cG9ncmFwaHkgc3g9e3sgY29sb3I6ICd2YXIoLS1tb3JpdXMtdGl0bGUtdGV4dCknLCBmb250U2l6ZTogJzAuODhyZW0nLCBmb250V2VpZ2h0OiA4MDAgfX0+XG4gICAgICAgICAg0KDQtdC20LjQvDpcbiAgICAgICAgPC9UeXBvZ3JhcGh5PlxuICAgICAgICA8VG9nZ2xlQnV0dG9uR3JvdXBcbiAgICAgICAgICBleGNsdXNpdmVcbiAgICAgICAgICBzaXplPVwic21hbGxcIlxuICAgICAgICAgIHZhbHVlPXtzZWxlY3RlZE1vZGV9XG4gICAgICAgICAgb25DaGFuZ2U9eyhfLCBuZXh0TW9kZTogU21hcnRSZWdlbmVyYXRpb25Nb2RlIHwgbnVsbCkgPT4ge1xuICAgICAgICAgICAgaWYgKG5leHRNb2RlICE9PSBudWxsKSB7XG4gICAgICAgICAgICAgIG9uTW9kZUNoYW5nZShuZXh0TW9kZSlcbiAgICAgICAgICAgIH1cbiAgICAgICAgICB9fVxuICAgICAgICAgIGRpc2FibGVkPXtkaXNhYmxlZH1cbiAgICAgICAgICBzeD17e1xuICAgICAgICAgICAgZGlzcGxheTogJ2dyaWQnLFxuICAgICAgICAgICAgZ3JpZFRlbXBsYXRlQ29sdW1uczogeyB4czogJzFmcicsIHNtOiAncmVwZWF0KDIsIG1pbm1heCgwLCAxZnIpKScgfSxcbiAgICAgICAgICAgIGdhcDogMC42LFxuICAgICAgICAgICAgJyYgLk11aVRvZ2dsZUJ1dHRvbkdyb3VwLWdyb3VwZWQnOiB7XG4gICAgICAgICAgICAgIG1pbldpZHRoOiAwLFxuICAgICAgICAgICAgICBtOiAnMCAhaW1wb3J0YW50JyxcbiAgICAgICAgICAgICAgYm9yZGVyUmFkaXVzOiAnOHB4ICFpbXBvcnRhbnQnLFxuICAgICAgICAgICAgICBib3JkZXI6ICd2YXIoLS1tb3JpdXMtYm9yZGVyLXdpZHRoKSBzb2xpZCB2YXIoLS1tb3JpdXMtY2FyZC1ib3JkZXIpICFpbXBvcnRhbnQnLFxuICAgICAgICAgICAgfSxcbiAgICAgICAgICB9fVxuICAgICAgICA+XG4gICAgICAgICAge1NNQVJUX1JFR0VORVJBVElPTl9NT0RFX0RFRklOSVRJT05TLm1hcCgobW9kZSkgPT4gKFxuICAgICAgICAgICAgPFRvZ2dsZUJ1dHRvblxuICAgICAgICAgICAgICBrZXk9e21vZGUuaWR9XG4gICAgICAgICAgICAgIHZhbHVlPXttb2RlLmlkfVxuICAgICAgICAgICAgICB0aXRsZT17bW9kZS5kZXNjcmlwdGlvbn1cbiAgICAgICAgICAgICAgc3g9e3tcbiAgICAgICAgICAgICAgICBtaW5IZWlnaHQ6IDM2LFxuICAgICAgICAgICAgICAgIHB4OiAxLjIsXG4gICAgICAgICAgICAgICAgY29sb3I6ICd2YXIoLS1tb3JpdXMtdGV4dC1zZWNvbmRhcnkpJyxcbiAgICAgICAgICAgICAgICBmb250U2l6ZTogJzAuODZyZW0nLFxuICAgICAgICAgICAgICAgIGZvbnRXZWlnaHQ6IDgwMCxcbiAgICAgICAgICAgICAgICB0ZXh0VHJhbnNmb3JtOiAnbm9uZScsXG4gICAgICAgICAgICAgICAgYmFja2dyb3VuZENvbG9yOiAnY29sb3ItbWl4KGluIHNyZ2IsIHZhcigtLW1vcml1cy1lbGV2YXRlZC1iZykgODIlLCAjMDAwIDE4JSknLFxuICAgICAgICAgICAgICAgICcmLk11aS1zZWxlY3RlZCc6IHtcbiAgICAgICAgICAgICAgICAgIGNvbG9yOiAndmFyKC0tbW9yaXVzLXRleHQtcHJpbWFyeSknLFxuICAgICAgICAgICAgICAgICAgYmFja2dyb3VuZENvbG9yOiAnY29sb3ItbWl4KGluIHNyZ2IsIHZhcigtLW1vcml1cy1hY2NlbnQpIDIwJSwgdmFyKC0tbW9yaXVzLWVsZXZhdGVkLWJnKSknLFxuICAgICAgICAgICAgICAgIH0sXG4gICAgICAgICAgICAgICAgJyYuTXVpLXNlbGVjdGVkOmhvdmVyJzoge1xuICAgICAgICAgICAgICAgICAgYmFja2dyb3VuZENvbG9yOiAnY29sb3ItbWl4KGluIHNyZ2IsIHZhcigtLW1vcml1cy1hY2NlbnQpIDI1JSwgdmFyKC0tbW9yaXVzLWVsZXZhdGVkLWJnKSknLFxuICAgICAgICAgICAgICAgIH0sXG4gICAgICAgICAgICAgIH19XG4gICAgICAgICAgICA+XG4gICAgICAgICAgICAgIHttb2RlLmxhYmVsfVxuICAgICAgICAgICAgPC9Ub2dnbGVCdXR0b24+XG4gICAgICAgICAgKSl9XG4gICAgICAgIDwvVG9nZ2xlQnV0dG9uR3JvdXA+XG4gICAgICA8L1N0YWNrPlxuXG4gICAgICA8Qm94XG4gICAgICAgIHN4PXt7XG4gICAgICAgICAgZGlzcGxheTogJ2dyaWQnLFxuICAgICAgICAgIGdyaWRUZW1wbGF0ZUNvbHVtbnM6IHsgeHM6ICcxZnInLCBzbTogJ3JlcGVhdCgyLCBtaW5tYXgoMCwgMWZyKSknIH0sXG4gICAgICAgICAgZ2FwOiAwLjgsXG4gICAgICAgIH19XG4gICAgICA+XG4gICAgICAgIHtTTUFSVF9SRUdFTkVSQVRJT05fT1BUSU9OX0RFRklOSVRJT05TLm1hcCgob3B0aW9uKSA9PiB7XG4gICAgICAgICAgY29uc3QgY2hlY2tlZCA9IHNlbGVjdGVkT3B0aW9uU2V0LmhhcyhvcHRpb24uaWQpXG4gICAgICAgICAgY29uc3Qgb3B0aW9uRGlzYWJsZWQgPSBkaXNhYmxlZCB8fCBvcHRpb24uZGlzYWJsZWQgPT09IHRydWVcbiAgICAgICAgICByZXR1cm4gKFxuICAgICAgICAgICAgPEJveFxuICAgICAgICAgICAgICBrZXk9e29wdGlvbi5pZH1cbiAgICAgICAgICAgICAgY29tcG9uZW50PVwibGFiZWxcIlxuICAgICAgICAgICAgICBzeD17e1xuICAgICAgICAgICAgICAgIG1pbldpZHRoOiAwLFxuICAgICAgICAgICAgICAgIGRpc3BsYXk6ICdncmlkJyxcbiAgICAgICAgICAgICAgICBncmlkVGVtcGxhdGVDb2x1bW5zOiAnYXV0byBtaW5tYXgoMCwgMWZyKScsXG4gICAgICAgICAgICAgICAgZ2FwOiAwLjcyLFxuICAgICAgICAgICAgICAgIGFsaWduSXRlbXM6ICdmbGV4LXN0YXJ0JyxcbiAgICAgICAgICAgICAgICBwOiAxLFxuICAgICAgICAgICAgICAgIGJvcmRlclJhZGl1czogJzhweCcsXG4gICAgICAgICAgICAgICAgYm9yZGVyOiAndmFyKC0tbW9yaXVzLWJvcmRlci13aWR0aCkgc29saWQgdmFyKC0tbW9yaXVzLWNhcmQtYm9yZGVyKScsXG4gICAgICAgICAgICAgICAgYmFja2dyb3VuZENvbG9yOiBjaGVja2VkXG4gICAgICAgICAgICAgICAgICA/ICdjb2xvci1taXgoaW4gc3JnYiwgdmFyKC0tbW9yaXVzLWFjY2VudCkgMTUlLCB2YXIoLS1tb3JpdXMtZWxldmF0ZWQtYmcpKSdcbiAgICAgICAgICAgICAgICAgIDogJ2NvbG9yLW1peChpbiBzcmdiLCB2YXIoLS1tb3JpdXMtZWxldmF0ZWQtYmcpIDgyJSwgIzAwMCAxOCUpJyxcbiAgICAgICAgICAgICAgICBjdXJzb3I6IG9wdGlvbkRpc2FibGVkID8gJ2RlZmF1bHQnIDogJ3BvaW50ZXInLFxuICAgICAgICAgICAgICAgIG9wYWNpdHk6IG9wdGlvbkRpc2FibGVkICYmIG9wdGlvbi5pZCAhPT0gJ3ByZXNlcnZlX2Zvcm1hdCcgPyAwLjU4IDogMSxcbiAgICAgICAgICAgICAgfX1cbiAgICAgICAgICAgID5cbiAgICAgICAgICAgICAgPENoZWNrYm94XG4gICAgICAgICAgICAgICAgY2hlY2tlZD17Y2hlY2tlZH1cbiAgICAgICAgICAgICAgICBkaXNhYmxlZD17b3B0aW9uRGlzYWJsZWR9XG4gICAgICAgICAgICAgICAgb25DaGFuZ2U9eygpID0+IG9uVG9nZ2xlT3B0aW9uKG9wdGlvbi5pZCl9XG4gICAgICAgICAgICAgICAgc3g9e3tcbiAgICAgICAgICAgICAgICAgIHA6IDAuMSxcbiAgICAgICAgICAgICAgICAgIGNvbG9yOiAndmFyKC0tbW9yaXVzLXRleHQtc2Vjb25kYXJ5KScsXG4gICAgICAgICAgICAgICAgICAnJi5NdWktY2hlY2tlZCc6IHtcbiAgICAgICAgICAgICAgICAgICAgY29sb3I6ICd2YXIoLS1tb3JpdXMtYWNjZW50KScsXG4gICAgICAgICAgICAgICAgICB9LFxuICAgICAgICAgICAgICAgIH19XG4gICAgICAgICAgICAgIC8+XG4gICAgICAgICAgICAgIDxTdGFjayBzcGFjaW5nPXswLjI1fSBzeD17eyBtaW5XaWR0aDogMCB9fT5cbiAgICAgICAgICAgICAgICA8VHlwb2dyYXBoeSBzeD17eyBjb2xvcjogJ3ZhcigtLW1vcml1cy10aXRsZS10ZXh0KScsIGZvbnRTaXplOiAnMC45MnJlbScsIGZvbnRXZWlnaHQ6IDgwMCB9fT5cbiAgICAgICAgICAgICAgICAgIHtvcHRpb24ubGFiZWx9XG4gICAgICAgICAgICAgICAgPC9UeXBvZ3JhcGh5PlxuICAgICAgICAgICAgICAgIDxUeXBvZ3JhcGh5IHN4PXt7IGNvbG9yOiAndmFyKC0tbW9yaXVzLXRleHQtc2Vjb25kYXJ5KScsIGZvbnRTaXplOiAnMC44MnJlbScsIGxpbmVIZWlnaHQ6IDEuMzggfX0+XG4gICAgICAgICAgICAgICAgICB7b3B0aW9uLmRlc2NyaXB0aW9ufVxuICAgICAgICAgICAgICAgIDwvVHlwb2dyYXBoeT5cbiAgICAgICAgICAgICAgPC9TdGFjaz5cbiAgICAgICAgICAgIDwvQm94PlxuICAgICAgICAgIClcbiAgICAgICAgfSl9XG4gICAgICA8L0JveD5cbiAgICA8L0Jhc2VEaWFsb2c+XG4gIClcbn1cblxuZXhwb3J0IGRlZmF1bHQgQWR2YW5jZWRSZWdlbmVyYXRpb25EaWFsb2dcbiJdLCJmaWxlIjoiQzovVXNlcnMvYWxleHUvT25lRHJpdmUvRGVza3RvcC9Nb1JpdXMvZnJvbnRlbmQvc3JjL2NvbXBvbmVudHMvc3RvcnkvQWR2YW5jZWRSZWdlbmVyYXRpb25EaWFsb2cudHN4In0=
