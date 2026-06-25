@@ -50,8 +50,7 @@ from app.services.story_graph import (  # noqa: E402
     update_story_graph_edge,
 )
 from app.services.story_runtime import (  # noqa: E402
-    STORY_GRAPH_MAX_SERVICE_REQUESTS,
-    STORY_POSTPROCESS_MAX_SERVICE_REQUESTS,
+    STORY_TURN_MAX_SERVICE_REQUESTS,
 )
 from app.services.story_undo import (  # noqa: E402
     reapply_story_card_events_for_assistant_message,
@@ -964,9 +963,9 @@ class StoryGraphTests(unittest.TestCase):
         finally:
             _close_session(db)
 
-    def test_story_turn_service_request_caps_allow_transient_retries(self) -> None:
-        self.assertEqual(STORY_POSTPROCESS_MAX_SERVICE_REQUESTS, 16)
-        self.assertEqual(STORY_GRAPH_MAX_SERVICE_REQUESTS, 4)
+    def test_story_turn_service_request_cap_is_five(self) -> None:
+        # Hard ceiling of 5 Gemini requests per turn: Call A + Call B + 2 memory + 1 graph.
+        self.assertEqual(STORY_TURN_MAX_SERVICE_REQUESTS, 5)
 
     def test_reroll_can_delete_message_referenced_by_graph_rows(self) -> None:
         db = _create_session()

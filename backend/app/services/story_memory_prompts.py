@@ -9,6 +9,11 @@ LLM_COMPRESSED_MEMORY_PROMPT_NAME = "LLM_COMPRESSED_MEMORY_PROMPT"
 LLM_FACT_MEMORY_PROMPT_NAME = "LLM_FACT_MEMORY_PROMPT"
 LLM_GAME_STATE_ANALYSIS_PROMPT_NAME = "LLM_GAME_STATE_ANALYSIS_PROMPT"
 LLM_IMPORTANT_MEMORY_PROMPT_NAME = "LLM_IMPORTANT_MEMORY_PROMPT"
+LLM_WORLD_ANALYSIS_PROMPT_NAME = "LLM_WORLD_ANALYSIS_PROMPT"
+
+# Все «мировые» модули одного хода, которые умеет вернуть Call A. Порядок фиксирует
+# порядок секций в промпте и в JSON-шаблоне.
+WORLD_ANALYSIS_MODULES = ("location", "environment", "important_memory", "ambient", "scene_emotion")
 
 
 def _dump_json(value: Any) -> str:
@@ -25,20 +30,25 @@ def build_important_memory_messages(
         {
             "role": "system",
             "content": (
-                "Ты — модуль важной долговременной памяти текстовой RPG. "
-                "Проанализируй только уже произошедшее в ходе игрока и ответе рассказчика. "
-                "Создавай не более одной карточки за ход и только для действительно значимого события, "
-                "которое важно помнить в будущих сценах.\n\n"
-                "Сохраняй: необратимые или крупные изменения мира и персонажей; смерть, тяжёлую травму, "
-                "исчезновение или спасение; важное раскрытие тайны или личности; принятое обязательство, "
-                "клятву, договор, предательство, разрыв или заметный перелом отношений; получение, потерю "
-                "или уничтожение уникального предмета; новую долгосрочную цель, миссию, запрет или угрозу; "
-                "решение с длительными последствиями.\n\n"
-                "Не сохраняй: обычное перемещение, атмосферные детали, бытовые действия, флирт без последствий, "
-                "повтор уже известного факта, рядовую реплику, краткую эмоцию, мелкую находку, обычный бой без "
-                "долгосрочных последствий и любые технические инструкции. Если значимого события нет или оно "
-                "уже отражено в существующей памяти, верни should_store=false.\n\n"
-                "Не выдумывай фактов и не продолжай сцену. Заголовок должен быть коротким и конкретным. "
+                "Ты — модуль важной долговременной памяти текстовой RPG. Твоя работа — фильтр, а не летописец. "
+                "По умолчанию ход НЕ содержит ничего, что стоит запоминать навсегда: значение по умолчанию — should_store=false. "
+                "Анализируй только уже произошедшее в ходе игрока и ответе рассказчика, не домысливая.\n\n"
+                "Сначала оцени значимость по шкале 0-10 (significance_score): насколько это событие реально изменит "
+                "историю и понадобится в будущих сценах через много ходов.\n"
+                "- 0-3: обычный ход (разговор, перемещение, бытовое действие, описание, эмоция, флирт, рядовая стычка) — НЕ сохранять;\n"
+                "- 4-6: заметный, но локальный момент, без долгих последствий — НЕ сохранять;\n"
+                "- 7-10: поворотное событие с устойчивыми последствиями — сохранить.\n"
+                "Сохраняй только при significance_score >= 7. Если сомневаешься между сохранить и нет — НЕ сохраняй.\n\n"
+                "К уровню 7-10 относятся: смерть, тяжёлая травма, исчезновение или спасение; необратимое крупное изменение "
+                "мира или статуса персонажа; раскрытие важной тайны или истинной личности; данная клятва, заключённый договор, "
+                "предательство, измена, разрыв или коренной перелом отношений; получение, потеря или уничтожение по-настоящему "
+                "значимого предмета; новая долгосрочная цель, миссия, запрет, угроза или решение с длительными последствиями.\n\n"
+                "НИКОГДА не сохраняй (significance_score 0-3): перемещение, осмотр, атмосферу и погоду, бытовые действия, "
+                "приветствия и светский разговор, флирт и ласку без последствий, обычные эмоции и реакции, мелкую находку или покупку, "
+                "рядовой бой без исхода, повтор уже известного, а также любые служебные/технические инструкции.\n\n"
+                "Если значимого нового события нет или оно уже отражено в EXISTING_IMPORTANT_MEMORIES — верни should_store=false "
+                "(не дублируй и не переформулируй существующую память). За один ход — максимум одна карточка.\n\n"
+                "Не выдумывай фактов и не продолжай сцену. Заголовок — короткий и конкретный. "
                 "Summary — краткий самостоятельный пересказ с именами, причиной и последствием. "
                 "Return JSON only. Без markdown, reasoning и комментариев."
             ),
@@ -51,13 +61,15 @@ def build_important_memory_messages(
                 f"NARRATOR_RESPONSE:\n{narrator_response or 'нет'}\n\n"
                 "Верни JSON строго такого вида:\n"
                 "{\n"
-                '  "should_store": true,\n'
+                '  "significance_score": 0,\n'
+                '  "should_store": false,\n'
                 '  "title": "Короткий заголовок события",\n'
                 '  "summary": "Краткий фактический пересказ значимого события и его последствия",\n'
                 '  "significance": "Почему это потребуется помнить позже"\n'
                 "}\n"
+                "should_store=true допустим только при significance_score >= 7. "
                 "Если важного нового события нет, верни: "
-                '{"should_store":false,"title":"","summary":"","significance":""}'
+                '{"significance_score":0,"should_store":false,"title":"","summary":"","significance":""}'
             ),
         },
     ]
@@ -294,4 +306,162 @@ def build_game_state_analysis_messages(
                 "Не заполняй country/city случайно: неизвестное оставляй null."
             ),
         },
+    ]
+
+
+# --- Call A: единый «мировой» анализ хода ---------------------------------------
+
+_WORLD_ANALYSIS_SYSTEM_BLOCKS: dict[str, str] = {
+    "location": (
+        "LOCATION. Определи текущую локацию сцены после этого хода. display — короткая понятная "
+        "строка места. Заполняй country/region/city/district/street/place_name/place_type/"
+        "room_or_area только при явных или уверенно выводимых данных, иначе null. changed=true и "
+        "should_update=true только если место реально сменилось относительно PREVIOUS_LOCATION; "
+        "иначе should_update=false. Не выдумывай географию."
+    ),
+    "environment": (
+        "ENVIRONMENT. Оцени, сколько ВНУТРИИГРОВОГО времени прошло за этот ход, в минутах "
+        "(advance_minutes, только вперёд, 0 если время фактически не двигалось). Короткий диалог, "
+        "реплика или мгновенное действие — это минуты; дорога, ожидание, сон, ритуал, длительная "
+        "работа — часы. Опирайся на явные указания длительности в тексте, иначе дай умеренную "
+        "правдоподобную оценку. should_update=true, если время сдвинулось. Если включена погода — "
+        "в weather кратко опиши АКТУАЛЬНУЮ погоду сцены (summary), температуру в градусах Цельсия "
+        "(temperature_c, целое) и при наличии туман/влажность/ветер; не меняй погоду резко без "
+        "повода из сцены."
+    ),
+    "important_memory": (
+        "IMPORTANT_MEMORY. Ты фильтр долговременной памяти, а не летописец. По умолчанию "
+        "should_store=false. Оцени significance_score 0-10: 0-3 обычный ход — НЕ сохранять; 4-6 "
+        "заметный, но локальный — НЕ сохранять; 7-10 поворотное событие с устойчивыми "
+        "последствиями — сохранить. Сохраняй только при significance_score>=7. К 7-10 относятся: "
+        "смерть/тяжёлая травма/спасение; необратимое изменение мира или статуса; раскрытие важной "
+        "тайны; клятва, договор, предательство, разрыв или коренной перелом отношений; получение/"
+        "потеря по-настоящему значимого предмета; новая долгосрочная цель, угроза или решение. "
+        "НИКОГДА (0-3): перемещение, осмотр, погода, быт, светский разговор, флирт без последствий, "
+        "обычные эмоции, мелкая находка, рядовая стычка, повтор известного. Не дублируй то, что уже "
+        "есть в EXISTING_IMPORTANT_MEMORIES. Не выдумывай. Заголовок короткий; summary — "
+        "самостоятельный пересказ с именами, причиной и последствием."
+    ),
+    "ambient": (
+        "AMBIENT. Подбери цвета атмосферы UI ТОЛЬКО по окружению сцены (небо, погода, свет, "
+        "ландшафт, интерьер, эффекты), а не по внешности или одежде персонажей. primary_color/"
+        "secondary_color/highlight_color строго в формате #RRGGBB. glow_strength/background_mix/"
+        "vignette_strength — числа 0..1. Избегай дежурного синего, если сцена не холодная/синяя. "
+        "scene и lighting — короткие пометки на английском."
+    ),
+    "scene_emotion": (
+        "SCENE_EMOTION. Реши, показывать ли спрайты эмоций визуальной новеллы. show_visualization=true "
+        "только для диалога, прямого взаимодействия, согласованного движения, встречи или угрозы; "
+        "false для одиночного перемещения, пейзажа, рутинного повествования, общей атмосферы. "
+        "Используй ТОЛЬКО активных персонажей из ACTIVE_CHARACTERS и ТОЛЬКО допустимые id эмоций из "
+        "SUPPORTED_EMOTIONS. Главный герой первым, если активен; затем вовлечённые NPC; максимум "
+        "четыре участника. Никаких местоимений и выдуманных имён."
+    ),
+}
+
+_WORLD_ANALYSIS_JSON_FRAGMENTS: dict[str, str] = {
+    "location": (
+        '  "location": {"changed": false, "confidence": "high|medium|low", "current": {"country": null, '
+        '"region": null, "city": null, "district": null, "street": null, "place_name": null, '
+        '"place_type": null, "room_or_area": null, "display": "Короткая строка текущей локации"}, '
+        '"evidence": "На чём основан вывод", "should_update": false}'
+    ),
+    "environment": (
+        '  "environment": {"should_update": false, "advance_minutes": 0, "weather": {"summary": '
+        '"Краткая погода", "temperature_c": null, "fog": "", "humidity": "", "wind": ""}}'
+    ),
+    "important_memory": (
+        '  "important_memory": {"significance_score": 0, "should_store": false, "title": "", '
+        '"summary": "", "significance": ""}'
+    ),
+    "ambient": (
+        '  "ambient": {"scene": "", "lighting": "", "primary_color": "#RRGGBB", "secondary_color": '
+        '"#RRGGBB", "highlight_color": "#RRGGBB", "glow_strength": 0.5, "background_mix": 0.5, '
+        '"vignette_strength": 0.5}'
+    ),
+    "scene_emotion": (
+        '  "scene_emotion": {"show_visualization": false, "reason": "", "participants": [{"name": '
+        '"Имя из ACTIVE_CHARACTERS", "emotion": "id из SUPPORTED_EMOTIONS", "importance": '
+        '"primary|secondary"}]}'
+    ),
+}
+
+
+def build_world_analysis_messages(
+    *,
+    requested_modules: list[str],
+    player_turn: str,
+    previous_narrator_response: str,
+    narrator_response: str,
+    world_card: str = "",
+    previous_location: dict[str, Any] | None = None,
+    existing_important_memories: list[dict[str, str]] | None = None,
+    environment_time_enabled: bool = False,
+    environment_weather_enabled: bool = False,
+    environment_time_facts: str = "",
+    environment_weather_facts: str = "",
+    scene_emotion_active_characters: str = "",
+    scene_emotion_supported_emotions: str = "",
+) -> list[dict[str, str]]:
+    """Один объединённый промпт Call A.
+
+    В систему и в JSON-шаблон попадают ТОЛЬКО секции из ``requested_modules`` (в каноническом
+    порядке ``WORLD_ANALYSIS_MODULES``). Отключённый модуль нигде не упоминается.
+    """
+
+    active_modules = [name for name in WORLD_ANALYSIS_MODULES if name in set(requested_modules or [])]
+    if not active_modules:
+        active_modules = ["location"]
+
+    system_sections = [
+        "Ты служебный аналитический модуль текстовой RPG. Ты не рассказчик и не продолжаешь сцену. "
+        "Ты анализируешь только уже произошедший последний ход игрока и ответ рассказчика. Работай "
+        "универсально для любого жанра, мира, эпохи и языка; используй карточку мира как источник "
+        "лора и не выдумывай сюжетных событий.",
+        "Верни ОДИН JSON-объект строго с перечисленными ниже секциями (только они, без лишних полей).",
+    ]
+    system_sections.extend(_WORLD_ANALYSIS_SYSTEM_BLOCKS[name] for name in active_modules)
+    system_sections.append("Return JSON only. Без markdown, reasoning и комментариев.")
+
+    context_lines = [
+        "Проанализируй последний ход RPG.",
+        "",
+        f"REQUESTED_MODULES:\n{_dump_json(active_modules)}",
+        "",
+        f"WORLD_CARD:\n{world_card or 'нет'}",
+    ]
+    if "location" in active_modules:
+        context_lines.append(f"\nPREVIOUS_LOCATION:\n{_dump_json(previous_location or {})}")
+    if "important_memory" in active_modules:
+        context_lines.append(
+            f"\nEXISTING_IMPORTANT_MEMORIES:\n{_dump_json(existing_important_memories or [])}"
+        )
+    if "environment" in active_modules:
+        if environment_time_enabled:
+            context_lines.append(f"\nCURRENT_TIME:\n{environment_time_facts or 'неизвестно'}")
+        if environment_weather_enabled:
+            context_lines.append(f"\nCURRENT_WEATHER:\n{environment_weather_facts or 'неизвестно'}")
+        else:
+            context_lines.append("\nWEATHER_DISABLED: верни weather как null.")
+    if "scene_emotion" in active_modules:
+        context_lines.append(
+            f"\nSUPPORTED_EMOTIONS:\n{scene_emotion_supported_emotions or 'нет'}"
+        )
+        context_lines.append(
+            f"\nACTIVE_CHARACTERS:\n{scene_emotion_active_characters or 'нет активных персонажей'}"
+        )
+    context_lines.extend(
+        [
+            f"\nPLAYER_TURN:\n{player_turn or 'нет'}",
+            f"\nPREVIOUS_NARRATOR_RESPONSE:\n{previous_narrator_response or 'нет'}",
+            f"\nNARRATOR_RESPONSE:\n{narrator_response or 'нет'}",
+        ]
+    )
+
+    json_body = ",\n".join(_WORLD_ANALYSIS_JSON_FRAGMENTS[name] for name in active_modules)
+    context_lines.append("\nВерни JSON строго такого вида:\n{\n" + json_body + "\n}")
+
+    return [
+        {"role": "system", "content": "\n\n".join(system_sections)},
+        {"role": "user", "content": "\n".join(context_lines)},
     ]

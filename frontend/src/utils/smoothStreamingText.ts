@@ -21,19 +21,17 @@ function splitText(value: string): string[] {
 }
 
 function resolveCatchUpSpeed(backlog: number): number {
-  if (backlog > 4000) {
-    return 900
+  // Characters revealed per second. The reveal must keep pace with incoming tokens so the
+  // visible text never falls far behind and then "dumps" all at once when generation ends.
+  // We drain the current backlog over a short window on top of a readable minimum typing
+  // speed, with a high ceiling so even a large burst is caught up smoothly within a beat.
+  const MIN_SPEED = 140
+  const MAX_SPEED = 1800
+  const drainedSpeed = backlog * 3.5
+  if (drainedSpeed <= MIN_SPEED) {
+    return MIN_SPEED
   }
-  if (backlog > 1500) {
-    return 620
-  }
-  if (backlog > 600) {
-    return 360
-  }
-  if (backlog > 160) {
-    return 170
-  }
-  return 58
+  return Math.min(MAX_SPEED, drainedSpeed)
 }
 
 export function readSmoothStreamingPreference(): boolean {

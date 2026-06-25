@@ -35,6 +35,28 @@ def use_story_service_http_request_budget(
         _active_story_service_http_budget.reset(token)
 
 
+@contextmanager
+def use_story_service_http_request_budget_or_reserve(
+    max_requests: int,
+) -> Iterator[StoryServiceHttpRequestBudget]:
+    """Draw from the already-active turn budget when one exists; otherwise reserve a fresh one.
+
+    Memory compaction must count against the single per-turn ceiling so it cannot bypass it with
+    a private allowance. Outside a turn (manual/backfill compaction) there is no active budget, so
+    we fall back to a self-contained reservation that still bounds runaway loops.
+    """
+    existing = _active_story_service_http_budget.get()
+    if existing is not None:
+        yield existing
+        return
+    budget = StoryServiceHttpRequestBudget(max_requests=max_requests)
+    token = _active_story_service_http_budget.set(budget)
+    try:
+        yield budget
+    finally:
+        _active_story_service_http_budget.reset(token)
+
+
 def consume_story_service_http_request() -> None:
     budget = _active_story_service_http_budget.get()
     if budget is not None:

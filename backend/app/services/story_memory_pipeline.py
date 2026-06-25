@@ -26,6 +26,7 @@ from app.services.story_llm_modules import (
     GameStateAnalysisPayload,
     ImportantMemoryPayload,
     LlmModuleService,
+    WorldAnalysisPayload,
 )
 from app.services.story_memory import (
     STORY_MEMORY_LAYER_COMPRESSED as LEGACY_STORY_MEMORY_LAYER_COMPRESSED,
@@ -44,16 +45,18 @@ from app.services.story_memory_prompts import (
     LLM_FACT_MEMORY_PROMPT_NAME,
     LLM_GAME_STATE_ANALYSIS_PROMPT_NAME,
     LLM_IMPORTANT_MEMORY_PROMPT_NAME,
+    LLM_WORLD_ANALYSIS_PROMPT_NAME,
+    WORLD_ANALYSIS_MODULES,
     build_compressed_memory_messages,
     build_detailed_memory_messages,
     build_fact_memory_messages,
     build_game_state_analysis_messages,
     build_important_memory_messages,
+    build_world_analysis_messages,
 )
 from app.services.story_queries import list_story_instruction_cards, list_story_plot_cards, list_story_world_cards
 from app.services.story_service_budget import (
-    StoryServiceHttpRequestBudget,
-    use_story_service_http_request_budget,
+    use_story_service_http_request_budget_or_reserve,
 )
 from app.services.story_games import (
     deserialize_story_environment_datetime as _story_games_deserialize_environment_datetime,
@@ -103,6 +106,9 @@ _TOKEN_BUDGET_SERVICE = TokenBudgetService(_TOKEN_COUNTER)
 _NPC_DEDUP_SERVICE = NpcCardDedupService()
 STORY_MEMORY_MODEL_MAX_ATTEMPTS = 2
 STORY_IMPORTANT_MEMORY_MODEL_MAX_ATTEMPTS = 3
+# Only persist a key-memory card for genuinely pivotal turns. The model rates 0-10 and we
+# additionally enforce this floor server-side, so trivial turns never leak into long-term memory.
+STORY_IMPORTANT_MEMORY_MIN_SIGNIFICANCE = 7
 STORY_MEMORY_HTTP_MAX_REQUESTS = 8
 STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO = 900
 STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO = 0.78
@@ -528,8 +534,7 @@ def _compress_story_memory_block_with_model(
     if not content:
         raise ValueError("Cannot compress empty memory block")
     service = _llm_service(gemini_only=True)
-    reserved_budget = StoryServiceHttpRequestBudget(max_requests=STORY_MEMORY_HTTP_MAX_REQUESTS)
-    with use_story_service_http_request_budget(reserved_budget):
+    with use_story_service_http_request_budget_or_reserve(STORY_MEMORY_HTTP_MAX_REQUESTS):
         if super_mode:
             payload, _meta = service.call_json(
                 messages=build_fact_memory_messages(compressed_blocks=[{"content": content}]),
@@ -688,8 +693,7 @@ def _promote_blocks(
         }
         for block in source_blocks
     ]
-    reserved_budget = StoryServiceHttpRequestBudget(max_requests=STORY_MEMORY_HTTP_MAX_REQUESTS)
-    with use_story_service_http_request_budget(reserved_budget):
+    with use_story_service_http_request_budget_or_reserve(STORY_MEMORY_HTTP_MAX_REQUESTS):
         if prompt_name == LLM_COMPRESSED_MEMORY_PROMPT_NAME:
             payload, _meta = service.call_json(
                 messages=build_compressed_memory_messages(detailed_blocks=block_payloads),
@@ -1577,6 +1581,139 @@ def _extract_story_postprocess_memory_payload(
     return result
 
 
+def _extract_story_world_analysis_payload(
+    *,
+    db: Session,
+    game: StoryGame,
+    current_location_content: str,
+    latest_user_prompt: str,
+    previous_assistant_text: str,
+    latest_assistant_text: str,
+    location_enabled: bool = False,
+    environment_time_enabled: bool = False,
+    environment_weather_enabled: bool = False,
+    important_event_enabled: bool = False,
+    ambient_enabled: bool = False,
+    scene_emotion_enabled: bool = False,
+    world_cards: list[Any] | None = None,
+    scene_emotion_active_characters: str = "",
+    scene_emotion_supported_emotions: str = "",
+) -> dict[str, Any] | None:
+    """Call A — один Gemini-вызов на все «мировые» модули хода.
+
+    Возвращает только секции включённых модулей в формате, который ждут существующие
+    потребители (location.content, important_event как кортеж, ambient/scene_emotion/
+    environment как сырые dict для override). Отключённые модули ни в промпт, ни в схему
+    не попадают и в результат не кладутся.
+    """
+    environment_enabled = bool(environment_time_enabled or environment_weather_enabled)
+    requested_modules: list[str] = []
+    if location_enabled:
+        requested_modules.append("location")
+    if environment_enabled:
+        requested_modules.append("environment")
+    if important_event_enabled:
+        requested_modules.append("important_memory")
+    if ambient_enabled:
+        requested_modules.append("ambient")
+    if scene_emotion_enabled:
+        requested_modules.append("scene_emotion")
+    if not requested_modules:
+        return None
+
+    try:
+        source_world_cards: list[Any] = list(world_cards or list_story_world_cards(db, game.id))
+    except Exception:
+        logger.warning(
+            "Failed to load world-card context for Gemini world analysis: game_id=%s",
+            game.id,
+            exc_info=True,
+        )
+        source_world_cards = list(world_cards or [])
+
+    previous_location = {
+        "display": _normalize_story_location_memory_label(current_location_content)
+        or str(getattr(game, "current_location_label", "") or "").strip()
+        or None
+    }
+
+    existing_important_memories: list[dict[str, str]] = []
+    if important_event_enabled:
+        existing_important_memories = [
+            {
+                "title": str(getattr(block, "title", "") or "").strip(),
+                "summary": str(getattr(block, "content", "") or "").strip(),
+            }
+            for block in _list_story_memory_blocks(db, game.id)
+            if _normalize_story_memory_layer(getattr(block, "layer", "")) == STORY_MEMORY_LAYER_KEY
+        ][-40:]
+
+    environment_time_facts = ""
+    environment_weather_facts = ""
+    if environment_enabled:
+        if environment_time_enabled:
+            time_card = _build_story_environment_time_prompt_card(game)
+            if isinstance(time_card, dict):
+                environment_time_facts = str(time_card.get("content") or "").strip()
+        if environment_weather_enabled:
+            weather_card = _build_story_environment_weather_prompt_card(game)
+            if isinstance(weather_card, dict):
+                environment_weather_facts = str(weather_card.get("content") or "").strip()
+
+    messages = build_world_analysis_messages(
+        requested_modules=requested_modules,
+        player_turn=_normalize_story_message_content(latest_user_prompt),
+        previous_narrator_response=_normalize_story_assistant_text_for_analysis(previous_assistant_text),
+        narrator_response=_normalize_story_assistant_text_for_analysis(latest_assistant_text),
+        world_card=build_world_card_context(source_world_cards),
+        previous_location=previous_location,
+        existing_important_memories=existing_important_memories,
+        environment_time_enabled=environment_time_enabled,
+        environment_weather_enabled=environment_weather_enabled,
+        environment_time_facts=environment_time_facts,
+        environment_weather_facts=environment_weather_facts,
+        scene_emotion_active_characters=scene_emotion_active_characters,
+        scene_emotion_supported_emotions=scene_emotion_supported_emotions,
+    )
+    payload, _meta = _llm_service(gemini_only=True).call_json(
+        messages=messages,
+        schema=WorldAnalysisPayload,
+        module=LLM_WORLD_ANALYSIS_PROMPT_NAME,
+        game_id=game.id,
+        max_tokens=1_400,
+        max_attempts=2,
+    )
+
+    result: dict[str, Any] = {"call_count": 1}
+    if location_enabled:
+        location = payload.location.model_dump(mode="json")
+        if bool(location.get("changed")) and not bool(location.get("should_update")):
+            location["should_update"] = True
+        location["content"] = _location_payload_to_content(location)
+        result["location"] = location
+    if environment_enabled:
+        result["environment"] = payload.environment.model_dump(mode="json")
+    if important_event_enabled:
+        important = payload.important_memory
+        if (
+            bool(getattr(important, "should_store", False))
+            and int(getattr(important, "significance_score", 0)) >= STORY_IMPORTANT_MEMORY_MIN_SIGNIFICANCE
+        ):
+            title = _base_normalize_memory_title(important.title)
+            content = _sanitize_story_key_memory_content(important.summary)
+            if _is_story_key_memory_content_valid(content):
+                result["important_event"] = (title, content)
+            else:
+                result["important_event"] = None
+        else:
+            result["important_event"] = None
+    if ambient_enabled and payload.ambient is not None:
+        result["ambient"] = payload.ambient.model_dump(mode="json")
+    if scene_emotion_enabled and payload.scene_emotion is not None:
+        result["scene_emotion"] = payload.scene_emotion.model_dump(mode="json")
+    return result
+
+
 def _resolve_story_postprocess_section_payload(
     raw_payload: Any = None,
     *,
@@ -2305,7 +2442,18 @@ def _extract_story_important_plot_card_payload(
         max_attempts=STORY_IMPORTANT_MEMORY_MODEL_MAX_ATTEMPTS,
         request_timeout=(8.0, 90.0),
     )
-    if not payload.should_store:
+    if not payload.should_store or int(getattr(payload, "significance_score", 0)) < STORY_IMPORTANT_MEMORY_MIN_SIGNIFICANCE:
+        logger.info(
+            "Story important-memory skipped as not significant enough",
+            extra={
+                "gameId": int(getattr(game, "id", 0) or 0),
+                "importantMemoryDecision": {
+                    "shouldStore": bool(payload.should_store),
+                    "significanceScore": int(getattr(payload, "significance_score", 0)),
+                    "minSignificance": STORY_IMPORTANT_MEMORY_MIN_SIGNIFICANCE,
+                },
+            },
+        )
         return None
     title = _base_normalize_memory_title(payload.title)
     content = _sanitize_story_key_memory_content(payload.summary)

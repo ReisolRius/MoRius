@@ -1048,90 +1048,107 @@ type StoryNarratorModelOption = {
 const NARRATOR_STAT_DOT_COUNT = 5
 const NARRATOR_STAT_FALLBACK_LABELS = ['Интеллект', 'Скорость', 'Глубина'] as const
 
+// Per-model sampling presets tuned for lively, coherent русскоязычный RP. These apply when a
+// narrator model is selected/switched (and are persisted + shown in settings). Players can still
+// fine-tune any value afterwards. Higher temperature/top_r = livelier; higher repetition penalty
+// helps the cheaper, repeat-prone models stay fresh. Note: storyTopK 0 means "do not constrain".
 const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarratorSamplingDefaults> = {
+  // Умная и тёплая: чуть выше живости при аккуратной связности.
   'z-ai/glm-5': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 50,
+    storyTopR: 0.92,
   },
+  // Склонна к повторам — выше штраф за повтор и температура для разнообразия.
   'z-ai/glm-5.1': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.9,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.93,
   },
+  // Быстрая дешёвая: держим под контролем, сильнее боремся с зацикливанием.
   'z-ai/glm-4.7-flash': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.8,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.9,
   },
+  // Мягче и медленнее: спокойная, но живая подача.
   'z-ai/glm-4.7': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.82,
+    storyRepetitionPenalty: 1.06,
+    storyTopK: 50,
+    storyTopR: 0.9,
   },
+  // Экономичная и быстрая, любит повторяться — выше штраф за повтор.
   'deepseek/deepseek-v3.2': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.9,
   },
+  // Энергичная (модель по умолчанию): живой, но дисциплинированный темп.
   'deepseek/deepseek-chat-v3-0324': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.9,
+    storyRepetitionPenalty: 1.06,
+    storyTopK: 40,
+    storyTopR: 0.92,
   },
+  // Глубокая: больше свободы прозе при устойчивой причинности.
   'deepseek/deepseek-v4-pro': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 0,
+    storyTopR: 0.92,
   },
+  // Бывает рыхлой — держим температуру ниже, штраф за повтор выше.
   'mistralai/mistral-nemo': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.78,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.9,
   },
+  // Логика и связность: ниже температура ради выверенной причинности.
   'aion-labs/aion-2.0': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.78,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 0,
+    storyTopR: 0.9,
   },
+  // Ролевой специалист: самая выразительная и живая подача.
   'minimax/minimax-m2-her': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.95,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 0,
+    storyTopR: 0.95,
   },
+  // Хорошо следует инструкциям: живо, но в рамках правил.
   'openrouter/owl-alpha': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.06,
+    storyTopK: 50,
+    storyTopR: 0.9,
   },
+  // Премиальная и тонкая: любит более высокую температуру, без лишних ограничителей.
   'anthropic/claude-sonnet-4.6': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 1.0,
+    storyRepetitionPenalty: 1.0,
+    storyTopK: 0,
+    storyTopR: 0.98,
   },
+  // Большой контекст и аккуратность: живо, но собранно.
   'google/gemini-2.5-pro': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.9,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 0,
+    storyTopR: 0.95,
   },
   'google/gemini-3.1-pro-preview': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
+    storyTemperature: 0.9,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 0,
+    storyTopR: 0.95,
   },
 }
 
@@ -1140,7 +1157,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'z-ai/glm-5',
     title: 'GLM 5.0',
     description:
-      'Сбалансированная модель для стабильного повествования. Хорошо держит инструкции, аккуратно ведет сцену и обычно пишет чище остальных.',
+      'Надёжный универсал: ровно ведёт сцену, чётко слушается правил карточек и пишет чисто и живо. Хороший выбор по умолчанию почти для любой истории.',
     portraitSrc: narratorOgmaPortrait,
     portraitAlt: 'GLM 5.0',
     stats: [
@@ -1153,7 +1170,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'z-ai/glm-5.1',
     title: 'GLM 5.1',
     description:
-      'Усиленная версия GLM с более жёстким контролем сцены, аккуратным стилем и немного более дорогим ходом.',
+      'Усиленная GLM: крепче держит сцену и характеры, живее и естественнее в диалогах, бережно следует правилам. Ход чуть дороже.',
     portraitSrc: narratorOgmaPortrait,
     portraitAlt: 'GLM 5.1',
     stats: [
@@ -1192,7 +1209,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'deepseek/deepseek-v3.2',
     title: 'DeepSeek V3.2',
     description:
-      'Экономичный быстрый рассказчик для коротких ходов и динамичного темпа. Хорош, когда нужен ход от 1 единицы валюты.',
+      'Быстрый и экономичный рассказчик от 1 единицы валюты: живой темп и динамичные сцены без лишней воды. Когда важны скорость и цена.',
     portraitSrc: narratorVelesPortrait,
     portraitAlt: 'DeepSeek V3.2',
     stats: [
@@ -1205,7 +1222,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'deepseek/deepseek-chat-v3-0324',
     title: 'DeepSeek V3',
     description:
-      'Более яркая и динамичная версия DeepSeek. Дает много энергии и неожиданных ходов, но лучше всего раскрывается с четкими правилами и дисциплиной сцены.',
+      'Яркая и энергичная DeepSeek: много инициативы NPC и неожиданных, но логичных поворотов. Лучше всего раскрывается с чёткими правилами карточек.',
     portraitSrc: narratorVelesPortrait,
     portraitAlt: 'DeepSeek V3',
     stats: [
@@ -1244,7 +1261,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'aion-labs/aion-2.0',
     title: 'AionLabs',
     description:
-      'Лучше всего подходит для продуманных сцен, где особенно важны логика, связность и последовательность.',
+      'Логичный и собранный рассказчик: выверенная причинность и связность для продуманных, последовательных историй, где важна цельность мира.',
     portraitSrc: narratorVelesPortrait,
     portraitAlt: 'AionLabs',
     stats: [
@@ -1283,7 +1300,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'google/gemini-2.5-pro',
     title: 'Gemini 2.5 Pro',
     description:
-      'Сильная модель для больших контекстов, аккуратной причинности и сцен, где нужно удерживать много правил и деталей.',
+      'Умная модель для больших историй: держит под контролем множество правил и деталей при аккуратной причинности — живо, но собранно.',
     portraitSrc: narratorOgmaPortrait,
     portraitAlt: 'Gemini 2.5 Pro',
     stats: [
@@ -7384,6 +7401,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isVisualNovelInputLocked =
     isVisualNovelMode && visualNovelBeats.length > 0 && currentVnBeatIndex < visualNovelBeats.length - 1
   const shouldShowVisualNovelStage = isVisualNovelMode && visualNovelBeats.length > 0
+  const shouldShowPendingStoryGenerationIndicator =
+    isGenerating &&
+    activeAssistantMessageId === null &&
+    !shouldShowStoryMessagesLoadingSkeleton &&
+    !isLoadingGameMessages &&
+    !shouldShowVisualNovelStage
   const goToPreviousVnBeat = useCallback(() => {
     setVnBeatIndex((previousIndex) => Math.max(0, previousIndex - 1))
   }, [])
@@ -7432,8 +7455,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const canViewDevMemoryTab = canUseStoryGraph
   const rightPanelModeMeta =
     rightPanelMode === 'ai'
-      ? { title: 'Рассказчик', subtitle: 'Настройки ведущего истории' }
-      : { title: 'Карточки', subtitle: 'Знания рассказчика о мире' }
+      ? { title: 'Рассказчик' }
+      : { title: 'Карточки' }
   const rightPanelContentKey =
     rightPanelMode === 'ai' ? `ai-${activeAiPanelTab}` : `world-${activeWorldPanelTab}`
   const environmentTimeEnabled = Boolean(
@@ -8595,6 +8618,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         Boolean(worldCardTriggersDraft.trim()) ||
         Boolean(worldCardNameColorDraft.trim()) ||
         Boolean(worldCardSpeechColorDraft.trim()) ||
+        Boolean(worldCardBubbleColorDraft.trim()) ||
+        Boolean(worldCardThoughtBubbleColorDraft.trim()) ||
         worldCardMemoryTurnsDraft !== emptyMemoryTurns ||
         Boolean(worldCardAvatarDraft) ||
         Boolean(worldCardAvatarOriginalDraft) ||
@@ -8646,6 +8671,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     worldCardRaceDraft,
     worldCardRaceInputDraft,
     worldCardSpeechColorDraft,
+    worldCardBubbleColorDraft,
+    worldCardThoughtBubbleColorDraft,
     worldCardTitleDraft,
     worldCardTriggersDraft,
   ])
@@ -10401,6 +10428,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     characterNameColorDraft,
     characterNoteDraft,
     characterSpeechColorDraft,
+    characterBubbleColorDraft,
+    characterThoughtBubbleColorDraft,
     characterTriggersDraft,
     editingCharacterId,
     isSavingCharacter,
@@ -12930,6 +12959,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     worldCardNameColorDraft,
     worldCardRaceDraft,
     worldCardSpeechColorDraft,
+    worldCardBubbleColorDraft,
+    worldCardThoughtBubbleColorDraft,
     worldCardTitleDraft,
     worldCardTriggersDraft,
     worldDetailTypeOptions,
@@ -16290,14 +16321,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         })
       }
 
-      const flushVisibleAssistantStream = (messageId: number | null | undefined) => {
+      const settleVisibleAssistantStream = (messageId: number | null | undefined) => {
         const controller = smoothStreamingControllerRef.current
         const resolvedMessageId = messageId ?? startedAssistantMessageId
         if (!controller || resolvedMessageId === null) {
           return
         }
-        const text = controller.flush()
-        streamingAssistantTextStore.setText(resolvedMessageId, text)
+        // Generation finished and post-process is starting. Let the smooth controller animate
+        // any remaining tail to the end (its onUpdate keeps the store in sync) instead of
+        // dumping it instantly — the instant flush looked like "freeze, then whole text at once".
+        void controller.finish()
         scheduleStreamingAutoScroll()
       }
 
@@ -16414,7 +16447,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             setStoryPostprocessStage(null)
           },
           onProgress: (payload) => {
-            flushVisibleAssistantStream(payload.assistant_message_id)
+            settleVisibleAssistantStream(payload.assistant_message_id)
             setIsFinalizingStoryTurn(true)
             setStoryPostprocessStage(payload.stage)
           },
@@ -18402,18 +18435,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           <Stack
             data-tour-id="story-right-panel-heading"
             direction="row"
-            alignItems="flex-start"
+            alignItems="center"
             justifyContent="space-between"
             spacing={1}
-            sx={{ pb: { xs: 1.35, md: 1.55 } }}
+            sx={{ pb: { xs: 1.55, md: 1.8 } }}
           >
-            <Stack direction="row" spacing={1.05} alignItems="center" sx={{ minWidth: 0 }}>
+            <Stack direction="row" spacing={0.95} alignItems="center" sx={{ minWidth: 0 }}>
               <Box
                 sx={{
                   flexShrink: 0,
-                  width: { xs: 48, md: 52 },
-                  height: { xs: 48, md: 52 },
-                  borderRadius: '16px',
+                  width: { xs: 34, md: 36 },
+                  height: { xs: 34, md: 36 },
+                  borderRadius: '10px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -18421,42 +18454,29 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   background: rightPanelMode === 'ai'
                     ? 'linear-gradient(135deg, #7E64F7 0%, #4E91FF 100%)'
                     : 'linear-gradient(135deg, #5B8DFF 0%, #3978F0 100%)',
-                  boxShadow: '0 12px 24px rgba(62, 124, 255, 0.26)',
+                  boxShadow: '0 5px 12px rgba(62, 124, 255, 0.2)',
                   '& .MuiSvgIcon-root': {
-                    width: { xs: 25, md: 27 },
-                    height: { xs: 25, md: 27 },
+                    width: { xs: 18, md: 19 },
+                    height: { xs: 18, md: 19 },
                   },
                 }}
               >
                 {rightPanelMode === 'ai' ? <RightPanelAiIcon /> : <RightPanelCardsIcon />}
               </Box>
-              <Stack spacing={0.2} sx={{ minWidth: 0 }}>
-                <Typography
-                  sx={{
-                    color: 'var(--morius-title-text)',
-                    fontFamily: 'Georgia, "Times New Roman", serif',
-                    fontSize: { xs: '1.48rem', md: '1.62rem' },
-                    fontWeight: 900,
-                    lineHeight: 1,
-                    letterSpacing: '-0.025em',
-                  }}
-                >
-                  {rightPanelModeMeta.title}
-                </Typography>
-                <Typography
-                  sx={{
-                    color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)',
-                    fontSize: { xs: '0.82rem', md: '0.88rem' },
-                    fontWeight: 650,
-                    lineHeight: 1.16,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {rightPanelModeMeta.subtitle}
-                </Typography>
-              </Stack>
+              <Typography
+                noWrap
+                sx={{
+                  color: 'var(--morius-title-text)',
+                  fontFamily: 'Georgia, "Times New Roman", serif',
+                  fontSize: { xs: '1.32rem', md: '1.44rem' },
+                  fontWeight: 900,
+                  lineHeight: 1.05,
+                  letterSpacing: '-0.025em',
+                  minWidth: 0,
+                }}
+              >
+                {rightPanelModeMeta.title}
+              </Typography>
             </Stack>
             <IconButton
               aria-label="Закрыть"
@@ -25823,6 +25843,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   )
                 })
               : null}
+            {shouldShowPendingStoryGenerationIndicator ? (
+              <Box
+                sx={{
+                  mb: 'var(--morius-story-message-gap)',
+                  borderRadius: 'var(--morius-radius)',
+                  px: 0.42,
+                  py: 0.3,
+                }}
+              >
+                <Stack direction="row" alignItems="center" spacing={0.65} sx={{ px: 0.05, py: 0.05 }}>
+                  <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
+                    <Box className="morius-generating-pulse-dot" />
+                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', letterSpacing: 0.1 }}>
+                      Смотрим, что было дальше...
+                    </Typography>
+                  </Stack>
+                </Stack>
+              </Box>
+            ) : null}
             {errorMessage ? (
               <Alert
                 severity="error"

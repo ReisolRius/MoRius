@@ -205,7 +205,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
                     {"role": "user", "content": "turn"},
                 ],
             ),
-            patch.object(story_generation_provider.HTTP_SESSION, "post", return_value=response),
+            patch.object(story_generation_provider.HTTP_SESSION, "post", return_value=response) as post_mock,
             patch.object(story_generation_provider, "_recover_polza_story_stream_tail") as recover_mock,
         ):
             chunks = list(
@@ -222,6 +222,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
 
         self.assertEqual("".join(chunks), "Начало и конец.")
         self.assertTrue(response.closed)
+        self.assertEqual(post_mock.call_args.kwargs["headers"]["Accept-Encoding"], "identity")
         recover_mock.assert_not_called()
 
     def test_broken_stream_recovers_only_missing_tail_without_full_restart(self) -> None:

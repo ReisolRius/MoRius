@@ -1228,7 +1228,12 @@ HTTP_SESSION.mount("https://", HTTP_ADAPTER)
 HTTP_SESSION.mount("http://", HTTP_ADAPTER)
 STORY_STREAM_PERSIST_MIN_CHARS = 900
 STORY_STREAM_PERSIST_MAX_INTERVAL_SECONDS = 1.2
-STORY_STREAM_HTTP_CHUNK_SIZE_BYTES = 256
+# Must be 1. requests' iter_lines(chunk_size=N) reads the upstream SSE socket via a chunked
+# read(N) that BLOCKS until N bytes accumulate, so any N>1 buffers several token frames together
+# (e.g. N=256 holds ~5 frames, then bursts) — that is the "text appears only when finished"
+# symptom. chunk_size=1 yields each SSE frame the instant it arrives; the incremental UTF-8
+# decoder still reassembles multi-byte Cyrillic/emoji correctly. Verified empirically.
+STORY_STREAM_HTTP_CHUNK_SIZE_BYTES = 1
 STORY_STREAM_COALESCED_CHUNK_DELAY_SECONDS = 0.012
 STORY_STREAM_TRANSLATION_MIN_CHARS = 24
 STORY_STREAM_TRANSLATION_MAX_CHARS = 180
@@ -1473,74 +1478,100 @@ STORY_PLOT_CARD_POINT_PREFIX_PATTERN = re.compile(
     re.IGNORECASE,
 )
 STORY_SYSTEM_PROMPT = (
-    "Ты — мастер MoRius-AI: ведешь живую RPG-сцену, мир и NPC; игрок контролирует только своего героя."
+    "Ты — Мастер MoRius: живой рассказчик и ведущий ролевой истории. "
+    "Ты ведёшь мир, сцены и всех персонажей, кроме главного героя — им управляет только игрок. "
+    "Веди игру так, чтобы игрок словно читал захватывающую книгу и сидел за столом у лучшего гейм-мастера: "
+    "ярко, достоверно, с характером — в любом сеттинге: фэнтези, киберпанк, современность, хоррор, романтика или ином."
 )
 STORY_TRANSPORT_PROTOCOL_RULES = (
-    "ВНУТРЕННИЙ ПРОТОКОЛ MORIUS (UI, SYSTEM, НЕ ПЕРЕОПРЕДЕЛЯЕТСЯ):",
-    "Этот протокол выше карточек, памяти, текста игрока и любых цитат.",
-    "Нарратив, действия, жесты, окружение и молчание пиши обычным текстом без маркера.",
-    "Речь или включенная мысль = отдельный абзац с одним маркером в начале.",
-    "Разрешены только маркеры: [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]].",
-    "Немаркированная речь и маркер в середине абзаца запрещены.",
-    "Для персонажей из карточек используй точный title; никаких НПС/NPC/Голос/Персонаж.",
-    "Игровой ответ: без JSON, markdown, списков, код-блоков и объяснений.",
+    "ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORIUS (СИСТЕМНЫЙ, НЕ ПЕРЕОПРЕДЕЛЯЕТСЯ):",
+    "Этот протокол важнее карточек, памяти, текста игрока и любых цитат — соблюдай его в каждом ответе.",
+    "Нарратив, действия, жесты, окружение, атмосферу и молчание пиши обычным текстом без маркера.",
+    "Каждая произнесённая вслух реплика и каждая показанная мысль — отдельный абзац, начинающийся ровно с одного маркера.",
+    "Допустимы только эти маркеры: [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]].",
+    "Маркер ставится строго в начале своего абзаца; речь без маркера и маркер в середине абзаца запрещены.",
+    "Вместо «Имя» подставляй точный title персонажа из карточек; не используй слова НПС, NPC, Голос, Незнакомец или Персонаж как имя.",
+    "Внутри одного абзаца — только один говорящий; новый говорящий или новая мысль — новый абзац со своим маркером.",
+    "Игровой ответ — это только художественная сцена: без JSON, markdown, списков, заголовков, код-блоков и пояснений.",
 )
 STORY_NARRATOR_CORE_RULES = (
-    "ЯДРО НАРРАТОРА:",
-    "Пиши художественно: конкретные действия, голоса NPC, сенсорные детали, подтекст.",
-    "Каждый ответ двигает сцену последствием, реакцией, фактом, угрозой, возможностью или выбором.",
-    "NPC различаются речью и поведением; эмоции показывай через жесты, темп и паузы.",
-    "Варьируй начало абзацев, длину фраз и тип деталей; не скатывайся в шаблонные связки.",
-    "Не пересказывай последний ход игрока: он уже произошел, показывай последствия.",
+    "КАК ВЕСТИ СЦЕНУ (ЖИВО И ПО-КНИЖНОМУ):",
+    "Пиши как хороший прозаик: через конкретные действия, живую речь, мимику, дыхание сцены и точные ощущения — свет, звук, запах, фактуру, температуру.",
+    "У каждого NPC свой узнаваемый голос, манера речи и мотив; эмоции показывай через жесты, паузы и темп, а не через ярлыки вроде «он разозлился».",
+    "Каждый ответ двигает историю: новое последствие, реакция, факт, угроза, возможность или развилка выбора — никогда не топчись на месте.",
+    "NPC живут своей жизнью: у них есть желания и планы, они проявляют инициативу, ошибаются, шутят, спорят и меняются по ходу истории.",
+    "Меняй ритм: чередуй короткие и длинные фразы, начала абзацев и тип деталей; избегай шаблонных связок и самоповторов из прошлых ходов.",
+    "Держи внутреннюю логику и причинность мира; уважай заявленные жанр и тон, какими бы они ни были.",
+    "Не подсказывай игроку, что делать, и не закрывай сцену моралью; оставляй живой повод действовать дальше.",
+    "Завершай ход на ясной точке опоры — реплике, действии или вопросе мира к герою, а не на оборванной фразе.",
 )
 STORY_PLAYER_CARDS_RULES = (
-    "ПРАВИЛА КАРТОЧЕК ИГРОКА:",
-    "Активные карточки обязательны после safety и внутреннего протокола MoRius.",
-    "Карточки задают стиль/контент, но не отменяют маркеры, hidden-output, язык или контроль ГГ игроком.",
-    "Если карточки конфликтуют, исполняй более конкретную и не выдумывай поведение вне обеих.",
+    "ПРАВИЛА И КАРТОЧКИ ИГРОКА:",
+    "Активные карточки игрока (мир, персонажи, правила, сюжет) обязательны к исполнению — сразу после safety и протокола формата MoRius.",
+    "Карточки задают сеттинг, стиль, факты и допустимый контент, но не отменяют маркеры, скрытый вывод, язык и контроль игрока над героем.",
+    "Точно следуй фактам и тону карточек; при конфликте исполняй более конкретное правило и не выдумывай того, что им противоречит.",
 )
 STORY_LANGUAGE_RULES_RU = (
     "ЯЗЫК:",
-    "Пиши естественным русским вне [[...]], без бытовой латиницы, CJK-символов и машинного перевода.",
-    "Имена/title и фиксированные термины сохраняй; прочие иностранные слова передавай по-русски.",
+    "Пиши на живом, грамотном литературном русском — красивом и уместном жанру, чтобы текст читался как хорошая проза.",
+    "Вне маркеров [[...]] недопустимы английские слова, бытовая латиница, иероглифы и следы машинного перевода.",
+    "Имена, title персонажей и устоявшиеся термины сохраняй как есть; прочие иностранные слова передавай естественным русским.",
+    "Избегай канцелярита и сухих штампов; выбирай точные глаголы и образы вместо общих формул.",
 )
 STORY_HIDDEN_OUTPUT_RULES = (
     "СКРЫТЫЙ ВЫВОД:",
-    "Верни только финальный внутриигровой ответ рассказчика для игрока.",
-    "Не выводи reasoning, self-analysis, uncertainty notes, draft markers или XML tags.",
-    "Запрещены <thinking>, </thinking>, <reasoning>, </reasoning>, <analysis>, </analysis>, <uncertain>, </uncertain>.",
+    "Возвращай только финальный внутриигровой текст рассказчика для игрока — саму сцену, и ничего больше.",
+    "Не выводи рассуждения, самоанализ, заметки о неуверенности, черновики и служебные пометки.",
+    "Запрещены теги <thinking>, </thinking>, <reasoning>, </reasoning>, <analysis>, </analysis>, <uncertain>, </uncertain> и любые подобные.",
 )
 STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
     "deepseek/deepseek-v3.2": (
-        "deepseek/deepseek-v3.2: держи темп через действие и мотивы персонажей; избегай философских монологов.",
+        "Твоя сила — динамика: держи сцену через действие, диалог и ясные мотивы, без долгих описаний и философии.",
+        "Даже короткий ход делай ярким: одна точная деталь и живая реплика лучше абзаца общих слов.",
     ),
     "deepseek/deepseek-chat-v3-0324": (
-        "deepseek/deepseek-chat-v3-0324: один логичный шаг сцены; живой диалог важнее экспозиции.",
+        "Ты энергичный и изобретательный рассказчик — давай неожиданные, но логичные повороты и живой диалог.",
+        "Держи дисциплину сцены: один осмысленный шаг за ход, экспрессия не должна ломать причинность.",
+    ),
+    "deepseek/deepseek-v4-pro": (
+        "Ты ведёшь сложные сцены с устойчивой причинностью и глубокими характерами — держи несколько линий и мотивов сразу.",
+        "Добавляй подтекст и развитие персонажей, но не теряй темп: глубина работает на сюжет, а не вместо него.",
+    ),
+    "mistralai/mistral-nemo": (
+        "Держи ровный темп, чистый русский и аккуратный контроль сцены; ясность важнее вычурности.",
+        "Одна свежая деталь и понятное последствие в каждом ходе делают сцену живой.",
     ),
     "z-ai/glm-5": (
-        "z-ai/glm-5: чистый русский, без выдуманных слов; добавь одну свежую сенсорную деталь.",
+        "Пиши чистым, естественным русским без выдуманных слов; добавляй одну свежую сенсорную деталь за ход.",
+        "Раскрывай эмоции через нюансы поведения и тёплую подачу, а не через прямые ярлыки.",
     ),
     "z-ai/glm-5.1": (
-        "z-ai/glm-5.1: избегай повторов последних конструкций; меняй ритм, начало абзацев и лексику.",
-        "z-ai/glm-5.1: держи русский естественным, без бытовой латиницы и чужих обрывков.",
+        "Меняй ритм, начала абзацев и лексику — избегай повторов своих же конструкций из прошлых ходов.",
+        "Держи русский естественным и образным, без бытовой латиницы и чужих обрывков.",
     ),
     "aion-labs/aion-2.0": (
-        "aion-labs/aion-2.0: глубокая сцена через поведение и подтекст, не через длинные объяснения.",
+        "Твоя сила — логика и связность: строй продуманные сцены, где причины и следствия выверены.",
+        "Глубину создавай через поведение, подтекст и последовательность характеров, а не через длинные объяснения.",
     ),
     "minimax/minimax-m2-her": (
-        "minimax/minimax-m2-her: natural roleplay flow, distinct NPC voices, no meta commentary.",
+        "Ты мастер живого диалога и устойчивых характеров — давай выразительные многоходовые сцены с яркими голосами NPC.",
+        "Никаких мета-комментариев: только сцена; держи эмоции достоверными и личными.",
     ),
     "openrouter/owl-alpha": (
-        "openrouter/owl-alpha: это художественный ход, не агентный план; превращай планирование в сцену.",
+        "Ты отлично следуешь правилам — точно соблюдай карточки и формат, но превращай любой план в живую сцену, а не в сухой список.",
+        "Используй запас контекста для связности и не пересказывай уже известное.",
     ),
     "anthropic/claude-sonnet-4.6": (
-        "anthropic/claude-sonnet-4.6: сохраняй причинность, мотивы и сдержанную яркость прозы.",
+        "Сохраняй причинность, мотивы и сдержанную яркость прозы; цени точность образа и подтекст.",
+        "Тонкая психология персонажей — твоя сильная сторона; раскрывай её через детали поведения.",
     ),
     "google/gemini-2.5-pro": (
-        "google/gemini-2.5-pro: используй длинный контекст для связности; избегай пересказов и широкой экспозиции.",
+        "Используй большой контекст для связности и аккуратной причинности; удерживай правила и детали без пересказов.",
+        "Предпочитай конкретный выбор и действие персонажей широкой экспозиции.",
     ),
     "google/gemini-3.1-pro-preview": (
-        "google/gemini-3.1-pro-preview: держи контекст и причинность; предпочитай конкретный выбор персонажей.",
+        "Держи контекст, строгие правила и причинность; веди сложные сцены чисто и собранно.",
+        "Предпочитай конкретные решения персонажей и движение сюжета общим описаниям.",
     ),
 }
 STORY_STRICT_ENGLISH_OUTPUT_RULES = (
@@ -1555,12 +1586,14 @@ STORY_SPRITE_IMAGE_BASE_RULES = (
 )
 
 def _build_story_narrator_guardrail_rules(protagonist_label: str) -> tuple[str, ...]:
-    protagonist = " ".join(str(protagonist_label or "").split()).strip() or "the player character"
+    protagonist = " ".join(str(protagonist_label or "").split()).strip() or "главный герой игрока"
     return (
-        "HIDDEN NARRATOR CHECK:",
-        "Latest player message already happened; do not quote, summarize, translate, paraphrase, or retell it.",
-        f"Не играй за ГГ: {protagonist} player-controlled; never add speech, thoughts, actions, motives, choices, or decisions for them.",
-        "Use cards silently; stop at consequences, NPC/world reaction, pressure, or a player choice point.",
+        "ГРАНИЦА ГЛАВНОГО ГЕРОЯ (КРИТИЧЕСКИ ВАЖНО):",
+        f"Главным героем «{protagonist}» управляет только игрок — ты не говоришь, не думаешь и не действуешь за него.",
+        f"Не добавляй за «{protagonist}» реплики, мысли, решения, чувства, намерения и поступки, которых игрок не написал.",
+        "Не повторяй, не пересказывай, не цитируй и не «дополняй» последний ход игрока — он уже случился; покажи, как на него отзывается мир.",
+        "Отвечай на действия героя последствиями, словами и инициативой NPC, переменами в сцене — и останавливайся там, где снова наступает очередь игрока.",
+        "Тихо опирайся на карточки и память, но никогда не проговаривай вслух свои рассуждения о них.",
     )
 
 
@@ -1571,9 +1604,32 @@ if settings.app_allowed_hosts and settings.app_allowed_hosts != ["*"]:
         TrustedHostMiddleware,
         allowed_hosts=settings.app_allowed_hosts,
     )
+class StreamingAwareGZipMiddleware(GZipMiddleware):
+    """GZip normal responses, but never the Server-Sent Events story stream.
+
+    Starlette's GZipMiddleware also compresses ``text/event-stream`` responses. zlib holds
+    the small SSE frames in its internal window until enough bytes accumulate, so the browser
+    receives the whole reply in one delayed batch instead of a smooth token stream — and the
+    tiny ``start`` frame that drives the "generation started" indicator is buffered too. In
+    production that looks exactly like: long wait, no typing indicator, answer appears all at
+    once. We pass the generation stream through uncompressed so it flushes frame-by-frame
+    (nginx is already bypassed for it via the ``X-Accel-Buffering: no`` response header).
+    """
+
+    @staticmethod
+    def _is_story_stream_path(path: str) -> bool:
+        return path.endswith("/generate") and "/games/" in path
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and self._is_story_stream_path(str(scope.get("path", "") or "")):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
 if settings.app_gzip_enabled:
     app.add_middleware(
-        GZipMiddleware,
+        StreamingAwareGZipMiddleware,
         minimum_size=settings.app_gzip_minimum_size,
     )
 app.add_middleware(
@@ -4315,15 +4371,23 @@ def _build_story_system_prompt(
 
     thought_rules: list[str] = []
     if not show_npc_thoughts:
-        thought_rules.append("show_npc_thoughts=false: запрещено использовать [[NPC_THOUGHT:...]].")
+        thought_rules.append(
+            "Мысли NPC отключены: не используй маркер [[NPC_THOUGHT:...]] и не раскрывай внутренние мысли NPC даже в нарративе — показывай их только через слова, тон, мимику и поступки."
+        )
     if not show_gg_thoughts:
-        thought_rules.append("show_gg_thoughts=false: запрещено использовать [[GG_THOUGHT:...]].")
+        thought_rules.append(
+            "Мысли главного героя отключены: не используй маркер [[GG_THOUGHT:...]] и никогда не сочиняй мысли, чувства или намерения героя — это территория игрока."
+        )
+    if show_npc_thoughts or show_gg_thoughts:
+        thought_rules.append(
+            "Мысль — отдельный абзац с маркером *_THOUGHT; используй её редко и метко, ради подтекста, а не пересказа очевидного."
+        )
     if thought_rules:
         lines.extend(["", "НАСТРОЙКИ МЫСЛЕЙ:", *thought_rules])
 
     model_hint_lines = STORY_MODEL_HINTS.get(normalized_model_name)
     if model_hint_lines:
-        lines.extend(["", "MODEL HINT:", *model_hint_lines])
+        lines.extend(["", "ОСОБЕННОСТЬ ЭТОЙ МОДЕЛИ:", *model_hint_lines])
 
     if response_max_tokens is not None:
         normalized_limit = _normalize_story_response_max_tokens(response_max_tokens)
@@ -6918,125 +6982,78 @@ def _resolve_story_turn_postprocess_payload(
         game_id=game.id,
     )
 
-    def request_postprocess_group(
-        *,
-        current_location_content_override: str,
-        raw_memory: bool = False,
-        location: bool = False,
-        environment: bool = False,
-        character_state: bool = False,
-        important_event: bool = False,
-        ambient: bool = False,
-        scene_emotion: bool = False,
-        auto_npcs: bool = False,
-    ) -> dict[str, Any] | None:
-        if not any([raw_memory, location, environment, character_state, important_event, ambient, scene_emotion, auto_npcs]):
-            return None
-        return story_memory_pipeline._extract_story_postprocess_memory_payload(
-            db=db,
-            game=game,
-            current_location_content=current_location_content_override,
-            latest_user_prompt=latest_user_prompt,
-            previous_assistant_text=resolved_previous_assistant_text,
-            latest_assistant_text=latest_assistant_text,
-            raw_memory_enabled=raw_memory,
-            location_enabled=location,
-            environment_enabled=environment,
-            character_state_enabled=character_state,
-            important_event_enabled=important_event,
-            ambient_enabled=ambient,
-            scene_emotion_enabled=scene_emotion,
-            auto_npc_cards_enabled=auto_npcs,
-            world_cards=active_scene_world_cards,
-            scene_emotion_active_cast_entries=scene_emotion_active_cast_entries,
-            scene_emotion_allowed_emotions=sorted(_STORY_CHARACTER_EMOTION_IDS),
-        )
-
     failed_modules: list[str] = []
+    merged_payload: dict[str, Any] = {}
 
-    def safe_request_postprocess_group(*, module_name: str, **kwargs: Any) -> dict[str, Any] | None:
-        requested_sections = [
-            section_name
-            for section_name, enabled in (
-                ("raw_memory", kwargs.get("raw_memory")),
-                ("location", kwargs.get("location")),
-                ("environment", kwargs.get("environment")),
-                ("character_state", kwargs.get("character_state")),
-                ("important_event", kwargs.get("important_event")),
-                ("ambient", kwargs.get("ambient")),
-                ("scene_emotion", kwargs.get("scene_emotion")),
-                ("auto_npcs", kwargs.get("auto_npcs")),
-            )
-            if bool(enabled)
-        ]
-        if not requested_sections:
-            return None
-        try:
-            payload = request_postprocess_group(**kwargs)
-        except Exception as exc:
-            logger.warning(
-                "Story unified post-process group failed: game_id=%s assistant_message_id=%s module=%s sections=%s error=%s",
-                game.id,
-                assistant_message.id,
-                module_name,
-                ",".join(requested_sections),
-                exc,
-            )
-            failed_modules.append(module_name)
-            return None
-        if not isinstance(payload, dict) or not payload:
-            logger.warning(
-                "Story unified post-process group returned no usable payload: game_id=%s assistant_message_id=%s module=%s sections=%s",
-                game.id,
-                assistant_message.id,
-                module_name,
-                ",".join(requested_sections),
-            )
-            failed_modules.append(module_name)
-            return None
-        return payload
-
-    def merge_payload(target: dict[str, Any], source: dict[str, Any] | None) -> None:
+    def absorb(source: dict[str, Any] | None) -> None:
         if not isinstance(source, dict):
             return
+        raw_failed = source.get("_postprocess_failed_modules")
+        if isinstance(raw_failed, list):
+            failed_modules.extend(str(item) for item in raw_failed if str(item or "").strip())
         for key, value in source.items():
+            if key in {"_postprocess_failed_modules", "call_count"}:
+                continue
             if value is not None:
-                target[key] = value
+                merged_payload[key] = value
 
-    split_heavy_modules = bool(character_state_enabled or auto_npc_cards_enabled)
-    if not split_heavy_modules:
-        payload = safe_request_postprocess_group(
-            module_name="unified_postprocess",
-            current_location_content_override=current_location_content,
-            raw_memory=raw_memory_enabled,
-            location=location_enabled,
-            environment=resolved_environment_enabled,
-            character_state=character_state_enabled,
-            important_event=important_event_enabled,
-            ambient=ambient_enabled,
-            scene_emotion=emotion_visualization_enabled,
-            auto_npcs=auto_npc_cards_enabled,
-        )
-        if isinstance(payload, dict) and failed_modules:
-            payload["_postprocess_failed_modules"] = list(dict.fromkeys(failed_modules))
-        if payload is None and failed_modules:
-            return {"_postprocess_failed_modules": list(dict.fromkeys(failed_modules))}
-        return payload
-
-    merged_payload: dict[str, Any] = {}
-    merge_payload(
-        merged_payload,
-        safe_request_postprocess_group(
-            module_name="core_memory_postprocess",
-            current_location_content_override=current_location_content,
-            raw_memory=raw_memory_enabled,
-            location=location_enabled,
-            environment=resolved_environment_enabled,
-            important_event=important_event_enabled,
-            ambient=ambient_enabled,
-            scene_emotion=emotion_visualization_enabled,
-        ),
+    environment_time_enabled = bool(
+        resolved_environment_enabled
+        and story_memory_pipeline._story_environment_time_enabled_for_game(game)
     )
+    environment_weather_enabled = bool(
+        resolved_environment_enabled
+        and story_memory_pipeline._story_environment_weather_enabled_for_game(game)
+    )
+
+    # --- Call A: «Мир/повествование» (location + время + важная память + ambient + эмоции) ---
+    world_modules_enabled = bool(
+        location_enabled
+        or environment_time_enabled
+        or environment_weather_enabled
+        or important_event_enabled
+        or ambient_enabled
+        or emotion_visualization_enabled
+    )
+    if world_modules_enabled:
+        scene_emotion_active_characters = ""
+        scene_emotion_supported_emotions = ""
+        if emotion_visualization_enabled:
+            scene_emotion_active_characters, scene_emotion_supported_emotions = (
+                _render_story_scene_emotion_prompt_fragments(scene_emotion_active_cast_entries)
+            )
+        try:
+            world_payload = story_memory_pipeline._extract_story_world_analysis_payload(
+                db=db,
+                game=game,
+                current_location_content=current_location_content,
+                latest_user_prompt=latest_user_prompt,
+                previous_assistant_text=resolved_previous_assistant_text,
+                latest_assistant_text=latest_assistant_text,
+                location_enabled=location_enabled,
+                environment_time_enabled=environment_time_enabled,
+                environment_weather_enabled=environment_weather_enabled,
+                important_event_enabled=important_event_enabled,
+                ambient_enabled=ambient_enabled,
+                scene_emotion_enabled=emotion_visualization_enabled,
+                world_cards=active_scene_world_cards,
+                scene_emotion_active_characters=scene_emotion_active_characters,
+                scene_emotion_supported_emotions=scene_emotion_supported_emotions,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Story world analysis (Call A) failed: game_id=%s assistant_message_id=%s error=%s",
+                game.id,
+                assistant_message.id,
+                exc,
+            )
+            failed_modules.append("world_analysis")
+        else:
+            if isinstance(world_payload, dict):
+                absorb(world_payload)
+            else:
+                failed_modules.append("world_analysis")
+
     effective_location_content = current_location_content
     location_payload = merged_payload.get("location")
     if isinstance(location_payload, dict):
@@ -7046,22 +7063,40 @@ def _resolve_story_turn_postprocess_payload(
         if normalized_location_content:
             effective_location_content = normalized_location_content
 
-    merge_payload(
-        merged_payload,
-        safe_request_postprocess_group(
-            module_name="character_state",
-            current_location_content_override=effective_location_content,
-            character_state=character_state_enabled,
-        ),
-    )
-    merge_payload(
-        merged_payload,
-        safe_request_postprocess_group(
-            module_name="auto_npcs",
-            current_location_content_override=effective_location_content,
-            auto_npcs=auto_npc_cards_enabled,
-        ),
-    )
+    # --- Call B: «Персонажи» (auto_state + npc_cards) -----------------------------------
+    if character_state_enabled or auto_npc_cards_enabled:
+        try:
+            character_payload = story_memory_pipeline._extract_story_postprocess_memory_payload(
+                db=db,
+                game=game,
+                current_location_content=effective_location_content,
+                latest_user_prompt=latest_user_prompt,
+                previous_assistant_text=resolved_previous_assistant_text,
+                latest_assistant_text=latest_assistant_text,
+                raw_memory_enabled=False,
+                location_enabled=False,
+                environment_enabled=False,
+                character_state_enabled=character_state_enabled,
+                important_event_enabled=False,
+                ambient_enabled=False,
+                scene_emotion_enabled=False,
+                auto_npc_cards_enabled=auto_npc_cards_enabled,
+                world_cards=active_scene_world_cards,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Story character analysis (Call B) failed: game_id=%s assistant_message_id=%s error=%s",
+                game.id,
+                assistant_message.id,
+                exc,
+            )
+            failed_modules.append("character_analysis")
+        else:
+            if isinstance(character_payload, dict):
+                absorb(character_payload)
+            else:
+                failed_modules.append("character_analysis")
+
     if failed_modules:
         merged_payload["_postprocess_failed_modules"] = list(dict.fromkeys(failed_modules))
     return merged_payload or None
@@ -9593,6 +9628,80 @@ def _seed_story_opening_scene_memory_block(
     return created_opening_scene_memory
 
 
+def _apply_story_environment_payload(
+    *,
+    db: Session,
+    game: StoryGame,
+    environment_payload: dict[str, Any] | None,
+) -> bool:
+    """Применить раздел environment из Call A: продвинуть внутриигровое время и обновить погоду.
+
+    Никакого локального синтеза: время двигается только на advance_minutes из ИИ-ответа, погода
+    обновляется только из weather. Если включён time, но дата ещё не задана — выставляем старт «сейчас»
+    (это начальная точка отсчёта, а не выдуманный анализ хода).
+    """
+    from app.services import story_memory_pipeline as smp
+
+    time_enabled = smp._story_environment_time_enabled_for_game(game)
+    weather_enabled = smp._story_environment_weather_enabled_for_game(game)
+    if not (time_enabled or weather_enabled):
+        return False
+
+    changed = False
+    current_dt = smp._deserialize_story_environment_datetime(
+        str(getattr(game, "environment_current_datetime", "") or "")
+    )
+    if time_enabled and current_dt is None:
+        current_dt = datetime.now().replace(second=0, microsecond=0, tzinfo=None)
+        serialized_start = smp._serialize_story_environment_datetime(current_dt)
+        if serialized_start:
+            game.environment_current_datetime = serialized_start
+            changed = True
+
+    if not isinstance(environment_payload, dict):
+        return changed
+
+    if time_enabled:
+        try:
+            advance_minutes = int(environment_payload.get("advance_minutes") or 0)
+        except (TypeError, ValueError):
+            advance_minutes = 0
+        advance_minutes = max(0, min(advance_minutes, 7 * 24 * 60))
+        if advance_minutes > 0:
+            base_dt = current_dt or datetime.now().replace(second=0, microsecond=0, tzinfo=None)
+            new_dt = base_dt + timedelta(minutes=advance_minutes)
+            serialized = smp._serialize_story_environment_datetime(new_dt)
+            if serialized and serialized != str(getattr(game, "environment_current_datetime", "") or ""):
+                game.environment_current_datetime = serialized
+                current_dt = new_dt
+                changed = True
+
+    if weather_enabled:
+        weather = environment_payload.get("weather")
+        if isinstance(weather, dict) and (
+            str(weather.get("summary") or "").strip() or weather.get("temperature_c") is not None
+        ):
+            existing = smp._deserialize_story_environment_weather(
+                str(getattr(game, "environment_current_weather", "") or "")
+            )
+            merged = dict(existing) if isinstance(existing, dict) else {}
+            day_date = smp._story_environment_date_key_from_value(current_dt) if current_dt else ""
+            if day_date:
+                merged["day_date"] = day_date
+            for field_name in ("summary", "temperature_c", "fog", "humidity", "wind"):
+                value = weather.get(field_name)
+                if value not in (None, ""):
+                    merged[field_name] = value
+            normalized = smp._normalize_story_environment_weather_payload(merged)
+            if isinstance(normalized, dict):
+                serialized = smp._serialize_story_environment_weather(normalized)
+                if serialized and serialized != str(getattr(game, "environment_current_weather", "") or ""):
+                    game.environment_current_weather = serialized
+                    changed = True
+
+    return changed
+
+
 def _upsert_story_plot_memory_card(
     *,
     db: Session,
@@ -9930,17 +10039,14 @@ def _upsert_story_plot_memory_card(
                 )
         if environment_enabled:
             try:
-                story_memory_pipeline._sync_story_environment_state_for_assistant_message(
+                _apply_story_environment_payload(
                     db=db,
                     game=game,
-                    assistant_message=assistant_message,
-                    latest_user_prompt=latest_user_prompt,
-                    latest_assistant_text=latest_assistant_text,
-                    previous_assistant_text=previous_assistant_text,
-                    current_location_content_override=current_location_content,
-                    resolved_payload_override=environment_payload_for_sync,
-                    allow_weather_seed=False,
-                    allow_model_request=False,
+                    environment_payload=(
+                        environment_payload_for_sync
+                        if isinstance(environment_payload_for_sync, dict)
+                        else None
+                    ),
                 )
             except Exception as exc:
                 _record_postprocess_failure("environment")
@@ -9997,7 +10103,7 @@ def _upsert_story_plot_memory_card(
             _rebalance_story_memory_layers(
                 db=db,
                 game=game,
-                max_model_requests=3,
+                max_model_requests=2,
                 require_model_compaction=True,
                 commit_each_model_compaction=True,
                 prioritize_recent_transitions=True,
@@ -10145,6 +10251,8 @@ def _iter_gigachat_story_stream_chunks(
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "text/event-stream",
+        # Keep the SSE leg uncompressed so tokens flush frame-by-frame (see Polza stream note).
+        "Accept-Encoding": "identity",
         "Content-Type": "application/json",
     }
     payload = {
@@ -10284,6 +10392,11 @@ def _iter_polza_story_stream_chunks(
     headers = {
         "Authorization": f"Bearer {settings.polza_api_key}",
         "Accept": "text/event-stream",
+        # Disable response compression on the SSE leg. If the provider gzips the event stream,
+        # the decoder buffers until a flush boundary (often the whole reply), so chunks reach us
+        # all at once and we relay them all at once — exactly the "text appears only when finished"
+        # symptom. identity keeps tokens flowing frame-by-frame in real time.
+        "Accept-Encoding": "identity",
         "Content-Type": "application/json",
     }
     if settings.polza_site_url:
@@ -13502,6 +13615,39 @@ def _build_story_scene_emotion_keyword_fallback_payload(
     if not isinstance(normalized_payload, dict) or not normalized_payload.get("show_visualization"):
         return None
     return _serialize_story_scene_emotion_payload(normalized_payload)
+
+
+def _render_story_scene_emotion_prompt_fragments(
+    active_cast_entries: list[dict[str, Any]],
+) -> tuple[str, str]:
+    """Готовые текстовые блоки активного состава и допустимых эмоций для Call A.
+
+    Повторяет рендер из ``_build_story_scene_emotion_analysis_messages``, чтобы единый
+    «мировой» промпт давал модели тот же список персонажей и тот же словарь эмоций.
+    """
+    character_lines: list[str] = []
+    for index, entry in enumerate((active_cast_entries or [])[:6], start=1):
+        title = " ".join(str(entry.get("display_name") or "").split()).strip()
+        if not title:
+            continue
+        kind = "main_hero" if entry.get("is_main_hero") else "npc"
+        aliases = entry.get("aliases")
+        alias_values = aliases if isinstance(aliases, set) else set()
+        trigger_line = ", ".join(
+            alias
+            for alias in sorted(alias_values, key=len, reverse=True)[:6]
+            if isinstance(alias, str) and alias.strip()
+        )
+        character_lines.append(
+            f"{index}. {title} [{kind}]" + (f" aliases: {trigger_line}" if trigger_line else "")
+        )
+    emotion_lines = [
+        f"- {emotion_id}: {_resolve_story_character_emotion_descriptor(emotion_id)}"
+        for emotion_id in _STORY_CHARACTER_EMOTION_IDS
+    ]
+    characters_text = "\n".join(character_lines)
+    emotions_text = "\n".join(emotion_lines)
+    return characters_text, emotions_text
 
 
 def _build_story_scene_emotion_analysis_messages(

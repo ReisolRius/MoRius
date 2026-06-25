@@ -187,7 +187,7 @@ class StoryGenerationLockingTests(unittest.TestCase):
 
             chunks = asyncio.run(consume_until_error())
 
-        self.assertIn(": keepalive", chunks[0])
+        self.assertEqual(chunks[0], story_runtime._sse_stream_warmup())
         self.assertTrue(any("event: error" in chunk for chunk in chunks))
         self.assertTrue(any(STORY_GAME_OPERATION_BUSY_DETAIL in chunk for chunk in chunks))
         self.assertGreaterEqual(len(acquire_calls), 2)
@@ -237,7 +237,7 @@ class StoryGenerationLockingTests(unittest.TestCase):
                     chunks.append(chunk)
                     if "event: start" in chunk:
                         break
-                self.assertIn(": keepalive", chunks[0])
+                self.assertEqual(chunks[0], story_runtime._sse_stream_warmup())
                 self.assertTrue(any("event: start" in chunk for chunk in chunks))
                 await iterator.aclose()
 
@@ -306,7 +306,7 @@ class StoryGenerationLockingTests(unittest.TestCase):
 
             chunks = asyncio.run(consume_keepalive_then_start())
 
-        self.assertIn(": keepalive", chunks[0])
+        self.assertEqual(chunks[0], story_runtime._sse_stream_warmup())
         self.assertTrue(any(": keepalive" in chunk for chunk in chunks[:2]))
         self.assertTrue(any("event: start" in chunk for chunk in chunks))
         for _ in range(50):

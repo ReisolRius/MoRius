@@ -95,8 +95,12 @@ STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 20.0
 STORY_GENERATE_LOCK_POLL_SECONDS = 0.75
 STORY_PROVIDER_HEARTBEAT_SECONDS = 8.0
 STORY_STREAM_RELAY_HEARTBEAT_SECONDS = 1.0
-STORY_POSTPROCESS_MAX_SERVICE_REQUESTS = 16
-STORY_GRAPH_MAX_SERVICE_REQUESTS = 4
+# Жёсткий потолок на ВСЕ Gemini-вызовы пост-обработки одного хода (единый общий бюджет на
+# Call A «Мир», Call B «Персонажи», сжатие памяти и граф). Логический максимум при всех
+# включённых модулях: 1 (A) + 1 (B) + 2 (память) + 1 (граф) = 5. Ретраи валидации используют
+# только остаток бюджета; упёршись в потолок, запрос отклоняется штатно (модуль → pending,
+# повтор следующим ходом), без локального синтеза.
+STORY_TURN_MAX_SERVICE_REQUESTS = 5
 STORY_STREAM_RETRY_DELAYS_SECONDS = (1.0, 2.5, 5.0, 8.0)
 STORY_CONTINUE_MODEL_PROMPT = (
     "Continue the current scene from exactly where the latest assistant response ended. "
@@ -196,6 +200,19 @@ def _sse_event(event: str, payload: dict[str, Any]) -> str:
 
 def _sse_keepalive() -> str:
     return ": keepalive\n\n"
+
+
+# A one-time ~2 KB SSE comment sent the instant the stream opens. Some proxies/CDNs buffer a
+# response until their first buffer fills before forwarding anything; a tiny keepalive isn't
+# enough to trip that, so the "start" frame (which turns on the "generation started" indicator)
+# and the first tokens get held back — the player sees a long blank wait, then the whole answer
+# at once. This padding forces an immediate flush so streaming begins right away. SSE comment
+# lines (starting with ':') are ignored by the client parser, so it's invisible in the UI.
+_STORY_SSE_STREAM_WARMUP = ":" + (" " * 2048) + "\n\n"
+
+
+def _sse_stream_warmup() -> str:
+    return _STORY_SSE_STREAM_WARMUP
 
 
 def _iter_story_provider_chunks_with_heartbeat(
@@ -1167,7 +1184,7 @@ def _best_effort_sync_story_turn_memory_and_environment(
             story_memory_pipeline._rebalance_story_memory_layers(
                 db=db,
                 game=game,
-                max_model_requests=3,
+                max_model_requests=2,
                 backfill_existing_compact_layers=False,
                 prioritize_recent_transitions=True,
             )
@@ -1844,14 +1861,12 @@ def _stream_story_response(
             )
 
     unified_postprocess_payload: dict[str, Any] | None = None
-    # One normal turn uses one storyteller request, at most three regular
-    # post-process requests and one separately reserved graph request.
+    # Единый жёсткий бюджет на ВСЕ Gemini-вызовы хода: Call A «Мир», Call B «Персонажи»,
+    # сжатие памяти и граф тянут запросы из одного счётчика. Это и есть потолок ≤5 на ход.
     service_request_budget = StoryServiceHttpRequestBudget(
-        max_requests=STORY_POSTPROCESS_MAX_SERVICE_REQUESTS
+        max_requests=STORY_TURN_MAX_SERVICE_REQUESTS
     )
-    graph_request_budget = StoryServiceHttpRequestBudget(
-        max_requests=STORY_GRAPH_MAX_SERVICE_REQUESTS
-    )
+    graph_request_budget = service_request_budget
     if not aborted and response_has_content:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "postprocess"})
         if _stop_requested("postprocess"):
@@ -2137,13 +2152,11 @@ def _stream_story_response(
                     db.rollback()
 
         logger.info(
-            "Story service request usage: game_id=%s assistant_message_id=%s regular=%s/%s graph=%s/%s",
+            "Story service request usage: game_id=%s assistant_message_id=%s gemini_requests=%s/%s",
             game.id,
             assistant_message.id,
             service_request_budget.used_requests,
             service_request_budget.max_requests,
-            graph_request_budget.used_requests,
-            graph_request_budget.max_requests,
         )
 
         memory_blocks_after_postprocess = deps.list_story_memory_blocks(db, game.id)
@@ -3175,7 +3188,7 @@ def generate_story_response(
         worker.start()
 
         try:
-            yield _sse_keepalive()
+            yield _sse_stream_warmup()
             heartbeat_seconds = max(float(STORY_STREAM_RELAY_HEARTBEAT_SECONDS), 0.25)
             while True:
                 try:

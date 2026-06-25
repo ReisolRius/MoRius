@@ -51,12 +51,17 @@ class ImportantMemoryPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     should_store: bool = False
+    significance_score: int = 0
     title: str = ""
     summary: str = ""
     significance: str = ""
 
     @model_validator(mode="after")
     def _validate_important_memory(self) -> "ImportantMemoryPayload":
+        try:
+            self.significance_score = max(0, min(10, int(self.significance_score)))
+        except (TypeError, ValueError):
+            self.significance_score = 0
         self.title = " ".join(str(self.title or "").split()).strip()[:160].rstrip()
         self.summary = " ".join(str(self.summary or "").split()).strip()[:1200].rstrip()
         self.significance = " ".join(str(self.significance or "").split()).strip()[:500].rstrip()
@@ -212,6 +217,80 @@ class GameStateAnalysisPayload(BaseModel):
     location: LocationPayload = Field(default_factory=LocationPayload)
     auto_state: AutoStatePayload = Field(default_factory=AutoStatePayload)
     npc_cards: NpcCardsPayload = Field(default_factory=NpcCardsPayload)
+
+
+class AmbientPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    scene: str = ""
+    lighting: str = ""
+    primary_color: str = ""
+    secondary_color: str = ""
+    highlight_color: str = ""
+    glow_strength: float | None = None
+    background_mix: float | None = None
+    vignette_strength: float | None = None
+
+
+class SceneEmotionParticipantPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = ""
+    emotion: str = ""
+    importance: str = "primary"
+
+
+class SceneEmotionPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    show_visualization: bool = False
+    reason: str = ""
+    participants: list[SceneEmotionParticipantPayload] = Field(default_factory=list)
+
+
+class EnvironmentWeatherPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    summary: str = ""
+    temperature_c: int | None = None
+    fog: str = ""
+    humidity: str = ""
+    wind: str = ""
+
+
+class EnvironmentPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    should_update: bool = False
+    advance_minutes: int = 0
+    weather: EnvironmentWeatherPayload | None = None
+
+    @field_validator("advance_minutes", mode="before")
+    @classmethod
+    def _coerce_advance_minutes(cls, value: Any) -> int:
+        try:
+            minutes = int(float(value))
+        except (TypeError, ValueError):
+            return 0
+        # In-game time only ever moves forward, and a single turn cannot leap more
+        # than a week. Clamp here so a hallucinated huge value can never corrupt the clock.
+        return max(0, min(minutes, 7 * 24 * 60))
+
+
+class WorldAnalysisPayload(BaseModel):
+    """Call A — единый «мировой» анализ хода.
+
+    Все секции опциональны: в промпт попадают только включённые модули, поэтому
+    отключённый модуль не описывается в инструкции и остаётся значением по умолчанию.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    location: LocationPayload = Field(default_factory=LocationPayload)
+    environment: EnvironmentPayload = Field(default_factory=EnvironmentPayload)
+    important_memory: ImportantMemoryPayload = Field(default_factory=ImportantMemoryPayload)
+    ambient: AmbientPayload | None = None
+    scene_emotion: SceneEmotionPayload | None = None
 
 
 def strict_json_loads(raw_response: str) -> dict[str, Any]:

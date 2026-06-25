@@ -601,6 +601,8 @@ def _iter_gigachat_story_stream_chunks(
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "text/event-stream",
+        # Keep the SSE leg uncompressed so upstream tokens flush frame-by-frame.
+        "Accept-Encoding": "identity",
         "Content-Type": "application/json",
     }
     payload = {
@@ -771,6 +773,9 @@ def _iter_polza_story_stream_chunks(
     headers = {
         "Authorization": f"Bearer {settings.polza_api_key}",
         "Accept": "text/event-stream",
+        # Keep the SSE leg uncompressed. Compressed event streams often flush only at
+        # large decoder boundaries, which makes the UI receive the whole reply at once.
+        "Accept-Encoding": "identity",
         "Content-Type": "application/json",
     }
     if settings.polza_site_url:

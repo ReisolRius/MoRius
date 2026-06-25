@@ -1515,6 +1515,8 @@ function CharacterManagerDialog({
     resetDraft,
     showEmotionTools,
     speechColorDraft,
+    bubbleColorDraft,
+    thoughtBubbleColorDraft,
     triggersDraft,
     visibilityDraft,
   ])
