@@ -6222,8 +6222,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [storySettingsTab, setStorySettingsTab] = useState<StorySettingsTab>('generation')
   const [isNarratorSettingsExpanded, setIsNarratorSettingsExpanded] = useState(false)
   const [isVisualizationSettingsExpanded, setIsVisualizationSettingsExpanded] = useState(false)
-  const [isAdditionalSettingsExpanded, setIsAdditionalSettingsExpanded] = useState(false)
+  const [isAdditionalSettingsExpanded, setIsAdditionalSettingsExpanded] = useState(true)
+  const [isAdvancedSettingsExpanded, setIsAdvancedSettingsExpanded] = useState(false)
   const [isFineTuneSettingsExpanded, setIsFineTuneSettingsExpanded] = useState(false)
+  const [plotPanelSubTab, setPlotPanelSubTab] = useState<'cards' | 'memory' | 'dev'>('cards')
   const [isAppearanceSettingsExpanded, setIsAppearanceSettingsExpanded] = useState(false)
   const [smoothStreamingEnabled, setSmoothStreamingEnabled] = useState(() => readSmoothStreamingPreference())
   const [isContextUsageExpanded, setIsContextUsageExpanded] = useState(false)
@@ -17296,21 +17298,27 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           expanded: 'Свернуть правую панель',
           collapsed: 'Развернуть правую панель',
         }}
+        hideRightToggle
         onOpenSettingsDialog={() => setProfileDialogOpen(true)}
         showAiAssistantAction={user.ai_assistant_visible ?? true}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         onOpenBugReportDialog={handleOpenBugReportDialog}
-        rightActionsWidth={360}
+        rightActionsWidth={420}
         rightActions={
-          <Stack data-tour-id="story-right-mode-buttons" direction="row" sx={{ gap: 'var(--morius-icon-gap)' }}>
+          <Stack data-tour-id="story-right-mode-buttons" direction="row" alignItems="center" sx={{ gap: 'var(--morius-icon-gap)' }}>
             <IconButton
               data-tour-id="story-right-mode-world"
               aria-label="Сюжет и мир"
               onClick={() => {
-                setRightPanelMode('world')
-                setActiveWorldPanelTab('story')
+                if (rightPanelMode === 'world' && isRightPanelOpen) {
+                  handleToggleRightPanel()
+                } else {
+                  setRightPanelMode('world')
+                  setActiveWorldPanelTab('story')
+                  if (!isRightPanelOpen) handleToggleRightPanel()
+                }
               }}
-              sx={rightPanelModeButtonSx(rightPanelMode === 'world')}
+              sx={rightPanelModeButtonSx(rightPanelMode === 'world' && isRightPanelOpen)}
             >
               <RightPanelWorldIcon />
             </IconButton>
@@ -17318,10 +17326,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               data-tour-id="story-right-mode-ai"
               aria-label="Настройки ИИ"
               onClick={() => {
-                setRightPanelMode('ai')
-                setActiveAiPanelTab('settings')
+                if (rightPanelMode === 'ai' && isRightPanelOpen) {
+                  handleToggleRightPanel()
+                } else {
+                  setRightPanelMode('ai')
+                  setActiveAiPanelTab('settings')
+                  if (!isRightPanelOpen) handleToggleRightPanel()
+                }
               }}
-              sx={rightPanelModeButtonSx(rightPanelMode === 'ai')}
+              sx={rightPanelModeButtonSx(rightPanelMode === 'ai' && isRightPanelOpen)}
             >
               <RightPanelAiIcon />
             </IconButton>
@@ -17329,13 +17342,48 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               data-tour-id="story-right-mode-memory"
               aria-label="Память"
               onClick={() => {
-                setRightPanelMode('memory')
-                setActiveMemoryPanelTab('memory')
+                if (rightPanelMode === 'memory' && isRightPanelOpen) {
+                  handleToggleRightPanel()
+                } else {
+                  setRightPanelMode('memory')
+                  setActiveMemoryPanelTab('memory')
+                  if (!isRightPanelOpen) handleToggleRightPanel()
+                }
               }}
-              sx={rightPanelModeButtonSx(rightPanelMode === 'memory')}
+              sx={rightPanelModeButtonSx(rightPanelMode === 'memory' && isRightPanelOpen)}
             >
               <RightPanelMemoryIcon />
             </IconButton>
+            <Tooltip disableInteractive title={isRightPanelOpen ? 'Закрыть игровое меню' : 'Открыть игровое меню'}>
+              <IconButton
+                data-tour-id="story-game-menu-toggle"
+                aria-label={isRightPanelOpen ? 'Закрыть игровое меню' : 'Открыть игровое меню'}
+                onClick={handleToggleRightPanel}
+                sx={{
+                  ...rightPanelModeButtonSx(isRightPanelOpen),
+                  width: 38,
+                  height: 38,
+                  borderRadius: '10px',
+                  position: 'relative',
+                  transition: 'color 180ms ease, background-color 180ms ease, transform 180ms ease',
+                  '&:active': { transform: 'scale(0.92)' },
+                }}
+              >
+                <SvgIcon
+                  sx={{
+                    fontSize: 19,
+                    transition: 'transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+                    transform: isRightPanelOpen ? 'rotate(0deg)' : 'rotate(0deg)',
+                  }}
+                >
+                  {isRightPanelOpen ? (
+                    <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                  ) : (
+                    <path d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z" />
+                  )}
+                </SvgIcon>
+              </IconButton>
+            </Tooltip>
             <HeaderAccountActions
               user={user}
               authToken={authToken}
@@ -18845,171 +18893,395 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Stack>
                   </Stack>
                 ) : (
-                  <Stack spacing={0.9}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
-                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.16rem', fontWeight: 800 }}>Сюжет</Typography>
-                      <ViewToggleButton cardsViewMode={cardsViewMode} setCardsViewMode={setCardsViewMode} />
-                    </Stack>
-                    {plotCards.length === 0 ? (
-                      <RightPanelEmptyState
-                        iconSrc={icons.communityInfo}
-                        title="Сюжет пока пуст"
-                        description="Записывайте сюда важные события и незакрытые линии, чтобы держать эпизод в фокусе."
-                      />
-                    ) : cardsViewMode === 'compact' ? (
-                      <Stack spacing={1.2}>
-                        {plotCards.map((card) => {
-                          const contextState = plotCardContextStateById.get(card.id)
-                          const isPlotCardDisabled = isPlotCardManuallyDisabled(card)
-                          const isPlotCardContextActive = Boolean(contextState?.isActive)
-                          const plotTurnsRemaining =
-                            isPlotCardContextActive &&
-                            contextState?.lastTriggerTurn !== null &&
-                            typeof contextState?.turnsRemaining === 'number' &&
-                            contextState.turnsRemaining > 0
-                              ? contextState.turnsRemaining
-                              : null
-                          return (
-                            <MobileCardItem
-                              key={card.id}
-                              fallbackBackground={buildWorldFallbackArtwork(card.id + 700000) as Record<string, unknown>}
-                              title={card.title}
-                              description={replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
-                              isActive={isPlotCardContextActive && !isPlotCardDisabled}
-                              showPlayButton={false}
-                              onMenuClick={(e) => handleOpenCardMenu(e, 'plot', card.id)}
-                              infoNode={
-                                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.9, minHeight: 0, flex: 1 }}>
+                    {/* Сюжет sub-tabs */}
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        gap: 0.4,
+                        flexShrink: 0,
+                        overflowX: 'auto',
+                        scrollbarWidth: 'none',
+                        '&::-webkit-scrollbar': { display: 'none' },
+                      }}
+                    >
+                      {([
+                        { key: 'cards' as const, label: 'Карточки' },
+                        { key: 'memory' as const, label: 'Память' },
+                        ...(canViewDevMemoryTab ? [{ key: 'dev' as const, label: 'Дев Память' }] : []),
+                      ]).map((tab) => (
+                        <Button
+                          key={tab.key}
+                          onClick={() => setPlotPanelSubTab(tab.key)}
+                          sx={{
+                            ...rightPanelTextTabButtonSx(plotPanelSubTab === tab.key),
+                            minHeight: 34,
+                            px: 1.1,
+                            borderRadius: '10px',
+                            fontSize: '0.82rem',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {tab.label}
+                        </Button>
+                      ))}
+                    </Box>
+
+                    {plotPanelSubTab === 'cards' ? (
+                      <Stack spacing={0.9} sx={{ minHeight: 0, flex: 1 }}>
+                        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
+                          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.08rem', fontWeight: 800 }}>Карточки сюжета</Typography>
+                          <ViewToggleButton cardsViewMode={cardsViewMode} setCardsViewMode={setCardsViewMode} />
+                        </Stack>
+                        {plotCards.length === 0 ? (
+                          <RightPanelEmptyState
+                            iconSrc={icons.communityInfo}
+                            title="Сюжет пока пуст"
+                            description="Записывайте сюда важные события и незакрытые линии, чтобы держать эпизод в фокусе."
+                          />
+                        ) : cardsViewMode === 'compact' ? (
+                          <Stack spacing={1.2}>
+                            {plotCards.map((card) => {
+                              const contextState = plotCardContextStateById.get(card.id)
+                              const isPlotCardDisabled = isPlotCardManuallyDisabled(card)
+                              const isPlotCardContextActive = Boolean(contextState?.isActive)
+                              const plotTurnsRemaining =
+                                isPlotCardContextActive &&
+                                contextState?.lastTriggerTurn !== null &&
+                                typeof contextState?.turnsRemaining === 'number' &&
+                                contextState.turnsRemaining > 0
+                                  ? contextState.turnsRemaining
+                                  : null
+                              return (
+                                <MobileCardItem
+                                  key={card.id}
+                                  fallbackBackground={buildWorldFallbackArtwork(card.id + 700000) as Record<string, unknown>}
+                                  title={card.title}
+                                  description={replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
+                                  isActive={isPlotCardContextActive && !isPlotCardDisabled}
+                                  showPlayButton={false}
+                                  onMenuClick={(e) => handleOpenCardMenu(e, 'plot', card.id)}
+                                  infoNode={
+                                    <Stack direction="row" spacing={0.5} alignItems="center">
+                                      {plotTurnsRemaining !== null ? (
+                                        <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
+                                          <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 13, height: 13, opacity: 0.9 }} />
+                                          <Typography sx={{ fontSize: '0.76rem', fontWeight: 800, lineHeight: 1 }}>{plotTurnsRemaining}</Typography>
+                                        </Stack>
+                                      ) : null}
+                                      <Typography
+                                        component="span"
+                                        sx={{
+                                          ...buildStatusChipSx(isPlotCardContextActive && !isPlotCardDisabled),
+                                          px: 0.55,
+                                          py: 0.18,
+                                          fontSize: '0.64rem',
+                                          fontWeight: 700,
+                                          borderRadius: '6px',
+                                        }}
+                                      >
+                                        {formatPlotCardContextStatus(contextState)}
+                                      </Typography>
+                                    </Stack>
+                                  }
+                                  onClick={() => handleOpenCardMenu(
+                                    { currentTarget: document.body } as unknown as React.MouseEvent<HTMLElement>,
+                                    'plot', card.id
+                                  )}
+                                />
+                              )
+                            })}
+                          </Stack>
+                        ) : (
+                          plotCards.map((card) => {
+                            const contextState = plotCardContextStateById.get(card.id)
+                            const resolvedPlotMemoryTurns = resolvePlotCardMemoryTurns(card)
+                            const isPlotCardDisabled = isPlotCardManuallyDisabled(card)
+                            const isPlotCardContextActive = Boolean(contextState?.isActive)
+                            const plotTurnsRemaining =
+                              isPlotCardContextActive &&
+                              contextState?.lastTriggerTurn !== null &&
+                              typeof contextState?.turnsRemaining === 'number' &&
+                              contextState.turnsRemaining > 0
+                                ? contextState.turnsRemaining
+                                : null
+                            return (
+                              <Box
+                                key={card.id}
+                                sx={{
+                                  borderRadius: '16px',
+                                  border: isPlotCardDisabled
+                                    ? 'var(--morius-border-width) solid rgba(137, 154, 178, 0.42)'
+                                    : isPlotCardContextActive
+                                      ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))'
+                                      : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 92%, transparent)',
+                                  backgroundColor: isPlotCardDisabled
+                                    ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)'
+                                    : isPlotCardContextActive
+                                      ? 'color-mix(in srgb, var(--morius-accent) 8%, var(--morius-card-bg))'
+                                      : 'var(--morius-card-bg)',
+                                  p: 0.9,
+                                  opacity: isPlotCardDisabled ? 0.82 : 1,
+                                }}
+                              >
+                                <Stack direction="row" spacing={0.55} alignItems="center">
+                                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 800, minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {card.title}
+                                  </Typography>
                                   {plotTurnsRemaining !== null ? (
-                                    <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
-                                      <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 13, height: 13, opacity: 0.9 }} />
-                                      <Typography sx={{ fontSize: '0.76rem', fontWeight: 800, lineHeight: 1 }}>{plotTurnsRemaining}</Typography>
+                                    <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)', flexShrink: 0 }}>
+                                      <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 14, height: 14, display: 'block', opacity: 0.94 }} />
+                                      <Typography sx={{ fontSize: '0.92rem', fontWeight: 800, lineHeight: 1 }}>
+                                        {plotTurnsRemaining}
+                                      </Typography>
                                     </Stack>
                                   ) : null}
                                   <Typography
-                                    component="span"
                                     sx={{
                                       ...buildStatusChipSx(isPlotCardContextActive && !isPlotCardDisabled),
                                       px: 0.55,
                                       py: 0.18,
                                       fontSize: '0.64rem',
                                       fontWeight: 700,
-                                      borderRadius: '6px',
                                     }}
                                   >
                                     {formatPlotCardContextStatus(contextState)}
                                   </Typography>
+                                  <IconButton
+                                    className="morius-overflow-action"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      handleOpenCardMenu(event, 'plot', card.id)
+                                    }}
+                                    disabled={isPlotCardActionLocked}
+                                    sx={{ ...overflowActionButtonSx, opacity: 1, pointerEvents: 'auto' }}
+                                  >
+                                    <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                  </IconButton>
                                 </Stack>
-                              }
-                              onClick={() => handleOpenCardMenu(
-                                { currentTarget: document.body } as unknown as React.MouseEvent<HTMLElement>,
-                                'plot', card.id
-                              )}
-                            />
-                          )
-                        })}
+                                <Typography
+                                  sx={{
+                                    mt: 0.45,
+                                    color: 'var(--morius-text-secondary)',
+                                    fontSize: '0.82rem',
+                                    lineHeight: 1.42,
+                                    whiteSpace: 'pre-wrap',
+                                    display: '-webkit-box',
+                                    WebkitLineClamp: 4,
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  {replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
+                                </Typography>
+                                <Typography sx={{ mt: 0.42, color: 'rgba(171, 189, 214, 0.7)', fontSize: '0.73rem' }}>
+                                  {`Память: ${resolvedPlotMemoryTurns === null ? 'выключено' : `${resolvedPlotMemoryTurns} ${formatTurnsWord(resolvedPlotMemoryTurns)}`}`}
+                                </Typography>
+                              </Box>
+                            )
+                          })
+                        )}
+                        <Button
+                          onClick={handleOpenCreatePlotCardDialog}
+                          disabled={isGenerating || isSavingPlotCard || deletingPlotCardId !== null || isCreatingGame}
+                          sx={{
+                            ...rightPanelCompactActionButtonSx,
+                            minHeight: 40,
+                            border: 'var(--morius-border-width) dashed var(--morius-card-border)',
+                          }}
+                        >
+                          Создать
+                        </Button>
                       </Stack>
-                    ) : (
-                      plotCards.map((card) => {
-                        const contextState = plotCardContextStateById.get(card.id)
-                        const resolvedPlotMemoryTurns = resolvePlotCardMemoryTurns(card)
-                        const isPlotCardDisabled = isPlotCardManuallyDisabled(card)
-                        const isPlotCardContextActive = Boolean(contextState?.isActive)
-                        const plotTurnsRemaining =
-                          isPlotCardContextActive &&
-                          contextState?.lastTriggerTurn !== null &&
-                          typeof contextState?.turnsRemaining === 'number' &&
-                          contextState.turnsRemaining > 0
-                            ? contextState.turnsRemaining
-                            : null
-                        return (
+                    ) : plotPanelSubTab === 'memory' ? (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
+                        <Button
+                          onClick={handleOpenCreateMemoryBlockDialog}
+                          disabled={isMemoryCardActionLocked || !activeGameId}
+                          sx={{
+                            minHeight: 44,
+                            borderRadius: '13px',
+                            textTransform: 'none',
+                            color: 'var(--morius-title-text)',
+                            border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            '&:hover': {
+                              backgroundColor: 'color-mix(in srgb, var(--morius-button-hover) 88%, var(--morius-elevated-bg))',
+                            },
+                          }}
+                        >
+                          {importantMemoryBlocks.length === 0 ? 'Добавить первую карточку' : 'Добавить карточку'}
+                        </Button>
+                        {importantMemoryBlocks.length === 0 ? (
+                          <RightPanelEmptyState
+                            iconSrc={icons.communityInfo}
+                            title="Память"
+                            description="Здесь появятся только действительно важные моменты сюжета. Обычные ходы сюда не попадают."
+                          />
+                        ) : (
                           <Box
-                            key={card.id}
+                            className="morius-scrollbar"
                             sx={{
-                              borderRadius: '16px',
-                              border: isPlotCardDisabled
-                                ? 'var(--morius-border-width) solid rgba(137, 154, 178, 0.42)'
-                                : isPlotCardContextActive
-                                  ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))'
-                                  : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 92%, transparent)',
-                              backgroundColor: isPlotCardDisabled
-                                ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)'
-                                : isPlotCardContextActive
-                                  ? 'color-mix(in srgb, var(--morius-accent) 8%, var(--morius-card-bg))'
-                                  : 'var(--morius-card-bg)',
-                              p: 0.9,
-                              opacity: isPlotCardDisabled ? 0.82 : 1,
+                              flex: 1,
+                              minHeight: 0,
+                              overflowY: 'auto',
+                              pr: 0,
                             }}
                           >
-                            <Stack direction="row" spacing={0.55} alignItems="center">
-                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 800, minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {card.title}
-                              </Typography>
-                              {plotTurnsRemaining !== null ? (
-                                <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)', flexShrink: 0 }}>
-                                  <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 14, height: 14, display: 'block', opacity: 0.94 }} />
-                                  <Typography sx={{ fontSize: '0.92rem', fontWeight: 800, lineHeight: 1 }}>
-                                    {plotTurnsRemaining}
+                            <Stack spacing={0.75}>
+                              {importantMemoryBlocks.map((block) => (
+                                <Button
+                                  key={block.id}
+                                  onClick={() => setOpenedAiMemoryBlockId(block.id)}
+                                  sx={{
+                                    borderRadius: '12px',
+                                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                    backgroundColor: 'var(--morius-elevated-bg)',
+                                    px: 0.8,
+                                    py: 0.72,
+                                    minHeight: 66,
+                                    textTransform: 'none',
+                                    justifyContent: 'flex-start',
+                                    alignItems: 'flex-start',
+                                    '&:hover': {
+                                      backgroundColor: 'transparent',
+                                    },
+                                  }}
+                                >
+                                  <Stack spacing={0.28} sx={{ width: '100%' }}>
+                                    <Typography
+                                      sx={{
+                                        color: 'var(--morius-title-text)',
+                                        fontSize: '0.83rem',
+                                        fontWeight: 700,
+                                        textAlign: 'left',
+                                        lineHeight: 1.24,
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                      }}
+                                    >
+                                      #{block.id} {'\u00B7'} {block.title}
+                                    </Typography>
+                                    <Typography
+                                      sx={{
+                                        color: 'var(--morius-text-secondary)',
+                                        fontSize: '0.76rem',
+                                        textAlign: 'left',
+                                        lineHeight: 1.35,
+                                        whiteSpace: 'pre-wrap',
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 3,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden',
+                                      }}
+                                    >
+                                      {block.content}
+                                    </Typography>
+                                  </Stack>
+                                </Button>
+                              ))}
+                            </Stack>
+                          </Box>
+                        )}
+                      </Box>
+                    ) : (
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.7 }}>
+                          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 700 }}>
+                            DEV память
+                          </Typography>
+                          {(['raw', 'compressed', 'super'] as const).map((layer) => {
+                            const layerBlocks = aiMemoryBlocksByLayer.get(layer) ?? []
+                            return (
+                              <Box
+                                key={`plot-dev-memory-${layer}`}
+                                sx={{
+                                  borderRadius: '12px',
+                                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                  backgroundColor: 'var(--morius-elevated-bg)',
+                                  px: 0.8,
+                                  py: 0.75,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 0.6,
+                                }}
+                              >
+                                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.82rem', fontWeight: 700 }}>
+                                    {getStoryMemoryLayerLabel(layer, memoryOptimizationMode)}
+                                  </Typography>
+                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem' }}>
+                                    {layerBlocks.length}
                                   </Typography>
                                 </Stack>
-                              ) : null}
-                              <Typography
-                                sx={{
-                                  ...buildStatusChipSx(isPlotCardContextActive && !isPlotCardDisabled),
-                                  px: 0.55,
-                                  py: 0.18,
-                                  fontSize: '0.64rem',
-                                  fontWeight: 700,
-                                }}
-                              >
-                                {formatPlotCardContextStatus(contextState)}
-                              </Typography>
-                              <IconButton
-                                className="morius-overflow-action"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  handleOpenCardMenu(event, 'plot', card.id)
-                                }}
-                                disabled={isPlotCardActionLocked}
-                                sx={{ ...overflowActionButtonSx, opacity: 1, pointerEvents: 'auto' }}
-                              >
-                                <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
-                              </IconButton>
-                            </Stack>
-                            <Typography
-                              sx={{
-                                mt: 0.45,
-                                color: 'var(--morius-text-secondary)',
-                                fontSize: '0.82rem',
-                                lineHeight: 1.42,
-                                whiteSpace: 'pre-wrap',
-                                display: '-webkit-box',
-                                WebkitLineClamp: 4,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden',
-                              }}
-                            >
-                              {replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
-                            </Typography>
-                            <Typography sx={{ mt: 0.42, color: 'rgba(171, 189, 214, 0.7)', fontSize: '0.73rem' }}>
-                              Память: {resolvedPlotMemoryTurns === null ? 'выключено' : `${resolvedPlotMemoryTurns} ${formatTurnsWord(resolvedPlotMemoryTurns)}`}
-                            </Typography>
-                          </Box>
-                        )
-                      })
+                                {layerBlocks.length === 0 ? (
+                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.75rem' }}>
+                                    Пусто
+                                  </Typography>
+                                ) : (
+                                  <Stack spacing={0.45}>
+                                    {layerBlocks.map((block) => (
+                                      <Button
+                                        key={block.id}
+                                        onClick={() => setOpenedAiMemoryBlockId(block.id)}
+                                        sx={{
+                                          minHeight: 38,
+                                          borderRadius: '10px',
+                                          px: 0.65,
+                                          py: 0.5,
+                                          textTransform: 'none',
+                                          justifyContent: 'flex-start',
+                                          alignItems: 'flex-start',
+                                          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                                          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 78%, transparent)',
+                                          '&:hover': {
+                                            backgroundColor: 'transparent',
+                                          },
+                                        }}
+                                      >
+                                        <Stack spacing={0.22} sx={{ width: '100%' }}>
+                                          <Typography
+                                            sx={{
+                                              color: 'var(--morius-title-text)',
+                                              fontSize: '0.78rem',
+                                              fontWeight: 700,
+                                              textAlign: 'left',
+                                              lineHeight: 1.25,
+                                              whiteSpace: 'nowrap',
+                                              overflow: 'hidden',
+                                              textOverflow: 'ellipsis',
+                                            }}
+                                          >
+                                            #{block.id} {'\u00B7'} {block.title}
+                                          </Typography>
+                                          <Typography
+                                            sx={{
+                                              color: 'var(--morius-text-secondary)',
+                                              fontSize: '0.74rem',
+                                              textAlign: 'left',
+                                              lineHeight: 1.3,
+                                              whiteSpace: 'pre-wrap',
+                                              display: '-webkit-box',
+                                              WebkitLineClamp: 2,
+                                              WebkitBoxOrient: 'vertical',
+                                              overflow: 'hidden',
+                                            }}
+                                          >
+                                            {block.content}
+                                          </Typography>
+                                        </Stack>
+                                      </Button>
+                                    ))}
+                                  </Stack>
+                                )}
+                              </Box>
+                            )
+                          })}
+                        </Box>
+                      </Box>
                     )}
-                    <Button
-                      onClick={handleOpenCreatePlotCardDialog}
-                      disabled={isGenerating || isSavingPlotCard || deletingPlotCardId !== null || isCreatingGame}
-                      sx={{
-                        ...rightPanelCompactActionButtonSx,
-                        minHeight: 40,
-                        border: 'var(--morius-border-width) dashed var(--morius-card-border)',
-                      }}
-                    >
-                      Создать
-                    </Button>
-                  </Stack>
+                  </Box>
                 )}
               </Box>
             </Box>
@@ -20136,6 +20408,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Collapse>
                   </Box>
 
+                  {/* ── Поведение ─────────────────────────────────────── */}
                   <Box
                     data-tour-id="story-settings-additional-section"
                     sx={{
@@ -20162,7 +20435,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         '&.Mui-focusVisible': { backgroundColor: 'transparent' },
                       }}
                     >
-                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Дополнительно</Typography>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Поведение</Typography>
                       <SvgIcon
                         sx={{
                           fontSize: 21,
@@ -20185,7 +20458,206 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           gap: 0.72,
                         }}
                       >
-                        {isAdministrator ? (
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Авто-карточки
+                            </Typography>
+                            <SettingsInfoTooltipIcon text="Если включено, подкапотный ИИ после хода добавляет в NPC только новых значимых именованных персонажей: союзников, командиров, антагонистов, квестовых и повторяющихся героев." />
+                          </Stack>
+                          <Switch
+                            checked={autoNpcCardsEnabled}
+                            onChange={() => {
+                              void toggleAutoNpcCardsEnabled()
+                            }}
+                            disabled={isSavingStorySettings || isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: switchCheckedTrackColor, opacity: 1 },
+                              '& .MuiSwitch-track': { backgroundColor: switchTrackColor, opacity: 1 },
+                            }}
+                          />
+                        </Stack>
+
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Авто-состояния
+                            </Typography>
+                            <SettingsInfoTooltipIcon text="Если включено, ИИ будет внутри основного запроса отслеживать изменения одежды, инвентаря и состояния здоровья персонажей и обновлять только изменившиеся поля. Если выключено, эти поля остаются только ручными." />
+                          </Stack>
+                          <Switch
+                            checked={characterStateEnabled}
+                            onChange={() => {
+                              void toggleCharacterStateEnabled()
+                            }}
+                            disabled={isSavingStorySettings || isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: switchCheckedTrackColor, opacity: 1 },
+                              '& .MuiSwitch-track': { backgroundColor: switchTrackColor, opacity: 1 },
+                            }}
+                          />
+                        </Stack>
+
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Продвинутая перегенерация
+                            </Typography>
+                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.advancedRegeneration} />
+                          </Stack>
+                          <Switch
+                            checked={advancedRegenerationEnabled}
+                            onChange={toggleAdvancedRegenerationEnabled}
+                            disabled={isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: switchCheckedTrackColor, opacity: 1 },
+                              '& .MuiSwitch-track': { backgroundColor: switchTrackColor, opacity: 1 },
+                            }}
+                          />
+                        </Stack>
+
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Плавная печать ответов
+                            </Typography>
+                            <SettingsInfoTooltipIcon text="Сглаживает потоковый ответ ИИ на экране, даже если сервер прислал текст крупными или неровными порциями." />
+                          </Stack>
+                          <Switch
+                            checked={smoothStreamingEnabled}
+                            onChange={toggleSmoothStreamingEnabled}
+                            disabled={isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: switchCheckedTrackColor, opacity: 1 },
+                              '& .MuiSwitch-track': { backgroundColor: switchTrackColor, opacity: 1 },
+                            }}
+                          />
+                        </Stack>
+
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Показывать мысли NPC
+                            </Typography>
+                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.showNpcThoughts} />
+                          </Stack>
+                          <Switch
+                            checked={showNpcThoughts}
+                            onChange={() => {
+                              void toggleShowNpcThoughts()
+                            }}
+                            disabled={isSavingStorySettings || isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: switchCheckedTrackColor, opacity: 1 },
+                              '& .MuiSwitch-track': { backgroundColor: switchTrackColor, opacity: 1 },
+                            }}
+                          />
+                        </Stack>
+
+                        {isSavingThoughtVisibility ||
+                        isSavingCharacterStateEnabled ? (
+                          <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} />
+                        ) : null}
+                      </Box>
+                    </Collapse>
+                  </Box>
+
+                  {/* ── Продвинутая настройка (admin only) ──────────── */}
+                  {isAdministrator ? (
+                    <Box
+                      data-tour-id="story-settings-advanced-section"
+                      sx={{
+                        display: storySettingsTab === 'additional' ? 'block' : 'none',
+                        borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      }}
+                    >
+                      <Button
+                        onClick={() => setIsAdvancedSettingsExpanded((previous) => !previous)}
+                        sx={{
+                          width: '100%',
+                          minHeight: 54,
+                          px: 0,
+                          borderRadius: 0,
+                          justifyContent: 'space-between',
+                          textTransform: 'none',
+                          color: 'var(--morius-title-text)',
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          boxShadow: 'none',
+                          '&:hover': { backgroundColor: 'transparent', boxShadow: 'none' },
+                          '&:active': { backgroundColor: 'transparent' },
+                          '&.Mui-focusVisible': { backgroundColor: 'transparent' },
+                        }}
+                      >
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Продвинутая настройка</Typography>
+                        <SvgIcon
+                          sx={{
+                            fontSize: 21,
+                            color: 'var(--morius-text-secondary)',
+                            transform: isAdvancedSettingsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transition: 'transform 200ms ease',
+                          }}
+                        >
+                          <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                        </SvgIcon>
+                      </Button>
+                      <Collapse in={isAdvancedSettingsExpanded} timeout={200} unmountOnExit>
+                        <Box
+                          sx={{
+                            pb: 0.9,
+                            pt: 0.08,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 0.72,
+                          }}
+                        >
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <Stack direction="row" spacing={0.45} alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                                Режим игры
+                              </Typography>
+                              <SettingsInfoTooltipIcon text="Режим визуальной новеллы: ответы режутся на биты, экран показывает фон, спрайт, имя и реплику." />
+                            </Stack>
+                            <Switch
+                              checked={storyDisplayMode === 'visual_novel'}
+                              onChange={(_, checked) => {
+                                void toggleStoryDisplayMode(checked)
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: switchCheckedTrackColor, opacity: 1 },
+                                '& .MuiSwitch-track': { backgroundColor: switchTrackColor, opacity: 1 },
+                              }}
+                            />
+                          </Stack>
+
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <Stack direction="row" spacing={0.45} alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                                Спрайты и эмоции
+                              </Typography>
+                              <SettingsInfoTooltipIcon text="Показывает сцену с подготовленными эмоциями персонажей в обычном текстовом режиме." />
+                            </Stack>
+                            <Switch
+                              checked={emotionVisualizationEnabled}
+                              onChange={() => {
+                                void toggleEmotionVisualizationEnabled()
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: switchCheckedTrackColor, opacity: 1 },
+                                '& .MuiSwitch-track': { backgroundColor: switchTrackColor, opacity: 1 },
+                              }}
+                            />
+                          </Stack>
+
                           <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
@@ -20200,23 +20672,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               }}
                               disabled={isSavingStorySettings || isGenerating}
                               sx={{
-                                '& .MuiSwitch-switchBase.Mui-checked': {
-                                  color: 'var(--morius-accent)',
-                                },
-                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                  backgroundColor: switchCheckedTrackColor,
-                                  opacity: 1,
-                                },
-                                '& .MuiSwitch-track': {
-                                  backgroundColor: switchTrackColor,
-                                  opacity: 1,
-                                },
+                                '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: switchCheckedTrackColor, opacity: 1 },
+                                '& .MuiSwitch-track': { backgroundColor: switchTrackColor, opacity: 1 },
                               }}
                             />
                           </Stack>
-                        ) : null}
 
-                        {isAdministrator ? (
                           <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
@@ -20236,295 +20698,66 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 isGenerating
                               }
                               sx={{
-                                '& .MuiSwitch-switchBase.Mui-checked': {
-                                  color: 'var(--morius-accent)',
-                                },
-                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                  backgroundColor: switchCheckedTrackColor,
-                                  opacity: 1,
-                                },
-                                '& .MuiSwitch-track': {
-                                  backgroundColor: switchTrackColor,
-                                  opacity: 1,
-                                },
+                                '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: switchCheckedTrackColor, opacity: 1 },
+                                '& .MuiSwitch-track': { backgroundColor: switchTrackColor, opacity: 1 },
                               }}
                             />
                           </Stack>
-                        ) : null}
 
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                          <Stack direction="row" spacing={0.45} alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                              Продвинутая перегенерация
-                            </Typography>
-                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.advancedRegeneration} />
-                          </Stack>
-                          <Switch
-                            checked={advancedRegenerationEnabled}
-                            onChange={toggleAdvancedRegenerationEnabled}
-                            disabled={isGenerating}
-                            sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: 'var(--morius-accent)',
-                              },
-                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                backgroundColor: switchCheckedTrackColor,
-                                opacity: 1,
-                              },
-                              '& .MuiSwitch-track': {
-                                backgroundColor: switchTrackColor,
-                                opacity: 1,
-                              },
-                            }}
-                          />
-                        </Stack>
-
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                          <Stack direction="row" spacing={0.45} alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                              Плавная печать ответов
-                            </Typography>
-                            <SettingsInfoTooltipIcon text="Сглаживает потоковый ответ ИИ на экране, даже если сервер прислал текст крупными или неровными порциями." />
-                          </Stack>
-                          <Switch
-                            checked={smoothStreamingEnabled}
-                            onChange={toggleSmoothStreamingEnabled}
-                            disabled={isGenerating}
-                            sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: 'var(--morius-accent)',
-                              },
-                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                backgroundColor: switchCheckedTrackColor,
-                                opacity: 1,
-                              },
-                              '& .MuiSwitch-track': {
-                                backgroundColor: switchTrackColor,
-                                opacity: 1,
-                              },
-                            }}
-                          />
-                        </Stack>
-
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                          <Stack direction="row" spacing={0.45} alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                              Авто-карточки
-                            </Typography>
-                            <SettingsInfoTooltipIcon text="Если включено, подкапотный ИИ после хода добавляет в NPC только новых значимых именованных персонажей: союзников, командиров, антагонистов, квестовых и повторяющихся героев." />
-                          </Stack>
-                          <Switch
-                            checked={autoNpcCardsEnabled}
-                            onChange={() => {
-                              void toggleAutoNpcCardsEnabled()
-                            }}
-                            disabled={isSavingStorySettings || isGenerating}
-                            sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: 'var(--morius-accent)',
-                              },
-                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                backgroundColor: switchCheckedTrackColor,
-                                opacity: 1,
-                              },
-                              '& .MuiSwitch-track': {
-                                backgroundColor: switchTrackColor,
-                                opacity: 1,
-                              },
-                            }}
-                          />
-                        </Stack>
-
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                          <Stack direction="row" spacing={0.45} alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                              Авто состояние
-                            </Typography>
-                            <SettingsInfoTooltipIcon text="Если включено, ИИ будет внутри основного запроса отслеживать изменения одежды, инвентаря и состояния здоровья персонажей и обновлять только изменившиеся поля. Если выключено, эти поля остаются только ручными." />
-                          </Stack>
-                          <Switch
-                            checked={characterStateEnabled}
-                            onChange={() => {
-                              void toggleCharacterStateEnabled()
-                            }}
-                            disabled={isSavingStorySettings || isGenerating}
-                            sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: 'var(--morius-accent)',
-                              },
-                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                backgroundColor: switchCheckedTrackColor,
-                                opacity: 1,
-                              },
-                              '& .MuiSwitch-track': {
-                                backgroundColor: switchTrackColor,
-                                opacity: 1,
-                              },
-                            }}
-                          />
-                        </Stack>
-
-                        {isAdministrator ? (
-                          <>
-                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                              <Stack direction="row" spacing={0.45} alignItems="center">
-                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                                  RPG pipeline v1
-                                </Typography>
-                                <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.canonicalStatePipeline} />
-                              </Stack>
-                              <Switch
-                                checked={canonicalStatePipelineEnabled}
-                                onChange={() => {
-                                  void toggleCanonicalStatePipelineEnabled()
-                                }}
-                                disabled={isSavingStorySettings || isGenerating}
-                                sx={{
-                                  '& .MuiSwitch-switchBase.Mui-checked': {
-                                    color: 'var(--morius-accent)',
-                                  },
-                                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                    backgroundColor: switchCheckedTrackColor,
-                                    opacity: 1,
-                                  },
-                                  '& .MuiSwitch-track': {
-                                    backgroundColor: switchTrackColor,
-                                    opacity: 1,
-                                  },
-                                }}
-                              />
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <Stack direction="row" spacing={0.45} alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                                RPG pipeline v1
+                              </Typography>
+                              <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.canonicalStatePipeline} />
                             </Stack>
-
-                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                              <Stack direction="row" spacing={0.45} alignItems="center">
-                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                                  Safe fallback
-                                </Typography>
-                                <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.canonicalStateSafeFallback} />
-                              </Stack>
-                              <Switch
-                                checked={canonicalStatePipelineEnabled && canonicalStateSafeFallbackEnabled}
-                                onChange={() => {
-                                  void toggleCanonicalStateSafeFallbackEnabled()
-                                }}
-                                disabled={!canonicalStatePipelineEnabled || isSavingStorySettings || isGenerating}
-                                sx={{
-                                  '& .MuiSwitch-switchBase.Mui-checked': {
-                                    color: 'var(--morius-accent)',
-                                  },
-                                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                    backgroundColor: switchCheckedTrackColor,
-                                    opacity: 1,
-                                  },
-                                  '& .MuiSwitch-track': {
-                                    backgroundColor: switchTrackColor,
-                                    opacity: 1,
-                                  },
-                                }}
-                              />
-                            </Stack>
-
-                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                              <Stack direction="row" spacing={0.45} alignItems="center">
-                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                                  Режим игры
-                                </Typography>
-                                <SettingsInfoTooltipIcon text="Админский режим визуальной новеллы: ответы режутся на биты, экран показывает фон, спрайт, имя и реплику." />
-                              </Stack>
-                              <Switch
-                                checked={storyDisplayMode === 'visual_novel'}
-                                onChange={(_, checked) => {
-                                  void toggleStoryDisplayMode(checked)
-                                }}
-                                disabled={isSavingStorySettings || isGenerating}
-                                sx={{
-                                  '& .MuiSwitch-switchBase.Mui-checked': {
-                                    color: 'var(--morius-accent)',
-                                  },
-                                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                    backgroundColor: switchCheckedTrackColor,
-                                    opacity: 1,
-                                  },
-                                  '& .MuiSwitch-track': {
-                                    backgroundColor: switchTrackColor,
-                                    opacity: 1,
-                                  },
-                                }}
-                              />
-                            </Stack>
-
-                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                              <Stack direction="row" spacing={0.45} alignItems="center">
-                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                                  Спрайты эмоций
-                                </Typography>
-                                <SettingsInfoTooltipIcon text="Показывает сцену с подготовленными эмоциями персонажей в обычном текстовом режиме." />
-                              </Stack>
-                              <Switch
-                                checked={emotionVisualizationEnabled}
-                                onChange={() => {
-                                  void toggleEmotionVisualizationEnabled()
-                                }}
-                                disabled={isSavingStorySettings || isGenerating}
-                                sx={{
-                                  '& .MuiSwitch-switchBase.Mui-checked': {
-                                    color: 'var(--morius-accent)',
-                                  },
-                                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                    backgroundColor: switchCheckedTrackColor,
-                                    opacity: 1,
-                                  },
-                                  '& .MuiSwitch-track': {
-                                    backgroundColor: switchTrackColor,
-                                    opacity: 1,
-                                  },
-                                }}
-                              />
-                            </Stack>
-                          </>
-                        ) : null}
-
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                          <Stack direction="row" spacing={0.45} alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                              Показывать мысли NPC
-                            </Typography>
-                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.showNpcThoughts} />
+                            <Switch
+                              checked={canonicalStatePipelineEnabled}
+                              onChange={() => {
+                                void toggleCanonicalStatePipelineEnabled()
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: switchCheckedTrackColor, opacity: 1 },
+                                '& .MuiSwitch-track': { backgroundColor: switchTrackColor, opacity: 1 },
+                              }}
+                            />
                           </Stack>
-                          <Switch
-                            checked={showNpcThoughts}
-                            onChange={() => {
-                              void toggleShowNpcThoughts()
-                            }}
-                            disabled={isSavingStorySettings || isGenerating}
-                            sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: 'var(--morius-accent)',
-                              },
-                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                backgroundColor: switchCheckedTrackColor,
-                                opacity: 1,
-                              },
-                              '& .MuiSwitch-track': {
-                                backgroundColor: switchTrackColor,
-                                opacity: 1,
-                              },
-                            }}
-                          />
-                        </Stack>
 
-                        {isSavingThoughtVisibility ||
-                        isSavingAmbientEnabled ||
-                        isSavingCharacterStateEnabled ||
-                        isSavingEmotionVisualizationEnabled ||
-                        isSavingStoryDisplayMode ||
-                        isSavingCanonicalStatePipeline ||
-                        isSavingCanonicalStateSafeFallback ? (
-                          <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} />
-                        ) : null}
-                      </Box>
-                    </Collapse>
-                  </Box>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <Stack direction="row" spacing={0.45} alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                                Safe fallback
+                              </Typography>
+                              <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.canonicalStateSafeFallback} />
+                            </Stack>
+                            <Switch
+                              checked={canonicalStatePipelineEnabled && canonicalStateSafeFallbackEnabled}
+                              onChange={() => {
+                                void toggleCanonicalStateSafeFallbackEnabled()
+                              }}
+                              disabled={!canonicalStatePipelineEnabled || isSavingStorySettings || isGenerating}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: switchCheckedTrackColor, opacity: 1 },
+                                '& .MuiSwitch-track': { backgroundColor: switchTrackColor, opacity: 1 },
+                              }}
+                            />
+                          </Stack>
+
+                          {isSavingAmbientEnabled ||
+                          isSavingEmotionVisualizationEnabled ||
+                          isSavingStoryDisplayMode ||
+                          isSavingCanonicalStatePipeline ||
+                          isSavingCanonicalStateSafeFallback ? (
+                            <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} />
+                          ) : null}
+                        </Box>
+                      </Collapse>
+                    </Box>
+                  ) : null}
 
                   <Box
                     data-tour-id="story-settings-finetune-section"
