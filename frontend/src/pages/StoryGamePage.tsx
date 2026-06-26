@@ -1738,9 +1738,9 @@ function RightPanelSettingRow({
             transitionDuration: '180ms',
             '&.Mui-checked': {
               transform: 'translateX(22px)',
-              color: '#fff',
+              color: 'var(--morius-title-text)',
               '& + .MuiSwitch-track': {
-                backgroundColor: '#4F8DFF',
+                backgroundColor: 'var(--morius-accent)',
                 opacity: 1,
               },
             },
@@ -5299,7 +5299,7 @@ function estimateHistoryTokensWithinBudget(
   }
 
   const payload = selected
-    .map((message) => `${message.role === 'user' ? 'грок' : ''}: ${message.content}`)
+    .map((message) => `${message.role === 'user' ? 'игрок' : ''}: ${message.content}`)
     .join('\n')
   return estimateTextTokens(payload)
 }
@@ -6000,7 +6000,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isYamiTheme = themeId === 'yami-rius'
   const rightPanelActiveTabColor = 'var(--morius-accent)'
   const assistantReplyTextColor = activeTheme.story?.assistantTextColor ?? (isGrayTheme ? '#CECECE' : 'var(--morius-title-text)')
-  const playerMessageColor = activeTheme.story?.playerTextColor ?? (isGrayTheme ? '#808080' : 'var(--morius-text-secondary)')
   const switchTrackColor = isGrayTheme ? '#1D1D1D' : (isYamiTheme ? '#333333' : 'var(--morius-card-border)')
   const switchCheckedTrackColor = isGrayTheme ? '#1D1D1D' : (isYamiTheme ? '#333333' : 'var(--morius-button-active)')
   const sliderRailColor = isGrayTheme ? '#1D1D1D' : (isYamiTheme ? '#333333' : 'var(--morius-card-border)')
@@ -6165,7 +6164,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       fontWeight: isActive ? 800 : 650,
       backgroundColor: `${isActive ? 'var(--morius-accent)' : 'transparent'} !important`,
       border: 'none',
-      boxShadow: isActive ? '0 8px 18px color-mix(in srgb, var(--morius-accent) 35%, transparent)' : 'none',
+      boxShadow: 'none',
     },
     minHeight: 44,
     borderRadius: '12px',
@@ -6175,7 +6174,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     '&&&:hover': {
       backgroundColor: `${isActive ? 'var(--morius-accent)' : 'color-mix(in srgb, var(--morius-card-border) 45%, transparent)'} !important`,
       color: 'var(--morius-title-text) !important',
-      boxShadow: isActive ? '0 8px 18px color-mix(in srgb, var(--morius-accent) 35%, transparent)' : 'none',
+      boxShadow: 'none',
     },
     '&&&:active': {
       transform: 'translateY(1px)',
@@ -17689,7 +17688,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     onNavigate('/dashboard')
   }
 
-  const profileName = user.display_name || 'грок'
+  const profileName = user.display_name || 'Игрок'
   const avatarPreviewProfileCard =
     characterAvatarPreview?.card &&
     (characterAvatarPreview.card.kind === 'npc' || characterAvatarPreview.card.kind === 'main_hero')
@@ -17709,24 +17708,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const selectedImageModelOption = STORY_IMAGE_MODEL_OPTIONS.find((option) => option.id === storyImageModel) ?? STORY_IMAGE_MODEL_OPTIONS[0]
   const activeInstructionCardsCount = instructionCards.filter((card) => card.is_active).length
   const rightPanelContextUsageSegments = [
-    { key: 'instructions', label: 'Инструкции', value: instructionContextTokensUsed, color: '#F0B15D' },
-    { key: 'memory', label: 'Память', value: storyMemoryTokensUsed, color: '#4F8DFF' },
-    { key: 'world', label: 'Карточки мира', value: worldContextTokensUsed, color: '#55D58D' },
+    { key: 'instructions', label: 'Инструкции', value: instructionContextTokensUsed, color: '#D99B55' },
+    { key: 'memory', label: 'Память', value: storyMemoryTokensUsed, color: 'var(--morius-accent)' },
+    { key: 'world', label: 'Карточки мира', value: worldContextTokensUsed, color: '#5BA878' },
   ]
   const worldProfileBannerUrl = worldProfileCard ? resolveApiResourceUrl(resolveWorldCardAvatar(worldProfileCard)) : null
   const rightPanelCardSx = {
     borderRadius: '18px',
-    border: 'var(--morius-border-width) solid rgba(255, 255, 255, 0.08)',
-    backgroundColor: 'rgba(22, 23, 30, 0.78)',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.025)',
+    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
+    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 92%, #050507 8%)',
+    boxShadow: 'none',
   } as const
   const rightPanelActiveCardSx = {
-    borderColor: 'rgba(78, 139, 255, 0.62)',
-    backgroundColor: 'rgba(24, 34, 58, 0.72)',
+    borderColor: 'color-mix(in srgb, var(--morius-accent) 50%, var(--morius-card-border))',
+    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-elevated-bg) 90%)',
   } as const
   const rightPanelGreenCardSx = {
-    borderColor: 'rgba(67, 205, 137, 0.34)',
-    backgroundColor: 'rgba(18, 39, 34, 0.72)',
+    borderColor: 'rgba(91, 168, 120, 0.3)',
+    backgroundColor: 'rgba(19, 31, 25, 0.72)',
   } as const
   const rightPanelOverflowButtonSx = {
     width: 30,
@@ -17744,14 +17743,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     minHeight: 44,
     borderRadius: '14px',
     textTransform: 'none',
-    color: '#dce8ff',
+    color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))',
     fontSize: '0.9rem',
     fontWeight: 900,
-    border: 'var(--morius-border-width) solid rgba(78, 139, 255, 0.46)',
-    backgroundColor: 'rgba(35, 56, 98, 0.48)',
+    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 48%, var(--morius-card-border))',
+    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-elevated-bg) 84%)',
     '&:hover': {
-      backgroundColor: 'rgba(47, 76, 132, 0.62)',
-      borderColor: 'rgba(106, 161, 255, 0.7)',
+      backgroundColor: 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-elevated-bg) 78%)',
+      borderColor: 'color-mix(in srgb, var(--morius-accent) 62%, var(--morius-card-border))',
     },
   } as const
   const rightPanelSecondaryButtonSx = {
@@ -17761,11 +17760,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     color: 'color-mix(in srgb, var(--morius-title-text) 78%, transparent)',
     fontSize: '0.9rem',
     fontWeight: 900,
-    border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
-    backgroundColor: 'rgba(32, 32, 39, 0.82)',
+    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 92%, #000 8%)',
     '&:hover': {
-      backgroundColor: 'rgba(44, 44, 53, 0.9)',
-      borderColor: 'rgba(255,255,255,0.16)',
+      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #fff 3%)',
+      borderColor: 'color-mix(in srgb, var(--morius-card-border) 70%, var(--morius-accent) 30%)',
     },
   } as const
   const shouldRenderLegacyRightPanel = activeGameId === Number.MIN_SAFE_INTEGER
@@ -18411,10 +18410,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           maxWidth: { xs: '100vw', md: 'none' },
           maxHeight: { xs: 'calc(100svh - var(--morius-header-menu-top))', md: 'none' },
           zIndex: 47,
-          borderRadius: { xs: '24px 0 0 24px', md: '28px' },
-          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, rgba(120, 142, 190, 0.24))',
-          background:
-            'radial-gradient(circle at 72% -12%, rgba(73, 119, 235, 0.22), transparent 34%), linear-gradient(180deg, rgba(23, 27, 41, 0.98) 0%, rgba(12, 13, 18, 0.985) 38%, rgba(10, 11, 15, 0.99) 100%)',
+          borderRadius: { xs: 0, md: '18px' },
+          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 90%, transparent)',
+          backgroundColor: 'color-mix(in srgb, var(--morius-app-bg) 86%, #08090c 14%)',
           transform: {
             xs: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 24px), 0, 0)',
             md: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + var(--morius-interface-gap)), 0, 0)',
@@ -18429,7 +18427,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           overflow: 'hidden',
           boxShadow: {
             xs: '-28px 0 58px rgba(0, 0, 0, 0.48)',
-            md: '0 22px 70px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.035)',
+            md: '0 20px 54px rgba(0, 0, 0, 0.42)',
           },
         }}
       >
@@ -18463,9 +18461,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         />
         <Box
           sx={{
-            px: { xs: 1.55, md: 1.8 },
-            pt: { xs: 1.45, md: 1.7 },
-            pb: { xs: 0.9, md: 1.05 },
+            px: { xs: 1.35, md: 1.55 },
+            pt: { xs: 1.15, md: 1.3 },
+            pb: { xs: 0.75, md: 0.85 },
+            borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
           }}
         >
           <Box
@@ -18485,7 +18484,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             alignItems="center"
             justifyContent="space-between"
             spacing={1}
-            sx={{ pb: { xs: 1.55, md: 1.8 } }}
+            sx={{ pb: { xs: 1.1, md: 1.2 } }}
           >
             <Stack direction="row" spacing={0.95} alignItems="center" sx={{ minWidth: 0 }}>
               <Box
@@ -18493,15 +18492,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   flexShrink: 0,
                   width: { xs: 34, md: 36 },
                   height: { xs: 34, md: 36 },
-                  borderRadius: '10px',
+                  borderRadius: '12px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: '#fff',
-                  background: rightPanelMode === 'ai'
-                    ? 'linear-gradient(135deg, #7E64F7 0%, #4E91FF 100%)'
-                    : 'linear-gradient(135deg, #5B8DFF 0%, #3978F0 100%)',
-                  boxShadow: '0 5px 12px rgba(62, 124, 255, 0.2)',
+                  color: 'color-mix(in srgb, var(--morius-accent) 42%, var(--morius-title-text))',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-elevated-bg) 84%)',
+                  border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
+                  boxShadow: 'none',
                   '& .MuiSvgIcon-root': {
                     width: { xs: 18, md: 19 },
                     height: { xs: 18, md: 19 },
@@ -18514,11 +18512,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 noWrap
                 sx={{
                   color: 'var(--morius-title-text)',
-                  fontFamily: 'Georgia, "Times New Roman", serif',
-                  fontSize: { xs: '1.32rem', md: '1.44rem' },
+                  fontSize: { xs: '1.28rem', md: '1.38rem' },
                   fontWeight: 900,
                   lineHeight: 1.05,
-                  letterSpacing: '-0.025em',
+                  letterSpacing: 0,
                   minWidth: 0,
                 }}
               >
@@ -18534,11 +18531,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 width: { xs: 42, md: 46 },
                 height: { xs: 42, md: 46 },
                 borderRadius: '15px',
-                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, rgba(255,255,255,0.12))',
-                backgroundColor: 'rgba(44, 49, 66, 0.68) !important',
+                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 90%, #000 10%) !important',
                 color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
                 '&:hover': {
-                  backgroundColor: 'rgba(58, 64, 84, 0.78) !important',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 80%, #fff 4%) !important',
                   color: 'var(--morius-title-text) !important',
                 },
               }}
@@ -18558,9 +18555,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               p: 0.42,
               minHeight: { xs: 58, md: 64 },
               borderRadius: '18px',
-              backgroundColor: 'rgba(2, 3, 8, 0.72)',
-              border: 'var(--morius-border-width) solid rgba(255,255,255,0.035)',
-              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.015), 0 10px 24px rgba(0,0,0,0.24)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-app-bg) 78%, #000 22%)',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
+              boxShadow: 'none',
             }}
           >
             <Button
@@ -18577,7 +18574,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontSize: { xs: '0.96rem', md: '1.02rem' },
                 fontWeight: rightPanelMode === 'world' ? 950 : 850,
                 color: rightPanelMode === 'world'
-                  ? '#fff !important'
+                  ? 'var(--morius-title-text) !important'
                   : 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent) !important',
               }}
             >
@@ -18598,7 +18595,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontSize: { xs: '0.96rem', md: '1.02rem' },
                 fontWeight: rightPanelMode === 'ai' ? 950 : 850,
                 color: rightPanelMode === 'ai'
-                  ? '#fff !important'
+                  ? 'var(--morius-title-text) !important'
                   : 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent) !important',
               }}
             >
@@ -18609,8 +18606,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         </Box>
         <Box
           sx={{
-            px: { xs: 1.55, md: 1.8 },
-            py: { xs: 1.05, md: 1.25 },
+            px: { xs: 1.35, md: 1.55 },
+            py: { xs: 1.05, md: 1.15 },
             display: 'flex',
             flexDirection: 'column',
             flex: 1,
@@ -19368,13 +19365,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             minHeight: 38,
                             borderRadius: '11px',
                             textTransform: 'none',
-                            color: isActive ? '#fff' : 'color-mix(in srgb, var(--morius-text-secondary) 86%, transparent)',
-                            backgroundColor: isActive ? '#4F8DFF' : 'transparent',
+                            color: isActive ? 'var(--morius-title-text)' : 'color-mix(in srgb, var(--morius-text-secondary) 86%, transparent)',
+                            backgroundColor: isActive ? 'var(--morius-accent)' : 'transparent',
                             fontSize: '0.82rem',
                             fontWeight: 950,
-                            boxShadow: isActive ? '0 10px 24px rgba(78, 139, 255, 0.3)' : 'none',
+                            boxShadow: 'none',
                             '&:hover': {
-                              backgroundColor: isActive ? '#4F8DFF' : 'rgba(255,255,255,0.045)',
+                              backgroundColor: isActive ? 'var(--morius-accent)' : 'rgba(255,255,255,0.045)',
                             },
                           }}
                         >
@@ -21103,17 +21100,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 />
               ) : (
                 <>
-                  <Box sx={{ ...rightPanelCardSx, ...rightPanelActiveCardSx, p: { xs: 1.15, md: 1.25 } }}>
+                  <Box sx={{ ...rightPanelCardSx, p: { xs: 1.15, md: 1.25 } }}>
                     <Stack spacing={0.95}>
                       <Stack direction="row" alignItems="center" spacing={0.75} useFlexGap flexWrap="wrap">
                         <Typography
                           sx={{
                             color: 'var(--morius-title-text)',
-                            fontFamily: 'Georgia, "Times New Roman", serif',
                             fontSize: { xs: '1.22rem', md: '1.34rem' },
                             fontWeight: 900,
                             lineHeight: 1.05,
-                            letterSpacing: '-0.02em',
+                            letterSpacing: 0,
                           }}
                         >
                           {selectedNarratorOption.title}
@@ -21127,8 +21123,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               borderRadius: '7px',
                               display: 'inline-flex',
                               alignItems: 'center',
-                              color: '#BFD4FF',
-                              backgroundColor: 'rgba(78, 139, 255, 0.22)',
+                              color: 'color-mix(in srgb, var(--morius-accent) 44%, var(--morius-title-text))',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, transparent)',
                               fontSize: '0.62rem',
                               fontWeight: 950,
                               lineHeight: 1,
@@ -21165,7 +21161,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                       width: 12,
                                       height: 5,
                                       borderRadius: '999px',
-                                      backgroundColor: dotIndex < stat.value ? '#5A94FF' : 'rgba(91, 93, 105, 0.55)',
+                                      backgroundColor: dotIndex < stat.value ? 'var(--morius-accent)' : 'color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
                                     }}
                                   />
                                 ))}
@@ -21180,10 +21176,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           disabled={isSavingStorySettings || isGenerating}
                           renderValue={() => (
                             <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
-                              <Typography sx={{ color: '#fff', fontSize: '0.94rem', fontWeight: 950 }}>
+                              <Typography sx={{ color: 'color-mix(in srgb, var(--morius-accent) 44%, var(--morius-title-text))', fontSize: '0.94rem', fontWeight: 950 }}>
                                 Сменить рассказчика
                               </Typography>
-                              <SvgIcon sx={{ fontSize: 20, color: '#fff' }}>
+                              <SvgIcon sx={{ fontSize: 20, color: 'color-mix(in srgb, var(--morius-accent) 44%, var(--morius-title-text))' }}>
                                 <path d="m9 18 6-6-6-6v12Z" fill="currentColor" />
                               </SvgIcon>
                             </Stack>
@@ -21196,11 +21192,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             mt: 0.2,
                             height: 46,
                             borderRadius: '14px',
-                            color: '#fff',
-                            backgroundColor: '#4F8DFF',
+                            color: 'color-mix(in srgb, var(--morius-accent) 44%, var(--morius-title-text))',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-elevated-bg) 84%)',
                             fontWeight: 950,
                             '& .MuiSelect-select': { py: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-                            '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                            '& .MuiOutlinedInput-notchedOutline': {
+                              borderColor: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-card-border))',
+                            },
+                            '&:hover .MuiOutlinedInput-notchedOutline': {
+                              borderColor: 'color-mix(in srgb, var(--morius-accent) 62%, var(--morius-card-border))',
+                            },
                             '& .MuiSelect-icon': { display: 'none' },
                           }}
                         >
@@ -21227,8 +21228,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               borderRadius: '13px',
                               display: 'grid',
                               placeItems: 'center',
-                              color: '#fff',
-                              background: 'linear-gradient(135deg, #FFB36A 0%, #D94683 48%, #765AF6 100%)',
+                              color: 'var(--morius-title-text)',
+                              background: 'linear-gradient(135deg, color-mix(in srgb, var(--morius-accent) 60%, #fff 18%) 0%, var(--morius-accent) 100%)',
                               flexShrink: 0,
                             }}
                           >
@@ -21256,9 +21257,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       sx={{
                         minHeight: 62,
                         borderRadius: '18px',
-                        backgroundColor: 'rgba(22, 23, 30, 0.78)',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 92%, #050507 8%)',
                         '& .MuiSelect-select': { py: 0.9, px: 1, display: 'flex', alignItems: 'center' },
-                        '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.08)' },
+                        '& .MuiOutlinedInput-notchedOutline': { borderColor: 'color-mix(in srgb, var(--morius-card-border) 86%, transparent)' },
                         '& .MuiSelect-icon': { display: 'none' },
                       }}
                     >
@@ -21305,38 +21306,50 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   />
 
                   <Stack spacing={0.85}>
-                    <RightPanelSectionHeading
-                      title="Память контекста"
-                      count={`${formatContextChars(cardsContextCharsUsed)} / ${formatContextChars(contextLimitChars)}`}
-                    />
-                    <Box sx={{ height: 9, borderRadius: '999px', backgroundColor: 'rgba(91, 93, 105, 0.36)', overflow: 'hidden', display: 'flex' }}>
-                      {rightPanelContextUsageSegments.map((segment) => {
-                        const widthPercent = contextLimitChars > 0 ? Math.max(0, Math.min(100, (segment.value / contextLimitChars) * 100)) : 0
-                        return widthPercent > 0 ? (
-                          <Box key={segment.key} sx={{ width: `${widthPercent}%`, height: '100%', backgroundColor: segment.color, flexShrink: 0 }} />
-                        ) : null
-                      })}
-                    </Box>
-                    <Stack direction="row" spacing={1.25} useFlexGap flexWrap="wrap">
-                      {rightPanelContextUsageSegments.map((segment) => (
-                        <Stack key={segment.key} direction="row" spacing={0.55} alignItems="center">
-                          <Box sx={{ width: 9, height: 9, borderRadius: '3px', backgroundColor: segment.color, flexShrink: 0 }} />
-                          <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)', fontSize: '0.8rem', fontWeight: 750 }}>
-                            {segment.label}
-                          </Typography>
-                          <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 78%, transparent)', fontSize: '0.8rem', fontWeight: 950 }}>
-                            {formatContextChars(segment.value)}
-                          </Typography>
+                    <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
+                      <Stack spacing={0.85}>
+                        <RightPanelSectionHeading
+                          title="Память контекста"
+                          count={`${formatContextChars(cardsContextCharsUsed)} / ${formatContextChars(contextLimitChars)}`}
+                        />
+                        <Box
+                          sx={{
+                            height: 9,
+                            borderRadius: '999px',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 54%, transparent)',
+                            overflow: 'hidden',
+                            display: 'flex',
+                          }}
+                        >
+                          {rightPanelContextUsageSegments.map((segment) => {
+                            const widthPercent = contextLimitChars > 0 ? Math.max(0, Math.min(100, (segment.value / contextLimitChars) * 100)) : 0
+                            return widthPercent > 0 ? (
+                              <Box key={segment.key} sx={{ width: `${widthPercent}%`, height: '100%', backgroundColor: segment.color, flexShrink: 0 }} />
+                            ) : null
+                          })}
+                        </Box>
+                        <Stack direction="row" spacing={1.25} useFlexGap flexWrap="wrap">
+                          {rightPanelContextUsageSegments.map((segment) => (
+                            <Stack key={segment.key} direction="row" spacing={0.55} alignItems="center">
+                              <Box sx={{ width: 9, height: 9, borderRadius: '3px', backgroundColor: segment.color, flexShrink: 0 }} />
+                              <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)', fontSize: '0.8rem', fontWeight: 750 }}>
+                                {segment.label}
+                              </Typography>
+                              <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 78%, transparent)', fontSize: '0.8rem', fontWeight: 950 }}>
+                                {formatContextChars(segment.value)}
+                              </Typography>
+                            </Stack>
+                          ))}
                         </Stack>
-                      ))}
-                    </Stack>
+                      </Stack>
+                    </Box>
                     <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
                       <Stack spacing={0.8}>
                         <Stack direction="row" justifyContent="space-between" alignItems="baseline">
                           <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950 }}>
                             Лимит контекста
                           </Typography>
-                          <Typography sx={{ color: '#BFD4FF', fontSize: '0.98rem', fontWeight: 950 }}>
+                          <Typography sx={{ color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))', fontSize: '0.98rem', fontWeight: 950 }}>
                             {formatContextChars(contextLimitChars)}
                           </Typography>
                         </Stack>
@@ -21351,13 +21364,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           }}
                           disabled={isSavingStorySettings || isGenerating}
                           sx={{
-                            color: '#4F8DFF',
+                            color: 'var(--morius-accent)',
                             '& .MuiSlider-thumb': {
                               width: 22,
                               height: 22,
-                              backgroundColor: '#4F8DFF',
+                              backgroundColor: 'var(--morius-accent)',
                               border: 'none',
-                              boxShadow: '0 0 0 4px rgba(78, 139, 255, 0.15)',
+                              boxShadow: '0 0 0 4px color-mix(in srgb, var(--morius-accent) 16%, transparent)',
                             },
                             '& .MuiSlider-track': { height: 5, border: 'none' },
                             '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
@@ -21457,8 +21470,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         disabled={!responseMaxTokensEnabled || isSavingStorySettings || isSavingResponseTokenLimit || isGenerating}
                         sx={{
                           mt: 0.5,
-                          color: '#4F8DFF',
-                          '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: '#4F8DFF' },
+                          color: 'var(--morius-accent)',
+                          '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: 'var(--morius-accent)' },
                           '& .MuiSlider-track': { height: 5, border: 'none' },
                           '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
                         }}
@@ -21528,7 +21541,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
                                   Температура
                                 </Typography>
-                                <Typography sx={{ color: '#BFD4FF', fontSize: '0.92rem', fontWeight: 950 }}>{storyTemperature.toFixed(2)}</Typography>
+                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))', fontSize: '0.92rem', fontWeight: 950 }}>{storyTemperature.toFixed(2)}</Typography>
                               </Stack>
                               <Slider
                                 value={storyTemperature}
@@ -21542,8 +21555,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 disabled={isSavingStorySettings || isGenerating}
                                 sx={{
                                   mt: 0.35,
-                                  color: '#4F8DFF',
-                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: '#4F8DFF' },
+                                  color: 'var(--morius-accent)',
+                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: 'var(--morius-accent)' },
                                   '& .MuiSlider-track': { height: 5, border: 'none' },
                                   '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
                                 }}
@@ -21555,7 +21568,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
                                   Топ-K
                                 </Typography>
-                                <Typography sx={{ color: '#BFD4FF', fontSize: '0.92rem', fontWeight: 950 }}>{storyTopK}</Typography>
+                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))', fontSize: '0.92rem', fontWeight: 950 }}>{storyTopK}</Typography>
                               </Stack>
                               <Slider
                                 value={storyTopK}
@@ -21569,8 +21582,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 disabled={isSavingStorySettings || isGenerating}
                                 sx={{
                                   mt: 0.35,
-                                  color: '#4F8DFF',
-                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: '#4F8DFF' },
+                                  color: 'var(--morius-accent)',
+                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: 'var(--morius-accent)' },
                                   '& .MuiSlider-track': { height: 5, border: 'none' },
                                   '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
                                 }}
@@ -21582,7 +21595,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
                                   Топ-P
                                 </Typography>
-                                <Typography sx={{ color: '#BFD4FF', fontSize: '0.92rem', fontWeight: 950 }}>{storyTopR.toFixed(2)}</Typography>
+                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))', fontSize: '0.92rem', fontWeight: 950 }}>{storyTopR.toFixed(2)}</Typography>
                               </Stack>
                               <Slider
                                 value={storyTopR}
@@ -21596,8 +21609,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 disabled={isSavingStorySettings || isGenerating}
                                 sx={{
                                   mt: 0.35,
-                                  color: '#4F8DFF',
-                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: '#4F8DFF' },
+                                  color: 'var(--morius-accent)',
+                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: 'var(--morius-accent)' },
                                   '& .MuiSlider-track': { height: 5, border: 'none' },
                                   '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
                                 }}
@@ -21609,7 +21622,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
                                   Repetition penalty
                                 </Typography>
-                                <Typography sx={{ color: '#BFD4FF', fontSize: '0.92rem', fontWeight: 950 }}>{storyRepetitionPenalty.toFixed(2)}</Typography>
+                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))', fontSize: '0.92rem', fontWeight: 950 }}>{storyRepetitionPenalty.toFixed(2)}</Typography>
                               </Stack>
                               <Slider
                                 value={storyRepetitionPenalty}
@@ -21623,8 +21636,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 disabled={isSavingStorySettings || isGenerating}
                                 sx={{
                                   mt: 0.35,
-                                  color: '#4F8DFF',
-                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: '#4F8DFF' },
+                                  color: 'var(--morius-accent)',
+                                  '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: 'var(--morius-accent)' },
                                   '& .MuiSlider-track': { height: 5, border: 'none' },
                                   '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
                                 }}
@@ -25813,18 +25826,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }
 
                   return (
-                    <Stack
+                    <Box
                       key={message.id}
-                      direction="row"
-                      spacing={0.8}
-                      alignItems="flex-start"
                       sx={{
                         mb: 'var(--morius-story-message-gap)',
                         cursor: isGenerating ? 'default' : 'text',
                         position: 'relative',
-                        borderRadius: 'var(--morius-radius)',
-                        px: 0.42,
-                        py: 0.3,
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        px: { xs: 0, md: 0.2 },
+                        py: 0.15,
                         '&::before, &::after': {
                           content: '""',
                           position: 'absolute',
@@ -25846,47 +25857,82 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         '&:hover::before, &:hover::after': isGenerating ? {} : { opacity: 0.9 },
                       }}
                     >
-                      {renderPreviewableCharacterAvatar({
-                        avatarUrl: mainHeroAvatarUrl,
-                        previewUrl: mainHeroPreviewAvatarUrl,
-                        fallbackLabel: mainHeroCard?.title || user.display_name || 'грок',
-                        size: 28,
-                        profileCard: mainHeroCard,
-                        profileCharacter: resolveLinkedCharacterForWorldCard(mainHeroCard),
-                      })}
-                      <Box
-                        component="div"
-                        contentEditable={!isGenerating && !isSavingMessage}
-                        suppressContentEditableWarning
-                        spellCheck={false}
-                        onInput={(event) => {
-                          truncateContentEditableText(event.currentTarget, STORY_MESSAGE_MAX_LENGTH)
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Escape') {
-                            event.preventDefault()
-                            event.currentTarget.textContent = message.content
-                            event.currentTarget.blur()
-                          }
-                        }}
-                        onBlur={(event) => {
-                          void handleSaveMessageInline(message.id, event.currentTarget.textContent ?? '')
-                        }}
+                      <Stack
+                        spacing={0.48}
+                        alignItems="flex-end"
                         sx={{
-                          color: playerMessageColor,
-                          lineHeight: 1.58,
-                          whiteSpace: 'pre-wrap',
-                          fontSize: { xs: '1rem', md: '1.08rem' },
-                          ...storyHistoryTextSx,
-                          pt: 0.14,
-                          flex: 1,
-                          outline: 'none',
-                          cursor: isGenerating ? 'default' : 'text',
+                          width: '100%',
+                          maxWidth: { xs: 'calc(100% - 8px)', sm: 632, md: 650 },
+                          ml: 'auto',
                         }}
                       >
-                        {message.content}
-                      </Box>
-                    </Stack>
+                        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ pr: 0.1, minHeight: 36 }}>
+                          <Typography
+                            sx={{
+                              color: 'color-mix(in srgb, #EEF0FF 82%, var(--morius-text-secondary)) !important',
+                              fontSize: { xs: '0.94rem', md: '1.05rem' },
+                              fontWeight: 900,
+                              lineHeight: 1,
+                              letterSpacing: 0,
+                            }}
+                          >
+                            Вы
+                          </Typography>
+                          {renderPreviewableCharacterAvatar({
+                            avatarUrl: mainHeroAvatarUrl,
+                            previewUrl: mainHeroPreviewAvatarUrl,
+                            avatarScale: mainHeroCard?.avatar_scale,
+                            fallbackLabel: mainHeroCard?.title || user.display_name || 'игрок',
+                            size: 46,
+                            profileCard: mainHeroCard,
+                            profileCharacter: resolveLinkedCharacterForWorldCard(mainHeroCard),
+                          })}
+                        </Stack>
+                        <Box
+                          component="div"
+                          contentEditable={!isGenerating && !isSavingMessage}
+                          suppressContentEditableWarning
+                          spellCheck={false}
+                          onInput={(event) => {
+                            truncateContentEditableText(event.currentTarget, STORY_MESSAGE_MAX_LENGTH)
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') {
+                              event.preventDefault()
+                              event.currentTarget.textContent = message.content
+                              event.currentTarget.blur()
+                            }
+                          }}
+                          onBlur={(event) => {
+                            void handleSaveMessageInline(message.id, event.currentTarget.textContent ?? '')
+                          }}
+                          sx={{
+                            width: '100%',
+                            borderRadius: { xs: '26px', md: '30px' },
+                            border: '2px solid #2D3672 !important',
+                            backgroundColor: '#171829 !important',
+                            color: '#F0F1FF !important',
+                            lineHeight: 1.6,
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            fontSize: { xs: '1.08rem', md: '1.22rem' },
+                            ...storyHistoryTextSx,
+                            px: { xs: 2.15, md: 2.8 },
+                            py: { xs: 1.55, md: 2.05 },
+                            outline: 'none',
+                            cursor: isGenerating ? 'default' : 'text',
+                            boxShadow: 'none',
+                            transition: 'border-color 170ms ease, background-color 170ms ease',
+                            '&:focus': {
+                              borderColor: '#3A4590 !important',
+                              backgroundColor: '#181A2E !important',
+                            },
+                          }}
+                        >
+                          {message.content}
+                        </Box>
+                      </Stack>
+                    </Box>
                   )
                 })
               : null}
