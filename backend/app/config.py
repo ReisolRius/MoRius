@@ -253,6 +253,7 @@ class Settings:
     yookassa_receipt_vat_code: int
     yookassa_receipt_payment_mode: str
     yookassa_receipt_payment_subject: str
+    subscriptions_enabled: bool
     story_llm_provider: str
     gigachat_authorization_key: str
     gigachat_scope: str
@@ -376,6 +377,7 @@ settings = Settings(
     yookassa_receipt_vat_code=min(_to_int(os.getenv("YOOKASSA_RECEIPT_VAT_CODE"), 1, minimum=1), 6),
     yookassa_receipt_payment_mode=os.getenv("YOOKASSA_RECEIPT_PAYMENT_MODE", "full_payment").strip(),
     yookassa_receipt_payment_subject=os.getenv("YOOKASSA_RECEIPT_PAYMENT_SUBJECT", "service").strip(),
+    subscriptions_enabled=_to_bool(os.getenv("SUBSCRIPTIONS_ENABLED"), default=False),
     story_llm_provider=_normalize_story_llm_provider(_env("STORY_LLM_PROVIDER", "openrouter")),
     gigachat_authorization_key=os.getenv("GIGACHAT_AUTHORIZATION_KEY", "").strip(),
     gigachat_scope=os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS").strip(),

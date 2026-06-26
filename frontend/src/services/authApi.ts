@@ -257,6 +257,61 @@ export type CoinTopUpSyncResponse = {
   user: AuthUser
 }
 
+export type SubscriptionPlan = {
+  id: string
+  title: string
+  subtitle: string
+  price_rub: number
+  period: string
+  monthly_coins: number
+  perks: string[]
+  badge: string | null
+}
+
+export type SubscriptionPlanListResponse = {
+  plans: SubscriptionPlan[]
+  enabled: boolean
+}
+
+export type SavedPaymentMethod = {
+  id: number
+  title: string
+  card_type: string
+  card_last4: string
+  expiry_month: string
+  expiry_year: string
+  is_default: boolean
+  is_demo: boolean
+  created_at: string | null
+}
+
+export type SavedPaymentMethodListResponse = {
+  methods: SavedPaymentMethod[]
+  subscriptions_enabled: boolean
+}
+
+export type SubscriptionDetail = {
+  id: number
+  plan_id: string
+  plan_title: string
+  price_rub: number
+  status: string
+  started_at: string | null
+  next_charge_at: string | null
+  canceled_at: string | null
+  is_mock: boolean
+  card_title: string | null
+}
+
+export type SubscriptionListResponse = {
+  subscriptions: SubscriptionDetail[]
+}
+
+export type MockSubscriptionResponse = {
+  subscription: SubscriptionDetail
+  method: SavedPaymentMethod
+}
+
 export type CosmeticItemKind = 'avatar_frame' | 'profile_banner'
 
 export type CosmeticItem = {
@@ -1710,6 +1765,102 @@ export async function removeInstructionTemplateFromCommunityAsAdmin(payload: {
 export async function getCoinTopUpPlans(): Promise<CoinTopUpPlan[]> {
   const response = await requestJson<CoinPlanListResponse>('/api/payments/plans', { method: 'GET' })
   return response.plans
+}
+
+export async function getSubscriptionPlans(): Promise<SubscriptionPlanListResponse> {
+  return requestJson<SubscriptionPlanListResponse>('/api/payments/subscription-plans', { method: 'GET' })
+}
+
+export async function getSavedPaymentMethods(payload: { token: string }): Promise<SavedPaymentMethodListResponse> {
+  return requestJson<SavedPaymentMethodListResponse>(
+    '/api/payments/methods',
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function createDemoPaymentMethod(payload: { token: string }): Promise<SavedPaymentMethod> {
+  return requestJson<SavedPaymentMethod>(
+    '/api/payments/methods/demo',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function deleteSavedPaymentMethod(payload: { token: string; method_id: number }): Promise<void> {
+  await requestJson<{ message: string }>(
+    `/api/payments/methods/${payload.method_id}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function getSubscriptions(payload: { token: string }): Promise<SubscriptionListResponse> {
+  return requestJson<SubscriptionListResponse>(
+    '/api/payments/subscriptions',
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function createMockSubscription(payload: {
+  token: string
+  plan_id: string
+  card_number: string
+  card_expiry: string
+  card_holder: string
+}): Promise<MockSubscriptionResponse> {
+  return requestJson<MockSubscriptionResponse>(
+    '/api/payments/subscriptions/mock',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        plan_id: payload.plan_id,
+        card_number: payload.card_number,
+        card_expiry: payload.card_expiry,
+        card_holder: payload.card_holder,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function cancelSubscription(payload: { token: string; subscription_id: number }): Promise<SubscriptionDetail> {
+  return requestJson<SubscriptionDetail>(
+    `/api/payments/subscriptions/${payload.subscription_id}/cancel`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
 }
 
 export async function getShopCatalog(payload: { token: string }): Promise<ShopCatalog> {

@@ -78,6 +78,7 @@ function LegalDocumentPage({ title, content, onNavigate }: LegalDocumentPageProp
           { label: 'Политика конфиденциальности', path: '/privacy-policy' },
           { label: 'Пользовательское соглашение', path: '/terms-of-service' },
           { label: 'Правила публикаций', path: '/publication-rules' },
+          { label: 'Условия подписки', path: '/subscription-terms' },
         ]}
         onNavigate={onNavigate}
       />

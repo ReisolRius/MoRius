@@ -165,6 +165,68 @@ class CoinPurchase(Base):
     )
 
 
+class SavedPaymentMethod(Base):
+    """A payment method (bank card) saved for recurring subscription charges.
+
+    Deleting a row here is the merchant-side "card unbinding" (отвязка карты):
+    the stored provider payment_method_id is forgotten and is never used for
+    future auto-charges again. ЮKassa has no card-delete API of its own, so the
+    unbinding scenario the user sees in the UI maps directly onto removing this row.
+    """
+
+    __tablename__ = "saved_payment_methods"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="yookassa", server_default="yookassa")
+    # ЮKassa payment_method.id returned after a first payment with save_payment_method=true.
+    provider_payment_method_id: Mapped[str] = mapped_column(String(128), nullable=False, default="", server_default="")
+    title: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    card_type: Mapped[str] = mapped_column(String(32), nullable=False, default="", server_default="")
+    card_last4: Mapped[str] = mapped_column(String(4), nullable=False, default="", server_default="")
+    card_first6: Mapped[str] = mapped_column(String(6), nullable=False, default="", server_default="")
+    expiry_month: Mapped[str] = mapped_column(String(2), nullable=False, default="", server_default="")
+    expiry_year: Mapped[str] = mapped_column(String(4), nullable=False, default="", server_default="")
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class Subscription(Base):
+    """An auto-renewing subscription bound to a saved card.
+
+    `is_mock=True` rows are created by staff through the preview/checkout flow used
+    to capture ЮKassa moderation screenshots; they never trigger a real charge.
+    """
+
+    __tablename__ = "subscriptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    plan_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    plan_title: Mapped[str] = mapped_column(String(120), nullable=False)
+    price_rub: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", server_default="active")
+    payment_method_id: Mapped[int | None] = mapped_column(
+        ForeignKey("saved_payment_methods.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    next_charge_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    canceled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_mock: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class CosmeticItem(Base):
     __tablename__ = "cosmetic_items"
 

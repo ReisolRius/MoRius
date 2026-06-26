@@ -54,6 +54,118 @@ COIN_TOP_UP_PLANS: tuple[dict[str, Any], ...] = (
     },
 )
 COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
+
+# Recurring subscription plans (auto-renewing memberships charged monthly via ЮKassa
+# autopayments). Kept in one place so the shop UI, the plans endpoint and the future
+# recurring-charge job all read the same source of truth. Prices are in RUB.
+SUBSCRIPTION_PLANS: tuple[dict[str, Any], ...] = (
+    {
+        "id": "spark",
+        "title": "Искра",
+        "subtitle": "Для регулярной игры без оглядки на счётчик",
+        "price_rub": 299,
+        "period": "month",
+        "monthly_coins": 350,
+        "perks": [
+            "2 модели для отыгрыша: DeepSeek V4 Flash и Gemini 2.5 Flash Lite",
+            "До 40 ходов в день на включённых моделях — без списания солов",
+            "Память сцены до 8K токенов + авто-сжатие сюжета (короткие и средние арки)",
+            "350 солов на счёт каждый месяц — на премиум-модели и длинные сцены",
+            "Скидка 5% на все пакеты солов",
+            "2 регенерации ответа на сообщение",
+            "Значок подписчика в профиле и комментариях",
+        ],
+        "badge": None,
+    },
+    {
+        "id": "flame",
+        "title": "Пламя",
+        "subtitle": "Расширенный доступ для активных хронистов",
+        "price_rub": 599,
+        "period": "month",
+        "monthly_coins": 750,
+        "perks": [
+            "3 модели включено: + GLM 4.5 Air с живым литературным слогом",
+            "Доступ к «умной» DeepSeek V3.2 — за солы со скидкой 10%",
+            "До 60 ходов в день на включённых моделях — без списания солов",
+            "Память сцены до 20K токенов — длинные сюжетные дуги",
+            "750 солов на счёт каждый месяц",
+            "Скидка 10% на все пакеты солов",
+            "Ранний доступ к новым мирам и моделям",
+            "4 регенерации ответа на сообщение",
+            "Эксклюзивная рамка аватарки подписчика",
+        ],
+        "badge": "Популярный",
+    },
+    {
+        "id": "constellation",
+        "title": "Созвездие",
+        "subtitle": "Максимум памяти, лучшие модели и приоритет",
+        "price_rub": 1190,
+        "period": "month",
+        "monthly_coins": 1600,
+        "perks": [
+            "Все включённые модели + премиум Gemini 3 Flash Preview (за солы, макс. скидка)",
+            "До 90 ходов в день на включённых моделях — без списания солов",
+            "Память сцены до 32K токенов — самые длинные арки; сверхдлинная 64K+ за солы",
+            "1600 солов на счёт каждый месяц",
+            "Скидка 15% на все пакеты солов",
+            "Приоритетная очередь генераций — отвечает первым в час пик",
+            "Расширенный модуль памяти и локаций",
+            "6 регенераций ответа на сообщение",
+            "Все эксклюзивные рамки и баннеры подписки",
+            "Приоритетная поддержка",
+        ],
+        "badge": None,
+    },
+)
+SUBSCRIPTION_PLANS_BY_ID = {plan["id"]: plan for plan in SUBSCRIPTION_PLANS}
+
+
+def is_subscriptions_enabled() -> bool:
+    """Whether recurring subscriptions are live (turned on after ЮKassa approval)."""
+    return bool(settings.subscriptions_enabled)
+
+
+def get_subscription_plan(plan_id: str) -> dict[str, Any]:
+    plan = SUBSCRIPTION_PLANS_BY_ID.get(plan_id)
+    if plan:
+        return plan
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown subscription plan")
+
+
+SUBSCRIPTION_PERIOD_DAYS = 30
+
+
+def detect_card_brand(digits: str) -> str:
+    """Best-effort card network label from the card number (digits only)."""
+    if digits.startswith("4"):
+        return "Visa"
+    if len(digits) >= 4:
+        head4 = int(digits[:4])
+        if 2200 <= head4 <= 2204:
+            return "МИР"
+        if 2221 <= head4 <= 2720:
+            return "MasterCard"
+    if len(digits) >= 2 and 51 <= int(digits[:2]) <= 55:
+        return "MasterCard"
+    return "Карта"
+
+
+def parse_card_expiry(raw_value: str) -> tuple[str, str]:
+    """Parse 'MM/YY', 'MM/YYYY' or 'MMYY' into (MM, YYYY). Raises on bad input."""
+    digits = "".join(ch for ch in raw_value if ch.isdigit())
+    if len(digits) == 4:
+        month, year = digits[:2], digits[2:]
+    elif len(digits) == 6:
+        month, year = digits[:2], digits[2:]
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Некорректный срок действия карты")
+    if not (1 <= int(month) <= 12):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Некорректный месяц на карте")
+    if len(year) == 2:
+        year = f"20{year}"
+    return month.zfill(2), year
 RECEIPT_ITEM_DESCRIPTION_MAX_LENGTH = 128
 DEFAULT_RECEIPT_ITEM_DESCRIPTION = "Top up sols"
 YOOKASSA_WEBHOOK_IP_RANGES: tuple[str, ...] = (
@@ -379,4 +491,3 @@ def sync_user_pending_purchases(db: Session, user: User) -> None:
 
 def close_http_session() -> None:
     HTTP_SESSION.close()
-

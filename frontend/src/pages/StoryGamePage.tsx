@@ -914,7 +914,7 @@ const STORY_VISIBLE_ASSISTANT_TURNS_PAGE = 20
 const STORY_LOAD_OLDER_SCROLL_TOP_THRESHOLD = 160
 const STORY_TRIM_TO_RECENT_SCROLL_BOTTOM_THRESHOLD = 220
 const COMPOSER_TOP_ACTION_BUTTON_SIZE = 46
-const COMPOSER_SEND_BUTTON_SIZE = 36
+const COMPOSER_SEND_BUTTON_SIZE = 40
 const COMPOSER_INPUT_MIN_HEIGHT = 44
 const COMPOSER_INPUT_MAX_HEIGHT = 184
 const STORY_COMPOSER_FALLBACK_HEIGHT = 152
@@ -3798,11 +3798,68 @@ function createStreamingAssistantTextStore(): StreamingAssistantTextStore {
   }
 }
 
+function MoriusGenerationOrb({
+  size = 22,
+  onStop,
+}: {
+  size?: number
+  onStop?: () => void
+}) {
+  const clickable = Boolean(onStop)
+  return (
+    <Box
+      component="span"
+      className="morius-gen-orb"
+      onClick={
+        onStop
+          ? (event) => {
+              event.stopPropagation()
+              onStop()
+            }
+          : undefined
+      }
+      title={clickable ? 'Нажмите, чтобы остановить генерацию' : undefined}
+      role={clickable ? 'button' : undefined}
+      aria-label={clickable ? 'Остановить генерацию' : undefined}
+      sx={{ width: size, height: size, cursor: clickable ? 'pointer' : 'default' }}
+    >
+      <Box component="span" className="morius-gen-orb__halo" aria-hidden="true" />
+      <Box component="span" className="morius-gen-orb__ring" aria-hidden="true" />
+      <Box component="span" className="morius-gen-orb__core" aria-hidden="true" />
+    </Box>
+  )
+}
+
+function MoriusThinkingIndicator({ onStop }: { onStop?: () => void }) {
+  return (
+    <Stack spacing={0.55} sx={{ alignItems: 'flex-start', px: 0.05, py: 0.1 }}>
+      <Stack direction="row" alignItems="center" spacing={1.15}>
+        <MoriusGenerationOrb size={22} onStop={onStop} />
+        <Typography
+          className="morius-think-shimmer"
+          sx={{ fontSize: '18px', fontWeight: 600, lineHeight: 1.1, letterSpacing: 0.1 }}
+        >
+          Смотрим, что было дальше
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '4px', pl: '2px' }}>
+          <Box className="morius-think-dot" />
+          <Box className="morius-think-dot" sx={{ animationDelay: '0.18s' }} />
+          <Box className="morius-think-dot" sx={{ animationDelay: '0.36s' }} />
+        </Box>
+      </Stack>
+      <Typography sx={{ color: '#586074', fontSize: '12.5px', lineHeight: 1.25, pl: '34px' }}>
+        можно прервать генерацию кнопкой в строке ввода ниже
+      </Typography>
+    </Stack>
+  )
+}
+
 type StreamingAssistantMessageContentProps = {
   messageId: number
   store: StreamingAssistantTextStore
   mainHeroName: string
   showNpcThoughts: boolean
+  onStopGeneration?: () => void
   assistantReplyTextColor: string
   assistantSpeakerLabelColor: string
   assistantThoughtLabelColor: string
@@ -3830,6 +3887,7 @@ function StreamingAssistantMessageContent({
   store,
   mainHeroName,
   showNpcThoughts,
+  onStopGeneration,
   assistantReplyTextColor,
   assistantSpeakerLabelColor,
   assistantThoughtLabelColor,
@@ -3856,20 +3914,14 @@ function StreamingAssistantMessageContent({
   }, [mainHeroName, showNpcThoughts, streamingText])
 
   if (blocks.length === 0) {
-    return (
-      <Stack direction="row" alignItems="center" spacing={0.65} sx={{ px: 0.05, py: 0.05 }}>
-        <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
-          <Box className="morius-generating-pulse-dot" />
-          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', letterSpacing: 0.1 }}>
-            Смотрим, что было дальше...
-          </Typography>
-        </Stack>
-      </Stack>
-    )
+    return <MoriusThinkingIndicator onStop={onStopGeneration} />
   }
 
   return (
-    <>
+    <Box sx={{ position: 'relative', pl: '37px' }}>
+      <Box sx={{ position: 'absolute', left: '1px', top: '4px', pointerEvents: 'none' }}>
+        <MoriusGenerationOrb size={16} />
+      </Box>
       {blocks.map((block, index) => {
         const shouldShowStreamingCaret = index === blocks.length - 1
         if (block.type === 'character') {
@@ -3999,7 +4051,7 @@ function StreamingAssistantMessageContent({
           </Box>
         )
       })}
-    </>
+    </Box>
   )
 }
 
@@ -25182,6 +25234,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               store={streamingAssistantTextStore}
                               mainHeroName={mainHeroDisplayNameForTags}
                               showNpcThoughts={showNpcThoughts}
+                              onStopGeneration={() => void handleStopStoryGeneration()}
                               assistantReplyTextColor={assistantReplyTextColor}
                               assistantSpeakerLabelColor={assistantSpeakerLabelColor}
                               assistantThoughtLabelColor={assistantThoughtLabelColor}
@@ -25959,14 +26012,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   py: 0.3,
                 }}
               >
-                <Stack direction="row" alignItems="center" spacing={0.65} sx={{ px: 0.05, py: 0.05 }}>
-                  <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
-                    <Box className="morius-generating-pulse-dot" />
-                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', letterSpacing: 0.1 }}>
-                      Смотрим, что было дальше...
-                    </Typography>
-                  </Stack>
-                </Stack>
+                <MoriusThinkingIndicator onStop={() => void handleStopStoryGeneration()} />
               </Box>
             ) : null}
             {errorMessage ? (
@@ -26479,93 +26525,162 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 pl: { xs: 7.2, sm: 7.55 },
                 pt: { xs: '8px', sm: '9px' },
                 pb: { xs: '8px', sm: '9px' },
-                pr: { xs: 5.6, sm: 6 },
+                pr: { xs: 7, sm: 7 },
                 overflowY: 'hidden',
                 '&::placeholder': {
                   color: 'var(--morius-text-secondary)',
                 },
               }}
             />
-            <IconButton
-              className="morius-composer-send-button"
-              aria-label={isStoryGenerationActive ? 'Остановить генерацию' : isFinalizingStoryTurn ? 'Отправка станет доступна после обработки' : 'Отправить'}
-              onClick={handleVoiceActionClick}
-              disabled={isStoryGenerationActive ? false : (isVisualNovelInputLocked || isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
-              sx={{
-                '@keyframes morius-voice-pulse': {
-                  '0%, 100%': {
-                    transform: 'scale(1)',
-                    opacity: 1,
+            <Tooltip
+              arrow
+              disableInteractive
+              placement="top"
+              title={isStoryGenerationActive ? 'Остановить генерацию' : ''}
+              slotProps={{
+                tooltip: {
+                  sx: {
+                    backgroundColor: '#1b2233',
+                    border: '1px solid rgba(255, 255, 255, 0.09)',
+                    color: '#cdd4e0',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    px: 1.1,
+                    py: 0.6,
+                    borderRadius: '8px',
+                    boxShadow: '0 6px 18px rgba(0, 0, 0, 0.35)',
                   },
-                  '50%': {
-                    transform: 'scale(1.08)',
-                    opacity: 0.78,
+                },
+                arrow: {
+                  sx: {
+                    color: '#1b2233',
+                    '&::before': {
+                      border: '1px solid rgba(255, 255, 255, 0.09)',
+                    },
                   },
-                },
-                position: 'absolute',
-                top: '50%',
-                right: 18,
-                transform: 'translateY(-50%)',
-                width: `${COMPOSER_SEND_BUTTON_SIZE}px !important`,
-                height: `${COMPOSER_SEND_BUTTON_SIZE}px !important`,
-                minWidth: `${COMPOSER_SEND_BUTTON_SIZE}px !important`,
-                minHeight: `${COMPOSER_SEND_BUTTON_SIZE}px !important`,
-                p: 0,
-                borderRadius: '999px',
-                backgroundColor: 'transparent',
-                border: 'none',
-                color: isStoryGenerationActive ? 'var(--morius-accent)' : sendButtonIconColor,
-                ...(isVoiceInputActive && showMicAction
-                  ? {
-                      color: sendButtonIconColor,
-                      animation: 'morius-voice-pulse 1.05s ease-in-out infinite',
-                    }
-                  : {}),
-                '& svg': {
-                  width: 18,
-                  height: 18,
-                },
-                '&:hover': {
-                  backgroundColor: 'transparent',
-                },
-                '&:active': {
-                  backgroundColor: 'transparent',
-                },
-                '&:disabled': {
-                  opacity: isStoryGenerationActive ? 0.7 : 0.5,
-                  color: sendButtonIconColor,
-                  backgroundColor: 'transparent',
-                  border: 'none',
                 },
               }}
             >
-              {isStoryGenerationActive ? (
-                <Box
-                  className="morius-stop-indicator"
+              <Box
+                component="span"
+                sx={{
+                  position: 'absolute',
+                  top: '50%',
+                  right: 14,
+                  transform: 'translateY(-50%)',
+                  display: 'inline-flex',
+                  zIndex: 2,
+                }}
+              >
+                <IconButton
+                  className="morius-composer-send-button"
+                  aria-label={isStoryGenerationActive ? 'Остановить генерацию' : isFinalizingStoryTurn ? 'Отправка станет доступна после обработки' : 'Отправить'}
+                  onClick={handleVoiceActionClick}
+                  disabled={isStoryGenerationActive ? false : (isVisualNovelInputLocked || isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
                   sx={{
-                    width: 10,
-                    height: 10,
+                    '@keyframes morius-voice-pulse': {
+                      '0%, 100%': {
+                        transform: 'scale(1)',
+                        opacity: 1,
+                      },
+                      '50%': {
+                        transform: 'scale(1.08)',
+                        opacity: 0.78,
+                      },
+                    },
+                    position: 'relative',
+                    width: `${COMPOSER_SEND_BUTTON_SIZE}px !important`,
+                    height: `${COMPOSER_SEND_BUTTON_SIZE}px !important`,
+                    minWidth: `${COMPOSER_SEND_BUTTON_SIZE}px !important`,
+                    minHeight: `${COMPOSER_SEND_BUTTON_SIZE}px !important`,
+                    p: 0,
                     borderRadius: '50%',
-                    backgroundColor: 'var(--morius-accent)',
-                  }}
-                />
-              ) : isFinalizingStoryTurn ? (
-                <AssetMaskIcon src={icons.send} size={18} />
-              ) : showMicAction ? (
-                <Box
-                  sx={{
-                    display: 'grid',
-                    placeItems: 'center',
-                    transform: isVoiceInputActive ? 'scale(1.06)' : 'scale(1)',
-                    transition: 'transform 120ms ease',
+                    overflow: 'visible',
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    color: isStoryGenerationActive ? 'var(--morius-accent)' : sendButtonIconColor,
+                    ...(isVoiceInputActive && showMicAction
+                      ? {
+                          color: sendButtonIconColor,
+                          animation: 'morius-voice-pulse 1.05s ease-in-out infinite',
+                        }
+                      : {}),
+                    '& svg': {
+                      width: 18,
+                      height: 18,
+                    },
+                    '&:hover': {
+                      backgroundColor: 'transparent',
+                    },
+                    '&:active': {
+                      backgroundColor: 'transparent',
+                    },
+                    '&:disabled': {
+                      opacity: isStoryGenerationActive ? 0.7 : 0.5,
+                      color: sendButtonIconColor,
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                    },
                   }}
                 >
-                  <ComposerMicIcon />
-                </Box>
-              ) : (
-                <AssetMaskIcon src={icons.send} size={18} />
-              )}
-            </IconButton>
+                  {isStoryGenerationActive ? (
+                    <Box
+                      className="morius-stop-button"
+                      sx={{
+                        position: 'relative',
+                        width: '100%',
+                        height: '100%',
+                        display: 'grid',
+                        placeItems: 'center',
+                      }}
+                    >
+                      <Box className="morius-stop-button__ring" aria-hidden="true" />
+                      <Box className="morius-stop-button__inner" aria-hidden="true" />
+                      <Box className="morius-stop-button__square" aria-hidden="true" />
+                    </Box>
+                  ) : isFinalizingStoryTurn ? (
+                    <AssetMaskIcon src={icons.send} size={18} />
+                  ) : showMicAction ? (
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        placeItems: 'center',
+                        transform: isVoiceInputActive ? 'scale(1.06)' : 'scale(1)',
+                        transition: 'transform 120ms ease',
+                      }}
+                    >
+                      <ComposerMicIcon />
+                    </Box>
+                  ) : (
+                    <Box className="morius-send-button-circle">
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        aria-hidden="true"
+                        style={{ display: 'block' }}
+                      >
+                        <path
+                          d="M12 19V5.6"
+                          stroke="#ffffff"
+                          strokeWidth="2.4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M5.7 11.4L12 5.1L18.3 11.4"
+                          stroke="#ffffff"
+                          strokeWidth="2.4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </Box>
+                  )}
+                </IconButton>
+              </Box>
+            </Tooltip>
             {isVoiceInputActive && showMicAction ? (
               <Stack
                 direction="row"

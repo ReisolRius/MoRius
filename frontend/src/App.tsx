@@ -10,7 +10,7 @@ import {
   type MaintenanceSettings,
 } from './services/authApi'
 import { Alert, Snackbar } from '@mui/material'
-import { PRIVACY_POLICY_TEXT, PUBLICATION_RULES_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
+import { PRIVACY_POLICY_TEXT, PUBLICATION_RULES_TEXT, SUBSCRIPTION_TERMS_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
 import type { ReactNode } from 'react'
 import type { AuthResponse, AuthUser } from './types/auth'
 import FantasyRouteTransition from './components/navigation/FantasyRouteTransition'
@@ -91,7 +91,12 @@ function isAuthenticatedPath(pathname: string): boolean {
 }
 
 function isLegalPath(pathname: string): boolean {
-  return pathname === '/privacy-policy' || pathname === '/terms-of-service' || pathname === '/publication-rules'
+  return (
+    pathname === '/privacy-policy' ||
+    pathname === '/terms-of-service' ||
+    pathname === '/publication-rules' ||
+    pathname === '/subscription-terms'
+  )
 }
 
 function parseAuthRouteMode(search: string): AuthRouteMode {
@@ -810,6 +815,7 @@ function App() {
   const shouldShowPrivacyPolicyPage = path === '/privacy-policy'
   const shouldShowTermsPage = path === '/terms-of-service'
   const shouldShowPublicationRulesPage = path === '/publication-rules'
+  const shouldShowSubscriptionTermsPage = path === '/subscription-terms'
   const shouldShowAuthPage = !isAuthenticated && path === '/auth'
   const shouldAllowMaintenanceAuthBypass = !isAuthenticated && path === '/auth'
   const shouldShowMaintenancePage = Boolean(
@@ -851,6 +857,16 @@ function App() {
         <LegalDocumentPage
           title="Правила публикаций"
           content={PUBLICATION_RULES_TEXT}
+          onNavigate={navigate}
+        />
+      </Suspense>
+    )
+  } else if (shouldShowSubscriptionTermsPage) {
+    pageContent = (
+      <Suspense fallback={routeTransitionFallback}>
+        <LegalDocumentPage
+          title="Условия подписки и автосписаний"
+          content={SUBSCRIPTION_TERMS_TEXT}
           onNavigate={navigate}
         />
       </Suspense>

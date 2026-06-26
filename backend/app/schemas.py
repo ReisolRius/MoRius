@@ -597,6 +597,70 @@ class CoinTopUpSyncResponse(BaseModel):
     user: UserOut
 
 
+class SubscriptionPlanOut(BaseModel):
+    id: str
+    title: str
+    subtitle: str
+    price_rub: int
+    period: str
+    monthly_coins: int
+    perks: list[str] = Field(default_factory=list)
+    badge: str | None = None
+
+
+class SubscriptionPlanListResponse(BaseModel):
+    plans: list[SubscriptionPlanOut] = Field(default_factory=list)
+    enabled: bool = False
+
+
+class SavedPaymentMethodOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    card_type: str = ""
+    card_last4: str = ""
+    expiry_month: str = ""
+    expiry_year: str = ""
+    is_default: bool = False
+    is_demo: bool = False
+    created_at: datetime | None = None
+
+
+class SavedPaymentMethodListResponse(BaseModel):
+    methods: list[SavedPaymentMethodOut] = Field(default_factory=list)
+    subscriptions_enabled: bool = False
+
+
+class SubscriptionOut(BaseModel):
+    id: int
+    plan_id: str
+    plan_title: str
+    price_rub: int
+    status: str
+    started_at: datetime | None = None
+    next_charge_at: datetime | None = None
+    canceled_at: datetime | None = None
+    is_mock: bool = False
+    card_title: str | None = None
+
+
+class SubscriptionListResponse(BaseModel):
+    subscriptions: list[SubscriptionOut] = Field(default_factory=list)
+
+
+class MockSubscriptionCreateRequest(BaseModel):
+    plan_id: str = Field(min_length=1, max_length=32)
+    card_number: str = Field(min_length=12, max_length=23)
+    card_expiry: str = Field(min_length=4, max_length=7)
+    card_holder: str = Field(default="", max_length=120)
+
+
+class SubscriptionCreateResponse(BaseModel):
+    subscription: SubscriptionOut
+    method: SavedPaymentMethodOut
+
+
 class CosmeticItemOut(BaseModel):
     id: int
     kind: Literal["avatar_frame", "profile_banner"]

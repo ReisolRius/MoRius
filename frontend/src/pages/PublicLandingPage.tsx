@@ -208,6 +208,7 @@ const footerSocialLinks: Array<{ label: string; href: string; external?: boolean
 const footerInfoLinks: Array<{ label: string; path: string }> = [
   { label: 'Политика конфиденциальности', path: '/privacy-policy' },
   { label: 'Пользовательское соглашение', path: '/terms-of-service' },
+  { label: 'Условия подписки', path: '/subscription-terms' },
 ]
 
 const ctaButtonSx: SxProps<Theme> = {

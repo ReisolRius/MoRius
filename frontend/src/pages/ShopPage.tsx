@@ -4,12 +4,16 @@ import {
   Box,
   Button,
   ButtonBase,
+  Checkbox,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   FormControlLabel,
   IconButton,
+  Link,
   Stack,
   Switch,
   TextField,
@@ -22,16 +26,26 @@ import ProgressiveImage from '../components/media/ProgressiveImage'
 import UserAvatar from '../components/profile/UserAvatar'
 import AvatarFrame from '../components/profile/AvatarFrame'
 import {
+  cancelSubscription,
   createCoinTopUpPayment,
+  createDemoPaymentMethod,
+  createMockSubscription,
+  deleteSavedPaymentMethod,
   deleteShopCosmeticItem,
   createShopCosmeticItem,
+  getSavedPaymentMethods,
   getShopCatalog,
+  getSubscriptionPlans,
+  getSubscriptions,
   purchaseShopCosmeticItem,
   updateShopCosmeticItem,
   type CoinTopUpPlan,
   type CosmeticItem,
   type CosmeticItemKind,
+  type SavedPaymentMethod,
   type ShopCatalog,
+  type SubscriptionDetail,
+  type SubscriptionPlan,
 } from '../services/authApi'
 import type { AuthUser } from '../types/auth'
 import { moriusThemeTokens } from '../theme'
@@ -51,9 +65,10 @@ const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const SHOP_DIALOG_PAPER_SX = {
   borderRadius: '18px',
   border: 'var(--morius-border-width) solid var(--morius-card-border)',
-  backgroundColor: '#11161d',
+  backgroundColor: '#070a0f',
+  backgroundImage: 'none',
   color: 'var(--morius-text-primary)',
-  boxShadow: '0 28px 70px rgba(0,0,0,0.72)',
+  boxShadow: '0 28px 80px rgba(0,0,0,0.85)',
   '& .MuiDialogTitle-root': {
     color: 'var(--morius-title-text)',
   },
@@ -79,9 +94,114 @@ const DEFAULT_PLANS: CoinTopUpPlan[] = [
   { id: 'legendary', title: 'Летописец', description: 'Максимальный запас для хронистов: дорогие модели, долгие кампании.', price_rub: 5990, coins: 7000 },
 ]
 
+const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
+  {
+    id: 'spark',
+    title: 'Искра',
+    subtitle: 'Для регулярной игры без оглядки на счётчик',
+    price_rub: 299,
+    period: 'month',
+    monthly_coins: 350,
+    perks: [
+      '2 модели для отыгрыша: DeepSeek V4 Flash и Gemini 2.5 Flash Lite',
+      'До 40 ходов в день на включённых моделях — без списания солов',
+      'Память сцены до 8K токенов + авто-сжатие сюжета (короткие и средние арки)',
+      '350 солов на счёт каждый месяц — на премиум-модели и длинные сцены',
+      'Скидка 5% на все пакеты солов',
+      '2 регенерации ответа на сообщение',
+      'Значок подписчика в профиле и комментариях',
+    ],
+    badge: null,
+  },
+  {
+    id: 'flame',
+    title: 'Пламя',
+    subtitle: 'Расширенный доступ для активных хронистов',
+    price_rub: 599,
+    period: 'month',
+    monthly_coins: 750,
+    perks: [
+      '3 модели включено: + GLM 4.5 Air с живым литературным слогом',
+      'Доступ к «умной» DeepSeek V3.2 — за солы со скидкой 10%',
+      'До 60 ходов в день на включённых моделях — без списания солов',
+      'Память сцены до 20K токенов — длинные сюжетные дуги',
+      '750 солов на счёт каждый месяц',
+      'Скидка 10% на все пакеты солов',
+      'Ранний доступ к новым мирам и моделям',
+      '4 регенерации ответа на сообщение',
+      'Эксклюзивная рамка аватарки подписчика',
+    ],
+    badge: 'Популярный',
+  },
+  {
+    id: 'constellation',
+    title: 'Созвездие',
+    subtitle: 'Максимум памяти, лучшие модели и приоритет',
+    price_rub: 1190,
+    period: 'month',
+    monthly_coins: 1600,
+    perks: [
+      'Все включённые модели + премиум Gemini 3 Flash Preview (за солы, макс. скидка)',
+      'До 90 ходов в день на включённых моделях — без списания солов',
+      'Память сцены до 32K токенов — самые длинные арки; сверхдлинная 64K+ за солы',
+      '1600 солов на счёт каждый месяц',
+      'Скидка 15% на все пакеты солов',
+      'Приоритетная очередь генераций — отвечает первым в час пик',
+      'Расширенный модуль памяти и локаций',
+      '6 регенераций ответа на сообщение',
+      'Все эксклюзивные рамки и баннеры подписки',
+      'Приоритетная поддержка',
+    ],
+    badge: null,
+  },
+]
+
+const RECURRING_TERMS_PARAGRAPHS: readonly string[] = [
+  'Подписка MoRius — это регулярная (рекуррентная) услуга с автоматическим продлением. Оформляя подписку, вы соглашаетесь на периодическое автоматическое списание её стоимости с привязанной банковской карты.',
+  'Стоимость и период. Списание производится раз в месяц в размере, указанном в выбранном тарифе. Первое списание выполняется в момент оформления, последующие — каждые 30 дней до отмены подписки.',
+  'Привязка карты. Для автосписаний платёжные данные карты сохраняются на стороне платёжного провайдера ЮKassa. MoRius не хранит и не обрабатывает полные реквизиты банковских карт.',
+  'Отмена и отвязка карты. Вы можете в любой момент отменить подписку и отвязать карту в разделе «Магазин» → «Способы оплаты». После отвязки карты автоматические списания по ней прекращаются, повторная оплата без вашего согласия невозможна.',
+  'Возобновление. Доступ по подписке действует до конца оплаченного периода. После отмены ранее списанные средства за уже предоставленный период не возвращаются.',
+  'Согласие. Нажимая «Перейти к оплате», вы подтверждаете согласие с настоящими условиями, Пользовательским соглашением и Политикой конфиденциальности, а также даёте согласие на регулярные автоматические списания.',
+]
+
 function isPrivilegedUser(user: AuthUser): boolean {
   const role = user.role.trim().toLowerCase()
   return role === 'administrator' || role === 'moderator'
+}
+
+function formatPricePerMonth(value: number): string {
+  return `${formatPrice(value)} / мес`
+}
+
+function formatNextChargeDate(): string {
+  const next = new Date()
+  next.setMonth(next.getMonth() + 1)
+  return next.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+function formatDateRu(iso: string | null): string {
+  if (!iso) {
+    return '—'
+  }
+  const parsed = new Date(iso)
+  if (Number.isNaN(parsed.getTime())) {
+    return '—'
+  }
+  return parsed.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+function formatCardNumberInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 19)
+  return digits.replace(/(.{4})/g, '$1 ').trim()
+}
+
+function formatCardExpiryInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 4)
+  if (digits.length <= 2) {
+    return digits
+  }
+  return `${digits.slice(0, 2)}/${digits.slice(2)}`
 }
 
 function normalizePlanDescription(description: string | null | undefined): string {
@@ -140,8 +260,34 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   const [uploadPrice, setUploadPrice] = useState('25')
   const [uploadImage, setUploadImage] = useState<string>('')
   const [isUploading, setIsUploading] = useState(false)
+  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>(DEFAULT_SUBSCRIPTION_PLANS)
+  const [subscriptionsEnabled, setSubscriptionsEnabled] = useState(false)
+  const [subscribePlan, setSubscribePlan] = useState<SubscriptionPlan | null>(null)
+  const [subscribeConsent, setSubscribeConsent] = useState(false)
+  const [subscribeInfo, setSubscribeInfo] = useState(false)
+  const [isTermsOpen, setIsTermsOpen] = useState(false)
+  const [isCardsOpen, setIsCardsOpen] = useState(false)
+  const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[]>([])
+  const [isLoadingMethods, setIsLoadingMethods] = useState(false)
+  const [subscriptions, setSubscriptions] = useState<SubscriptionDetail[]>([])
+  const [unbindConsent, setUnbindConsent] = useState<Record<number, boolean>>({})
+  const [unbindMethod, setUnbindMethod] = useState<SavedPaymentMethod | null>(null)
+  const [deletingMethodId, setDeletingMethodId] = useState<number | null>(null)
+  const [isCreatingDemoCard, setIsCreatingDemoCard] = useState(false)
+  const [checkoutPlan, setCheckoutPlan] = useState<SubscriptionPlan | null>(null)
+  const [checkoutNumber, setCheckoutNumber] = useState('')
+  const [checkoutExpiry, setCheckoutExpiry] = useState('')
+  const [checkoutCvc, setCheckoutCvc] = useState('')
+  const [checkoutHolder, setCheckoutHolder] = useState('')
+  const [checkoutError, setCheckoutError] = useState('')
+  const [isPaying, setIsPaying] = useState(false)
+  const [justSubscribed, setJustSubscribed] = useState(false)
+  const [cancelTarget, setCancelTarget] = useState<SubscriptionDetail | null>(null)
+  const [cancelingId, setCancelingId] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const canManageShop = isPrivilegedUser(user)
+  // Subscriptions are previewable by staff before ЮKassa approval; players see "скоро".
+  const subscriptionsAvailable = subscriptionsEnabled || canManageShop
 
   const loadCatalog = useCallback(() => {
     setIsLoadingCatalog(true)
@@ -154,9 +300,50 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
       .finally(() => setIsLoadingCatalog(false))
   }, [authToken])
 
+  const loadPaymentMethods = useCallback(() => {
+    setIsLoadingMethods(true)
+    void getSavedPaymentMethods({ token: authToken })
+      .then((response) => {
+        setPaymentMethods(response.methods)
+        setSubscriptionsEnabled(response.subscriptions_enabled)
+      })
+      .catch(() => {
+        // Silent: an empty card list is a valid, expected state before any subscription.
+      })
+      .finally(() => setIsLoadingMethods(false))
+  }, [authToken])
+
+  const loadSubscriptions = useCallback(() => {
+    void getSubscriptions({ token: authToken })
+      .then((response) => setSubscriptions(response.subscriptions))
+      .catch(() => {
+        // Silent: no subscriptions yet is a valid state.
+      })
+  }, [authToken])
+
   useEffect(() => {
     loadCatalog()
   }, [loadCatalog])
+
+  useEffect(() => {
+    void getSubscriptionPlans()
+      .then((response) => {
+        if (response.plans.length) {
+          setSubscriptionPlans(response.plans)
+        }
+        setSubscriptionsEnabled(response.enabled)
+      })
+      .catch(() => {
+        // Fall back to the bundled default plans if the endpoint is unavailable.
+      })
+  }, [])
+
+  useEffect(() => {
+    if (canManageShop || subscriptionsEnabled) {
+      loadPaymentMethods()
+      loadSubscriptions()
+    }
+  }, [canManageShop, subscriptionsEnabled, loadPaymentMethods, loadSubscriptions])
 
   const plans = catalog?.plans.length ? catalog.plans : DEFAULT_PLANS
   const paidFrames = useMemo(() => (catalog?.avatar_frames ?? []).map(withKnownCosmeticImageUrl), [catalog?.avatar_frames])
@@ -366,6 +553,241 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
     } finally {
       setDeletingItemId(null)
     }
+  }
+
+  const handleOpenSubscribe = (plan: SubscriptionPlan) => {
+    setSubscribeConsent(false)
+    setSubscribeInfo(false)
+    setSubscribePlan(plan)
+  }
+
+  const handleCloseSubscribe = () => {
+    setSubscribePlan(null)
+    setSubscribeConsent(false)
+    setSubscribeInfo(false)
+  }
+
+  const handleStartSubscription = () => {
+    if (!subscribePlan || !subscribeConsent) {
+      return
+    }
+    // Staff run the mock checkout to capture the full flow for ЮKassa moderation.
+    // Real autopayment charges are wired once ЮKassa approves them.
+    if (canManageShop) {
+      handleOpenCheckout(subscribePlan)
+      return
+    }
+    setSubscribeInfo(true)
+  }
+
+  const handleOpenCheckout = (plan: SubscriptionPlan) => {
+    setCheckoutPlan(plan)
+    setCheckoutNumber('')
+    setCheckoutExpiry('')
+    setCheckoutCvc('')
+    setCheckoutHolder('')
+    setCheckoutError('')
+  }
+
+  const handleCloseCheckout = () => {
+    if (isPaying) {
+      return
+    }
+    setCheckoutPlan(null)
+  }
+
+  const handlePayCheckout = async () => {
+    if (!checkoutPlan || isPaying) {
+      return
+    }
+    const digits = checkoutNumber.replace(/\D/g, '')
+    if (digits.length < 12) {
+      setCheckoutError('Введите номер карты')
+      return
+    }
+    if (!/^\d{2}\/?\d{2}$/.test(checkoutExpiry.replace(/\s/g, ''))) {
+      setCheckoutError('Срок действия в формате ММ/ГГ')
+      return
+    }
+    if (checkoutCvc.replace(/\D/g, '').length < 3) {
+      setCheckoutError('Введите CVC')
+      return
+    }
+    setIsPaying(true)
+    setCheckoutError('')
+    try {
+      await createMockSubscription({
+        token: authToken,
+        plan_id: checkoutPlan.id,
+        card_number: digits,
+        card_expiry: checkoutExpiry,
+        card_holder: checkoutHolder.trim(),
+      })
+      loadPaymentMethods()
+      loadSubscriptions()
+      setCheckoutPlan(null)
+      setSubscribePlan(null)
+      setSubscribeConsent(false)
+      setUnbindConsent({})
+      setJustSubscribed(true)
+      setIsCardsOpen(true)
+    } catch (requestError) {
+      setCheckoutError(requestError instanceof Error ? requestError.message : 'Не удалось провести оплату')
+    } finally {
+      setIsPaying(false)
+    }
+  }
+
+  const handleCancelSubscription = async () => {
+    if (!cancelTarget || cancelingId !== null) {
+      return
+    }
+    const target = cancelTarget
+    setCancelingId(target.id)
+    setError('')
+    try {
+      const updated = await cancelSubscription({ token: authToken, subscription_id: target.id })
+      setSubscriptions((previous) => previous.map((entry) => (entry.id === updated.id ? updated : entry)))
+      setCancelTarget(null)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Не удалось отменить подписку')
+    } finally {
+      setCancelingId(null)
+    }
+  }
+
+  const handleOpenCards = () => {
+    setUnbindConsent({})
+    setJustSubscribed(false)
+    setIsCardsOpen(true)
+    loadPaymentMethods()
+    loadSubscriptions()
+  }
+
+  const handleCreateDemoCard = async () => {
+    if (isCreatingDemoCard) {
+      return
+    }
+    setIsCreatingDemoCard(true)
+    setError('')
+    try {
+      const method = await createDemoPaymentMethod({ token: authToken })
+      setPaymentMethods((previous) => [method, ...previous])
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Не удалось добавить карту')
+    } finally {
+      setIsCreatingDemoCard(false)
+    }
+  }
+
+  const handleConfirmUnbind = async () => {
+    if (!unbindMethod || deletingMethodId !== null) {
+      return
+    }
+    const method = unbindMethod
+    setDeletingMethodId(method.id)
+    setError('')
+    try {
+      await deleteSavedPaymentMethod({ token: authToken, method_id: method.id })
+      setPaymentMethods((previous) => previous.filter((entry) => entry.id !== method.id))
+      setUnbindConsent((previous) => {
+        const next = { ...previous }
+        delete next[method.id]
+        return next
+      })
+      loadSubscriptions()
+      setUnbindMethod(null)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Не удалось отвязать карту')
+    } finally {
+      setDeletingMethodId(null)
+    }
+  }
+
+  const renderSubscriptionCard = (plan: SubscriptionPlan, index: number) => {
+    const accents = ['#6B9BFF', '#C47FFF', '#F2B356']
+    const accent = accents[index % accents.length]
+    const isLocked = !subscriptionsAvailable
+    return (
+      <Box
+        key={plan.id}
+        sx={{
+          position: 'relative',
+          display: 'flex',
+          flexDirection: 'column',
+          borderRadius: '18px',
+          overflow: 'hidden',
+          backgroundColor: 'var(--morius-card-bg)',
+          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+          boxShadow: '0 18px 42px rgba(0,0,0,0.24)',
+          opacity: isLocked ? 0.78 : 1,
+        }}
+      >
+        {plan.badge ? (
+          <Chip
+            label={plan.badge}
+            size="small"
+            sx={{
+              position: 'absolute',
+              top: 12,
+              right: 12,
+              zIndex: 3,
+              height: 24,
+              fontWeight: 900,
+              fontSize: '0.72rem',
+              color: '#101317',
+              backgroundColor: accent,
+            }}
+          />
+        ) : null}
+        <Box sx={{ p: 2, pb: 1.6, background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 26%, var(--morius-card-bg)), var(--morius-card-bg))` }}>
+          <Typography sx={{ color: accent, fontSize: '0.82rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            Подписка
+          </Typography>
+          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.7rem', fontWeight: 950, lineHeight: 1.05, mt: 0.4 }}>
+            {plan.title}
+          </Typography>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', lineHeight: 1.35, mt: 0.4 }}>
+            {plan.subtitle}
+          </Typography>
+        </Box>
+        <Stack spacing={1.4} sx={{ p: 2, pt: 1.6, flex: 1 }}>
+          <Stack direction="row" alignItems="baseline" spacing={0.6}>
+            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2rem', fontWeight: 950, lineHeight: 1 }}>
+              {formatPrice(plan.price_rub)}
+            </Typography>
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', fontWeight: 700 }}>/ мес</Typography>
+          </Stack>
+          <Stack spacing={0.9} sx={{ flex: 1 }}>
+            {plan.perks.map((perk) => (
+              <Stack key={perk} direction="row" spacing={1} alignItems="flex-start">
+                <Box component="span" sx={{ color: accent, fontWeight: 900, lineHeight: 1.4, flexShrink: 0 }}>✓</Box>
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.92rem', lineHeight: 1.4 }}>{perk}</Typography>
+              </Stack>
+            ))}
+          </Stack>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.4, opacity: 0.85 }}>
+            Автопродление каждый месяц. Отмена в любой момент в разделе «Способы оплаты».
+          </Typography>
+          <Button
+            onClick={() => handleOpenSubscribe(plan)}
+            disabled={isLocked}
+            sx={{
+              minHeight: 48,
+              borderRadius: '14px',
+              textTransform: 'none',
+              color: isLocked ? 'var(--morius-text-secondary)' : '#101317',
+              fontWeight: 900,
+              backgroundColor: isLocked ? 'var(--morius-elevated-bg)' : accent,
+              '&.Mui-disabled': { color: 'var(--morius-text-secondary)', backgroundColor: 'var(--morius-elevated-bg)' },
+              '&:hover': { backgroundColor: `color-mix(in srgb, ${accent} 88%, #fff 12%)` },
+            }}
+          >
+            {isLocked ? 'Скоро добавим' : `Оформить за ${formatPricePerMonth(plan.price_rub)}`}
+          </Button>
+        </Stack>
+      </Box>
+    )
   }
 
   const renderPlanCard = (plan: CoinTopUpPlan, index: number) => {
@@ -612,6 +1034,55 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
             </Box>
           </Box>
 
+          <Box>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              justifyContent="space-between"
+              alignItems={{ xs: 'flex-start', sm: 'flex-end' }}
+              sx={{ mb: 1.2 }}
+            >
+              <Box>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 0.6 }}>
+                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.35rem', fontWeight: 900 }}>
+                    Подписки
+                  </Typography>
+                  {!subscriptionsAvailable ? (
+                    <Chip label="Скоро добавим" size="small" sx={{ height: 24, fontWeight: 900, fontSize: '0.72rem', color: 'var(--morius-title-text)', backgroundColor: 'var(--morius-elevated-bg)' }} />
+                  ) : null}
+                  {!subscriptionsEnabled && canManageShop ? (
+                    <Chip label="Предпросмотр • админ" size="small" sx={{ height: 24, fontWeight: 900, fontSize: '0.72rem', color: '#101317', backgroundColor: '#F2B356' }} />
+                  ) : null}
+                </Stack>
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', lineHeight: 1.45, maxWidth: 760, mt: 0.4 }}>
+                  Подписка даёт безлимитную игру на включённых моделях, бонус солов на премиум-модели, скидку на пакеты и привилегии. Автопродление раз в месяц, отмена и отвязка карты — в любой момент.
+                </Typography>
+              </Box>
+              {subscriptionsAvailable ? (
+                <Button
+                  onClick={handleOpenCards}
+                  sx={{
+                    flexShrink: 0,
+                    minHeight: 44,
+                    px: 2,
+                    borderRadius: '12px',
+                    textTransform: 'none',
+                    fontWeight: 900,
+                    color: 'var(--morius-title-text)',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-elevated-bg))' },
+                  }}
+                >
+                  Способы оплаты
+                </Button>
+              ) : null}
+            </Stack>
+            <Box sx={{ display: 'grid', gap: 1.6, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' } }}>
+              {subscriptionPlans.map(renderSubscriptionCard)}
+            </Box>
+          </Box>
+
           {canManageShop ? (
             <Box sx={{ borderRadius: '20px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: { xs: 1.4, md: 1.8 } }}>
               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.25rem', fontWeight: 900, mb: 1 }}>
@@ -841,6 +1312,501 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
             sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))' }}
           >
             {isEditingSaving ? 'Сохраняем...' : 'Сохранить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(subscribePlan)} onClose={handleCloseSubscribe} maxWidth="xs" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}>
+        <DialogTitle sx={{ color: 'var(--morius-title-text)', fontWeight: 900 }}>
+          Оформление подписки «{subscribePlan?.title ?? ''}»
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.6} sx={{ pt: 0.4 }}>
+            <Stack direction="row" alignItems="baseline" spacing={0.6}>
+              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.8rem', fontWeight: 950, lineHeight: 1 }}>
+                {formatPrice(subscribePlan?.price_rub ?? 0)}
+              </Typography>
+              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', fontWeight: 700 }}>/ мес</Typography>
+            </Stack>
+            <SoulAmount amount={subscribePlan?.monthly_coins ?? 0} iconSize={18} />
+            <Box sx={{ borderRadius: '14px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-elevated-bg)', p: 1.4 }}>
+              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 900, mb: 0.8 }}>
+                Условия списания
+              </Typography>
+              <Stack spacing={0.6}>
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem', lineHeight: 1.4 }}>
+                  • Стоимость: {formatPrice(subscribePlan?.price_rub ?? 0)} в месяц
+                </Typography>
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem', lineHeight: 1.4 }}>
+                  • Первое списание — сегодня, далее ежемесячно
+                </Typography>
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem', lineHeight: 1.4 }}>
+                  • Следующее списание: {formatNextChargeDate()}
+                </Typography>
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem', lineHeight: 1.4 }}>
+                  • Автопродление можно отключить и отвязать карту в любой момент в разделе «Способы оплаты»
+                </Typography>
+              </Stack>
+            </Box>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={subscribeConsent}
+                  onChange={(event) => setSubscribeConsent(event.target.checked)}
+                  sx={{ color: 'var(--morius-text-secondary)', '&.Mui-checked': { color: 'var(--morius-accent)' } }}
+                />
+              }
+              label={
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem', lineHeight: 1.4 }}>
+                  Я согласен(на) на регулярные автоматические списания {formatPrice(subscribePlan?.price_rub ?? 0)} в месяц и принимаю условия подписки.
+                </Typography>
+              }
+              sx={{ alignItems: 'flex-start', m: 0 }}
+            />
+            <Link
+              component="button"
+              type="button"
+              onClick={() => setIsTermsOpen(true)}
+              sx={{ alignSelf: 'flex-start', color: 'var(--morius-accent)', fontSize: '0.84rem', fontWeight: 700 }}
+            >
+              Читать условия подписки и автосписаний
+            </Link>
+            {subscribeInfo ? (
+              <Alert severity="info" sx={{ borderRadius: '12px' }}>
+                Оформление готово. Оплата подписок включится автоматически после одобрения автоплатежей ЮKassa — повторно настраивать ничего не нужно.
+              </Alert>
+            ) : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.4 }}>
+          <Button onClick={handleCloseSubscribe} sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}>
+            Отмена
+          </Button>
+          <Button
+            onClick={handleStartSubscription}
+            disabled={!subscribeConsent || subscribeInfo}
+            sx={{
+              borderRadius: '12px',
+              textTransform: 'none',
+              fontWeight: 900,
+              color: 'var(--morius-title-text)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))',
+              '&.Mui-disabled': { color: 'var(--morius-text-secondary)' },
+            }}
+          >
+            Перейти к оплате
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={isTermsOpen} onClose={() => setIsTermsOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}>
+        <DialogTitle>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+            <Typography component="span" sx={{ color: 'var(--morius-title-text)', fontSize: '1.2rem', fontWeight: 900 }}>
+              Условия подписки и автосписаний
+            </Typography>
+            <IconButton onClick={() => setIsTermsOpen(false)} sx={{ color: 'var(--morius-text-secondary)' }}>×</IconButton>
+          </Stack>
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.2} sx={{ pt: 0.4 }}>
+            {RECURRING_TERMS_PARAGRAPHS.map((paragraph, index) => (
+              <Typography key={index} sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', lineHeight: 1.55 }}>
+                {paragraph}
+              </Typography>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.4 }}>
+          <Link
+            component="button"
+            type="button"
+            onClick={() => onNavigate('/subscription-terms')}
+            sx={{ mr: 'auto', color: 'var(--morius-accent)', fontSize: '0.86rem', fontWeight: 700 }}
+          >
+            Полная версия
+          </Link>
+          <Button onClick={() => setIsTermsOpen(false)} sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}>
+            Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={isCardsOpen} onClose={() => setIsCardsOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}>
+        <DialogTitle>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+            <Typography component="span" sx={{ color: 'var(--morius-title-text)', fontSize: '1.2rem', fontWeight: 900 }}>
+              Способы оплаты
+            </Typography>
+            <IconButton onClick={() => setIsCardsOpen(false)} sx={{ color: 'var(--morius-text-secondary)' }}>×</IconButton>
+          </Stack>
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.6} sx={{ pt: 0.4 }}>
+            {justSubscribed ? (
+              <Alert severity="success" sx={{ borderRadius: '12px' }} onClose={() => setJustSubscribed(false)}>
+                Оплата прошла успешно. Подписка активна, карта привязана для автопродления.
+              </Alert>
+            ) : null}
+
+            {subscriptions.length > 0 ? (
+              <Box>
+                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 900, mb: 0.8 }}>
+                  Мои подписки
+                </Typography>
+                <Stack spacing={1}>
+                  {subscriptions.map((subscription) => {
+                    const isActive = subscription.status === 'active'
+                    const isCanceling = cancelingId === subscription.id
+                    return (
+                      <Box
+                        key={subscription.id}
+                        sx={{
+                          borderRadius: '14px',
+                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          backgroundColor: 'var(--morius-elevated-bg)',
+                          p: 1.6,
+                        }}
+                      >
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 0.4 }}>
+                          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.02rem', fontWeight: 900 }}>
+                            {subscription.plan_title}
+                          </Typography>
+                          <Chip
+                            label={isActive ? 'Активна' : 'Отменена'}
+                            size="small"
+                            sx={{
+                              height: 20,
+                              fontSize: '0.66rem',
+                              fontWeight: 800,
+                              color: isActive ? '#0c1f17' : 'var(--morius-text-secondary)',
+                              backgroundColor: isActive ? '#5ADDC7' : 'var(--morius-card-bg)',
+                            }}
+                          />
+                        </Stack>
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.85rem', mt: 0.4 }}>
+                          {formatPrice(subscription.price_rub)} / мес
+                          {subscription.card_title ? ` • ${subscription.card_title}` : ''}
+                        </Typography>
+                        <Stack spacing={0.2} sx={{ mt: 0.6 }}>
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem' }}>
+                            Оформлена: {formatDateRu(subscription.started_at)}
+                          </Typography>
+                          {isActive ? (
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem' }}>
+                              Следующее списание: {formatDateRu(subscription.next_charge_at)}
+                            </Typography>
+                          ) : (
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem' }}>
+                              Отменена: {formatDateRu(subscription.canceled_at)}
+                            </Typography>
+                          )}
+                        </Stack>
+                        {isActive ? (
+                          <Button
+                            onClick={() => setCancelTarget(subscription)}
+                            disabled={isCanceling}
+                            sx={{
+                              mt: 1,
+                              minHeight: 38,
+                              px: 1.6,
+                              borderRadius: '10px',
+                              textTransform: 'none',
+                              fontWeight: 800,
+                              color: 'var(--morius-text-secondary)',
+                              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                              backgroundColor: 'transparent',
+                              '&:hover': { backgroundColor: 'var(--morius-card-bg)' },
+                            }}
+                          >
+                            {isCanceling ? 'Отменяем...' : 'Отменить подписку'}
+                          </Button>
+                        ) : null}
+                      </Box>
+                    )
+                  })}
+                </Stack>
+                <Divider sx={{ mt: 1.6, borderColor: 'var(--morius-card-border)' }} />
+              </Box>
+            ) : null}
+
+            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 900 }}>
+              Привязанные карты
+            </Typography>
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', lineHeight: 1.5, mt: -1 }}>
+              Здесь хранятся карты, привязанные для автоматического продления подписки. Вы можете в любой момент отвязать карту — после этого автосписания по ней прекращаются.
+            </Typography>
+
+            {canManageShop ? (
+              <Box sx={{ borderRadius: '12px', border: '1px dashed var(--morius-card-border)', backgroundColor: 'var(--morius-elevated-bg)', p: 1.2 }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between">
+                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', lineHeight: 1.4 }}>
+                    Тестовая карта для подготовки скриншотов для ЮKassa. Никаких реальных списаний.
+                  </Typography>
+                  <Button
+                    onClick={() => void handleCreateDemoCard()}
+                    disabled={isCreatingDemoCard}
+                    sx={{ flexShrink: 0, minHeight: 38, px: 1.6, borderRadius: '10px', textTransform: 'none', fontWeight: 900, color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-card-bg))' }}
+                  >
+                    {isCreatingDemoCard ? 'Добавляем...' : 'Добавить тестовую карту'}
+                  </Button>
+                </Stack>
+              </Box>
+            ) : null}
+
+            {isLoadingMethods && paymentMethods.length === 0 ? (
+              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem' }}>Загружаем карты...</Typography>
+            ) : paymentMethods.length === 0 ? (
+              <Box sx={{ borderRadius: '14px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-elevated-bg)', p: 2, textAlign: 'center' }}>
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', lineHeight: 1.45 }}>
+                  Привязанных карт пока нет. Карта появится здесь после оформления подписки.
+                </Typography>
+              </Box>
+            ) : (
+              paymentMethods.map((method) => {
+                const consent = Boolean(unbindConsent[method.id])
+                const isDeleting = deletingMethodId === method.id
+                return (
+                  <Box
+                    key={method.id}
+                    sx={{
+                      borderRadius: '14px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-card-bg)',
+                      p: 1.6,
+                    }}
+                  >
+                    <Stack direction="row" spacing={1.4} alignItems="center">
+                      <Box
+                        sx={{
+                          width: 52,
+                          height: 34,
+                          borderRadius: '8px',
+                          flexShrink: 0,
+                          display: 'grid',
+                          placeItems: 'center',
+                          background: 'linear-gradient(135deg, #2b3242, #161b24)',
+                          border: '1px solid var(--morius-card-border)',
+                          color: 'var(--morius-title-text)',
+                          fontSize: '0.62rem',
+                          fontWeight: 900,
+                          letterSpacing: '0.04em',
+                        }}
+                      >
+                        {method.card_type || 'КАРТА'}
+                      </Box>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 0.4 }}>
+                          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 900 }}>
+                            {method.title || `•••• ${method.card_last4}`}
+                          </Typography>
+                          {method.is_default ? (
+                            <Chip label="Основная" size="small" sx={{ height: 20, fontSize: '0.66rem', fontWeight: 800, color: 'var(--morius-title-text)', backgroundColor: 'var(--morius-elevated-bg)' }} />
+                          ) : null}
+                          {method.is_demo ? (
+                            <Chip label="Тест" size="small" sx={{ height: 20, fontSize: '0.66rem', fontWeight: 800, color: '#101317', backgroundColor: '#F2B356' }} />
+                          ) : null}
+                        </Stack>
+                        {method.expiry_month && method.expiry_year ? (
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem' }}>
+                            Действует до {method.expiry_month}/{method.expiry_year.slice(-2)}
+                          </Typography>
+                        ) : null}
+                      </Box>
+                    </Stack>
+                    <Divider sx={{ my: 1.2, borderColor: 'var(--morius-card-border)' }} />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={consent}
+                          onChange={(event) =>
+                            setUnbindConsent((previous) => ({ ...previous, [method.id]: event.target.checked }))
+                          }
+                          sx={{ color: 'var(--morius-text-secondary)', '&.Mui-checked': { color: 'rgba(255,107,107,0.92)' } }}
+                        />
+                      }
+                      label={
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem', lineHeight: 1.4 }}>
+                          Подтверждаю, что хочу отвязать эту карту и отключить автосписания по ней
+                        </Typography>
+                      }
+                      sx={{ alignItems: 'flex-start', m: 0 }}
+                    />
+                    <Button
+                      onClick={() => setUnbindMethod(method)}
+                      disabled={!consent || isDeleting}
+                      fullWidth
+                      sx={{
+                        mt: 1,
+                        minHeight: 42,
+                        borderRadius: '12px',
+                        textTransform: 'none',
+                        fontWeight: 900,
+                        color: 'rgba(255,194,194,0.96)',
+                        border: 'var(--morius-border-width) solid rgba(255,107,107,0.34)',
+                        backgroundColor: 'rgba(255,107,107,0.08)',
+                        '&.Mui-disabled': { color: 'var(--morius-text-secondary)', borderColor: 'var(--morius-card-border)', backgroundColor: 'transparent' },
+                        '&:hover': { backgroundColor: 'rgba(255,107,107,0.14)', borderColor: 'rgba(255,107,107,0.52)' },
+                      }}
+                    >
+                      {isDeleting ? 'Удаляем...' : 'Удалить карту'}
+                    </Button>
+                  </Box>
+                )
+              })
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.4 }}>
+          <Button onClick={() => setIsCardsOpen(false)} sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}>
+            Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(unbindMethod)} onClose={() => (deletingMethodId === null ? setUnbindMethod(null) : undefined)} maxWidth="xs" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}>
+        <DialogTitle sx={{ color: 'var(--morius-title-text)', fontWeight: 900 }}>
+          Отвязать карту?
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', lineHeight: 1.55 }}>
+            Карта «{unbindMethod?.title ?? ''}» будет удалена, а автоматические списания по ней прекратятся. Повторная оплата без вашего согласия станет невозможна.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.4 }}>
+          <Button
+            onClick={() => setUnbindMethod(null)}
+            disabled={deletingMethodId !== null}
+            sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={() => void handleConfirmUnbind()}
+            disabled={deletingMethodId !== null}
+            sx={{
+              borderRadius: '12px',
+              textTransform: 'none',
+              fontWeight: 900,
+              color: 'rgba(255,194,194,0.96)',
+              border: 'var(--morius-border-width) solid rgba(255,107,107,0.34)',
+              backgroundColor: 'rgba(255,107,107,0.1)',
+              '&:hover': { backgroundColor: 'rgba(255,107,107,0.16)', borderColor: 'rgba(255,107,107,0.52)' },
+            }}
+          >
+            {deletingMethodId !== null ? 'Удаляем...' : 'Удалить карту'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(checkoutPlan)} onClose={handleCloseCheckout} maxWidth="xs" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.9)' } }}>
+        <DialogTitle sx={{ color: 'var(--morius-title-text)', fontWeight: 900 }}>
+          Оплата подписки
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.4} sx={{ pt: 0.4 }}>
+            <Box sx={{ borderRadius: '12px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-elevated-bg)', p: 1.4 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem' }}>
+                  {checkoutPlan?.title ?? ''}
+                </Typography>
+                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.1rem', fontWeight: 900 }}>
+                  {formatPrice(checkoutPlan?.price_rub ?? 0)} / мес
+                </Typography>
+              </Stack>
+            </Box>
+            <TextField
+              label="Номер карты"
+              value={checkoutNumber}
+              onChange={(event) => setCheckoutNumber(formatCardNumberInput(event.target.value))}
+              placeholder="0000 0000 0000 0000"
+              inputProps={{ inputMode: 'numeric' }}
+              fullWidth
+            />
+            <Stack direction="row" spacing={1}>
+              <TextField
+                label="ММ/ГГ"
+                value={checkoutExpiry}
+                onChange={(event) => setCheckoutExpiry(formatCardExpiryInput(event.target.value))}
+                placeholder="12/29"
+                inputProps={{ inputMode: 'numeric' }}
+                sx={{ flex: 1 }}
+              />
+              <TextField
+                label="CVC"
+                value={checkoutCvc}
+                onChange={(event) => setCheckoutCvc(event.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="123"
+                inputProps={{ inputMode: 'numeric' }}
+                sx={{ flex: 1 }}
+              />
+            </Stack>
+            <TextField
+              label="Имя на карте"
+              value={checkoutHolder}
+              onChange={(event) => setCheckoutHolder(event.target.value.slice(0, 80))}
+              placeholder="IVAN IVANOV"
+              fullWidth
+            />
+            <Alert severity="info" sx={{ borderRadius: '12px' }}>
+              Тестовая оплата для подготовки скриншотов. Реальное списание не производится, полный номер карты не сохраняется.
+            </Alert>
+            {checkoutError ? <Alert severity="error" sx={{ borderRadius: '12px' }}>{checkoutError}</Alert> : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.4 }}>
+          <Button onClick={handleCloseCheckout} disabled={isPaying} sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}>
+            Отмена
+          </Button>
+          <Button
+            onClick={() => void handlePayCheckout()}
+            disabled={isPaying}
+            sx={{
+              borderRadius: '12px',
+              textTransform: 'none',
+              fontWeight: 900,
+              color: '#101317',
+              backgroundColor: 'var(--morius-accent)',
+              '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 88%, #fff 12%)' },
+              '&.Mui-disabled': { color: 'var(--morius-text-secondary)', backgroundColor: 'var(--morius-elevated-bg)' },
+            }}
+          >
+            {isPaying ? 'Оплата...' : `Оплатить ${formatPrice(checkoutPlan?.price_rub ?? 0)}`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(cancelTarget)} onClose={() => (cancelingId === null ? setCancelTarget(null) : undefined)} maxWidth="xs" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}>
+        <DialogTitle sx={{ color: 'var(--morius-title-text)', fontWeight: 900 }}>
+          Отменить подписку?
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', lineHeight: 1.55 }}>
+            Подписка «{cancelTarget?.plan_title ?? ''}» будет отменена, автопродление прекратится. Доступ сохранится до конца уже оплаченного периода.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.4 }}>
+          <Button
+            onClick={() => setCancelTarget(null)}
+            disabled={cancelingId !== null}
+            sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}
+          >
+            Не отменять
+          </Button>
+          <Button
+            onClick={() => void handleCancelSubscription()}
+            disabled={cancelingId !== null}
+            sx={{
+              borderRadius: '12px',
+              textTransform: 'none',
+              fontWeight: 900,
+              color: 'rgba(255,194,194,0.96)',
+              border: 'var(--morius-border-width) solid rgba(255,107,107,0.34)',
+              backgroundColor: 'rgba(255,107,107,0.1)',
+              '&:hover': { backgroundColor: 'rgba(255,107,107,0.16)', borderColor: 'rgba(255,107,107,0.52)' },
+            }}
+          >
+            {cancelingId !== null ? 'Отменяем...' : 'Отменить подписку'}
           </Button>
         </DialogActions>
       </Dialog>
