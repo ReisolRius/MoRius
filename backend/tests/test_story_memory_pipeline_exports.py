@@ -59,6 +59,22 @@ class StoryMemoryPipelineExportTests(unittest.TestCase):
         self.assertIn("тепло и облачно", weather_card["content"])
         self.assertIn("яснее", weather_card["content"])
 
+    def test_environment_any_enabled_keeps_ambient_modules_active(self) -> None:
+        game = SimpleNamespace(
+            environment_enabled=False,
+            environment_time_enabled=False,
+            environment_weather_enabled=False,
+            environment_ambient_enabled=True,
+            environment_scene_emotion_enabled=False,
+        )
+
+        self.assertTrue(story_memory_pipeline._story_environment_any_enabled_for_game(game))
+
+        game.environment_ambient_enabled = False
+        game.environment_scene_emotion_enabled = True
+
+        self.assertTrue(story_memory_pipeline._story_environment_any_enabled_for_game(game))
+
     def test_environment_seed_and_repair_are_deterministic_without_llm(self) -> None:
         game = SimpleNamespace(
             id=7,

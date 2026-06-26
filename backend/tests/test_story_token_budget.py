@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
 
 
@@ -43,6 +44,46 @@ class StoryTokenBudgetTests(unittest.TestCase):
         fitted = main._trim_story_plot_cards_to_context_limit([card], 4)
 
         self.assertEqual(fitted, [])
+
+    def test_current_location_context_card_is_priority_location_memory(self) -> None:
+        game = SimpleNamespace(current_location_label="старая таверна")
+
+        cards = main._build_story_prompt_context_cards(game=game, memory_blocks=[])
+
+        location_card = next(card for card in cards if card["title"] == "Место")
+        self.assertEqual(location_card["memory_layer"], "location")
+        self.assertIn("старая таверна", location_card["content"])
+
+    def test_location_prompt_card_survives_context_pressure(self) -> None:
+        cards = [
+            {
+                "title": "Место",
+                "content": "Текущее место действия: старая таверна.",
+                "source_kind": "context",
+                "memory_layer": "location",
+            },
+            {
+                "title": "Окружение: шум",
+                "content": "word " * 4_000,
+                "source_kind": "context",
+            },
+            {
+                "title": "Свежая память: старый ход",
+                "content": "word " * 4_000,
+                "source_kind": "memory",
+                "memory_layer": "raw",
+            },
+        ]
+
+        fitted = main._fit_story_plot_cards_to_context_limit(
+            instruction_cards=[],
+            plot_cards=cards,
+            world_cards=[],
+            context_limit_tokens=6_000,
+            reserved_history_tokens=4_500,
+        )
+
+        self.assertIn("Место", [card["title"] for card in fitted])
 
 
 if __name__ == "__main__":

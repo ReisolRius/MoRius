@@ -517,7 +517,7 @@ def _summarize_story_prompt_memory_cards(plot_cards: list[dict[str, str]]) -> tu
             continue
         if title.startswith("Важный момент:"):
             summary["key"] += 1
-        elif title.startswith("Место:"):
+        elif title == "Место" or title.startswith("Место:"):
             summary["location"] += 1
         elif title.startswith("Окружение:"):
             summary["environment"] += 1

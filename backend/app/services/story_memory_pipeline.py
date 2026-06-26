@@ -1850,7 +1850,14 @@ def _story_environment_weather_enabled_for_game(game: StoryGame) -> bool:
 
 
 def _story_environment_any_enabled_for_game(game: StoryGame) -> bool:
-    return _story_environment_time_enabled_for_game(game) or _story_environment_weather_enabled_for_game(game)
+    return any(
+        (
+            _story_environment_time_enabled_for_game(game),
+            _story_environment_weather_enabled_for_game(game),
+            bool(getattr(game, "environment_ambient_enabled", False)),
+            bool(getattr(game, "environment_scene_emotion_enabled", False)),
+        )
+    )
 
 
 def _deserialize_story_environment_datetime(value: str | None) -> datetime | None:

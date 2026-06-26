@@ -734,6 +734,7 @@ def _estimate_story_context_usage_tokens(
     fixed_cards_budget_tokens = max(fixed_cards_budget_tokens - history_tokens_used, 0)
 
     key_memory_cards: list[dict[str, str]] = []
+    location_memory_cards: list[dict[str, str]] = []
     raw_memory_cards: list[dict[str, str]] = []
     compressed_memory_cards: list[dict[str, str]] = []
     super_memory_cards: list[dict[str, str]] = []
@@ -741,7 +742,10 @@ def _estimate_story_context_usage_tokens(
     for card in plot_cards:
         source_kind = str(card.get("source_kind", "") or "").strip().lower()
         memory_layer = str(card.get("memory_layer", "") or "").strip().lower()
-        if memory_layer == "key":
+        title = " ".join(str(card.get("title", "") or "").replace("\r\n", " ").split()).strip()
+        if memory_layer == "location" or title == "Место" or title.startswith("Место:"):
+            location_memory_cards.append(card)
+        elif memory_layer == "key":
             key_memory_cards.append(card)
         elif memory_layer == "raw":
             raw_memory_cards.append(card)
@@ -756,6 +760,11 @@ def _estimate_story_context_usage_tokens(
         context_limit,
         max(int(context_limit * STORY_BILLING_KEY_MEMORY_BUDGET_SHARE), STORY_BILLING_KEY_MEMORY_MIN_BUDGET_TOKENS),
     )
+    location_memory_tokens_used = _estimate_cards_tokens_within_budget(
+        location_memory_cards,
+        fixed_cards_budget_tokens,
+    )
+    fixed_cards_budget_tokens = max(fixed_cards_budget_tokens - location_memory_tokens_used, 0)
     key_memory_tokens_used = _estimate_cards_tokens_within_budget(
         key_memory_cards,
         min(key_memory_budget_tokens, fixed_cards_budget_tokens),
@@ -777,7 +786,8 @@ def _estimate_story_context_usage_tokens(
         0,
     )
     memory_tokens_used = (
-        key_memory_tokens_used
+        location_memory_tokens_used
+        + key_memory_tokens_used
         + plot_tokens_used
         + _estimate_cards_tokens_within_budget(raw_memory_cards, raw_memory_budget_tokens)
         + _estimate_cards_tokens_within_budget(compressed_memory_cards, compressed_memory_budget_tokens)
@@ -1220,9 +1230,9 @@ def _best_effort_sync_story_turn_memory_and_environment(
     current_location_content = ""
     if story_memory_pipeline is not None:
         try:
-            previous_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
+            previous_location_content = story_memory_pipeline._get_story_effective_location_memory_content(
                 db=db,
-                game_id=game.id,
+                game=game,
             )
             changed = bool(
                 story_memory_pipeline._upsert_story_location_memory_block(
@@ -1235,9 +1245,9 @@ def _best_effort_sync_story_turn_memory_and_environment(
                     resolved_payload_override=None,
                 )
             ) or changed
-            current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
+            current_location_content = story_memory_pipeline._get_story_effective_location_memory_content(
                 db=db,
-                game_id=game.id,
+                game=game,
             )
             created_auto_npc_card_ids: set[int] = set()
             if bool(getattr(game, "auto_npc_cards_enabled", False)):
@@ -1301,9 +1311,9 @@ def _best_effort_sync_story_turn_memory_and_environment(
         if story_memory_pipeline is not None:
             try:
                 if not current_location_content:
-                    current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
+                    current_location_content = story_memory_pipeline._get_story_effective_location_memory_content(
                         db=db,
-                        game_id=game.id,
+                        game=game,
                     )
                 changed = bool(
                     story_memory_pipeline._sync_story_environment_state_for_assistant_message(

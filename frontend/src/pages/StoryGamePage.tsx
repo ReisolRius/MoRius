@@ -18412,7 +18412,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           zIndex: 47,
           borderRadius: { xs: 0, md: '18px' },
           border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 90%, transparent)',
-          backgroundColor: 'color-mix(in srgb, var(--morius-app-bg) 86%, #08090c 14%)',
+          backgroundColor: '#090A0E !important',
+          backgroundImage: 'linear-gradient(180deg, #11131A 0%, #090A0E 100%) !important',
           transform: {
             xs: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 24px), 0, 0)',
             md: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + var(--morius-interface-gap)), 0, 0)',
@@ -18465,6 +18466,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             pt: { xs: 1.15, md: 1.3 },
             pb: { xs: 0.75, md: 0.85 },
             borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
+            backgroundColor: '#090A0E',
+            backgroundImage: 'linear-gradient(180deg, #11131A 0%, #0D0E13 100%)',
           }}
         >
           <Box
@@ -18614,6 +18617,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             minHeight: 0,
             '--morius-scrollbar-offset': '0px',
             '--morius-scrollbar-gutter': 'auto',
+            backgroundColor: '#090A0E',
           }}
         >
           <Box
@@ -18693,6 +18697,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 <Stack spacing={1.35}>
                   <RightPanelSectionHeading
                     title="Главный герой"
+                    count={mainHeroCards.length > 0 ? mainHeroCards.length : undefined}
                     action={
                       <Button
                         onClick={() => void handleOpenCharacterSelectorForMainHero()}
@@ -18713,96 +18718,104 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       </Button>
                     }
                   />
-                  {mainHeroCard ? (
-                    <Box
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => handleOpenEditWorldCardDialog(mainHeroCard)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault()
-                          handleOpenEditWorldCardDialog(mainHeroCard)
-                        }
-                      }}
-                      sx={{
-                        ...rightPanelCardSx,
-                        ...rightPanelActiveCardSx,
-                        p: { xs: 1.05, md: 1.15 },
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1,
-                        cursor: 'pointer',
-                        outline: 'none',
-                      }}
-                    >
-                      <RightPanelInitialAvatar
-                        label={mainHeroCard.title}
-                        seed={mainHeroCard.id}
-                        size={54}
-                        imageUrl={resolveWorldCardAvatar(mainHeroCard)}
-                        imageScale={mainHeroCard.avatar_scale}
-                      />
-                      <Stack spacing={0.28} sx={{ minWidth: 0, flex: 1 }}>
-                        <Stack direction="row" spacing={0.65} alignItems="center" sx={{ minWidth: 0 }}>
-                          <Typography
+                  {mainHeroCards.length > 0 ? (
+                    <Stack spacing={0.75}>
+                      {mainHeroCards.map((card) => {
+                        const isActiveHero = card.id === mainHeroCard?.id
+                        return (
+                          <Box
+                            key={card.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => handleOpenEditWorldCardDialog(card)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                handleOpenEditWorldCardDialog(card)
+                              }
+                            }}
                             sx={{
-                              color: 'var(--morius-title-text)',
-                              fontSize: { xs: '1.02rem', md: '1.08rem' },
-                              fontWeight: 950,
-                              lineHeight: 1.06,
-                              minWidth: 0,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
+                              ...rightPanelCardSx,
+                              ...(isActiveHero ? rightPanelActiveCardSx : {}),
+                              p: { xs: 1.05, md: 1.15 },
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 1,
+                              cursor: 'pointer',
+                              outline: 'none',
                             }}
                           >
-                            {mainHeroCard.title}
-                          </Typography>
-                          {mainHeroCard.race ? (
-                            <Typography
-                              component="span"
-                              sx={{
-                                px: 0.56,
-                                py: 0.18,
-                                borderRadius: '7px',
-                                color: '#bdd3ff',
-                                backgroundColor: 'rgba(78, 139, 255, 0.24)',
-                                fontSize: '0.64rem',
-                                fontWeight: 950,
-                                lineHeight: 1,
-                                textTransform: 'uppercase',
-                                flexShrink: 0,
+                            <RightPanelInitialAvatar
+                              label={card.title}
+                              seed={card.id}
+                              size={54}
+                              imageUrl={resolveWorldCardAvatar(card)}
+                              imageScale={card.avatar_scale}
+                            />
+                            <Stack spacing={0.28} sx={{ minWidth: 0, flex: 1 }}>
+                              <Stack direction="row" spacing={0.65} alignItems="center" sx={{ minWidth: 0 }}>
+                                <Typography
+                                  sx={{
+                                    color: 'var(--morius-title-text)',
+                                    fontSize: { xs: '1.02rem', md: '1.08rem' },
+                                    fontWeight: 950,
+                                    lineHeight: 1.06,
+                                    minWidth: 0,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {card.title}
+                                </Typography>
+                                {card.race ? (
+                                  <Typography
+                                    component="span"
+                                    sx={{
+                                      px: 0.56,
+                                      py: 0.18,
+                                      borderRadius: '7px',
+                                      color: '#bdd3ff',
+                                      backgroundColor: 'rgba(78, 139, 255, 0.24)',
+                                      fontSize: '0.64rem',
+                                      fontWeight: 950,
+                                      lineHeight: 1,
+                                      textTransform: 'uppercase',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {card.race}
+                                  </Typography>
+                                ) : null}
+                              </Stack>
+                              <Typography
+                                sx={{
+                                  color: 'color-mix(in srgb, var(--morius-text-secondary) 94%, transparent)',
+                                  fontSize: { xs: '0.82rem', md: '0.86rem' },
+                                  fontWeight: 650,
+                                  lineHeight: 1.24,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {replaceMainHeroInlineTags(card.content, card.title)}
+                              </Typography>
+                            </Stack>
+                            <IconButton
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handleOpenCardMenu(event, 'world', card.id)
                               }}
+                              disabled={isWorldCardActionLocked}
+                              sx={rightPanelOverflowButtonSx}
                             >
-                              {mainHeroCard.race}
-                            </Typography>
-                          ) : null}
-                        </Stack>
-                        <Typography
-                          sx={{
-                            color: 'color-mix(in srgb, var(--morius-text-secondary) 94%, transparent)',
-                            fontSize: { xs: '0.82rem', md: '0.86rem' },
-                            fontWeight: 650,
-                            lineHeight: 1.24,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {replaceMainHeroInlineTags(mainHeroCard.content, mainHeroCard.title)}
-                        </Typography>
-                      </Stack>
-                      <IconButton
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleOpenCardMenu(event, 'world', mainHeroCard.id)
-                        }}
-                        disabled={isWorldCardActionLocked}
-                        sx={rightPanelOverflowButtonSx}
-                      >
-                        <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
-                      </IconButton>
-                    </Box>
+                              <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                            </IconButton>
+                          </Box>
+                        )
+                      })}
+                    </Stack>
                   ) : (
                     <RightPanelEmptyState
                       iconSrc={icons.world}
@@ -25861,8 +25874,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         spacing={0.48}
                         alignItems="flex-end"
                         sx={{
-                          width: '100%',
-                          maxWidth: { xs: 'calc(100% - 8px)', sm: 632, md: 650 },
+                          width: 'fit-content',
+                          maxWidth: { xs: '100%', md: '80%' },
                           ml: 'auto',
                         }}
                       >
@@ -25907,15 +25920,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             void handleSaveMessageInline(message.id, event.currentTarget.textContent ?? '')
                           }}
                           sx={{
-                            width: '100%',
-                            borderRadius: { xs: '26px', md: '30px' },
+                            width: 'auto',
+                            maxWidth: '100%',
+                            borderRadius: { xs: '26px 0 26px 26px', md: '30px 0 30px 30px' },
                             border: '2px solid #2D3672 !important',
                             backgroundColor: '#171829 !important',
                             color: '#F0F1FF !important',
                             lineHeight: 1.6,
                             whiteSpace: 'pre-wrap',
                             wordBreak: 'break-word',
-                            fontSize: { xs: '1.08rem', md: '1.22rem' },
+                            fontSize: { xs: '1.02rem', md: '1.12rem' },
                             ...storyHistoryTextSx,
                             px: { xs: 2.15, md: 2.8 },
                             py: { xs: 1.55, md: 2.05 },

@@ -234,9 +234,9 @@ def _self_heal_story_memory_and_environment_snapshot(
                 )
 
         if should_heal_environment:
-            current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
+            current_location_content = story_memory_pipeline._get_story_effective_location_memory_content(
                 db=db,
-                game_id=int(getattr(game, "id", 0) or 0),
+                game=game,
             )
             changed = bool(
                 story_memory_pipeline._sync_story_environment_state_for_assistant_message(

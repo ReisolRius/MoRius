@@ -1078,9 +1078,9 @@ def _fallback_sync_story_memory_and_environment(
             previous_assistant_text=previous_assistant_text,
             resolved_payload_override=location_payload_for_sync,
         )
-        current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
+        current_location_content = story_memory_pipeline._get_story_effective_location_memory_content(
             db=db,
-            game_id=game.id,
+            game=game,
         )
         created_auto_npc_card_ids: set[int] = set()
         if bool(getattr(game, "auto_npc_cards_enabled", False)):

@@ -2392,6 +2392,14 @@ def _is_story_memory_prompt_card(card: dict[str, str]) -> bool:
     )
 
 
+def _is_story_location_prompt_card(card: dict[str, str]) -> bool:
+    memory_layer = _normalize_story_memory_layer(str(card.get("memory_layer", "") or ""))
+    if memory_layer == STORY_MEMORY_LAYER_LOCATION:
+        return True
+    title = " ".join(str(card.get("title", "") or "").replace("\r\n", " ").split()).strip()
+    return title == STORY_MEMORY_LOCATION_TITLE or title.startswith(f"{STORY_MEMORY_LOCATION_TITLE}:")
+
+
 def _trim_story_plot_cards_to_context_limit(
     plot_cards: list[dict[str, str]],
     context_limit_tokens: int,
@@ -2477,6 +2485,7 @@ def _fit_story_plot_cards_to_context_limit(
         _normalize_story_context_limit_chars(context_limit_tokens, model_name=model_name),
         1,
     )
+    location_cards: list[dict[str, str]] = []
     context_cards: list[dict[str, str]] = []
     key_memory_cards: list[dict[str, str]] = []
     dev_memory_cards: list[dict[str, str]] = []
@@ -2484,6 +2493,9 @@ def _fit_story_plot_cards_to_context_limit(
     for card in normalized_plot_cards:
         source_kind = str(card.get("source_kind", "") or "").strip().lower()
         memory_layer = _normalize_story_memory_layer(str(card.get("memory_layer", "") or ""))
+        if memory_layer == STORY_MEMORY_LAYER_LOCATION or _is_story_location_prompt_card(card):
+            location_cards.append(card)
+            continue
         if source_kind == "context":
             context_cards.append(card)
             continue
@@ -2506,6 +2518,9 @@ def _fit_story_plot_cards_to_context_limit(
         return _estimate_story_tokens(payload)
 
     remaining_prompt_tokens = plot_budget_tokens
+    fitted_location_cards = _trim_story_plot_cards_to_context_limit(location_cards, remaining_prompt_tokens)
+    remaining_prompt_tokens = max(remaining_prompt_tokens - _estimate_cards_tokens(fitted_location_cards), 0)
+
     fitted_context_cards = _trim_story_plot_cards_to_context_limit(context_cards, remaining_prompt_tokens)
     remaining_prompt_tokens = max(remaining_prompt_tokens - _estimate_cards_tokens(fitted_context_cards), 0)
 
@@ -2525,6 +2540,7 @@ def _fit_story_plot_cards_to_context_limit(
 
     fitted_dev_memory_cards = _trim_story_plot_cards_to_context_limit(dev_memory_cards, remaining_prompt_tokens)
     fitted_plot_cards = [
+        *fitted_location_cards,
         *fitted_context_cards,
         *fitted_key_memory_cards,
         *fitted_dev_memory_cards,
@@ -2546,20 +2562,28 @@ def _fit_story_plot_cards_to_context_limit(
         and fitted_plot_cards
         and iteration_count < 400
     ):
-        oldest_card = fitted_plot_cards[0]
+        trim_index = next(
+            (index for index, card in enumerate(fitted_plot_cards) if not _is_story_location_prompt_card(card)),
+            None,
+        )
+        if trim_index is None:
+            break
+        oldest_card = fitted_plot_cards[trim_index]
         shortened_content = (
             ""
             if _is_story_memory_prompt_card(oldest_card)
             else _drop_story_oldest_sentence(oldest_card.get("content", ""))
         )
         if shortened_content:
-            fitted_plot_cards[0] = {
+            fitted_plot_cards[trim_index] = {
                 **oldest_card,
                 "title": oldest_card.get("title", "").strip(),
                 "content": shortened_content,
             }
         else:
-            fitted_plot_cards = fitted_plot_cards[1:]
+            fitted_plot_cards = [
+                card for index, card in enumerate(fitted_plot_cards) if index != trim_index
+            ]
         system_prompt = _build_story_system_prompt(
             instruction_cards,
             fitted_plot_cards,
@@ -9543,6 +9567,7 @@ def _build_story_prompt_context_cards(
             {
                 "title": STORY_MEMORY_LOCATION_TITLE,
                 "content": f"Текущее место действия: {resolved_location_label}.",
+                "memory_layer": STORY_MEMORY_LAYER_LOCATION,
             }
         )
 
@@ -10090,9 +10115,9 @@ def _upsert_story_plot_memory_card(
                 assistant_message.id,
                 exc,
             )
-        current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
+        current_location_content = story_memory_pipeline._get_story_effective_location_memory_content(
             db=db,
-            game_id=game.id,
+            game=game,
         )
         created_auto_npc_card_ids: set[int] = set()
         if bool(getattr(game, "auto_npc_cards_enabled", False)):
@@ -11805,9 +11830,9 @@ def _build_story_turn_image_environment_context(*, db: Session, game: StoryGame)
 
     if story_memory_pipeline is not None:
         try:
-            location_memory_content = story_memory_pipeline._get_story_latest_location_memory_content(
+            location_memory_content = story_memory_pipeline._get_story_effective_location_memory_content(
                 db=db,
-                game_id=int(game.id),
+                game=game,
             )
         except Exception:
             location_memory_content = ""
