@@ -74,7 +74,11 @@ from app.routers.story_read import router as story_read_router
 from app.routers.story_turn_image import router as story_turn_image_router
 from app.routers.story_undo import router as story_undo_router
 from app.routers.story_world_cards import router as story_world_cards_router
-from app.services.story_service_budget import consume_story_service_http_request
+from app.services.story_service_budget import (
+    StoryServiceHttpRequestBudget,
+    consume_story_service_http_request,
+    use_story_service_http_request_budget,
+)
 from app.services.provider_resilience import (
     is_content_policy_error,
     is_retryable_provider_error,
@@ -1254,7 +1258,6 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "mistralai/mistral-nemo": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
     "minimax/minimax-m2-her": STORY_SERVICE_TEXT_MODEL,
-    "openrouter/owl-alpha": STORY_SERVICE_TEXT_MODEL,
     "anthropic/claude-sonnet-4.6": STORY_SERVICE_TEXT_MODEL,
     "google/gemini-2.5-pro": STORY_SERVICE_TEXT_MODEL,
     "google/gemini-3.1-pro-preview": STORY_SERVICE_TEXT_MODEL,
@@ -1289,7 +1292,7 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "mistralai/mistral-nemo": STORY_POLZA_PROVIDER_AZURE,
     "aion-labs/aion-2.0": STORY_POLZA_PROVIDER_AION_LABS,
     "minimax/minimax-m2-her": STORY_POLZA_PROVIDER_MINIMAX,
-    "openrouter/owl-alpha": STORY_POLZA_PROVIDER_OPENROUTER,
+    "google/gemini-3.1-flash-lite": STORY_POLZA_PROVIDER_OPENROUTER,
     "anthropic/claude-sonnet-4.6": STORY_POLZA_PROVIDER_MIE,
     "google/gemini-2.5-pro": STORY_POLZA_PROVIDER_MIE,
 }
@@ -1305,6 +1308,7 @@ STORY_PAID_MODEL_HINTS = {
     "mistralai/mistral-nemo",
     "aion-labs/aion-2.0",
     "minimax/minimax-m2-her",
+    "google/gemini-3.1-flash-lite",
     "anthropic/claude-sonnet-4.6",
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
@@ -1313,12 +1317,11 @@ STORY_NON_SAMPLING_MODEL_HINTS: set[str] = {
     "anthropic/claude-sonnet-4.6",
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
-    "openrouter/owl-alpha",
 }
 STORY_DISABLE_THINKING_MODEL_IDS: set[str] = {
     "aion-labs/aion-2.0",
     "minimax/minimax-m2-her",
-    "openrouter/owl-alpha",
+    "google/gemini-3.1-flash-lite",
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
 }
@@ -1557,9 +1560,15 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
         "Ты мастер живого диалога и устойчивых характеров — давай выразительные многоходовые сцены с яркими голосами NPC.",
         "Никаких мета-комментариев: только сцена; держи эмоции достоверными и личными.",
     ),
-    "openrouter/owl-alpha": (
-        "Ты отлично следуешь правилам — точно соблюдай карточки и формат, но превращай любой план в живую сцену, а не в сухой список.",
-        "Используй запас контекста для связности и не пересказывай уже известное.",
+    "google/gemini-3.1-flash-lite": (
+        "Ты быстрый движок, но веди игру как премиальный рассказчик: не жертвуй качеством прозы ради скорости — держи уровень большой модели в каждом ходе.",
+        "Не пересказывай и не подытоживай события — проживай их: разворачивай ключевой момент в живую сцену с действием, репликами и точными деталями, а не в краткий отчёт.",
+        "Показывай, а не называй: эмоции, отношения и напряжение раскрывай через жесты, паузы, дыхание, взгляд, тон и фактуру сцены, а не через ярлыки вроде «он разозлился» или «стало страшно».",
+        "Держи у каждого NPC устойчивый характер, голос и мотив на всю историю; сверяйся с тем, что уже было в памяти и карточках, и не сглаживай разных персонажей до одинаковых вежливых реплик.",
+        "Веди причинность строго и честно: каждое действие игрока даёт конкретное последствие, у NPC есть собственные цели и инициатива, мир живёт сам по себе и за кадром.",
+        "Вари ритм и лексику: чередуй короткие рубленые фразы и длинные дыхательные периоды, меняй начала абзацев, выбрасывай шаблонные связки и не повторяй свои же обороты из прошлых ходов.",
+        "Добавляй подтекст и второй план — недосказанность, скрытые мотивы, детали, которые отзовутся позже, — но не теряй ясности и темпа: глубина работает на сцену, а не вместо неё.",
+        "Пиши на чистом, живом литературном русском без английских вставок, кальки и следов машинного перевода; русский — твой основной язык повествования, держи его красивым и уместным жанру.",
     ),
     "anthropic/claude-sonnet-4.6": (
         "Сохраняй причинность, мотивы и сдержанную яркость прозы; цени точность образа и подтекст.",
@@ -6977,9 +6986,13 @@ def _resolve_story_turn_postprocess_payload(
         else []
     )
 
-    current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
-        db=db,
-        game_id=game.id,
+    current_location_content = (
+        story_memory_pipeline._get_story_effective_location_memory_content(db=db, game=game)
+        if hasattr(story_memory_pipeline, "_get_story_effective_location_memory_content")
+        else story_memory_pipeline._get_story_latest_location_memory_content(
+            db=db,
+            game_id=game.id,
+        )
     )
 
     failed_modules: list[str] = []
@@ -7007,15 +7020,117 @@ def _resolve_story_turn_postprocess_payload(
     )
 
     # --- Call A: «Мир/повествование» (location + время + важная память + ambient + эмоции) ---
-    world_modules_enabled = bool(
-        location_enabled
-        or environment_time_enabled
-        or environment_weather_enabled
-        or important_event_enabled
-        or ambient_enabled
-        or emotion_visualization_enabled
-    )
-    if world_modules_enabled:
+    if important_event_enabled:
+        try:
+            with use_story_service_http_request_budget(StoryServiceHttpRequestBudget(max_requests=1)):
+                important_payload = story_memory_pipeline._extract_story_postprocess_memory_payload(
+                    db=db,
+                    game=game,
+                    current_location_content=current_location_content,
+                    latest_user_prompt=latest_user_prompt,
+                    previous_assistant_text=resolved_previous_assistant_text,
+                    latest_assistant_text=latest_assistant_text,
+                    raw_memory_enabled=False,
+                    location_enabled=False,
+                    environment_enabled=False,
+                    character_state_enabled=False,
+                    important_event_enabled=True,
+                    ambient_enabled=False,
+                    scene_emotion_enabled=False,
+                    auto_npc_cards_enabled=False,
+                    world_cards=active_scene_world_cards,
+                    max_attempts=1,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Story important-memory analysis failed: game_id=%s assistant_message_id=%s error=%s",
+                game.id,
+                assistant_message.id,
+                exc,
+            )
+            failed_modules.append("important_event")
+        else:
+            if isinstance(important_payload, dict):
+                absorb(important_payload)
+            else:
+                failed_modules.append("important_event")
+
+    if location_enabled:
+        try:
+            with use_story_service_http_request_budget(StoryServiceHttpRequestBudget(max_requests=1)):
+                location_payload = story_memory_pipeline._extract_story_world_analysis_payload(
+                    db=db,
+                    game=game,
+                    current_location_content=current_location_content,
+                    latest_user_prompt=latest_user_prompt,
+                    previous_assistant_text=resolved_previous_assistant_text,
+                    latest_assistant_text=latest_assistant_text,
+                    location_enabled=True,
+                    environment_time_enabled=False,
+                    environment_weather_enabled=False,
+                    important_event_enabled=False,
+                    ambient_enabled=False,
+                    scene_emotion_enabled=False,
+                    world_cards=active_scene_world_cards,
+                    max_attempts=1,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Story location analysis failed: game_id=%s assistant_message_id=%s error=%s",
+                game.id,
+                assistant_message.id,
+                exc,
+            )
+            failed_modules.append("location")
+        else:
+            if isinstance(location_payload, dict):
+                absorb(location_payload)
+            else:
+                failed_modules.append("location")
+
+    effective_location_content = current_location_content
+    location_payload = merged_payload.get("location")
+    if isinstance(location_payload, dict):
+        normalized_location_content = story_memory_pipeline._normalize_story_location_memory_content(
+            str(location_payload.get("content") or "")
+        )
+        if normalized_location_content:
+            effective_location_content = normalized_location_content
+
+    if environment_time_enabled:
+        try:
+            with use_story_service_http_request_budget(StoryServiceHttpRequestBudget(max_requests=1)):
+                environment_payload = story_memory_pipeline._extract_story_world_analysis_payload(
+                    db=db,
+                    game=game,
+                    current_location_content=effective_location_content,
+                    latest_user_prompt=latest_user_prompt,
+                    previous_assistant_text=resolved_previous_assistant_text,
+                    latest_assistant_text=latest_assistant_text,
+                    location_enabled=False,
+                    environment_time_enabled=True,
+                    environment_weather_enabled=False,
+                    important_event_enabled=False,
+                    ambient_enabled=False,
+                    scene_emotion_enabled=False,
+                    world_cards=active_scene_world_cards,
+                    max_attempts=1,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Story time analysis failed: game_id=%s assistant_message_id=%s error=%s",
+                game.id,
+                assistant_message.id,
+                exc,
+            )
+            failed_modules.append("environment_time")
+        else:
+            if isinstance(environment_payload, dict):
+                absorb(environment_payload)
+            else:
+                failed_modules.append("environment_time")
+
+    if ambient_enabled or emotion_visualization_enabled:
         scene_emotion_active_characters = ""
         scene_emotion_supported_emotions = ""
         if emotion_visualization_enabled:
@@ -7023,36 +7138,38 @@ def _resolve_story_turn_postprocess_payload(
                 _render_story_scene_emotion_prompt_fragments(scene_emotion_active_cast_entries)
             )
         try:
-            world_payload = story_memory_pipeline._extract_story_world_analysis_payload(
-                db=db,
-                game=game,
-                current_location_content=current_location_content,
-                latest_user_prompt=latest_user_prompt,
-                previous_assistant_text=resolved_previous_assistant_text,
-                latest_assistant_text=latest_assistant_text,
-                location_enabled=location_enabled,
-                environment_time_enabled=environment_time_enabled,
-                environment_weather_enabled=environment_weather_enabled,
-                important_event_enabled=important_event_enabled,
-                ambient_enabled=ambient_enabled,
-                scene_emotion_enabled=emotion_visualization_enabled,
-                world_cards=active_scene_world_cards,
-                scene_emotion_active_characters=scene_emotion_active_characters,
-                scene_emotion_supported_emotions=scene_emotion_supported_emotions,
-            )
+            with use_story_service_http_request_budget(StoryServiceHttpRequestBudget(max_requests=1)):
+                visual_payload = story_memory_pipeline._extract_story_world_analysis_payload(
+                    db=db,
+                    game=game,
+                    current_location_content=effective_location_content,
+                    latest_user_prompt=latest_user_prompt,
+                    previous_assistant_text=resolved_previous_assistant_text,
+                    latest_assistant_text=latest_assistant_text,
+                    location_enabled=False,
+                    environment_time_enabled=False,
+                    environment_weather_enabled=False,
+                    important_event_enabled=False,
+                    ambient_enabled=ambient_enabled,
+                    scene_emotion_enabled=emotion_visualization_enabled,
+                    world_cards=active_scene_world_cards,
+                    scene_emotion_active_characters=scene_emotion_active_characters,
+                    scene_emotion_supported_emotions=scene_emotion_supported_emotions,
+                    max_attempts=1,
+                )
         except Exception as exc:
             logger.warning(
-                "Story world analysis (Call A) failed: game_id=%s assistant_message_id=%s error=%s",
+                "Story visual ambience/emotion analysis failed: game_id=%s assistant_message_id=%s error=%s",
                 game.id,
                 assistant_message.id,
                 exc,
             )
-            failed_modules.append("world_analysis")
+            failed_modules.append("visual_analysis")
         else:
-            if isinstance(world_payload, dict):
-                absorb(world_payload)
+            if isinstance(visual_payload, dict):
+                absorb(visual_payload)
             else:
-                failed_modules.append("world_analysis")
+                failed_modules.append("visual_analysis")
 
     effective_location_content = current_location_content
     location_payload = merged_payload.get("location")
@@ -7066,23 +7183,25 @@ def _resolve_story_turn_postprocess_payload(
     # --- Call B: «Персонажи» (auto_state + npc_cards) -----------------------------------
     if character_state_enabled or auto_npc_cards_enabled:
         try:
-            character_payload = story_memory_pipeline._extract_story_postprocess_memory_payload(
-                db=db,
-                game=game,
-                current_location_content=effective_location_content,
-                latest_user_prompt=latest_user_prompt,
-                previous_assistant_text=resolved_previous_assistant_text,
-                latest_assistant_text=latest_assistant_text,
-                raw_memory_enabled=False,
-                location_enabled=False,
-                environment_enabled=False,
-                character_state_enabled=character_state_enabled,
-                important_event_enabled=False,
-                ambient_enabled=False,
-                scene_emotion_enabled=False,
-                auto_npc_cards_enabled=auto_npc_cards_enabled,
-                world_cards=active_scene_world_cards,
-            )
+            with use_story_service_http_request_budget(StoryServiceHttpRequestBudget(max_requests=1)):
+                character_payload = story_memory_pipeline._extract_story_postprocess_memory_payload(
+                    db=db,
+                    game=game,
+                    current_location_content=effective_location_content,
+                    latest_user_prompt=latest_user_prompt,
+                    previous_assistant_text=resolved_previous_assistant_text,
+                    latest_assistant_text=latest_assistant_text,
+                    raw_memory_enabled=False,
+                    location_enabled=False,
+                    environment_enabled=False,
+                    character_state_enabled=character_state_enabled,
+                    important_event_enabled=False,
+                    ambient_enabled=False,
+                    scene_emotion_enabled=False,
+                    auto_npc_cards_enabled=auto_npc_cards_enabled,
+                    world_cards=active_scene_world_cards,
+                    max_attempts=1,
+                )
         except Exception as exc:
             logger.warning(
                 "Story character analysis (Call B) failed: game_id=%s assistant_message_id=%s error=%s",
@@ -9862,9 +9981,13 @@ def _upsert_story_plot_memory_card(
     try:
         from app.services import story_memory_pipeline
 
-        current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
-            db=db,
-            game_id=game.id,
+        current_location_content = (
+            story_memory_pipeline._get_story_effective_location_memory_content(db=db, game=game)
+            if hasattr(story_memory_pipeline, "_get_story_effective_location_memory_content")
+            else story_memory_pipeline._get_story_latest_location_memory_content(
+                db=db,
+                game_id=game.id,
+            )
         )
         environment_enabled = story_memory_pipeline._story_environment_any_enabled_for_game(game)
         postprocess_payload = (
@@ -9889,22 +10012,22 @@ def _upsert_story_plot_memory_card(
 
         if postprocess_payload is None and allow_model_postprocess_request:
             try:
-                postprocess_payload = story_memory_pipeline._extract_story_postprocess_memory_payload(
+                postprocess_payload = _resolve_story_turn_postprocess_payload(
                     db=db,
                     game=game,
-                    current_location_content=current_location_content,
+                    assistant_message=assistant_message,
                     latest_user_prompt=latest_user_prompt,
-                    previous_assistant_text=previous_assistant_text,
                     latest_assistant_text=latest_assistant_text,
+                    previous_assistant_text=previous_assistant_text,
+                    world_cards=postprocess_world_cards,
                     raw_memory_enabled=False,
                     location_enabled=True,
                     environment_enabled=environment_enabled,
                     character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
                     important_event_enabled=should_extract_important_payload,
                     ambient_enabled=False,
-                    scene_emotion_enabled=False,
+                    emotion_visualization_enabled=False,
                     auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
-                    world_cards=postprocess_world_cards,
                 )
             except Exception as exc:
                 logger.warning(
@@ -10103,7 +10226,7 @@ def _upsert_story_plot_memory_card(
             _rebalance_story_memory_layers(
                 db=db,
                 game=game,
-                max_model_requests=2,
+                max_model_requests=1,
                 require_model_compaction=True,
                 commit_each_model_compaction=True,
                 prioritize_recent_transitions=True,

@@ -140,25 +140,35 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
         self.assertIn("Кира", str(captured_prompt["narrator_response"]))
         self.assertEqual(payload["auto_npcs"], [])
 
-    def test_turn_postprocess_splits_auto_state_and_auto_npcs_into_independent_gemini_calls(self) -> None:
+    def test_turn_postprocess_uses_independent_location_and_combined_character_gemini_calls(self) -> None:
         game = SimpleNamespace(id=42)
         assistant_message = SimpleNamespace(id=9, game_id=42, role="assistant")
-        calls: list[tuple[bool, bool, bool]] = []
+        location_calls: list[tuple[bool, bool, bool]] = []
+        character_calls: list[tuple[bool, bool]] = []
 
-        def fake_extract(**kwargs):
+        def fake_world_extract(**kwargs):
             call = (
                 bool(kwargs["location_enabled"]),
+                bool(kwargs["environment_time_enabled"]),
+                bool(kwargs["environment_weather_enabled"]),
+            )
+            if call == (True, False, False):
+                return {"location": {"content": "Current place"}, "call_count": 1}
+            raise AssertionError(f"Unexpected world postprocess call: {call}")
+
+        def fake_character_extract(**kwargs):
+            call = (
                 bool(kwargs["character_state_enabled"]),
                 bool(kwargs["auto_npc_cards_enabled"]),
             )
-            calls.append(call)
-            if call == (True, False, False):
-                return {"location": {"content": "Current place"}, "call_count": 1}
-            if call == (False, True, False):
-                return {"character_state": {"character_updates": []}, "call_count": 1}
-            if call == (False, False, True):
-                return {"auto_npcs": [], "call_count": 1}
-            raise AssertionError(f"Unexpected grouped postprocess call: {call}")
+            character_calls.append(call)
+            if call == (True, True):
+                return {
+                    "character_state": {"character_updates": []},
+                    "auto_npcs": [],
+                    "call_count": 1,
+                }
+            raise AssertionError(f"Unexpected character postprocess call: {call}")
 
         with (
             patch.object(
@@ -168,8 +178,22 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
             ),
             patch.object(
                 story_memory_pipeline,
+                "_extract_story_world_analysis_payload",
+                side_effect=lambda **kwargs: (
+                    location_calls.append(
+                        (
+                            bool(kwargs["location_enabled"]),
+                            bool(kwargs["environment_time_enabled"]),
+                            bool(kwargs["environment_weather_enabled"]),
+                        )
+                    )
+                    or fake_world_extract(**kwargs)
+                ),
+            ),
+            patch.object(
+                story_memory_pipeline,
                 "_extract_story_postprocess_memory_payload",
-                side_effect=fake_extract,
+                side_effect=fake_character_extract,
             ),
             patch(
                 "app.services.story_character_state_fields.sync_story_character_state_payload_from_world_cards",
@@ -190,14 +214,8 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
                 auto_npc_cards_enabled=True,
             )
 
-        self.assertEqual(
-            calls,
-            [
-                (True, False, False),
-                (False, True, False),
-                (False, False, True),
-            ],
-        )
+        self.assertEqual(location_calls, [(True, False, False)])
+        self.assertEqual(character_calls, [(True, True)])
         self.assertIn("location", payload)
         self.assertIn("character_state", payload)
         self.assertIn("auto_npcs", payload)
@@ -738,6 +756,7 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
             patch.object(story_memory_pipeline, "_get_story_latest_location_memory_content", return_value=""),
             patch.object(story_memory_pipeline, "_story_environment_any_enabled_for_game", return_value=False),
             patch.object(story_memory_pipeline, "_extract_story_postprocess_memory_payload", return_value=None),
+            patch.object(story_memory_pipeline, "_extract_story_world_analysis_payload", return_value=None),
             patch.object(story_memory_pipeline, "_extract_story_important_plot_card_payload", return_value=None),
             patch.object(story_memory_pipeline, "_extract_story_important_plot_card_payload_locally", return_value=None),
             patch.object(story_memory_pipeline, "_upsert_story_location_memory_block", side_effect=capture_location_payload),
@@ -793,6 +812,7 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
             patch.object(story_memory_pipeline, "_get_story_latest_location_memory_content", return_value=""),
             patch.object(story_memory_pipeline, "_story_environment_any_enabled_for_game", return_value=False),
             patch.object(story_memory_pipeline, "_extract_story_postprocess_memory_payload", return_value=None),
+            patch.object(story_memory_pipeline, "_extract_story_world_analysis_payload", return_value=None),
             patch.object(
                 story_memory_pipeline,
                 "_extract_story_important_plot_card_payload_locally",
@@ -818,7 +838,8 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
         self.assertTrue(meta["postprocess_pending"])
         self.assertTrue(meta["postprocess_failed"])
         self.assertEqual(meta["postprocess_status"], "storyteller_succeeded_postprocessing_failed_retryable")
-        self.assertIn("unified_postprocess", meta["postprocess_failed_modules"])
+        self.assertIn("important_event", meta["postprocess_failed_modules"])
+        self.assertIn("location", meta["postprocess_failed_modules"])
 
     def test_stale_raw_memory_after_rebalance_marks_retryable(self) -> None:
         game = StoryGame(id=12, user_id=1, title="Test")

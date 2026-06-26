@@ -635,6 +635,11 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN current_location_label VARCHAR(160) NOT NULL DEFAULT ''"
         )
+    if "current_location_manual_override_label" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN current_location_manual_override_label VARCHAR(160) NOT NULL DEFAULT ''"
+        )
     if "source_world_id" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "

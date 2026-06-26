@@ -104,12 +104,12 @@ STORY_DEFAULT_MEMORY_TOKEN_LIMIT = 30_000
 _TOKEN_COUNTER = TokenCounter()
 _TOKEN_BUDGET_SERVICE = TokenBudgetService(_TOKEN_COUNTER)
 _NPC_DEDUP_SERVICE = NpcCardDedupService()
-STORY_MEMORY_MODEL_MAX_ATTEMPTS = 2
-STORY_IMPORTANT_MEMORY_MODEL_MAX_ATTEMPTS = 3
+STORY_MEMORY_MODEL_MAX_ATTEMPTS = 1
+STORY_IMPORTANT_MEMORY_MODEL_MAX_ATTEMPTS = 1
 # Only persist a key-memory card for genuinely pivotal turns. The model rates 0-10 and we
 # additionally enforce this floor server-side, so trivial turns never leak into long-term memory.
 STORY_IMPORTANT_MEMORY_MIN_SIGNIFICANCE = 7
-STORY_MEMORY_HTTP_MAX_REQUESTS = 8
+STORY_MEMORY_HTTP_MAX_REQUESTS = 1
 STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO = 900
 STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO = 0.78
 STORY_MEMORY_DETAILED_COPY_NGRAM_SIZE = 12
@@ -931,7 +931,15 @@ def _resolve_story_location_memory_label(*, label: str | None = None, content: s
 
 def _location_payload_to_content(payload: dict[str, Any]) -> str:
     current = payload.get("current") if isinstance(payload.get("current"), dict) else {}
-    display = str(current.get("display") or payload.get("display") or "").strip()
+    display = str(
+        current.get("display")
+        or payload.get("display")
+        or payload.get("label")
+        or payload.get("current_location_label")
+        or payload.get("location_label")
+        or payload.get("content")
+        or ""
+    ).strip()
     if not display:
         parts = [
             current.get("country"),
@@ -968,6 +976,21 @@ def _upsert_story_location_memory_block(
     if not content:
         return False
     label = _normalize_story_location_memory_label(content)
+    manual_override_label = _normalize_story_location_memory_label(
+        str(getattr(game, "current_location_manual_override_label", "") or "")
+    )
+    if manual_override_label:
+        model_says_location_changed = bool(payload.get("changed"))
+        if not model_says_location_changed:
+            logger.info(
+                "Story location AI update skipped due to manual override: game_id=%s assistant_message_id=%s manual_location=%s",
+                game.id,
+                assistant_message.id,
+                manual_override_label,
+            )
+            return False
+        if label and label.casefold() == manual_override_label.casefold():
+            return False
     existing = [
         block
         for block in _list_story_memory_blocks(db, game.id)
@@ -976,6 +999,9 @@ def _upsert_story_location_memory_block(
     changed = False
     if str(getattr(game, "current_location_label", "") or "") != label:
         game.current_location_label = label
+        changed = True
+    if manual_override_label and str(getattr(game, "current_location_manual_override_label", "") or ""):
+        game.current_location_manual_override_label = ""
         changed = True
     token_count = max(_estimate_story_tokens(content), 1)
     title = f"Место: {label}"
@@ -1013,6 +1039,17 @@ def _get_story_latest_location_memory_content(*, db: Session, game_id: int) -> s
         if _normalize_story_memory_layer(getattr(block, "layer", "")) == STORY_MEMORY_LAYER_LOCATION:
             return _normalize_story_message_content(getattr(block, "content", "") or "")
     return ""
+
+
+def _get_story_effective_location_memory_content(*, db: Session, game: StoryGame) -> str:
+    manual_label = _normalize_story_location_memory_label(
+        str(getattr(game, "current_location_manual_override_label", "") or "")
+    )
+    current_label = _normalize_story_location_memory_label(str(getattr(game, "current_location_label", "") or ""))
+    label = manual_label or current_label
+    if label:
+        return label
+    return _get_story_latest_location_memory_content(db=db, game_id=game.id)
 
 
 def _story_character_state_cards_from_game(game: StoryGame) -> list[dict[str, Any]]:
@@ -1457,6 +1494,7 @@ def _extract_story_postprocess_memory_payload(
     world_cards: list[dict[str, Any]] | None = None,
     scene_emotion_active_cast_entries: list[dict[str, Any]] | None = None,
     scene_emotion_allowed_emotions: list[str] | None = None,
+    max_attempts: int = 1,
 ) -> dict[str, Any] | None:
     _ = (
         raw_memory_enabled,
@@ -1549,7 +1587,7 @@ def _extract_story_postprocess_memory_payload(
         module=LLM_GAME_STATE_ANALYSIS_PROMPT_NAME,
         game_id=game.id,
         max_tokens=response_max_tokens,
-        max_attempts=2,
+        max_attempts=max(1, int(max_attempts or 1)),
     )
     model_result = payload.model_dump(mode="json")
     result["call_count"] += 1
@@ -1598,6 +1636,7 @@ def _extract_story_world_analysis_payload(
     world_cards: list[Any] | None = None,
     scene_emotion_active_characters: str = "",
     scene_emotion_supported_emotions: str = "",
+    max_attempts: int = 1,
 ) -> dict[str, Any] | None:
     """Call A — один Gemini-вызов на все «мировые» модули хода.
 
@@ -1681,7 +1720,7 @@ def _extract_story_world_analysis_payload(
         module=LLM_WORLD_ANALYSIS_PROMPT_NAME,
         game_id=game.id,
         max_tokens=1_400,
-        max_attempts=2,
+        max_attempts=max(1, int(max_attempts or 1)),
     )
 
     result: dict[str, Any] = {"call_count": 1}

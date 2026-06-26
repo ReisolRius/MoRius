@@ -85,7 +85,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             "google/gemini-3.1-pro-preview",
             "aion-labs/aion-2.0",
             "minimax/minimax-m2-her",
-            "openrouter/owl-alpha",
+            "google/gemini-3.1-flash-lite",
             "deepseek/deepseek-v3.2",
             "z-ai/glm-5.1",
         ):
@@ -110,7 +110,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             "google/gemini-3.1-pro-preview",
             "aion-labs/aion-2.0",
             "minimax/minimax-m2-her",
-            "openrouter/owl-alpha",
+            "google/gemini-3.1-flash-lite",
             "deepseek/deepseek-v3.2",
             "z-ai/glm-5.1",
             "anthropic/claude-sonnet-4.6",
@@ -344,7 +344,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             "google/gemini-2.5-pro",
             "google/gemini-3.1-pro-preview",
             "minimax/minimax-m2-her",
-            "openrouter/owl-alpha",
+            "google/gemini-3.1-flash-lite",
         ):
             with self.subTest(model_name=model_name):
                 payload: dict = {}
@@ -557,7 +557,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
         self.assertTrue(request_mock.call_args.kwargs["retry_on_rate_limit"])
 
-    def test_memory_compression_retries_gemini_after_invalid_json(self) -> None:
+    def test_memory_compression_does_not_retry_after_invalid_json(self) -> None:
         valid_memory_json = (
             '{"summary":"Alex entered the hall.",'
             '"important_entities":[],"state_changes":[],"open_threads":[]}'
@@ -568,16 +568,15 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             "_request_polza_story_text",
             side_effect=["not json", valid_memory_json],
         ) as request_mock:
-            _, content = story_memory_pipeline._compress_story_memory_block_with_model(
-                raw_content="PLAYER_TURN:\nAlex enters.\n\nNARRATOR_RESPONSE:\nAlex entered the hall.",
-            )
+            with self.assertRaisesRegex(RuntimeError, "LLM_DETAILED_MEMORY_PROMPT LLM JSON call failed"):
+                story_memory_pipeline._compress_story_memory_block_with_model(
+                    raw_content="PLAYER_TURN:\nAlex enters.\n\nNARRATOR_RESPONSE:\nAlex entered the hall.",
+                )
 
-        self.assertEqual(content, "Alex entered the hall.")
-        self.assertEqual(request_mock.call_count, 2)
+        self.assertEqual(request_mock.call_count, 1)
         self.assertEqual(
             [call.kwargs["model_name"] for call in request_mock.call_args_list],
             [
-                story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL,
                 story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL,
             ],
         )

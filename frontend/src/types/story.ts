@@ -34,7 +34,7 @@ export type StoryNarratorModelId =
   | 'mistralai/mistral-nemo'
   | 'aion-labs/aion-2.0'
   | 'minimax/minimax-m2-her'
-  | 'openrouter/owl-alpha'
+  | 'google/gemini-3.1-flash-lite'
   | 'anthropic/claude-sonnet-4.6'
   | 'google/gemini-2.5-pro'
   | 'google/gemini-3.1-pro-preview'
@@ -137,6 +137,7 @@ export type StoryGameSummary = {
   environment_current_weather?: Record<string, unknown> | null
   environment_tomorrow_weather?: Record<string, unknown> | null
   current_location_label?: string | null
+  current_location_manual_override_label?: string | null
   emotion_visualization_enabled?: boolean
   last_activity_at: string
   created_at: string
@@ -378,6 +379,8 @@ export type StoryCommunityCharacterSummary = {
   triggers: string[]
   name_color: string
   speech_color: string
+  bubble_color: string
+  thought_bubble_color: string
   avatar_url: string | null
   avatar_original_url?: string | null
   avatar_scale: number

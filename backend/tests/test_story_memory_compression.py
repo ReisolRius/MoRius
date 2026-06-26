@@ -117,7 +117,7 @@ class StoryMemoryCompressionTests(unittest.TestCase):
         )
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
 
-    def test_copy_like_detailed_memory_payload_is_retried_with_gemini_only(self) -> None:
+    def test_copy_like_detailed_memory_payload_is_not_retried(self) -> None:
         narrator_response = (
             "Marina raises the silver lantern beside the broken arch and tells Alex to wait until the guard patrol passes. "
             * 16
@@ -134,28 +134,17 @@ class StoryMemoryCompressionTests(unittest.TestCase):
                 "open_threads": [],
             }
         )
-        compact_payload = json.dumps(
-            {
-                "summary": "Marina holds Alex near the broken arch until the guard patrol passes.",
-                "important_entities": [{"name": "Marina", "type": "npc", "note": "keeps watch near the arch"}],
-                "state_changes": ["Alex and Marina pause instead of moving forward"],
-                "open_threads": ["the guard patrol still needs to pass"],
-            }
-        )
-
         with patch.object(
             story_memory_pipeline,
             "_request_polza_story_text",
-            side_effect=[copied_payload, compact_payload],
+            return_value=copied_payload,
         ) as request_mock:
-            _title, content = story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
+            with self.assertRaisesRegex(RuntimeError, "semantic validation"):
+                story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
 
-        self.assertEqual(request_mock.call_count, 2)
-        for call in request_mock.call_args_list:
-            self.assertEqual(call.kwargs["model_name"], story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL)
-            self.assertEqual(call.kwargs["fallback_model_names"], [])
-        self.assertIn("Marina holds Alex near the broken arch", content)
-        self.assertNotIn("Marina raises the silver lantern beside the broken arch and tells Alex", content)
+        self.assertEqual(request_mock.call_count, 1)
+        self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL)
+        self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
 
     def test_copy_like_detailed_memory_payload_raises_without_manual_fallback(self) -> None:
         narrator_response = (

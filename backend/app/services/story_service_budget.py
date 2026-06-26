@@ -39,16 +39,12 @@ def use_story_service_http_request_budget(
 def use_story_service_http_request_budget_or_reserve(
     max_requests: int,
 ) -> Iterator[StoryServiceHttpRequestBudget]:
-    """Draw from the already-active turn budget when one exists; otherwise reserve a fresh one.
+    """Reserve a fresh bounded budget for an independent service module.
 
-    Memory compaction must count against the single per-turn ceiling so it cannot bypass it with
-    a private allowance. Outside a turn (manual/backfill compaction) there is no active budget, so
-    we fall back to a self-contained reservation that still bounds runaway loops.
+    Story turn post-processing uses several independent Gemini modules. A saturated location,
+    character or graph budget must not starve memory compaction, and memory compaction must still
+    have its own explicit ceiling.
     """
-    existing = _active_story_service_http_budget.get()
-    if existing is not None:
-        yield existing
-        return
     budget = StoryServiceHttpRequestBudget(max_requests=max_requests)
     token = _active_story_service_http_budget.set(budget)
     try:

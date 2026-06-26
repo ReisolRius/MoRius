@@ -34,16 +34,23 @@ COIN_TOP_UP_PLANS: tuple[dict[str, Any], ...] = (
     {
         "id": "pro",
         "title": "Искатель",
-        "description": "1300 солов",
+        "description": "1290 солов",
         "price_rub": 1190,
-        "coins": 1300,
+        "coins": 1290,
     },
     {
         "id": "mega",
         "title": "Архонт",
-        "description": "5400 солов",
-        "price_rub": 4490,
-        "coins": 5400,
+        "description": "3350 солов",
+        "price_rub": 2990,
+        "coins": 3350,
+    },
+    {
+        "id": "legendary",
+        "title": "Летописец",
+        "description": "7000 солов",
+        "price_rub": 5990,
+        "coins": 7000,
     },
 )
 COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}

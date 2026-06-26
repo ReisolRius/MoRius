@@ -3310,7 +3310,9 @@ def update_story_game_settings(
     if "environment_tomorrow_weather" in payload.model_fields_set:
         game.environment_tomorrow_weather = serialize_story_environment_weather(payload.environment_tomorrow_weather)
     if "current_location_label" in payload.model_fields_set:
-        game.current_location_label = _normalize_story_environment_location_label(payload.current_location_label)
+        manual_location_label = _normalize_story_environment_location_label(payload.current_location_label)
+        game.current_location_label = manual_location_label
+        game.current_location_manual_override_label = manual_location_label
     if payload.emotion_visualization_enabled is not None and can_use_visual_novel_mode:
         game.emotion_visualization_enabled = normalize_story_emotion_visualization_enabled(
             payload.emotion_visualization_enabled

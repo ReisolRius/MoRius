@@ -162,17 +162,19 @@ STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16_000
 STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32_000
 STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64_000
 STORY_TURN_COST_TIER_5_CONTEXT_LIMIT_MAX = 128_000
-STORY_TURN_COST_DEEPSEEK_TIERS = (1, 4, 9, 18, 35)
-STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS = (3, 8, 18, 36, 36)
-STORY_TURN_COST_GLM47_FLASH_TIERS = (1, 4, 9, 18, 35)
-STORY_TURN_COST_GLM47_TIERS = (2, 5, 12, 25, 48)
-STORY_TURN_COST_AION_TIERS = (3, 7, 16, 34, 65)
-STORY_TURN_COST_MINIMAX_M2_HER_TIERS = (3, 7, 16, 34, 65)
-STORY_TURN_COST_QWEN_TIERS = (3, 7, 16, 34, 65)
-STORY_TURN_COST_GLM5_GEMINI25_TIERS = (4, 10, 22, 45, 85)
-STORY_TURN_COST_GLM51_TIERS = (5, 12, 26, 55, 105)
-STORY_TURN_COST_GEMINI_31_PRO_TIERS = (8, 20, 35, 65, 125)
-STORY_TURN_COST_CLAUDE_SONNET_TIERS = (10, 24, 45, 85, 85)
+STORY_TURN_COST_DEEPSEEK_TIERS = (4, 5, 6, 7, 7)
+STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS = (5, 6, 8, 10, 10)
+STORY_TURN_COST_GLM47_FLASH_TIERS = (4, 4, 4, 5, 5)
+STORY_TURN_COST_GLM47_TIERS = (6, 7, 8, 10, 10)
+STORY_TURN_COST_AION_TIERS = (6, 8, 10, 16, 28)
+STORY_TURN_COST_MINIMAX_M2_HER_TIERS = (6, 8, 10, 16, 28)
+STORY_TURN_COST_QWEN_TIERS = (6, 8, 10, 16, 28)
+STORY_TURN_COST_GLM5_TIERS = (6, 8, 10, 14, 14)
+STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS = (7, 9, 10, 14, 14)
+STORY_TURN_COST_GEMINI_25_PRO_TIERS = (16, 18, 22, 30, 30)
+STORY_TURN_COST_GLM51_TIERS = (8, 10, 14, 20, 35)
+STORY_TURN_COST_GEMINI_31_PRO_TIERS = (18, 24, 30, 45, 45)
+STORY_TURN_COST_CLAUDE_SONNET_TIERS = (22, 30, 40, 65, 65)
 STORY_ENVIRONMENT_TIME_MODE_SERVICE = "service"
 STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 3
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
@@ -185,12 +187,15 @@ STORY_LLM_MODEL_DEEPSEEK_V4_PRO = "deepseek/deepseek-v4-pro"
 STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
 STORY_LLM_MODEL_AION_2 = "aion-labs/aion-2.0"
 STORY_LLM_MODEL_MINIMAX_M2_HER = "minimax/minimax-m2-her"
-STORY_LLM_MODEL_OWL_ALPHA = "openrouter/owl-alpha"
+STORY_LLM_MODEL_GEMINI_31_FLASH_LITE = "google/gemini-3.1-flash-lite"
 STORY_LLM_MODEL_CLAUDE_SONNET_46 = "anthropic/claude-sonnet-4.6"
 STORY_LLM_MODEL_GEMINI_25_PRO = "google/gemini-2.5-pro"
 STORY_LLM_MODEL_GEMINI_31_PRO = "google/gemini-3.1-pro-preview"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V3
-STORY_LLM_MODEL_LEGACY_ALIASES: dict[str, str] = {}
+STORY_LLM_MODEL_LEGACY_ALIASES: dict[str, str] = {
+    "google/gemini-3-flash": STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
+    "google/gemini-3-flash-preview": STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
+}
 STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
     STORY_LLM_MODEL_GLM51,
@@ -202,7 +207,7 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_MISTRAL_NEMO,
     STORY_LLM_MODEL_AION_2,
     STORY_LLM_MODEL_MINIMAX_M2_HER,
-    STORY_LLM_MODEL_OWL_ALPHA,
+    STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
     STORY_LLM_MODEL_CLAUDE_SONNET_46,
     STORY_LLM_MODEL_GEMINI_25_PRO,
     STORY_LLM_MODEL_GEMINI_31_PRO,
@@ -215,7 +220,6 @@ STORY_TURN_COST_STANDARD_LLM_MODELS = {
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_DEEPSEEK_V3,
     STORY_LLM_MODEL_MISTRAL_NEMO,
-    STORY_LLM_MODEL_OWL_ALPHA,
 }
 STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
 STORY_IMAGE_MODEL_FLUX_LEGACY = "flux.2-pro"
@@ -541,8 +545,12 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
         return STORY_TURN_COST_AION_TIERS
     if normalized_model_name == STORY_LLM_MODEL_MINIMAX_M2_HER:
         return STORY_TURN_COST_MINIMAX_M2_HER_TIERS
-    if normalized_model_name in {STORY_LLM_MODEL_GLM5, STORY_LLM_MODEL_GEMINI_25_PRO}:
-        return STORY_TURN_COST_GLM5_GEMINI25_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_GLM5:
+        return STORY_TURN_COST_GLM5_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_GEMINI_31_FLASH_LITE:
+        return STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_GEMINI_25_PRO:
+        return STORY_TURN_COST_GEMINI_25_PRO_TIERS
     if normalized_model_name == STORY_LLM_MODEL_CLAUDE_SONNET_46:
         return STORY_TURN_COST_CLAUDE_SONNET_TIERS
     if normalized_model_name == STORY_LLM_MODEL_GEMINI_31_PRO:
@@ -591,7 +599,7 @@ def normalize_story_llm_model(value: str | None) -> str:
                 "Unsupported story model. "
                 "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7-flash, z-ai/glm-4.7, "
                 "deepseek/deepseek-v3.2, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v4-pro, mistralai/mistral-nemo, "
-                "aion-labs/aion-2.0, minimax/minimax-m2-her, openrouter/owl-alpha, "
+                "aion-labs/aion-2.0, minimax/minimax-m2-her, google/gemini-3.1-flash-lite, "
                 "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, google/gemini-3.1-pro-preview"
             ),
         )
@@ -1298,6 +1306,10 @@ def story_game_summary_to_out(
             str(getattr(game, "current_location_label", "") or "").strip()
         )
         or None,
+        current_location_manual_override_label=sanitize_likely_utf8_mojibake(
+            str(getattr(game, "current_location_manual_override_label", "") or "").strip()
+        )
+        or None,
         last_activity_at=game.last_activity_at,
         created_at=game.created_at,
         updated_at=game.updated_at,
@@ -1458,6 +1470,10 @@ def story_game_summary_to_compact_out(
             getattr(game, "environment_tomorrow_weather", None)
         ),
         current_location_label=str(getattr(game, "current_location_label", "") or "").strip() or None,
+        current_location_manual_override_label=str(
+            getattr(game, "current_location_manual_override_label", "") or ""
+        ).strip()
+        or None,
         last_activity_at=game.last_activity_at,
         created_at=game.created_at,
         updated_at=game.updated_at,

@@ -1714,6 +1714,7 @@ class StoryGameSummaryOut(BaseModel):
     environment_current_weather: dict[str, Any] | None = None
     environment_tomorrow_weather: dict[str, Any] | None = None
     current_location_label: str | None = None
+    current_location_manual_override_label: str | None = None
     last_activity_at: datetime
     created_at: datetime
     updated_at: datetime

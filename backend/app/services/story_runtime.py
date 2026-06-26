@@ -101,6 +101,10 @@ STORY_STREAM_RELAY_HEARTBEAT_SECONDS = 1.0
 # только остаток бюджета; упёршись в потолок, запрос отклоняется штатно (модуль → pending,
 # повтор следующим ходом), без локального синтеза.
 STORY_TURN_MAX_SERVICE_REQUESTS = 5
+STORY_MEMORY_POSTPROCESS_MAX_SERVICE_REQUESTS = 5
+STORY_GRAPH_MAX_SERVICE_REQUESTS = 5
+STORY_ENVIRONMENT_TIME_TURN_SURCHARGE_TOKENS = 1
+STORY_CHARACTER_AUTOMATION_TURN_SURCHARGE_TOKENS = 1
 STORY_STREAM_RETRY_DELAYS_SECONDS = (1.0, 2.5, 5.0, 8.0)
 STORY_CONTINUE_MODEL_PROMPT = (
     "Continue the current scene from exactly where the latest assistant response ended. "
@@ -811,6 +815,24 @@ def _calculate_story_turn_cost_tokens(
     return base_cost
 
 
+def _calculate_story_service_surcharge_tokens(
+    *,
+    environment_time_enabled: bool,
+    character_state_enabled: bool,
+    auto_npc_cards_enabled: bool,
+    graph_enabled: bool,
+    graph_request_cost_tokens: int = 0,
+) -> int:
+    surcharge = 0
+    if environment_time_enabled:
+        surcharge += STORY_ENVIRONMENT_TIME_TURN_SURCHARGE_TOKENS
+    if character_state_enabled or auto_npc_cards_enabled:
+        surcharge += STORY_CHARACTER_AUTOMATION_TURN_SURCHARGE_TOKENS
+    if graph_enabled:
+        surcharge += max(0, min(int(graph_request_cost_tokens or 0), STORY_GRAPH_MAX_SERVICE_REQUESTS))
+    return surcharge
+
+
 def _merge_story_active_world_cards(
     primary_cards: list[dict[str, Any]],
     fallback_cards: list[dict[str, Any]],
@@ -1184,7 +1206,7 @@ def _best_effort_sync_story_turn_memory_and_environment(
             story_memory_pipeline._rebalance_story_memory_layers(
                 db=db,
                 game=game,
-                max_model_requests=2,
+                max_model_requests=1,
                 backfill_existing_compact_layers=False,
                 prioritize_recent_transitions=True,
             )
@@ -1355,6 +1377,7 @@ def _stream_story_response(
     show_gg_thoughts: bool,
     show_npc_thoughts: bool,
     story_generation_id: str,
+    precharged_graph_cost_tokens: int = 0,
     discarded_assistant_message_ids: list[int] | None = None,
 ):
     assistant_message: StoryMessage | None = None
@@ -1864,9 +1887,11 @@ def _stream_story_response(
     # Единый жёсткий бюджет на ВСЕ Gemini-вызовы хода: Call A «Мир», Call B «Персонажи»,
     # сжатие памяти и граф тянут запросы из одного счётчика. Это и есть потолок ≤5 на ход.
     service_request_budget = StoryServiceHttpRequestBudget(
-        max_requests=STORY_TURN_MAX_SERVICE_REQUESTS
+        max_requests=STORY_MEMORY_POSTPROCESS_MAX_SERVICE_REQUESTS
     )
-    graph_request_budget = service_request_budget
+    graph_request_budget = StoryServiceHttpRequestBudget(
+        max_requests=STORY_GRAPH_MAX_SERVICE_REQUESTS
+    )
     if not aborted and response_has_content:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "postprocess"})
         if _stop_requested("postprocess"):
@@ -2151,12 +2176,44 @@ def _stream_story_response(
                     )
                     db.rollback()
 
+        actual_graph_cost_tokens = 0
+        if graph_enabled and int(graph_request_budget.used_requests or 0) > 0:
+            actual_graph_cost_tokens = max(
+                1,
+                min(int(graph_request_budget.used_requests or 0), STORY_GRAPH_MAX_SERVICE_REQUESTS),
+            )
+        if graph_enabled and isinstance(graph_analysis_result, dict):
+            graph_analysis_result["gemini_request_count"] = actual_graph_cost_tokens
+            graph_analysis_result["cost_tokens"] = actual_graph_cost_tokens
+        prepaid_graph_cost_tokens = max(
+            0,
+            min(int(precharged_graph_cost_tokens or 0), STORY_GRAPH_MAX_SERVICE_REQUESTS),
+        )
+        actual_turn_cost_tokens = max(turn_cost_tokens - prepaid_graph_cost_tokens + actual_graph_cost_tokens, 0)
+        if actual_turn_cost_tokens < turn_cost_tokens:
+            refund_tokens = turn_cost_tokens - actual_turn_cost_tokens
+            try:
+                deps.add_user_tokens(db, int(user.id), int(refund_tokens))
+                commit_with_retry(db)
+                db.refresh(user)
+                turn_cost_tokens = actual_turn_cost_tokens
+            except Exception:
+                logger.exception(
+                    "Failed to refund unused graph AI turn cost: game_id=%s assistant_message_id=%s refund=%s",
+                    game.id,
+                    assistant_message.id,
+                    refund_tokens,
+                )
+                db.rollback()
+
         logger.info(
-            "Story service request usage: game_id=%s assistant_message_id=%s gemini_requests=%s/%s",
+            "Story service request usage: game_id=%s assistant_message_id=%s memory_gemini_requests=%s/%s graph_gemini_requests=%s/%s",
             game.id,
             assistant_message.id,
             service_request_budget.used_requests,
             service_request_budget.max_requests,
+            graph_request_budget.used_requests,
+            graph_request_budget.max_requests,
         )
 
         memory_blocks_after_postprocess = deps.list_story_memory_blocks(db, game.id)
@@ -2983,6 +3040,17 @@ def _generate_story_response_locked(
         memory_optimization_enabled=memory_optimization_enabled,
         accelerated_service_enabled=bool(getattr(game, "accelerated_service_enabled", False)),
     )
+    graph_enabled_for_billing = bool(getattr(game, "auto_graph_nodes_enabled", False)) or bool(
+        getattr(game, "auto_graph_edges_enabled", False)
+    )
+    precharged_graph_cost_tokens = STORY_GRAPH_MAX_SERVICE_REQUESTS if graph_enabled_for_billing else 0
+    turn_cost_tokens += _calculate_story_service_surcharge_tokens(
+        environment_time_enabled=environment_time_enabled,
+        character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
+        auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
+        graph_enabled=graph_enabled_for_billing,
+        graph_request_cost_tokens=precharged_graph_cost_tokens,
+    )
     _ensure_user_can_afford_turn(turn_cost_tokens)
     db.commit()
     if source_user_message is not None:
@@ -3022,6 +3090,7 @@ def _generate_story_response_locked(
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
         story_generation_id=story_generation_id,
+        precharged_graph_cost_tokens=precharged_graph_cost_tokens,
         discarded_assistant_message_ids=discarded_assistant_message_ids,
     )
 

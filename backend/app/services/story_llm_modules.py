@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -56,6 +57,20 @@ class ImportantMemoryPayload(BaseModel):
     summary: str = ""
     significance: str = ""
 
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_imperfect_important_memory_shapes(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        if payload.get("significance_score") is None and bool(payload.get("should_store")):
+            has_content = bool(str(payload.get("title") or "").strip()) and bool(
+                str(payload.get("summary") or "").strip()
+            )
+            if has_content:
+                payload["significance_score"] = 7
+        return payload
+
     @model_validator(mode="after")
     def _validate_important_memory(self) -> "ImportantMemoryPayload":
         try:
@@ -95,6 +110,34 @@ class LocationPayload(BaseModel):
     current: LocationCurrentPayload = Field(default_factory=LocationCurrentPayload)
     evidence: str = ""
     should_update: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_common_location_shapes(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        current = payload.get("current")
+        if not isinstance(current, dict):
+            current = {}
+        else:
+            current = dict(current)
+        display = (
+            current.get("display")
+            or payload.get("display")
+            or payload.get("label")
+            or payload.get("current_location_label")
+            or payload.get("location_label")
+            or payload.get("content")
+        )
+        if display and not current.get("display"):
+            current["display"] = display
+        if not isinstance(current.get("display"), str):
+            current["display"] = ""
+        payload["current"] = current
+        if payload.get("changed") and payload.get("should_update") is None:
+            payload["should_update"] = True
+        return payload
 
     @field_validator("confidence")
     @classmethod
@@ -184,24 +227,20 @@ class NpcCardActionPayload(BaseModel):
         action_type = str(self.type or "").strip()
         if action_type == "create_card":
             if self.new_card is None:
-                raise ValueError("create_card requires new_card")
-            required_values = {
-                "name": self.new_card.name,
-                "description": self.new_card.description,
-                "clothing": self.new_card.clothing,
-                "health_status": self.new_card.health_status,
-            }
-            missing_fields = [field_name for field_name, value in required_values.items() if not str(value or "").strip()]
-            if missing_fields:
-                raise ValueError(f"create_card missing required AI fields: {', '.join(missing_fields)}")
+                self.type = "no_action"
+                return self
+            if not str(self.new_card.name or "").strip():
+                self.type = "no_action"
+                return self
             if not any(str(trigger or "").strip() for trigger in self.new_card.triggers):
-                raise ValueError("create_card requires at least one identity trigger")
+                self.new_card.triggers = [self.new_card.name]
         elif action_type == "update_existing_card":
             raw_id = str(self.existing_card_id or "").strip()
             if not raw_id.isdigit() or int(raw_id) <= 0:
-                raise ValueError("update_existing_card requires a positive existing_card_id")
+                self.type = "no_action"
+                return self
         elif action_type != "no_action":
-            raise ValueError("npc card action type must be create_card, update_existing_card, or no_action")
+            self.type = "no_action"
         return self
 
 
@@ -209,6 +248,39 @@ class NpcCardsPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     actions: list[NpcCardActionPayload] = Field(default_factory=list)
+
+    @field_validator("actions", mode="before")
+    @classmethod
+    def _keep_only_action_objects(cls, value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, dict) and isinstance(value.get("actions"), list):
+            value = value.get("actions")
+        if not isinstance(value, list):
+            return []
+        cleaned: list[dict[str, Any]] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            action_type = str(item.get("type") or "").strip() or (
+                "create_card" if isinstance(item.get("new_card"), dict) else "no_action"
+            )
+            if action_type not in {"create_card", "update_existing_card", "no_action"}:
+                continue
+            if action_type == "create_card":
+                new_card = item.get("new_card")
+                if not isinstance(new_card, dict):
+                    continue
+                if not str(new_card.get("name") or "").strip():
+                    continue
+                item = {**item, "type": action_type, "new_card": new_card}
+            elif action_type == "update_existing_card":
+                raw_id = str(item.get("existing_card_id") or "").strip()
+                if not raw_id.isdigit() or int(raw_id) <= 0:
+                    continue
+                item = {**item, "type": action_type}
+            else:
+                item = {**item, "type": action_type}
+            cleaned.append(item)
+        return cleaned
 
 
 class GameStateAnalysisPayload(BaseModel):
@@ -259,11 +331,26 @@ class EnvironmentWeatherPayload(BaseModel):
 
 
 class EnvironmentPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     should_update: bool = False
     advance_minutes: int = 0
     weather: EnvironmentWeatherPayload | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_common_environment_shapes(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        if "advance_minutes" not in payload:
+            for alias in ("advanceMinutes", "minutes", "elapsed_minutes", "time_delta_minutes"):
+                if alias in payload:
+                    payload["advance_minutes"] = payload.get(alias)
+                    break
+        if payload.get("advance_minutes") and payload.get("should_update") is None:
+            payload["should_update"] = True
+        return payload
 
     @field_validator("advance_minutes", mode="before")
     @classmethod
@@ -293,8 +380,16 @@ class WorldAnalysisPayload(BaseModel):
     scene_emotion: SceneEmotionPayload | None = None
 
 
+def _strip_json_markdown_fence(value: str) -> str:
+    normalized = str(value or "").strip()
+    fenced_match = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", normalized, flags=re.IGNORECASE | re.DOTALL)
+    if fenced_match:
+        return fenced_match.group(1).strip()
+    return normalized
+
+
 def strict_json_loads(raw_response: str) -> dict[str, Any]:
-    normalized = str(raw_response or "").strip()
+    normalized = _strip_json_markdown_fence(raw_response)
     if not normalized:
         raise ValueError("LLM returned empty response")
     try:

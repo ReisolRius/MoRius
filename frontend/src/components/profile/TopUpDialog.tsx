@@ -16,6 +16,7 @@ import { getCurrentUserReferralSummary, type CoinTopUpPlan } from '../../service
 import SoulAmount from '../currency/SoulAmount'
 import mobileCloseIcon from '../../assets/icons/mobile-close.svg'
 import chroniclerOrnament from '../../assets/images/topup/chronicler-ornament.svg'
+import chroniclerImg from '../../assets/images/topup/chronicler.png'
 import putnikRibbon from '../../assets/images/topup/putnik-ribbon.svg'
 import seekerTrail from '../../assets/images/topup/seeker-trail.svg'
 import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
@@ -68,6 +69,15 @@ const PLAN_LOOKUP: Record<
     lines: [
       'Для больших кампаний и тяжёлых сцен с запасом.',
       'Удобен, если часто используете дорогие модели.',
+      'Один баланс на текст, изображения и эффекты.',
+    ],
+  },
+  legendary: {
+    accent: '#C47FFF',
+    imageSrc: chroniclerImg,
+    lines: [
+      'Максимальный запас для долгих хроник и сложных миров.',
+      'Идеален для дорогих моделей и активных кампаний.',
       'Один баланс на текст, изображения и эффекты.',
     ],
   },
@@ -213,7 +223,7 @@ function TopUpDialog({
                 display: 'grid',
                 gap: 1.8,
                 pt: 0.5,
-                gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, minmax(0, 1fr))' },
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' },
               }}
             >
               {topUpPlans.map((plan) => {

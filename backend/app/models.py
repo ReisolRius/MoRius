@@ -456,6 +456,12 @@ class StoryGame(Base):
         default="",
         server_default="",
     )
+    current_location_manual_override_label: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+        default="",
+        server_default="",
+    )
     character_state_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

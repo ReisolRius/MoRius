@@ -198,6 +198,138 @@ def build_game_state_analysis_messages(
     previous_narrator_response: str,
     narrator_response: str,
 ) -> list[dict[str, str]]:
+    requested = {str(module or "").strip() for module in requested_modules if str(module or "").strip()}
+    include_location = "location" in requested
+    include_auto_state = "auto_state" in requested
+    include_npc_cards = "npc_cards" in requested
+
+    module_rules: list[str] = []
+    response_shape: dict[str, Any] = {}
+    if include_location:
+        module_rules.append(
+            (
+                "LOCATION: determine the current scene location after this turn. "
+                "Set changed=true and should_update=true only when the character actually moved to another place "
+                "relative to PREVIOUS_LOCATION. If the newest text does not establish a new place, return "
+                "should_update=false. Do not invent geography."
+            )
+        )
+        response_shape["location"] = {
+            "changed": True,
+            "confidence": "high|medium|low",
+            "current": {
+                "country": None,
+                "region": None,
+                "city": None,
+                "district": None,
+                "street": None,
+                "place_name": None,
+                "place_type": None,
+                "room_or_area": None,
+                "display": "short current location label",
+            },
+            "evidence": "short evidence from the turn",
+            "should_update": True,
+        }
+    if include_auto_state:
+        module_rules.append(
+            (
+                "AUTO_STATE: update only current tracked character state. character_ref.id and character_ref.name "
+                "must be copied exactly from CURRENT_CHARACTER_STATES or EXISTING_CHARACTER_CARDS. Return updates "
+                "only for cards where ai_edit_enabled is true. Do not update unmatched characters. clothing.value "
+                "is the complete current top-to-bottom clothing state; inventory.value is the complete current "
+                "comma-separated item list, not a change log; health.value is either normal or the concrete current "
+                "condition. Never invent inventory changes."
+            )
+        )
+        response_shape["auto_state"] = {
+            "character_updates": [
+                {
+                    "character_ref": {"id": None, "name": "character name"},
+                    "clothing": {"value": "complete current clothing", "source": "explicit|inferred|mixed|unchanged", "should_update": True},
+                    "inventory": {"value": "item one, item two", "source": "explicit|unchanged", "should_update": True},
+                    "health": {"value": "normal or concrete condition", "source": "explicit|inferred|default|unchanged", "should_update": True},
+                }
+            ]
+        }
+    if include_npc_cards:
+        module_rules.append(
+            (
+                "NPC_CARDS: create or update cards only for distinct narratively important NPCs from "
+                "PREVIOUS_NARRATOR_RESPONSE and NARRATOR_RESPONSE. create_card is allowed only when the NPC is "
+                "absent from EXISTING_CHARACTER_CARDS and NPC_DEDUP_CANDIDATES. update_existing_card must copy "
+                "existing_card_id exactly. Do not create cards for crowds, incidental extras, or the player "
+                "character. If an important NPC is unnamed, invent a lore-appropriate personal name and keep the "
+                "scene designation among triggers; важному безымянному NPC обязательно придумай личное имя. "
+                "Return all qualifying NPC actions from the turn."
+            )
+        )
+        response_shape["npc_cards"] = {
+            "actions": [
+                {
+                    "type": "create_card|update_existing_card|no_action",
+                    "existing_card_id": None,
+                    "new_card": {
+                        "name": "canonical personal name",
+                        "race": None,
+                        "description": "Age: ... Appearance: ... Character: ...",
+                        "personality": "short personality",
+                        "clothing": "complete current clothing",
+                        "inventory": "item one, item two",
+                        "health_status": "normal or concrete condition",
+                        "triggers": ["exact name", "stable scene designation"],
+                        "importance_reason": "why this NPC matters",
+                    },
+                    "update_existing": {"add_triggers": ["new stable alias"], "notes": "new useful facts"},
+                    "evidence": "why",
+                }
+            ]
+        }
+    if not response_shape:
+        response_shape = {}
+
+    context_sections: list[str] = [
+        f"REQUESTED_MODULES:\n{_dump_json(sorted(requested))}",
+        f"WORLD_CARD:\n{world_card or 'none'}",
+        f"PREVIOUS_LOCATION:\n{_dump_json(previous_location or {})}",
+    ]
+    if include_auto_state or include_npc_cards:
+        context_sections.append(f"PLAYER_CHARACTER_CARD:\n{_dump_json(player_character_card or {})}")
+        context_sections.append(f"EXISTING_CHARACTER_CARDS:\n{_dump_json(existing_character_cards)}")
+    if include_npc_cards:
+        context_sections.append(f"NPC_DEDUP_CANDIDATES:\n{_dump_json(npc_dedup_candidates)}")
+    if include_auto_state:
+        context_sections.append(f"CURRENT_CHARACTER_STATES:\n{_dump_json(current_character_states)}")
+    context_sections.extend(
+        [
+            f"PLAYER_TURN:\n{player_turn or 'none'}",
+            f"PREVIOUS_NARRATOR_RESPONSE:\n{previous_narrator_response or 'none'}",
+            f"NARRATOR_RESPONSE:\n{narrator_response or 'none'}",
+        ]
+    )
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are a service analysis module for a text RPG. You are not the narrator and you never continue "
+                "the scene. Analyze only the already completed latest player turn and narrator response. "
+                "Return JSON only: no markdown, no reasoning, no comments. "
+                "Only perform the modules listed in REQUESTED_MODULES; omitted modules must be absent from JSON. "
+                "Use Gemini-visible evidence only and do not invent story facts.\n\n"
+                + "\n".join(f"- {rule}" for rule in module_rules)
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Analyze the latest RPG turn.\n\n"
+                + "\n\n".join(context_sections)
+                + "\n\nReturn JSON with exactly these enabled top-level sections:\n"
+                + _dump_json(response_shape)
+            ),
+        },
+    ]
     return [
         {
             "role": "system",

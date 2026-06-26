@@ -606,6 +606,10 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
         ? (game.environment_tomorrow_weather as Record<string, unknown>)
         : null,
     current_location_label: typeof game.current_location_label === 'string' ? game.current_location_label : null,
+    current_location_manual_override_label:
+      typeof game.current_location_manual_override_label === 'string'
+        ? game.current_location_manual_override_label
+        : null,
     emotion_visualization_enabled: Boolean(game.emotion_visualization_enabled),
     last_activity_at: typeof game.last_activity_at === 'string' ? game.last_activity_at : new Date(0).toISOString(),
     created_at: typeof game.created_at === 'string' ? game.created_at : new Date(0).toISOString(),

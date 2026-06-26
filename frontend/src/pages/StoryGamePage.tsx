@@ -810,16 +810,18 @@ const STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6000
 const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
 const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
 const STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64000
-const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [1, 4, 9, 18, 35]
-const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [3, 8, 18, 36, 36]
-const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [1, 4, 9, 18, 35]
-const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [2, 5, 12, 25, 48]
-const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [3, 7, 16, 34, 65]
-const STORY_TURN_COST_MINIMAX_M2_HER_TIERS: readonly [number, number, number, number, number] = [3, 7, 16, 34, 65]
-const STORY_TURN_COST_GLM5_GEMINI25_TIERS: readonly [number, number, number, number, number] = [4, 10, 22, 45, 85]
-const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [5, 12, 26, 55, 105]
-const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [8, 20, 35, 65, 125]
-const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [10, 24, 45, 85, 85]
+const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [4, 5, 6, 7, 7]
+const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [5, 6, 8, 10, 10]
+const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [4, 4, 4, 5, 5]
+const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [6, 7, 8, 10, 10]
+const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
+const STORY_TURN_COST_MINIMAX_M2_HER_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
+const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 14, 14]
+const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [7, 9, 10, 14, 14]
+const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [16, 18, 22, 30, 30]
+const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 35]
+const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [18, 24, 30, 45, 45]
+const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [22, 30, 40, 65, 65]
 const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-5.1',
 ])
@@ -828,7 +830,6 @@ const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'deepseek/deepseek-v3.2',
   'deepseek/deepseek-chat-v3-0324',
   'mistralai/mistral-nemo',
-  'openrouter/owl-alpha',
 ])
 const STORY_TOP_K_MIN = 0
 const STORY_TOP_K_MAX = 200
@@ -1123,12 +1124,12 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarrat
     storyTopK: 0,
     storyTopR: 0.95,
   },
-  // Хорошо следует инструкциям: живо, но в рамках правил.
-  'openrouter/owl-alpha': {
-    storyTemperature: 0.85,
+  // Ставка на ролевку: чуть выше температура ради выразительности, мягкий запас против самоповторов Flash Lite; топ-к выключен под Gemini.
+  'google/gemini-3.1-flash-lite': {
+    storyTemperature: 0.95,
     storyRepetitionPenalty: 1.06,
-    storyTopK: 50,
-    storyTopR: 0.9,
+    storyTopK: 0,
+    storyTopR: 0.95,
   },
   // Премиальная и тонкая: любит более высокую температуру, без лишних ограничителей.
   'anthropic/claude-sonnet-4.6': {
@@ -1284,16 +1285,16 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
-    id: 'openrouter/owl-alpha',
-    title: 'Owl Alpha',
+    id: 'google/gemini-3.1-flash-lite',
+    title: 'Gemini 3.1 Flash Lite',
     description:
-      'Бесплатная модель OpenRouter с сильным следованием инструкциям и большим запасом контекста. В MoRius работает в стабильном 64000-токенном режиме.',
+      'Быстрый и лёгкий рассказчик от Google: аккуратно следует правилам карточек, держит причинность и пишет живо без лишней воды. Экономичный выбор для динамичной игры.',
     portraitSrc: narratorOgmaPortrait,
-    portraitAlt: 'Owl Alpha',
+    portraitAlt: 'Gemini 3.1 Flash Lite',
     stats: [
       { label: 'Интеллект', value: 4 },
-      { label: 'Скорость', value: 4 },
-      { label: 'Глубина', value: 3 },
+      { label: 'Скорость', value: 5 },
+      { label: 'Глубина', value: 4 },
     ],
   },
   {
@@ -1378,7 +1379,7 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите модель рассказчика. DeepSeek V3, DeepSeek V3.2 и GLM 4.7 Flash дают короткие ходы от 1 единицы валюты; DeepSeek V4 Pro рассчитан на более сложные сцены; старшие модели стоят по таблице.',
+    'Выберите модель рассказчика. GLM 4.7 Flash и DeepSeek V3/V3.2 — экономичные варианты от 4 единиц; Gemini 3.1 Flash Lite — быстрый и точный; старшие модели стоят по таблице.',
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
@@ -4402,8 +4403,14 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'minimax/minimax-m2-her') {
     return STORY_TURN_COST_MINIMAX_M2_HER_TIERS
   }
-  if (modelId === 'z-ai/glm-5' || modelId === 'google/gemini-2.5-pro') {
-    return STORY_TURN_COST_GLM5_GEMINI25_TIERS
+  if (modelId === 'z-ai/glm-5') {
+    return STORY_TURN_COST_GLM5_TIERS
+  }
+  if (modelId === 'google/gemini-3.1-flash-lite') {
+    return STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS
+  }
+  if (modelId === 'google/gemini-2.5-pro') {
+    return STORY_TURN_COST_GEMINI_25_PRO_TIERS
   }
   if (modelId === 'anthropic/claude-sonnet-4.6') {
     return STORY_TURN_COST_CLAUDE_SONNET_TIERS
@@ -4430,75 +4437,90 @@ function getStoryTurnCostTooltipText(): string {
   return [
     'Стоимость хода зависит от рассказчика и использованного контекста, но не выше выбранного лимита:',
     '',
-    'DeepSeek V3/V3.2:',
-    'до 6000 — 1 ед.',
+    'GLM 4.7 Flash:',
+    'до 6000 — 4 ед.',
     '6001–16000 — 4 ед.',
-    '16001–32000 — 9 ед.',
-    '32001–64000 — 18 ед.',
+    '16001–32000 — 4 ед.',
+    '32001–64000 — 5 ед.',
+    '',
+    'DeepSeek V3/V3.2:',
+    'до 6000 — 4 ед.',
+    '6001–16000 — 5 ед.',
+    '16001–32000 — 6 ед.',
+    '32001–64000 — 7 ед.',
     '',
     'DeepSeek V4 Pro:',
-    'до 6000 — 3 ед.',
-    '6001–16000 — 8 ед.',
-    '16001–32000 — 18 ед.',
-    '32001–64000 — 36 ед.',
-    '',
-    'GLM 4.7 Flash:',
-    'до 6000 — 1 ед.',
-    '6001–16000 — 4 ед.',
-    '16001–32000 — 9 ед.',
-    '32001–64000 — 18 ед.',
+    'до 6000 — 5 ед.',
+    '6001–16000 — 6 ед.',
+    '16001–32000 — 8 ед.',
+    '32001–64000 — 10 ед.',
     '',
     'GLM 4.7:',
-    'до 6000 — 2 ед.',
-    '6001–16000 — 5 ед.',
-    '16001–32000 — 12 ед.',
-    '32001–64000 — 25 ед.',
+    'до 6000 — 6 ед.',
+    '6001–16000 — 7 ед.',
+    '16001–32000 — 8 ед.',
+    '32001–64000 — 10 ед.',
+    '',
+    'GLM 5.0:',
+    'до 6000 — 6 ед.',
+    '6001–16000 — 8 ед.',
+    '16001–32000 — 10 ед.',
+    '32001–64000 — 14 ед.',
     '',
     'AionLabs:',
-    'до 6000 — 3 ед.',
-    '6001–16000 — 7 ед.',
-    '16001–32000 — 16 ед.',
-    '32001–64000 — 34 ед.',
+    'до 6000 — 6 ед.',
+    '6001–16000 — 8 ед.',
+    '16001–32000 — 10 ед.',
+    '32001–64000 — 16 ед.',
+    '64001–128000 — 28 ед.',
     '',
-    'GLM 5.0, Gemini 2.5 Pro:',
-    'до 6000 — 4 ед.',
-    '6001–16000 — 10 ед.',
-    '16001–32000 — 22 ед.',
-    '32001–64000 — 45 ед.',
+    'Gemini 3.1 Flash Lite:',
+    'до 6000 — 7 ед.',
+    '6001–16000 — 9 ед.',
+    '16001–32000 — 10 ед.',
+    '32001–64000 — 14 ед.',
     '',
     'GLM 5.1:',
-    'до 6000 — 5 ед.',
-    '6001–16000 — 12 ед.',
-    '16001–32000 — 26 ед.',
-    '32001–64000 — 55 ед.',
+    'до 6000 — 8 ед.',
+    '6001–16000 — 10 ед.',
+    '16001–32000 — 14 ед.',
+    '32001–64000 — 20 ед.',
+    '64001–128000 — 35 ед.',
+    '',
+    'Gemini 2.5 Pro:',
+    'до 6000 — 16 ед.',
+    '6001–16000 — 18 ед.',
+    '16001–32000 — 22 ед.',
+    '32001–64000 — 30 ед.',
     '',
     'Gemini 3.1 Pro:',
-    'до 6000 — 8 ед.',
-    '6001–16000 — 20 ед.',
-    '16001–32000 — 35 ед.',
-    '32001–64000 — 65 ед.',
+    'до 6000 — 18 ед.',
+    '6001–16000 — 24 ед.',
+    '16001–32000 — 30 ед.',
+    '32001–64000 — 45 ед.',
     '',
     'Claude Sonnet 4.6:',
-    'до 6000 — 10 ед.',
-    '6001–16000 — 24 ед.',
-    '16001–32000 — 45 ед.',
-    '32001–64000 — 85 ед.',
+    'до 6000 — 22 ед.',
+    '6001–16000 — 30 ед.',
+    '16001–32000 — 40 ед.',
+    '32001–64000 — 65 ед.',
     '',
   ].join('\n')
 }
 
 function StoryTurnCostTooltipContent() {
   const rows = [
-    { title: 'DeepSeek V3/V3.2', values: ['1', '4', '9', '18', '—'] },
-    { title: 'DeepSeek V4 Pro', values: ['3', '8', '18', '36', '—'] },
-    { title: 'GLM 4.7 Flash', values: ['1', '4', '9', '18', '—'] },
-    { title: 'GLM 4.7', values: ['2', '5', '12', '25', '—'] },
-    { title: 'AionLabs', values: ['3', '7', '16', '34', '65'] },
-    { title: 'GLM 5.0', values: ['4', '10', '22', '45', '—'] },
-    { title: 'Gemini 2.5 Pro', values: ['4', '10', '22', '45', '—'] },
-    { title: 'GLM 5.1', values: ['5', '12', '26', '55', '105'] },
-    { title: 'Gemini 3.1 Pro', values: ['8', '20', '35', '65', '—'] },
-    { title: 'Claude 4.6', values: ['10', '24', '45', '85', '—'] },
+    { title: 'GLM 4.7 Flash', values: ['4', '4', '4', '5', '—'] },
+    { title: 'DeepSeek V3/V3.2', values: ['4', '5', '6', '7', '—'] },
+    { title: 'DeepSeek V4 Pro', values: ['5', '6', '8', '10', '—'] },
+    { title: 'GLM 4.7', values: ['6', '7', '8', '10', '—'] },
+    { title: 'GLM 5.0', values: ['6', '8', '10', '14', '—'] },
+    { title: 'AionLabs', values: ['6', '8', '10', '16', '28'] },
+    { title: 'Gemini 3.1 Flash Lite', values: ['7', '9', '10', '14', '—'] },
+    { title: 'GLM 5.1', values: ['8', '10', '14', '20', '35'] },
+    { title: 'Gemini 2.5 Pro', values: ['16', '18', '22', '30', '—'] },
+    { title: 'Gemini 3.1 Pro', values: ['18', '24', '30', '45', '—'] },
+    { title: 'Claude 4.6', values: ['22', '30', '40', '65', '—'] },
   ]
   const columns = ['6k', '16k', '32k', '64k', '128k']
 
@@ -4511,6 +4533,9 @@ function StoryTurnCostTooltipContent() {
           </Typography>
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.32 }}>
             Валюта за один ответ. Если фактический контекст вышел за выбранный лимит, переплата не берется.
+          </Typography>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', lineHeight: 1.32 }}>
+            Модули: время +1, авто-состояния/автокарточки вместе +1, граф ИИ до +5 с возвратом неиспользованного.
           </Typography>
         </Stack>
         <Box
@@ -4595,6 +4620,9 @@ function getStoryTurnCostTokens(
   narratorModelId: StoryNarratorModelId,
   ambientEnabled: boolean,
   emotionVisualizationEnabled = false,
+  environmentTimeEnabled = false,
+  characterAutomationEnabled = false,
+  graphAiEnabled = false,
 ): number {
   void ambientEnabled
   void emotionVisualizationEnabled
@@ -4612,6 +4640,15 @@ function getStoryTurnCostTokens(
     totalCost = tier3Cost
   } else if (normalizedUsage <= STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX) {
     totalCost = tier4Cost
+  }
+  if (environmentTimeEnabled) {
+    totalCost += 1
+  }
+  if (characterAutomationEnabled) {
+    totalCost += 1
+  }
+  if (graphAiEnabled) {
+    totalCost += 5
   }
   return totalCost
 }
@@ -7960,6 +7997,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     storyLlmModel,
     worldContextTokensUsed,
   ])
+  const graphAiEnabledForTurnCost = Boolean(
+    activeGameSummary?.auto_graph_nodes_enabled || activeGameSummary?.auto_graph_edges_enabled,
+  )
   const currentTurnCostTokens = useMemo(
     () =>
       getStoryTurnCostTokens(
@@ -7967,12 +8007,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         storyLlmModel,
         effectiveAmbientEnabled,
         effectiveEmotionVisualizationEnabled,
+        environmentTimeEnabled,
+        characterStateEnabled || autoNpcCardsEnabled,
+        graphAiEnabledForTurnCost,
       ),
     [
+      autoNpcCardsEnabled,
       cardsContextCharsUsed,
+      characterStateEnabled,
       contextLimitChars,
       effectiveAmbientEnabled,
       effectiveEmotionVisualizationEnabled,
+      environmentTimeEnabled,
+      graphAiEnabledForTurnCost,
       storyLlmModel,
     ],
   )

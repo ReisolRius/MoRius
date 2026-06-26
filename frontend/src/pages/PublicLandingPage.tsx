@@ -157,7 +157,7 @@ const tariffPlans: TariffPlan[] = [
     coins: '400',
     details: [
       'Для старта, тестовых миров и коротких кампаний.',
-      'Работает с новым лимитом контекста до 64k.',
+      'Работает с лимитом контекста до 64k.',
       'Один баланс на текст, изображения и эффекты.',
     ],
     image: pkgPutnikImg,
@@ -166,7 +166,7 @@ const tariffPlans: TariffPlan[] = [
     id: 'seeker',
     title: 'Искатель',
     price: '1190 ₽',
-    coins: '1300',
+    coins: '1290',
     details: [
       'Оптимален для регулярной игры и длинных сцен.',
       'Лучший баланс между ценой и запасом валюты.',
@@ -175,13 +175,25 @@ const tariffPlans: TariffPlan[] = [
     image: pkgIskateltImg,
   },
   {
-    id: 'chronicler',
+    id: 'archon',
     title: 'Архонт',
-    price: '4490 ₽',
-    coins: '5400',
+    price: '2990 ₽',
+    coins: '3350',
     details: [
       'Для больших кампаний и тяжёлых сцен с запасом.',
       'Удобен, если часто используете дорогие модели.',
+      'Один баланс на текст, изображения и эффекты.',
+    ],
+    image: pkgKhronistImg,
+  },
+  {
+    id: 'legendary',
+    title: 'Летописец',
+    price: '5990 ₽',
+    coins: '7000',
+    details: [
+      'Максимальный запас для долгих хроник и сложных миров.',
+      'Идеален для дорогих моделей и активных кампаний.',
       'Один баланс на текст, изображения и эффекты.',
     ],
     image: pkgKhronistImg,
@@ -529,7 +541,7 @@ export default function PublicLandingPage({
   const handlePrevPlanSlide = () => setCurrentPlanSlide((i) => Math.max(0, i - 1))
   const handleNextPlanSlide = () => setCurrentPlanSlide((i) => Math.min(tariffPlans.length - 1, i + 1))
   const renderTariffPlanCard = (plan: TariffPlan, index: number) => {
-    const accents = ['#6B9BFF', '#5ADDC7', '#F2B356']
+    const accents = ['#6B9BFF', '#5ADDC7', '#F2B356', '#C47FFF']
     const accent = accents[index % accents.length]
     const priceDigits = Number.parseInt(plan.price.replace(/[^\d]/g, ''), 10)
     const priceLabel = Number.isFinite(priceDigits) ? `${priceDigits.toLocaleString('ru-RU')} ₽` : plan.price
@@ -1574,7 +1586,7 @@ export default function PublicLandingPage({
           <Box
             sx={{
               display: { xs: 'none', sm: 'grid' },
-              gridTemplateColumns: { sm: 'repeat(2,1fr)', md: 'repeat(3,1fr)' },
+              gridTemplateColumns: { sm: 'repeat(2,1fr)', lg: 'repeat(4,1fr)' },
               gap: 2,
             }}
           >
@@ -1828,7 +1840,7 @@ export default function PublicLandingPage({
           <Box
             sx={{
               display: { xs: 'none', sm: 'grid' },
-              gridTemplateColumns: { sm: 'repeat(2,1fr)', md: 'repeat(3,1fr)' },
+              gridTemplateColumns: { sm: 'repeat(2,1fr)', lg: 'repeat(4,1fr)' },
               gap: 2,
             }}
           >

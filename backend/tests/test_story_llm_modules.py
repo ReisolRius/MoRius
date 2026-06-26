@@ -7,8 +7,6 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pydantic import ValidationError
-
 from app.services.story_llm_modules import GameStateAnalysisPayload, strict_json_loads  # noqa: E402
 from app.services.story_memory_prompts import build_game_state_analysis_messages  # noqa: E402
 
@@ -62,13 +60,11 @@ class StoryLlmModuleTests(unittest.TestCase):
         )
         prompt = "\n".join(message["content"] for message in messages)
 
-        self.assertIn("важному безымянному NPC обязательно придумай", prompt)
-        self.assertIn("Возраст: ... Внешность: ... Характер: ...", prompt)
-        self.assertIn("Первым триггером новой карточки", prompt)
+        self.assertIn("Only perform the modules listed in REQUESTED_MODULES", prompt)
+        self.assertIn("If an important NPC is unnamed, invent a lore-appropriate personal name", prompt)
+        self.assertIn("Age: ... Appearance: ... Character: ...", prompt)
         self.assertIn("inventory.value is the complete current comma-separated item list", prompt)
-        self.assertIn("Здоровье по умолчанию записывай одним словом «Нормальное»", prompt)
-        self.assertIn("Не останавливайся после первого найденного персонажа", prompt)
-        self.assertIn("Лимита «одна новая карточка за ход» нет", prompt)
+        self.assertIn("Return all qualifying NPC actions from the turn", prompt)
         self.assertIn("PREVIOUS_NARRATOR_RESPONSE", prompt)
 
     def test_auto_modules_use_gemini_without_cross_model_fallback(self) -> None:
@@ -79,24 +75,27 @@ class StoryLlmModuleTests(unittest.TestCase):
         self.assertEqual(service.primary_model, "google/gemini-2.5-flash")
         self.assertEqual(service.fallback_models, [])
 
-    def test_create_card_schema_rejects_missing_ai_generated_state(self) -> None:
-        with self.assertRaises(ValidationError):
-            GameStateAnalysisPayload.model_validate(
-                {
-                    "npc_cards": {
-                        "actions": [
-                            {
-                                "type": "create_card",
-                                "new_card": {
-                                    "name": "Кира",
-                                    "description": "Возраст: около 22 лет. Внешность: высокая. Характер: азартная.",
-                                    "triggers": ["вторая бандитка"],
-                                },
-                            }
-                        ]
-                    }
+    def test_create_card_schema_tolerates_missing_ai_generated_state(self) -> None:
+        payload = GameStateAnalysisPayload.model_validate(
+            {
+                "npc_cards": {
+                    "actions": [
+                        {
+                            "type": "create_card",
+                            "new_card": {
+                                "name": "Кира",
+                                "description": "Возраст: около 22 лет. Внешность: высокая. Характер: азартная.",
+                                "triggers": ["вторая бандитка"],
+                            },
+                        }
+                    ]
                 }
-            )
+            }
+        )
+
+        self.assertEqual(payload.npc_cards.actions[0].type, "create_card")
+        self.assertEqual(payload.npc_cards.actions[0].new_card.name, "Кира")
+        self.assertEqual(payload.npc_cards.actions[0].new_card.clothing, "")
 
 
 if __name__ == "__main__":

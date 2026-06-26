@@ -74,8 +74,9 @@ const SHOP_DIALOG_PAPER_SX = {
 }
 const DEFAULT_PLANS: CoinTopUpPlan[] = [
   { id: 'standard', title: 'Путник', description: 'Один баланс для текста, изображений, рамок и баннеров.', price_rub: 399, coins: 400 },
-  { id: 'pro', title: 'Искатель', description: 'Больше запаса для длинных сессий и визуальных генераций.', price_rub: 1190, coins: 1300 },
-  { id: 'mega', title: 'Архонт', description: 'Большой запас для активных миров, артов и покупок.', price_rub: 4490, coins: 5400 },
+  { id: 'pro', title: 'Искатель', description: 'Больше запаса для длинных сессий и визуальных генераций.', price_rub: 1190, coins: 1290 },
+  { id: 'mega', title: 'Архонт', description: 'Большой запас для активных миров, артов и покупок.', price_rub: 2990, coins: 3350 },
+  { id: 'legendary', title: 'Летописец', description: 'Максимальный запас для хронистов: дорогие модели, долгие кампании.', price_rub: 5990, coins: 7000 },
 ]
 
 function isPrivilegedUser(user: AuthUser): boolean {
@@ -368,7 +369,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   }
 
   const renderPlanCard = (plan: CoinTopUpPlan, index: number) => {
-    const accents = ['#6B9BFF', '#5ADDC7', '#F2B356']
+    const accents = ['#6B9BFF', '#5ADDC7', '#F2B356', '#C47FFF']
     const accent = accents[index % accents.length]
     const isPaying = payingPlanId === plan.id
     return (
@@ -606,7 +607,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.35rem', fontWeight: 900, mb: 1.2 }}>
               Пакеты валюты
             </Typography>
-            <Box sx={{ display: 'grid', gap: 1.6, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' } }}>
+            <Box sx={{ display: 'grid', gap: 1.6, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' } }}>
               {plans.map(renderPlanCard)}
             </Box>
           </Box>
