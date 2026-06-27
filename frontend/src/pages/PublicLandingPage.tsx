@@ -44,15 +44,15 @@ const STORY_TEXT =
 
 const LANDING_PROMPT_MAX_LENGTH = 8000
 
-const ACCENT = '#578EEE'
-const ACCENT_HOVER = '#477AD7'
+const ACCENT = '#4c8dff'
+const ACCENT_HOVER = 'color-mix(in srgb, #4c8dff 88%, #000 12%)'
 const ACCENT_ICON_FILTER =
   'brightness(0) saturate(100%) invert(59%) sepia(85%) saturate(1731%) hue-rotate(194deg) brightness(97%) contrast(92%)'
-const TEXT_HEADING = '#d4cdc8'
-const TEXT_BODY = '#b6ada4'
-const TEXT_SUBTITLE = '#c2b8af'
-const CARD_BG = '#171716'
-const CARD_BORDER = '#31302e'
+const TEXT_HEADING = '#fbf9f4'
+const TEXT_BODY = '#9b9aa0'
+const TEXT_SUBTITLE = '#cbc7c0'
+const CARD_BG = '#17171c'
+const CARD_BORDER = 'rgba(255,255,255,0.07)'
 const PREVIOUS_SLIDE_ARIA_LABEL = '\u041f\u0440\u0435\u0434\u044b\u0434\u0443\u0449\u0438\u0439 \u0441\u043b\u0430\u0439\u0434'
 const NEXT_SLIDE_ARIA_LABEL = '\u0421\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0439 \u0441\u043b\u0430\u0439\u0434'
 const getSlideAriaLabel = (index: number) => `\u0421\u043b\u0430\u0439\u0434 ${index + 1}`
@@ -218,24 +218,24 @@ const ctaButtonSx: SxProps<Theme> = {
   px: 4,
   fontWeight: 700,
   fontSize: '1rem',
-  fontFamily: '"Nunito Sans", sans-serif',
-  backgroundColor: ACCENT,
+  fontFamily: '"Manrope", sans-serif',
+  background: `linear-gradient(180deg, color-mix(in srgb, ${ACCENT} 82%, #ffffff 18%), ${ACCENT})`,
   color: '#ffffff',
-  boxShadow: '0 8px 20px rgba(87,142,238,0.35)',
+  boxShadow: 'none',
   transition: 'transform 200ms ease, box-shadow 200ms ease, background-color 200ms ease',
   textTransform: 'none',
   '&:hover': {
-    backgroundColor: ACCENT_HOVER,
+    background: ACCENT_HOVER,
     color: '#ffffff',
     transform: 'translateY(-2px)',
-    boxShadow: '0 12px 28px rgba(87,142,238,0.45)',
+    boxShadow: 'none',
   },
 }
 
 const sectionHeadingSx: SxProps<Theme> = {
-  fontFamily: 'Roboto, sans-serif',
-  fontWeight: 600,
-  textTransform: 'uppercase',
+  fontFamily: '"Spectral", serif',
+  fontWeight: 700,
+  textTransform: 'none',
   color: TEXT_HEADING,
   letterSpacing: 0,
 }
@@ -335,11 +335,11 @@ function LandingPublicWorldCard({
           ? undefined
           : {
               transform: 'translateY(-6px)',
-              borderColor: 'rgba(87,142,238,0.45)',
-              boxShadow: '0 26px 64px rgba(0,0,0,0.48), 0 0 28px rgba(87,142,238,0.16)',
+              borderColor: 'var(--morius-hover-border)',
+              boxShadow: 'var(--morius-neutral-shadow)',
             },
         '&:focus-visible': {
-          outline: '2px solid rgba(87,142,238,0.72)',
+          outline: '2px solid color-mix(in srgb, var(--accent, #4c8dff) 48%, transparent)',
           outlineOffset: '3px',
         },
         '&:disabled': {
@@ -388,7 +388,7 @@ function LandingPublicWorldCard({
             right: 18,
             bottom: 16,
             color: '#ffffff',
-            fontFamily: '"Nunito Sans", sans-serif',
+            fontFamily: '"Manrope", sans-serif',
             fontWeight: 900,
             fontSize: { xs: '1.42rem', md: '1.58rem' },
             lineHeight: 1.05,
@@ -407,7 +407,7 @@ function LandingPublicWorldCard({
         <Typography
           sx={{
             color: TEXT_BODY,
-            fontFamily: '"Nunito Sans", sans-serif',
+            fontFamily: '"Manrope", sans-serif',
             fontSize: { xs: '0.9rem', md: '0.95rem' },
             lineHeight: 1.5,
             minHeight: '4.5em',
@@ -423,7 +423,7 @@ function LandingPublicWorldCard({
           <Typography
             sx={{
               color: TEXT_SUBTITLE,
-              fontFamily: '"Nunito Sans", sans-serif',
+              fontFamily: '"Manrope", sans-serif',
               fontSize: '0.82rem',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -434,10 +434,10 @@ function LandingPublicWorldCard({
             {world.author_name}
           </Typography>
           <Stack direction="row" alignItems="center" spacing={1.4} sx={{ color: '#ffffff', flexShrink: 0 }}>
-            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, fontFamily: '"Nunito Sans", sans-serif' }}>
+            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, fontFamily: '"Manrope", sans-serif' }}>
               ▶ {world.community_launches}
             </Typography>
-            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, fontFamily: '"Nunito Sans", sans-serif' }}>
+            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, fontFamily: '"Manrope", sans-serif' }}>
               ★ {world.community_rating_avg.toFixed(1)}
             </Typography>
           </Stack>
@@ -558,27 +558,27 @@ export default function PublicLandingPage({
           flexDirection: 'column',
           minHeight: '100%',
           transition: 'transform 240ms ease, border-color 240ms ease',
-          '&:hover': { transform: 'translateY(-6px)', borderColor: 'rgba(87,142,238,0.3)' },
+          '&:hover': { transform: 'translateY(-6px)', borderColor: 'var(--morius-hover-border)', boxShadow: 'var(--morius-neutral-shadow)' },
         }}
       >
         <Box sx={{ height: 84, p: 2, background: `linear-gradient(135deg, ${accent}, color-mix(in srgb, ${accent} 58%, #111 42%))` }}>
-          <Typography sx={{ color: '#101317', fontSize: '1.6rem', fontWeight: 900, lineHeight: 1, fontFamily: '"Nunito Sans", sans-serif' }}>
+          <Typography sx={{ color: '#101317', fontSize: '1.6rem', fontWeight: 900, lineHeight: 1, fontFamily: '"Manrope", sans-serif' }}>
             {plan.title}
           </Typography>
         </Box>
         <Stack spacing={1.4} sx={{ p: 2, flex: 1 }}>
-          <Typography sx={{ color: '#ffffff', fontSize: { xs: '2rem', md: '2.15rem' }, fontWeight: 900, lineHeight: 1, fontFamily: '"Nunito Sans", sans-serif' }}>
+          <Typography sx={{ color: '#ffffff', fontSize: { xs: '2rem', md: '2.15rem' }, fontWeight: 900, lineHeight: 1, fontFamily: '"Manrope", sans-serif' }}>
             {priceLabel}
           </Typography>
           <Stack direction="row" spacing={0.45} alignItems="center">
-            <Typography sx={{ color: accent, fontFamily: '"Nunito Sans", sans-serif', fontSize: '1.05rem', fontWeight: 900 }}>
+            <Typography sx={{ color: accent, fontFamily: '"Manrope", sans-serif', fontSize: '1.05rem', fontWeight: 900 }}>
               {plan.coins}
             </Typography>
             <SoulIcon size={20} sx={{ color: accent, opacity: 0.95, filter: 'none' }} />
           </Stack>
           <Stack spacing={0.5} sx={{ flex: 1 }}>
             {plan.details.map((detail, detailIndex) => (
-              <Typography key={detailIndex} sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.88rem', lineHeight: 1.45 }}>
+              <Typography key={detailIndex} sx={{ color: TEXT_BODY, fontFamily: '"Manrope", sans-serif', fontSize: '0.88rem', lineHeight: 1.45 }}>
                 {detail}
               </Typography>
             ))}
@@ -592,7 +592,7 @@ export default function PublicLandingPage({
   }
 
   return (
-    <Box sx={{ backgroundColor: '#111111', color: TEXT_BODY, overflowX: 'hidden' }}>
+    <Box className="morius-app-shell" sx={{ backgroundColor: '#090909', color: TEXT_BODY, overflowX: 'hidden' }}>
 
       {/* ==================================================================
           1. HERO
@@ -611,7 +611,7 @@ export default function PublicLandingPage({
           px: { xs: 2, md: 4 },
           pt: { xs: 8, md: 10 },
           pb: { xs: 10, md: 14 },
-          backgroundColor: '#111111',
+          backgroundColor: '#090909',
         }}
       >
         <ProgressiveImage
@@ -626,7 +626,7 @@ export default function PublicLandingPage({
             position: 'absolute',
             inset: 0,
             zIndex: 0,
-            backgroundColor: '#111111',
+            backgroundColor: '#090909',
           }}
           imgSx={{
             objectPosition: { xs: '58% 54%', md: 'center 54%' },
@@ -664,11 +664,11 @@ export default function PublicLandingPage({
                 px: { xs: 1, md: 1.25 },
                 py: 0.42,
                 borderRadius: '999px',
-                border: '1px solid rgba(87,142,238,0.62)',
-                background: 'linear-gradient(180deg, rgba(87,142,238,0.92), rgba(53,101,196,0.92))',
-                boxShadow: '0 10px 26px rgba(87,142,238,0.34)',
+                border: '1px solid color-mix(in srgb, var(--accent, #4c8dff) 56%, transparent)',
+                background: `linear-gradient(180deg, color-mix(in srgb, ${ACCENT} 82%, #ffffff 18%), ${ACCENT})`,
+                boxShadow: 'none',
                 color: '#ffffff',
-                fontFamily: '"Nunito Sans", sans-serif',
+                fontFamily: '"Manrope", sans-serif',
                 fontSize: { xs: '0.72rem', md: '0.82rem' },
                 fontWeight: 900,
                 lineHeight: 1,
@@ -694,7 +694,7 @@ export default function PublicLandingPage({
             sx={{
               color: TEXT_SUBTITLE,
               fontSize: { xs: '0.9rem', md: '1.05rem' },
-              fontFamily: '"Nunito Sans", sans-serif',
+              fontFamily: '"Manrope", sans-serif',
               fontWeight: 400,
               maxWidth: 620,
               animation: 'morius-fade-up 720ms cubic-bezier(0.22,1,0.36,1) both',
@@ -730,7 +730,7 @@ export default function PublicLandingPage({
             content: '""',
             position: 'absolute',
             inset: 0,
-            background: 'radial-gradient(ellipse 55% 78% at 20% 54%, rgba(87,142,238,0.22) 0%, rgba(87,142,238,0.12) 42%, transparent 78%)',
+            background: 'radial-gradient(ellipse 55% 78% at 20% 54%, rgba(76,141,255,0.12) 0%, rgba(76,141,255,0.06) 42%, transparent 78%)',
             pointerEvents: 'none',
             zIndex: 0,
           },
@@ -783,7 +783,7 @@ export default function PublicLandingPage({
                     transform: { xs: 'translateY(8px)', md: 'translate(-4%, 16px) scale(1.08)' },
                     WebkitMaskImage: 'linear-gradient(180deg, black 55%, transparent 100%)',
                     maskImage: 'linear-gradient(180deg, black 55%, transparent 100%)',
-                    filter: 'drop-shadow(0 0 40px rgba(87,142,238,0.22))',
+                    filter: 'none',
                   }}
                 />
               </Box>
@@ -808,7 +808,7 @@ export default function PublicLandingPage({
                   sx={{
                     color: TEXT_BODY,
                     fontSize: { xs: '0.95rem', md: '1.05rem' },
-                    fontFamily: '"Nunito Sans", sans-serif',
+                    fontFamily: '"Manrope", sans-serif',
                     fontWeight: 400,
                     lineHeight: 1.7,
                   }}
@@ -837,7 +837,7 @@ export default function PublicLandingPage({
         component="section"
         ref={storySectionRef}
         sx={{
-          backgroundColor: '#111111',
+          backgroundColor: '#090909',
           py: { xs: 10, md: 14 },
           textAlign: 'center',
         }}
@@ -874,7 +874,7 @@ export default function PublicLandingPage({
                   sx={{
                     color: TEXT_BODY,
                     fontSize: { xs: '0.9rem', md: '1rem' },
-                    fontFamily: '"Nunito Sans", sans-serif',
+                    fontFamily: '"Manrope", sans-serif',
                     lineHeight: 1.7,
                     minHeight: { xs: 80, md: 100 },
                   }}
@@ -910,7 +910,7 @@ export default function PublicLandingPage({
                   }}
                 >
                   <SoulIcon size={17} sx={{ color: TEXT_HEADING, opacity: 0.86, filter: 'none' }} />
-                  <Typography sx={{ fontSize: '0.85rem', color: TEXT_HEADING, fontFamily: '"Nunito Sans", sans-serif', fontWeight: 500 }}>5</Typography>
+                  <Typography sx={{ fontSize: '0.85rem', color: TEXT_HEADING, fontFamily: '"Manrope", sans-serif', fontWeight: 500 }}>5</Typography>
                 </Box>
                 <Box component="img" src={landingControlsIcon} alt="controls" sx={{ height: 28, opacity: 0.75 }} />
               </Box>
@@ -941,7 +941,7 @@ export default function PublicLandingPage({
                     resize: 'none',
                     background: 'transparent',
                     color: TEXT_HEADING,
-                    fontFamily: '"Nunito Sans", sans-serif',
+                    fontFamily: '"Manrope", sans-serif',
                     fontSize: '0.9rem',
                     lineHeight: 1.5,
                     '&::placeholder': { color: '#808080', opacity: 1 },
@@ -980,7 +980,7 @@ export default function PublicLandingPage({
           component="section"
           sx={{
             position: 'relative',
-            backgroundColor: '#111111',
+            backgroundColor: '#090909',
             py: { xs: 9, md: 13 },
             overflow: 'hidden',
             '@keyframes morius-public-worlds-scroll': {
@@ -1005,7 +1005,7 @@ export default function PublicLandingPage({
                 sx={{
                   mt: 1.5,
                   color: TEXT_BODY,
-                  fontFamily: '"Nunito Sans", sans-serif',
+                  fontFamily: '"Manrope", sans-serif',
                   fontSize: { xs: '0.95rem', md: '1.08rem' },
                   lineHeight: 1.55,
                 }}
@@ -1084,7 +1084,7 @@ export default function PublicLandingPage({
       {/* ==================================================================
           4. ПРЕИМУЩЕСТВА И ОСОБЕННОСТИ
       ================================================================== */}
-      <Box component="section" sx={{ backgroundColor: '#111111', py: { xs: 10, md: 14 } }}>
+      <Box component="section" sx={{ backgroundColor: '#090909', py: { xs: 10, md: 14 } }}>
         <Container maxWidth="lg">
           <RevealOnView>
             <Typography
@@ -1144,7 +1144,7 @@ export default function PublicLandingPage({
               <Typography
                 aria-hidden
                 sx={{
-                  fontFamily: 'Roboto, Arial, sans-serif',
+                  fontFamily: '"Manrope", sans-serif',
                   fontWeight: 700,
                   fontSize: { xs: '9rem', md: '13rem' },
                   lineHeight: 0.85,
@@ -1175,7 +1175,7 @@ export default function PublicLandingPage({
                 sx={{
                   color: TEXT_BODY,
                   fontSize: { xs: '0.9rem', md: '1rem' },
-                  fontFamily: '"Nunito Sans", sans-serif',
+                  fontFamily: '"Manrope", sans-serif',
                   lineHeight: 1.7,
                   maxWidth: 520,
                   mb: 4,
@@ -1295,7 +1295,7 @@ export default function PublicLandingPage({
                         position: 'absolute',
                         inset: { xs: '10% 0 8%', md: '5% -6% 4%' },
                         background:
-                          'radial-gradient(ellipse at center, rgba(87,142,238,0.2) 0%, rgba(87,142,238,0.12) 34%, rgba(87,142,238,0.05) 54%, transparent 76%)',
+                          'radial-gradient(ellipse at center, rgba(76,141,255,0.11) 0%, rgba(76,141,255,0.06) 34%, rgba(76,141,255,0.03) 54%, transparent 76%)',
                         zIndex: 0,
                         pointerEvents: 'none',
                       }}
@@ -1328,7 +1328,7 @@ export default function PublicLandingPage({
                           width: '100%',
                           display: 'block',
                           borderRadius: '12px',
-                          boxShadow: '0 24px 48px rgba(0,0,0,0.55), 0 0 100px rgba(87,142,238,0.14)',
+                          boxShadow: '0 24px 48px rgba(0,0,0,0.55)',
                         }}
                       />
                     </Box>
@@ -1419,7 +1419,7 @@ export default function PublicLandingPage({
       {/* ==================================================================
           5. КАК УСТРОЕНА ИГРА
       ================================================================== */}
-      <Box component="section" sx={{ backgroundColor: '#111111', py: { xs: 10, md: 14 } }}>
+      <Box component="section" sx={{ backgroundColor: '#090909', py: { xs: 10, md: 14 } }}>
         <Container maxWidth="lg">
           <RevealOnView>
             <Stack spacing={1.5} alignItems="center" textAlign="center" mb={{ xs: 5, md: 7 }}>
@@ -1432,7 +1432,7 @@ export default function PublicLandingPage({
               <Typography
                 sx={{
                   color: TEXT_BODY,
-                  fontFamily: '"Nunito Sans", sans-serif',
+                  fontFamily: '"Manrope", sans-serif',
                   fontSize: { xs: '0.9rem', md: '1rem' },
                   maxWidth: 720,
                 }}
@@ -1477,7 +1477,7 @@ export default function PublicLandingPage({
                         <Typography
                           component="h3"
                           sx={{
-                            fontFamily: '"Nunito Sans", sans-serif',
+                            fontFamily: '"Manrope", sans-serif',
                             fontWeight: 700,
                             fontSize: '1rem',
                             color: TEXT_HEADING,
@@ -1501,7 +1501,7 @@ export default function PublicLandingPage({
                       <Typography
                         sx={{
                           color: TEXT_BODY,
-                          fontFamily: '"Nunito Sans", sans-serif',
+                          fontFamily: '"Manrope", sans-serif',
                           fontSize: '0.85rem',
                           lineHeight: 1.6,
                           opacity: 0.82,
@@ -1636,7 +1636,7 @@ export default function PublicLandingPage({
                     <Typography
                       component="h3"
                       sx={{
-                        fontFamily: '"Nunito Sans", sans-serif',
+                        fontFamily: '"Manrope", sans-serif',
                         fontWeight: 700,
                         fontSize: { xs: '1rem', md: '1.1rem' },
                         color: TEXT_HEADING,
@@ -1660,7 +1660,7 @@ export default function PublicLandingPage({
                   <Typography
                     sx={{
                       color: TEXT_BODY,
-                      fontFamily: '"Nunito Sans", sans-serif',
+                      fontFamily: '"Manrope", sans-serif',
                       fontSize: '0.85rem',
                       lineHeight: 1.6,
                       opacity: 0.82,
@@ -1678,7 +1678,7 @@ export default function PublicLandingPage({
       {/* ==================================================================
           6. ПАКЕТЫ
       ================================================================== */}
-      <Box component="section" sx={{ backgroundColor: '#111111', py: { xs: 10, md: 14 } }}>
+      <Box component="section" sx={{ backgroundColor: '#090909', py: { xs: 10, md: 14 } }}>
         <Container maxWidth="lg">
           <RevealOnView>
             <Typography
@@ -1703,7 +1703,7 @@ export default function PublicLandingPage({
               <Box sx={{ backgroundColor: ACCENT, px: 3, py: 1.8 }}>
                 <Typography
                   sx={{
-                    fontFamily: '"Nunito Sans", sans-serif',
+                    fontFamily: '"Manrope", sans-serif',
                     fontWeight: 700,
                     fontSize: { xs: '1rem', md: '1.15rem' },
                     color: '#ffffff',
@@ -1726,17 +1726,17 @@ export default function PublicLandingPage({
                 }}
               >
                 <Stack spacing={0.6}>
-                  <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>~50 ходов</Typography>
-                  <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>
+                  <Typography sx={{ color: TEXT_BODY, fontFamily: '"Manrope", sans-serif', fontSize: '0.9rem' }}>~50 ходов</Typography>
+                  <Typography sx={{ color: TEXT_BODY, fontFamily: '"Manrope", sans-serif', fontSize: '0.9rem' }}>
                     Доступ ко всем функциям и рассказчикам
                   </Typography>
-                  <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>
+                  <Typography sx={{ color: TEXT_BODY, fontFamily: '"Manrope", sans-serif', fontSize: '0.9rem' }}>
                     Отличная возможность опробовать сайт и принять решение о покупке
                   </Typography>
                 </Stack>
                 <Typography
                   sx={{
-                    fontFamily: '"Nunito Sans", sans-serif',
+                    fontFamily: '"Manrope", sans-serif',
                     fontWeight: 700,
                     fontSize: { xs: '2rem', md: '2.5rem' },
                     color: '#ffffff',
@@ -1856,7 +1856,7 @@ export default function PublicLandingPage({
                     display: 'flex',
                     flexDirection: 'column',
                     transition: 'transform 240ms ease, border-color 240ms ease',
-                    '&:hover': { transform: 'translateY(-6px)', borderColor: 'rgba(87,142,238,0.3)' },
+                    '&:hover': { transform: 'translateY(-6px)', borderColor: 'var(--morius-hover-border)', boxShadow: 'var(--morius-neutral-shadow)' },
                   }}
                 >
                   {/* Package image header */}
@@ -1892,7 +1892,7 @@ export default function PublicLandingPage({
                         zIndex: 2,
                         bottom: 12,
                         left: 16,
-                        fontFamily: '"Nunito Sans", sans-serif',
+                        fontFamily: '"Manrope", sans-serif',
                         fontWeight: 900,
                         fontSize: '2rem',
                         lineHeight: 1,
@@ -1908,7 +1908,7 @@ export default function PublicLandingPage({
                   <Box sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1.5, flex: 1 }}>
                     <Typography
                       sx={{
-                        fontFamily: '"Nunito Sans", sans-serif',
+                        fontFamily: '"Manrope", sans-serif',
                         fontWeight: 700,
                         fontSize: { xs: '2rem', md: '2.4rem' },
                         color: '#ffffff',
@@ -1918,14 +1918,14 @@ export default function PublicLandingPage({
                       {plan.price}
                     </Typography>
                     <Stack direction="row" spacing={0.45} alignItems="center">
-                      <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>
+                      <Typography sx={{ color: TEXT_BODY, fontFamily: '"Manrope", sans-serif', fontSize: '0.9rem' }}>
                         {plan.coins}
                       </Typography>
                       <SoulIcon size={16} sx={{ color: TEXT_BODY, opacity: 0.9, filter: 'none' }} />
                     </Stack>
                     <Stack spacing={0.5} sx={{ flex: 1 }}>
                       {plan.details.map((d, j) => (
-                        <Typography key={j} sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.82rem', lineHeight: 1.5 }}>
+                        <Typography key={j} sx={{ color: TEXT_BODY, fontFamily: '"Manrope", sans-serif', fontSize: '0.82rem', lineHeight: 1.5 }}>
                           {d}
                         </Typography>
                       ))}
@@ -1951,7 +1951,7 @@ export default function PublicLandingPage({
       <Box
         component="section"
         sx={{
-          backgroundColor: '#111111',
+          backgroundColor: '#090909',
           py: { xs: 10, md: 14 },
           display: 'grid',
           placeItems: 'center',
@@ -1970,7 +1970,7 @@ export default function PublicLandingPage({
             <Typography
               sx={{
                 color: TEXT_BODY,
-                fontFamily: '"Nunito Sans", sans-serif',
+                fontFamily: '"Manrope", sans-serif',
                 fontSize: { xs: '0.9rem', md: '1rem' },
               }}
             >

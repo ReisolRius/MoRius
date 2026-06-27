@@ -21,7 +21,6 @@ type CommunityWorldCardProps = {
   coverBadge?: ReactNode
 }
 
-const CARD_BACKGROUND = 'var(--morius-card-bg)'
 const CARD_BORDER = 'var(--morius-card-border)'
 const TEXT_PRIMARY = 'var(--morius-text-primary)'
 const TEXT_SECONDARY = 'var(--morius-text-secondary)'
@@ -165,13 +164,13 @@ function CommunityWorldCard({
           textAlign: 'left',
           alignItems: 'stretch',
           justifyContent: 'flex-start',
-          background: CARD_BACKGROUND,
+          background: 'var(--morius-card-gradient)',
           color: TEXT_PRIMARY,
           height: '100%',
           width: '100%',
           cursor: disabled ? 'default' : 'pointer',
           opacity: disabled ? 0.82 : 1,
-          transition: 'transform 180ms ease, border-color 180ms ease',
+          transition: 'transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
           '& .community-world-card-favorite': {
             opacity: { xs: 1, md: 0 },
             transform: { xs: 'translateY(0)', md: 'translateY(-4px)' },
@@ -181,8 +180,9 @@ function CommunityWorldCard({
           '&:hover': disabled
             ? undefined
             : {
-                borderColor: 'rgba(203, 216, 234, 0.36)',
-                transform: 'translateY(-2px)',
+                borderColor: 'var(--morius-hover-border)',
+                transform: 'translateY(-5px)',
+                boxShadow: 'var(--morius-neutral-shadow)',
               },
           '&:hover .community-world-card-favorite, &:focus-within .community-world-card-favorite': {
             opacity: 1,
@@ -202,7 +202,7 @@ function CommunityWorldCard({
         sx={{
           position: 'relative',
           width: '100%',
-          aspectRatio: '3 / 2',
+          height: { xs: 152, md: 160 },
           flexShrink: 0,
           overflow: 'hidden',
         }}
@@ -272,7 +272,7 @@ function CommunityWorldCard({
             position: 'absolute',
             inset: 0,
             background:
-              'linear-gradient(180deg, rgba(5, 8, 12, 0.2) 0%, rgba(5, 8, 12, 0.1) 34%, rgba(5, 8, 12, 0.03) 100%)',
+              'linear-gradient(180deg, transparent 45%, rgba(10,8,12,0.82))',
           }}
         />
         <Box
@@ -290,7 +290,7 @@ function CommunityWorldCard({
         <Stack
           direction="row"
           alignItems="center"
-          spacing="20px"
+          spacing={1.1}
           role={onAuthorClick && !disabled ? 'button' : undefined}
           tabIndex={onAuthorClick && !disabled ? 0 : undefined}
           onClick={handleAuthorClick}
@@ -299,10 +299,24 @@ function CommunityWorldCard({
             position: 'absolute',
             top: { xs: '12px', md: '14px' },
             left: { xs: '12px', md: '14px' },
-            right: { xs: '12px', md: '14px' },
+            right: 'auto',
+            maxWidth: shouldShowFavoriteButton ? 'calc(100% - 64px)' : 'calc(100% - 28px)',
             minWidth: 0,
-            pr: shouldShowFavoriteButton ? '44px' : 0,
+            width: 'fit-content',
+            px: 0.6,
+            py: 0.35,
+            borderRadius: '999px',
+            border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+            backgroundColor: 'rgba(9,9,9,0.42)',
+            backdropFilter: 'blur(8px)',
+            pr: shouldShowFavoriteButton ? '48px' : { xs: 1.8, md: 2 },
+            overflow: 'visible',
             cursor: onAuthorClick && !disabled ? 'pointer' : 'default',
+            '& .morius-framed-avatar': {
+              flexShrink: '0 !important',
+              marginRight: '5px',
+              zIndex: 0,
+            },
             '&:focus-visible': onAuthorClick && !disabled
               ? {
                   outline: '2px solid rgba(205, 223, 246, 0.62)',
@@ -321,7 +335,7 @@ function CommunityWorldCard({
             frameImageUrl={world.author_avatar_frame_image_url}
             sx={{
               border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.32)',
-              background: 'linear-gradient(180deg, rgba(47, 62, 86, 0.78), rgba(22, 31, 44, 0.9))',
+              background: 'radial-gradient(circle at 30% 20%, rgba(255,255,255,0.16), rgba(255,255,255,0.04) 42%, rgba(0,0,0,0.4) 100%)',
             }}
           />
           <Typography
@@ -330,10 +344,12 @@ function CommunityWorldCard({
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              color: 'rgba(233, 241, 252, 0.97)',
-              fontSize: { xs: '0.88rem', md: '0.93rem' },
+              color: 'var(--morius-text-primary)',
+              fontSize: { xs: '0.78rem', md: '0.82rem' },
               lineHeight: 1.2,
               fontWeight: 700,
+              position: 'relative',
+              zIndex: 1,
             }}
             title={authorName}
           >
@@ -395,13 +411,14 @@ function CommunityWorldCard({
           flexDirection: 'column',
           flex: 1,
           minHeight: 0,
-          background: CARD_BACKGROUND,
+          background: 'var(--morius-card-gradient)',
         }}
       >
         <Typography
           sx={{
             color: TEXT_PRIMARY,
-            fontSize: { xs: '18px', md: '20px' },
+            fontFamily: '"Spectral", serif',
+            fontSize: { xs: '17px', md: '18.5px' },
             lineHeight: TITLE_LINE_HEIGHT,
             fontWeight: 700,
             minHeight: `${TITLE_LINE_HEIGHT * TITLE_LINE_COUNT}em`,
@@ -442,6 +459,8 @@ function CommunityWorldCard({
           justifyContent="space-between"
           sx={{
             mt: '14px',
+            pt: '12px',
+            borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)',
             minWidth: 0,
           }}
         >
@@ -462,18 +481,18 @@ function CommunityWorldCard({
 
           <Stack direction="row" alignItems="center" spacing="10px" sx={{ flexShrink: 0 }}>
             <Stack direction="row" alignItems="center" spacing="10px">
-              <Typography sx={{ color: TEXT_PRIMARY, fontSize: { xs: '13px', md: '14px' }, fontWeight: 600, lineHeight: 1 }}>
+              <Typography sx={{ color: 'var(--accent, #4c8dff)', fontSize: { xs: '13px', md: '14px' }, fontWeight: 700, lineHeight: 1 }}>
                 {world.community_launches}
               </Typography>
-              <Box component="img" src={icons.communityPlay} alt="" sx={{ width: 14, height: 14, opacity: 0.9 }} />
+              <Box component="img" src={icons.communityPlay} alt="" sx={{ width: 14, height: 14, opacity: 0.9, filter: 'brightness(1.15)' }} />
             </Stack>
             <Stack direction="row" alignItems="center" spacing="6px">
-              <Typography sx={{ color: TEXT_PRIMARY, fontSize: { xs: '13px', md: '14px' }, fontWeight: 600, lineHeight: 1 }}>
+              <Typography sx={{ color: 'var(--morius-rating-gold)', fontSize: { xs: '13px', md: '14px' }, fontWeight: 700, lineHeight: 1 }}>
                 {world.community_rating_avg.toFixed(1)}
               </Typography>
               <Typography
                 sx={{
-                  color: TEXT_PRIMARY,
+                  color: 'var(--morius-rating-gold)',
                   fontSize: '20px',
                   fontWeight: 600,
                   lineHeight: '20px',

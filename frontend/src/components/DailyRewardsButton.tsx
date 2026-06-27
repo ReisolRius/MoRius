@@ -110,7 +110,7 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
         : 'color-mix(in srgb, var(--morius-app-base) 76%, var(--morius-card-bg) 24%)'
 
     const boxShadow = isClaimable
-      ? '0 0 0 1.5px color-mix(in srgb, var(--morius-accent) 88%, white 12%) inset, 0 0 16px color-mix(in srgb, var(--morius-accent) 28%, transparent)'
+      ? '0 0 0 1.5px color-mix(in srgb, var(--morius-accent) 72%, white 12%) inset, 0 14px 26px -22px rgba(0,0,0,0.78)'
       : '0 0 0 1px rgba(255,255,255,0.06) inset'
 
     return (
@@ -144,7 +144,7 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
           '&:hover': isClaimable
             ? {
                 transform: 'translateY(-1px)',
-                boxShadow: '0 0 0 1.5px color-mix(in srgb, var(--morius-accent) 88%, white 12%) inset, 0 0 24px color-mix(in srgb, var(--morius-accent) 40%, transparent)',
+                boxShadow: '0 0 0 1.5px color-mix(in srgb, var(--morius-accent) 78%, white 12%) inset, var(--morius-neutral-shadow)',
               }
             : undefined,
           '&:disabled': { opacity: 1 },

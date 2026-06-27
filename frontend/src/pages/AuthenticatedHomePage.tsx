@@ -9,6 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type Ref,
+  type TouchEvent as ReactTouchEvent,
   type UIEvent,
 } from 'react'
 import {
@@ -49,7 +50,6 @@ import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCar
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
-import ProgressiveImage from '../components/media/ProgressiveImage'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import {
   CommunityModerationCardFrame,
@@ -74,7 +74,6 @@ import {
   createPublicationEncouragement,
   getCoinTopUpPlans,
   getCreatorMonthSlots,
-  getShopCatalog,
   listCreatorCandidates,
   listDashboardNews,
   returnCharacterToModerationAsAdmin,
@@ -86,7 +85,6 @@ import {
   updateDashboardNews,
   updateCreatorMonthSlot,
   type CoinTopUpPlan,
-  type CosmeticItem,
   type CreatorCandidate,
   type CreatorMonthList,
   type CreatorMonthSlot,
@@ -118,8 +116,6 @@ import type { StoryCommunityCharacterSummary, StoryCommunityInstructionTemplateS
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import { MobileCardItem, MobileCardSlider } from '../components/mobile/MobileCardSlider'
-import { getProfileBannerPreset } from '../constants/profileBanners'
-import { resolveProfileBannerImageUrl, withKnownCosmeticImageUrl } from '../utils/cosmeticImageFallbacks'
 
 type AuthenticatedHomePageProps = {
   user: AuthUser
@@ -209,7 +205,7 @@ function NewsXfLayer({ src, onReady }: { src: string; onReady: (src: string) => 
         width: '100%',
         height: '100%',
         objectFit: 'cover',
-        objectPosition: 'center',
+        objectPosition: '72% 28%',
         opacity: loaded ? 0.94 : 0,
         transition: 'opacity 600ms ease',
         pointerEvents: 'none',
@@ -251,15 +247,16 @@ function NewsBlurBackgroundXfLayer({ src, onReady }: { src: string; onReady: (sr
       onError={handleError}
       sx={{
         position: 'absolute',
-        top: { xs: -68, md: -96 },
-        left: { xs: -72, md: -150 },
-        width: { xs: 'calc(100% + 144px)', md: 'calc(100% + 300px)' },
-        height: { xs: 'calc(100% + 136px)', md: 'calc(100% + 192px)' },
+        top: -100,
+        left: '-12%',
+        right: '-12%',
+        width: '124%',
+        height: 920,
         objectFit: 'cover',
-        objectPosition: 'center',
-        filter: 'blur(76px) saturate(1.22)',
-        transform: 'scale(1.06)',
-        opacity: loaded ? 0.5 : 0,
+        objectPosition: '50% 22%',
+        filter: 'blur(115px) saturate(1.45)',
+        transform: 'scale(1.08)',
+        opacity: loaded ? 0.6 : 0,
         transition: 'opacity 900ms ease',
         pointerEvents: 'none',
       }}
@@ -319,43 +316,48 @@ function HomeSliderHeader({
   onShowAll: () => void
 }) {
   return (
-    <Stack sx={{ mb: 'var(--morius-cards-title-gap)', mt: 'var(--morius-cards-title-gap)' }}>
-      {/* Title row: always inline, button right-aligned */}
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
+    <Stack sx={{ mb: 2, mt: 'var(--morius-cards-title-gap)' }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1.2}>
         <Stack direction="row" alignItems="center" spacing={0.85} sx={{ minWidth: 0 }}>
           <ThemedSvgIcon
             markup={iconMarkup}
-            size={28}
+            size={24}
             sx={{ color: 'var(--morius-accent)', flexShrink: 0, opacity: 0.96 }}
           />
-          <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
-            {title}
-          </Typography>
+          <Stack spacing={0.1} sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontFamily: '"Spectral", serif', fontSize: { xs: '1.45rem', md: '26px' }, fontWeight: 700, color: 'var(--morius-title-text)', lineHeight: 1.1 }}>
+              {title}
+            </Typography>
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.94rem', lineHeight: 1.4 }}>
+              {subtitle}
+            </Typography>
+          </Stack>
         </Stack>
         <Button
           onClick={onShowAll}
           sx={{
-            minHeight: 'var(--morius-action-size)',
+            minHeight: 34,
             px: 1.35,
+            py: 0.45,
             flexShrink: 0,
-            borderRadius: 'var(--morius-radius)',
+            borderRadius: '999px',
             textTransform: 'none',
-            fontWeight: 700,
-            fontSize: { xs: '0.82rem', md: '0.9rem' },
-            border: 'var(--morius-border-width) solid transparent',
-            backgroundColor: 'transparent',
-            color: 'var(--morius-accent)',
-            '&:hover': { border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_HOVER },
-            '&:active': { border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_ACTIVE },
+            fontWeight: 800,
+            fontSize: { xs: '0.82rem', md: '0.86rem' },
+            gap: 0.55,
+            border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+            backgroundColor: 'rgba(255,255,255,0.03)',
+            color: 'var(--morius-text-primary)',
+            '&:hover': { borderColor: 'var(--morius-hover-border)', backgroundColor: 'rgba(255,255,255,0.06)' },
+            '&:active': { backgroundColor: APP_BUTTON_ACTIVE },
           }}
         >
           Показать все
+          <SvgIcon sx={{ width: 16, height: 16 }}>
+            <path d="M8.7 5.3 12.4 9l-3.7 3.7-1.1-1.1L9.4 9 7.6 6.4l1.1-1.1Z" fill="currentColor" />
+          </SvgIcon>
         </Button>
       </Stack>
-      {/* Subtitle below */}
-      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.01rem', mt: 0.35 }}>
-        {subtitle}
-      </Typography>
     </Stack>
   )
 }
@@ -441,7 +443,7 @@ function HomeCardSlider({ children, cardCount = 0 }: { children: React.ReactNode
         onScroll={checkScroll}
         sx={{
           display: 'flex',
-          gap: '12px',
+          gap: '18px',
           overflowX: 'auto',
           px: '4px',
           pb: '6px',
@@ -481,14 +483,14 @@ function SliderCard({ children }: { children: React.ReactNode }) {
     <Box sx={{
       flexShrink: 0,
       width: {
-        xs: 'calc(50% - 6px)',   // 2 cards on phones
-        sm: 'calc(33.333% - 8px)', // 3 cards on tablet
-        md: 'calc(25% - 9px)',   // 4 cards on desktop
+        xs: 'calc(50% - 9px)',
+        sm: 'calc(33.333% - 12px)',
+        md: 'calc(25% - 13.5px)',
       },
       minWidth: {
-        xs: 'calc(50% - 6px)',
-        sm: 'calc(33.333% - 8px)',
-        md: 'calc(25% - 9px)',
+        xs: 'calc(50% - 9px)',
+        sm: 'calc(33.333% - 12px)',
+        md: 'calc(25% - 13.5px)',
       },
     }}>
       {children}
@@ -546,22 +548,39 @@ function HomeRuleCard({ item, onClick }: { item: StoryCommunityInstructionTempla
       sx={{
         borderRadius: 'var(--morius-radius)',
         border: 'var(--morius-border-width) solid var(--morius-card-border)',
-        backgroundColor: APP_CARD_BACKGROUND,
+        background: 'var(--morius-card-gradient)',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
         cursor: 'pointer',
         minHeight: 300,
-        transition: 'transform 180ms ease, border-color 180ms ease',
-        '&:hover': { transform: 'translateY(-2px)', borderColor: 'rgba(203,216,234,0.36)' },
+        transition: 'transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
+        '&:hover': { transform: 'translateY(-5px)', borderColor: 'var(--morius-hover-border)', boxShadow: 'var(--morius-neutral-shadow)' },
         '&:focus-visible': { outline: '2px solid rgba(205,223,246,0.62)', outlineOffset: '2px' },
       }}
     >
       {/* Hero */}
-      <Box sx={{ position: 'relative', height: 130, flexShrink: 0, overflow: 'hidden' }}>
+      <Box sx={{ position: 'relative', height: 96, flexShrink: 0, overflow: 'hidden' }}>
         <Box sx={{ position: 'absolute', inset: 0, ...heroBackground }} />
-        <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.46) 50%, rgba(0,0,0,0) 100%)' }} />
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ position: 'absolute', top: 10, left: 12, right: 12, minWidth: 0 }}>
+        <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 45%, rgba(10,8,12,0.82))' }} />
+        <Stack
+          direction="row"
+          spacing={0.7}
+          alignItems="center"
+          sx={{
+            position: 'absolute',
+            top: 10,
+            left: 12,
+            maxWidth: 'calc(100% - 24px)',
+            minWidth: 0,
+            px: 0.6,
+            py: 0.35,
+            borderRadius: '999px',
+            border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+            backgroundColor: 'rgba(9,9,9,0.42)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
           <ProgressiveAvatar
             src={item.author_avatar_url}
             fallbackLabel={authorName}
@@ -570,22 +589,22 @@ function HomeRuleCard({ item, onClick }: { item: StoryCommunityInstructionTempla
             frameImageUrl={item.author_avatar_frame_image_url}
             sx={{ border: 'var(--morius-border-width) solid rgba(205,220,242,0.3)', backgroundColor: 'rgba(6,10,16,0.72)' }}
           />
-          <Typography sx={{ color: 'rgba(233,241,252,0.97)', fontSize: '0.88rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+          <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.78rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
             {authorName}
           </Typography>
         </Stack>
       </Box>
       {/* Body */}
-      <Stack sx={{ flex: 1, px: '16px', py: '14px', backgroundColor: APP_CARD_BACKGROUND }} spacing={0.8}>
-        <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.02rem', fontWeight: 800, lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+      <Stack sx={{ flex: 1, px: '16px', py: '14px', background: 'var(--morius-card-gradient)' }} spacing={0.8}>
+        <Typography sx={{ color: APP_TEXT_PRIMARY, fontFamily: '"Spectral", serif', fontSize: '1.08rem', fontWeight: 700, lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
           {item.title}
         </Typography>
         <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', lineHeight: 1.44, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', flex: 1 }}>
           {item.content}
         </Typography>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', pt: 1 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', pt: 1, borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)' }}>
           <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>{item.community_additions_count} +</Typography>
-          <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>{item.community_rating_avg.toFixed(1)} ★</Typography>
+          <Typography sx={{ color: 'var(--morius-rating-gold)', fontSize: '0.82rem', fontWeight: 700 }}>{item.community_rating_avg.toFixed(1)} ★</Typography>
         </Stack>
       </Stack>
     </Box>
@@ -647,6 +666,16 @@ function getDashboardNewsFallbackImage(slot: number): string {
   return quickStartDashboardImage
 }
 
+function getDashboardNewsAmbientGradient(slot: number): string {
+  if (slot === 2) {
+    return 'radial-gradient(135% 78% at 50% -10%, rgba(60,68,112,0.34), rgba(72,42,98,0.15) 42%, transparent 72%)'
+  }
+  if (slot === 3) {
+    return 'radial-gradient(135% 78% at 50% -10%, rgba(118,82,40,0.28), rgba(95,52,44,0.14) 42%, transparent 72%)'
+  }
+  return 'radial-gradient(135% 78% at 50% -10%, rgba(156,34,48,0.34), rgba(112,38,82,0.15) 42%, transparent 72%)'
+}
+
 function formatCreatorRating(value: number, count: number): string {
   if (!Number.isFinite(value) || count <= 0) {
     return 'нет оценок'
@@ -690,6 +719,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [dashboardNewsDraft, setDashboardNewsDraft] = useState<DashboardNewsDraft>(createDashboardNewsDraft(null))
   const [dashboardNewsEditingId, setDashboardNewsEditingId] = useState<number | null>(null)
   const [dashboardNewsImageCropSource, setDashboardNewsImageCropSource] = useState<string | null>(null)
+  const [dashboardNewsDialogItemId, setDashboardNewsDialogItemId] = useState<number | null>(null)
   const [creatorMonth, setCreatorMonth] = useState<CreatorMonthList | null>(null)
   const [isCreatorMonthLoading, setIsCreatorMonthLoading] = useState(false)
   const [creatorMonthError, setCreatorMonthError] = useState('')
@@ -705,7 +735,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [creatorCandidateHasMore, setCreatorCandidateHasMore] = useState(false)
   const [isCreatorCandidatesLoading, setIsCreatorCandidatesLoading] = useState(false)
   const [isCreatorSlotSaving, setIsCreatorSlotSaving] = useState(false)
-  const [shopProfileBanners, setShopProfileBanners] = useState<CosmeticItem[]>([])
   const [isQuickStartDialogOpen, setIsQuickStartDialogOpen] = useState(false)
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
@@ -742,6 +771,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const hasLoadedCommunityWorldGameIdsRef = useRef(false)
   const handledMobileActionRef = useRef<string | null>(null)
   const newsAutoAdvanceTimerRef = useRef<number | null>(null)
+  const dashboardNewsTouchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const dashboardNewsSwipeSuppressClickRef = useRef(false)
   const creatorCandidatesScrollRef = useRef<HTMLDivElement | null>(null)
   const isCreatorCandidatesLoadingRef = useRef(false)
   const creatorCandidatesRequestIdRef = useRef(0)
@@ -761,24 +792,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   useEffect(() => {
     loadCreatorMonth()
   }, [loadCreatorMonth])
-
-  useEffect(() => {
-    let ignore = false
-    void getShopCatalog({ token: authToken })
-      .then((response) => {
-        if (!ignore) {
-          setShopProfileBanners(response.profile_banners.map(withKnownCosmeticImageUrl))
-        }
-      })
-      .catch(() => {
-        if (!ignore) {
-          setShopProfileBanners([])
-        }
-      })
-    return () => {
-      ignore = true
-    }
-  }, [authToken])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -1065,6 +1078,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const selectedDashboardNews = useMemo(
     () => dashboardNews.find((item) => item.id === selectedDashboardNewsId) ?? dashboardNews[0] ?? null,
     [dashboardNews, selectedDashboardNewsId],
+  )
+  const dashboardNewsDialogItem = useMemo(
+    () => dashboardNews.find((item) => item.id === dashboardNewsDialogItemId) ?? null,
+    [dashboardNews, dashboardNewsDialogItemId],
   )
   const dashboardNewsEditingItem = useMemo(
     () => dashboardNews.find((item) => item.id === dashboardNewsEditingId) ?? null,
@@ -1823,23 +1840,88 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     isDashboardNewsSaving,
   ])
 
+  const handleCloseDashboardNewsDialog = useCallback(() => {
+    setDashboardNewsDialogItemId(null)
+  }, [])
+
+  const handleOpenDashboardNewsDialog = useCallback((item?: DashboardNewsCard | null) => {
+    const targetItem = item ?? selectedDashboardNews
+    if (!targetItem) {
+      return
+    }
+    setSelectedDashboardNewsId(targetItem.id)
+    setDashboardNewsDialogItemId(targetItem.id)
+    setNewsProgressKey((k) => k + 1)
+  }, [selectedDashboardNews])
+
+  const selectDashboardNewsByOffset = useCallback((offset: number) => {
+    if (dashboardNews.length <= 1) {
+      return
+    }
+    const currentIndex = dashboardNews.findIndex((item) => item.id === selectedDashboardNews?.id)
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0
+    const nextIndex = (safeCurrentIndex + offset + dashboardNews.length) % dashboardNews.length
+    const nextItem = dashboardNews[nextIndex]
+    if (!nextItem) {
+      return
+    }
+    setSelectedDashboardNewsId(nextItem.id)
+    setNewsProgressKey((k) => k + 1)
+  }, [dashboardNews, selectedDashboardNews?.id])
+
+  const handleDashboardNewsTouchStart = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0]
+    if (!touch) {
+      return
+    }
+    dashboardNewsTouchStartRef.current = { x: touch.clientX, y: touch.clientY }
+  }, [])
+
+  const handleDashboardNewsTouchEnd = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    const touchStart = dashboardNewsTouchStartRef.current
+    const touch = event.changedTouches[0]
+    dashboardNewsTouchStartRef.current = null
+    if (!touchStart || !touch || dashboardNews.length <= 1) {
+      return
+    }
+
+    const deltaX = touch.clientX - touchStart.x
+    const deltaY = touch.clientY - touchStart.y
+    const absX = Math.abs(deltaX)
+    const absY = Math.abs(deltaY)
+
+    if (absX < 52 || absX < absY * 1.15) {
+      return
+    }
+
+    dashboardNewsSwipeSuppressClickRef.current = true
+    selectDashboardNewsByOffset(deltaX < 0 ? 1 : -1)
+    window.setTimeout(() => {
+      dashboardNewsSwipeSuppressClickRef.current = false
+    }, 240)
+  }, [dashboardNews.length, selectDashboardNewsByOffset])
+
   useEffect(() => {
     if (dashboardNews.length === 0) {
       setSelectedDashboardNewsId(null)
+      setDashboardNewsDialogItemId(null)
       return
+    }
+    if (dashboardNewsDialogItemId !== null && !dashboardNews.some((item) => item.id === dashboardNewsDialogItemId)) {
+      setDashboardNewsDialogItemId(null)
     }
     if (selectedDashboardNewsId !== null && dashboardNews.some((item) => item.id === selectedDashboardNewsId)) {
       return
     }
     setSelectedDashboardNewsId(dashboardNews[0].id)
-  }, [dashboardNews, selectedDashboardNewsId])
+  }, [dashboardNews, dashboardNewsDialogItemId, selectedDashboardNewsId])
 
   // Auto-advance news selection every 15 s; newsProgressKey acts as the reset trigger
   useEffect(() => {
     if (dashboardNews.length <= 1) {
       return
     }
-    if (isDashboardNewsEditorOpen || isDashboardNewsCloseConfirmOpen) {
+    if (isDashboardNewsEditorOpen || isDashboardNewsCloseConfirmOpen || dashboardNewsDialogItem) {
       return
     }
     if (newsAutoAdvanceTimerRef.current !== null) {
@@ -1859,7 +1941,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         newsAutoAdvanceTimerRef.current = null
       }
     }
-  }, [dashboardNews, isDashboardNewsCloseConfirmOpen, isDashboardNewsEditorOpen, newsProgressKey])
+  }, [dashboardNews, dashboardNewsDialogItem, isDashboardNewsCloseConfirmOpen, isDashboardNewsEditorOpen, newsProgressKey])
 
   const selectedCommunityWorldGameIds = selectedCommunityWorld
     ? communityWorldGameIds[selectedCommunityWorld.world.id] ?? []
@@ -1882,127 +1964,170 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     : 50
   const selectedDashboardNewsImage =
     selectedDashboardNews?.image_url?.trim() || getDashboardNewsFallbackImage(selectedDashboardNews?.slot ?? 1)
+  const selectedDashboardNewsAmbient = getDashboardNewsAmbientGradient(selectedDashboardNews?.slot ?? 1)
+  const dashboardNewsDialogImage =
+    dashboardNewsDialogItem?.image_url?.trim() || getDashboardNewsFallbackImage(dashboardNewsDialogItem?.slot ?? 1)
+  const dashboardNewsDialogAmbient = getDashboardNewsAmbientGradient(dashboardNewsDialogItem?.slot ?? 1)
   const isCreatorMonthInitialLoading = isCreatorMonthLoading && creatorMonth === null
   const renderCreatorMonthSkeletonCard = (place: number) => {
-    const isFirstPlace = place === 1
     return (
       <Box
         key={`creator-month-skeleton-${place}`}
         sx={{
           width: '100%',
-          alignSelf: isFirstPlace ? 'start' : 'end',
-          transform: { xs: 'none', md: isFirstPlace ? 'translateY(-18px)' : 'translateY(12px)' },
-          borderRadius: '20px',
-          overflow: 'hidden',
-          border: isFirstPlace
-            ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 40%, var(--morius-card-border))'
-            : `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-          backgroundColor: APP_CARD_BACKGROUND,
-          boxShadow: isFirstPlace ? '0 26px 58px rgba(0,0,0,0.34)' : '0 18px 38px rgba(0,0,0,0.24)',
+          minHeight: 66,
+          display: 'grid',
+          gridTemplateColumns: { xs: '32px 46px minmax(0, 1fr) minmax(60px, 74px)', md: '42px 46px minmax(0, 1fr) repeat(4, minmax(64px, 82px))' },
+          alignItems: 'center',
+          gap: 1,
+          px: { xs: 1, md: 1.25 },
+          py: 0.85,
+          borderBottom: place === 3 ? 'none' : 'var(--morius-border-width) solid var(--morius-divider-color)',
         }}
       >
-        <Box className="morius-skeleton-card morius-skeleton-card--flat" sx={{ height: { xs: 112, md: isFirstPlace ? 138 : 118 }, borderRadius: 0 }} />
-        <Stack spacing={1.1} sx={{ p: { xs: 1.35, md: 1.55 }, alignItems: 'center', textAlign: 'center', mt: -5 }}>
-          <Box className="morius-skeleton-card" sx={{ width: isFirstPlace ? 86 : 74, height: isFirstPlace ? 86 : 74, borderRadius: '50%' }} />
-          <Box className="morius-skeleton-card" sx={{ width: '46%', height: 18, borderRadius: '999px' }} />
-          <Box className="morius-skeleton-card" sx={{ width: '68%', height: 13, borderRadius: '999px' }} />
-          <Box sx={{ display: 'grid', gap: 0.55, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', width: '100%' }}>
-            {[0, 1, 2, 3].map((key) => (
-              <Box key={`creator-month-skeleton-${place}-${key}`} className="morius-skeleton-card" sx={{ height: 46, borderRadius: '12px' }} />
-            ))}
-          </Box>
+        <Box className="morius-skeleton-card" sx={{ height: 28, borderRadius: '8px' }} />
+        <Box className="morius-skeleton-card" sx={{ width: 46, height: 46, borderRadius: '50%' }} />
+        <Stack spacing={0.5}>
+          <Box className="morius-skeleton-card" sx={{ width: '58%', height: 16, borderRadius: '999px' }} />
+          <Box className="morius-skeleton-card" sx={{ width: '42%', height: 12, borderRadius: '999px' }} />
         </Stack>
+        {[0, 1, 2, 3].map((key) => (
+          <Box key={`creator-month-skeleton-${place}-${key}`} className="morius-skeleton-card" sx={{ display: { xs: 'none', md: 'block' }, height: 42, borderRadius: '10px' }} />
+        ))}
       </Box>
     )
   }
   const renderCreatorMonthCard = (slot: CreatorMonthSlot) => {
     const creator = slot.user
     const place = slot.slot
-    const fallbackBanner = getProfileBannerPreset(creator?.profile_banner_id ?? 'none')
-    const paidBanner = creator ? shopProfileBanners.find((item) => item.selection_id === creator.profile_banner_id) ?? null : null
-    const bannerSrc = resolveProfileBannerImageUrl(
-      creator?.profile_banner_id ?? null,
-      creator?.profile_banner_image_url ?? paidBanner?.image_url ?? null,
-    ) ?? fallbackBanner.src
     const isFirstPlace = place === 1
+    const statItems = [
+      ['Игры', slot.stats.worlds_count],
+      ['Персонажи', slot.stats.characters_count],
+      ['Инструкции', slot.stats.instruction_templates_count],
+      ['Рейтинг', formatCreatorRating(slot.stats.average_rating, slot.stats.rating_count)],
+    ] as const
     return (
       <ButtonBase
         key={`creator-month-${place}`}
         onClick={() => handleOpenCreatorDialog(slot)}
         sx={{
+          position: 'relative',
           width: '100%',
-          alignSelf: isFirstPlace ? 'start' : 'end',
-          transform: { xs: 'none', md: isFirstPlace ? 'translateY(-18px)' : 'translateY(12px)' },
-          borderRadius: '20px',
+          minHeight: 66,
+          display: 'grid',
+          gridTemplateColumns: { xs: '32px 46px minmax(0, 1fr) minmax(60px, 74px)', md: '42px 46px minmax(0, 1fr) repeat(4, minmax(64px, 82px))' },
+          alignItems: 'center',
+          gap: 1,
+          px: { xs: 1, md: 1.25 },
+          py: 0.85,
+          borderRadius: 0,
           overflow: 'hidden',
           textAlign: 'left',
-          border: isFirstPlace
-            ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 48%, var(--morius-card-border))'
-            : `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-          backgroundColor: APP_CARD_BACKGROUND,
-          boxShadow: isFirstPlace ? '0 26px 58px rgba(0,0,0,0.34)' : '0 18px 38px rgba(0,0,0,0.24)',
-          transition: 'transform 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease',
+          borderBottom: place === 3 ? 'none' : 'var(--morius-border-width) solid var(--morius-divider-color)',
+          background: isFirstPlace ? 'linear-gradient(90deg, rgba(205,166,89,0.13), transparent 52%)' : 'transparent',
+          color: APP_TEXT_PRIMARY,
+          transition: 'background-color 180ms ease',
+          '&::before': isFirstPlace
+            ? {
+                content: '""',
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: 0,
+                width: 3,
+                backgroundColor: 'var(--morius-gold)',
+              }
+            : undefined,
           '&:hover': {
-            borderColor: 'color-mix(in srgb, var(--morius-accent) 58%, var(--morius-card-border))',
-            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #ffffff 6%)',
-            boxShadow: isFirstPlace ? '0 28px 62px rgba(0,0,0,0.38)' : '0 20px 42px rgba(0,0,0,0.3)',
+            backgroundColor: 'rgba(255,255,255,0.045)',
           },
         }}
       >
-        <Box sx={{ width: '100%' }}>
-          <Box sx={{ position: 'relative', height: { xs: 112, md: isFirstPlace ? 138 : 118 }, background: 'linear-gradient(135deg, var(--morius-elevated-bg), var(--morius-card-bg))' }}>
-            {bannerSrc ? (
-              <ProgressiveImage
-                src={bannerSrc}
-                alt=""
-                objectFit="cover"
-                objectPosition={paidBanner ? 'center center' : fallbackBanner.objectPosition}
-                loaderSize={22}
-                containerSx={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-              />
-            ) : null}
-            <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(3,6,10,0.05), rgba(3,6,10,0.82))' }} />
-            <Typography sx={{ position: 'absolute', top: 12, left: 12, color: '#fff', fontSize: '0.84rem', fontWeight: 950, px: 1, py: 0.35, borderRadius: '999px', backgroundColor: 'rgba(5,8,13,0.62)' }}>
-              #{place}
-            </Typography>
-          </Box>
-          <Stack spacing={1.1} sx={{ p: { xs: 1.35, md: 1.55 }, alignItems: 'center', textAlign: 'center', mt: -5 }}>
-            <ProgressiveAvatar
-              src={creator?.avatar_url ?? null}
-              alt={creator?.display_name ?? `Место ${place}`}
-              fallbackLabel={creator?.display_name ?? `${place}`}
-              size={isFirstPlace ? 86 : 74}
-              scale={creator?.avatar_scale ?? 1}
-              frameId={creator?.avatar_frame_id ?? 'none'}
-              frameImageUrl={creator?.avatar_frame_image_url ?? null}
+        <Typography
+          sx={{
+            fontFamily: '"Spectral", serif',
+            color: isFirstPlace ? '#e8c87d' : 'var(--morius-muted-text)',
+            fontSize: { xs: '1.32rem', md: '1.48rem' },
+            fontWeight: 700,
+            lineHeight: 1,
+            textAlign: 'center',
+            zIndex: 1,
+          }}
+        >
+          {place}
+        </Typography>
+        <Box sx={{ position: 'relative', width: 46, height: 46, zIndex: 1 }}>
+          <ProgressiveAvatar
+            src={creator?.avatar_url ?? null}
+            alt={creator?.display_name ?? `Место ${place}`}
+            fallbackLabel={creator?.display_name ?? `${place}`}
+            size={46}
+            scale={creator?.avatar_scale ?? 1}
+            frameId={creator?.avatar_frame_id ?? 'none'}
+            frameImageUrl={creator?.avatar_frame_image_url ?? null}
+            sx={{
+              border: 'var(--morius-border-width) solid rgba(255,255,255,0.14)',
+              background: 'radial-gradient(circle at 30% 20%, rgba(255,255,255,0.14), rgba(255,255,255,0.03) 42%, rgba(0,0,0,0.34) 100%)',
+            }}
+          />
+          {isFirstPlace ? (
+            <Box
+              component="span"
+              className="material-symbols-outlined"
               sx={{
-                border: 'var(--morius-border-width) solid rgba(221,232,246,0.3)',
-                backgroundColor: 'rgba(8,13,20,0.88)',
+                position: 'absolute',
+                right: -5,
+                bottom: -4,
+                width: 20,
+                height: 20,
+                display: 'grid',
+                placeItems: 'center',
+                borderRadius: '7px',
+                background: 'var(--morius-gold-gradient)',
+                color: '#1a1207',
+                fontSize: '15px',
+                border: 'var(--morius-border-width) solid rgba(255,255,255,0.18)',
               }}
-            />
-            <Stack spacing={0.25} sx={{ width: '100%', minWidth: 0 }}>
-              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: isFirstPlace ? '1.18rem' : '1.04rem', fontWeight: 950, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {creator?.display_name || (isCreatorMonthEditor ? 'Назначить креатора' : 'Место свободно')}
-              </Typography>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.86rem', lineHeight: 1.3 }}>
-                {isCreatorMonthEditor ? 'Нажмите, чтобы изменить слот' : 'Креатор месяца'}
-              </Typography>
-            </Stack>
-            <Box sx={{ display: 'grid', gap: 0.55, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', width: '100%' }}>
-              {[
-                ['Игры', slot.stats.worlds_count],
-                ['Персонажи', slot.stats.characters_count],
-                ['Инструкции', slot.stats.instruction_templates_count],
-                ['Рейтинг', formatCreatorRating(slot.stats.average_rating, slot.stats.rating_count)],
-              ].map(([label, value]) => (
-                <Box key={`${place}-${label}`} sx={{ borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.045)', p: 0.8, minWidth: 0 }}>
-                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.74rem', lineHeight: 1 }}>{label}</Typography>
-                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.92rem', fontWeight: 900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(value)}</Typography>
-                </Box>
-              ))}
+            >
+              emoji_events
             </Box>
-          </Stack>
+          ) : null}
         </Box>
+        <Stack spacing={0.18} sx={{ minWidth: 0, zIndex: 1 }}>
+          <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: { xs: '0.98rem', md: '1.03rem' }, fontWeight: 800, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {creator?.display_name || (isCreatorMonthEditor ? 'Назначить креатора' : 'Место свободно')}
+          </Typography>
+          <Typography sx={{ color: isFirstPlace ? 'var(--morius-gold)' : APP_TEXT_SECONDARY, fontSize: '0.78rem', fontWeight: isFirstPlace ? 800 : 650, lineHeight: 1.25 }}>
+            {isCreatorMonthEditor ? 'Нажмите, чтобы изменить слот' : isFirstPlace ? 'Креатор месяца' : 'Автор сообщества'}
+          </Typography>
+        </Stack>
+        {statItems.map(([label, value]) => {
+          const isRating = label === 'Рейтинг'
+          return (
+            <Box
+              key={`${place}-${label}`}
+              sx={{
+                display: { xs: isRating ? 'grid' : 'none', md: 'grid' },
+                minWidth: 60,
+                py: 0.7,
+                px: 1,
+                borderRadius: '10px',
+                border: 'var(--morius-border-width) solid var(--morius-chip-border)',
+                backgroundColor: isFirstPlace && isRating ? 'rgba(216,166,74,0.08)' : 'var(--morius-chip-bg)',
+                gap: 0.2,
+                zIndex: 1,
+              }}
+            >
+              <Typography sx={{ color: 'var(--morius-muted-text)', fontSize: '9px', fontWeight: 800, lineHeight: 1, textTransform: 'uppercase' }}>
+                {label}
+              </Typography>
+              <Typography sx={{ color: isRating ? 'var(--morius-rating-gold)' : APP_TEXT_PRIMARY, fontSize: '15px', fontWeight: 800, lineHeight: 1.18, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {String(value)}
+              </Typography>
+            </Box>
+          )
+        })}
       </ButtonBase>
     )
   }
@@ -2298,18 +2423,18 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             aria-hidden
             sx={{
               position: 'absolute',
-              top: { xs: -58, md: -94 },
+              top: -100,
               left: '50%',
               width: '100vw',
-              height: { xs: 560, sm: 610, md: 650, xl: 610 },
+              height: 920,
               transform: 'translateX(-50%)',
               zIndex: 0,
               overflow: 'hidden',
               pointerEvents: 'none',
               opacity: selectedDashboardNews ? 1 : 0,
               transition: 'opacity 320ms ease',
-              maskImage: 'linear-gradient(180deg, #000 0%, #000 50%, rgba(0,0,0,0.78) 64%, transparent 100%)',
-              WebkitMaskImage: 'linear-gradient(180deg, #000 0%, #000 50%, rgba(0,0,0,0.78) 64%, transparent 100%)',
+              maskImage: 'linear-gradient(180deg, #000 0%, rgba(0,0,0,0.9) 36%, rgba(0,0,0,0.45) 66%, transparent 100%)',
+              WebkitMaskImage: 'linear-gradient(180deg, #000 0%, rgba(0,0,0,0.9) 36%, rgba(0,0,0,0.45) 66%, transparent 100%)',
             }}
           >
             {newsBgCurrentSrc ? (
@@ -2322,15 +2447,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 fetchPriority="high"
                 sx={{
                   position: 'absolute',
-                  top: { xs: -68, md: -96 },
-                  left: { xs: -72, md: -150 },
-                  width: { xs: 'calc(100% + 144px)', md: 'calc(100% + 300px)' },
-                  height: { xs: 'calc(100% + 136px)', md: 'calc(100% + 192px)' },
+                  top: -100,
+                  left: '-12%',
+                  right: '-12%',
+                  width: '124%',
+                  height: 920,
                   objectFit: 'cover',
-                  objectPosition: 'center',
-                  filter: 'blur(76px) saturate(1.22)',
-                  transform: 'scale(1.06)',
-                  opacity: 0.5,
+                  objectPosition: '50% 22%',
+                  filter: 'blur(115px) saturate(1.45)',
+                  transform: 'scale(1.08)',
+                  opacity: 0.6,
                 }}
               />
             ) : null}
@@ -2345,8 +2471,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               sx={{
                 position: 'absolute',
                 inset: 0,
-                background:
-                  'linear-gradient(180deg, color-mix(in srgb, var(--morius-app-bg) 56%, transparent) 0%, color-mix(in srgb, var(--morius-app-bg) 34%, transparent) 42%, color-mix(in srgb, var(--morius-app-bg) 72%, transparent) 100%), radial-gradient(circle at 50% 4%, rgba(88, 146, 233, 0.16), transparent 52%)',
+                background: `${selectedDashboardNewsAmbient}, radial-gradient(82% 70% at 50% 0%, transparent 48%, rgba(9,9,9,0.4) 100%)`,
               }}
             />
           </Box>
@@ -2364,17 +2489,33 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               }}
             >
               <Box
+                role={selectedDashboardNews ? 'button' : undefined}
+                tabIndex={selectedDashboardNews ? 0 : undefined}
+                aria-label={selectedDashboardNews ? `Открыть новость: ${selectedDashboardNews.title}` : undefined}
+                onClick={() => handleOpenDashboardNewsDialog(selectedDashboardNews)}
+                onKeyDown={(event) => {
+                  if (!selectedDashboardNews || (event.key !== 'Enter' && event.key !== ' ')) {
+                    return
+                  }
+                  event.preventDefault()
+                  handleOpenDashboardNewsDialog(selectedDashboardNews)
+                }}
                 sx={{
                   position: 'relative',
                   width: '100%',
                   minWidth: 0,
                   maxWidth: '100%',
                   overflow: 'hidden',
-                  minHeight: { xs: 520, sm: 520, md: 460, xl: 430 },
-                  borderRadius: '20px',
+                  cursor: selectedDashboardNews ? 'pointer' : 'default',
+                  minHeight: { xs: 420, sm: 420, md: 390, xl: 380 },
+                  borderRadius: '14px',
                   border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  background: APP_CARD_BACKGROUND,
-                  boxShadow: '0 28px 44px rgba(0, 0, 0, 0.24)',
+                  background: 'var(--morius-card-gradient)',
+                  boxShadow: 'var(--morius-neutral-shadow)',
+                  outline: 'none',
+                  '&:focus-visible': {
+                    borderColor: 'var(--morius-hover-border)',
+                  },
                 }}
               >
                 {isDashboardNewsLoading && dashboardNews.length === 0 ? (
@@ -2405,7 +2546,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                           width: '100%',
                           height: '100%',
                           objectFit: 'cover',
-                          objectPosition: 'center',
+                          objectPosition: '72% 28%',
                           opacity: 0.94,
                           pointerEvents: 'none',
                         }}
@@ -2425,73 +2566,100 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         position: 'absolute',
                         inset: 0,
                         background:
-                          'linear-gradient(90deg, rgba(2, 5, 9, 0.94) 0%, rgba(2, 5, 9, 0.78) 36%, rgba(2, 5, 9, 0.28) 70%, rgba(2, 5, 9, 0.04) 100%), linear-gradient(180deg, rgba(8, 12, 18, 0.08) 0%, rgba(8, 12, 18, 0.32) 42%, rgba(8, 12, 18, 0.9) 100%)',
+                          'linear-gradient(100deg, rgba(8,5,7,0.94) 4%, rgba(10,6,8,0.78) 38%, rgba(10,6,8,0.28) 66%, transparent 100%), linear-gradient(0deg, rgba(8,5,7,0.55) 0%, transparent 40%)',
                       }}
                     />
                     <Stack
-                      spacing={1}
-                      justifyContent="flex-end"
+                      spacing={1.15}
+                      justifyContent="space-between"
                       sx={{
                         position: 'relative',
                         zIndex: 1,
                         width: '100%',
                         minHeight: '100%',
-                        p: { xs: 1.6, md: 1.9 },
+                        p: { xs: 1.7, md: 2.5 },
                         '@media (max-width:569.95px)': {
                           justifyContent: 'flex-end',
                           p: 1.25,
                         },
                       }}
                     >
-                      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                        <Typography sx={{ color: 'rgba(233, 240, 249, 0.78)', fontSize: '0.82rem', fontWeight: 800, letterSpacing: '0.04em' }}>
-                          {selectedDashboardNews.category}
+                      <Stack spacing={1.1} sx={{ maxWidth: 500 }}>
+                        <Typography sx={{ color: 'var(--accent, #4c8dff)', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase' }}>
+                          Новость
                         </Typography>
-                        <Typography sx={{ color: 'rgba(226, 235, 246, 0.68)', fontSize: '0.82rem' }}>
-                          {selectedDashboardNews.date_label}
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontFamily: '"Spectral", serif', fontSize: { xs: '2.1rem', md: '46px' }, fontWeight: 700, lineHeight: 1.02, maxWidth: 620 }}>
+                          {selectedDashboardNews.title}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            color: '#cbc7c0',
+                            fontSize: { xs: '0.94rem', md: '1rem' },
+                            lineHeight: 1.58,
+                            maxWidth: 460,
+                            whiteSpace: 'pre-line',
+                            overflowWrap: 'anywhere',
+                          }}
+                        >
+                          {selectedDashboardNews.description}
                         </Typography>
                       </Stack>
-                      <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: { xs: '1.8rem', md: '2.2rem' }, fontWeight: 900, lineHeight: 1.04, maxWidth: 640 }}>
-                        {selectedDashboardNews.title}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          color: 'rgba(232, 239, 248, 0.86)',
-                          fontSize: { xs: '0.94rem', md: '1rem' },
-                          lineHeight: 1.55,
-                          maxWidth: 640,
-                          whiteSpace: 'pre-line',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 4,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {selectedDashboardNews.description}
-                      </Typography>
-                      {isDashboardNewsEditor ? (
-                        <Box sx={{ pt: 0.35 }}>
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <Box
+                          sx={{
+                            px: 1.25,
+                            py: 0.75,
+                            borderRadius: '999px',
+                            border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+                            backgroundColor: 'rgba(20,15,11,0.55)',
+                            backdropFilter: 'blur(6px)',
+                            color: '#cbc7c0',
+                            fontSize: '0.84rem',
+                            fontWeight: 700,
+                          }}
+                        >
+                          {selectedDashboardNews.date_label}
+                        </Box>
+                        <Box
+                          sx={{
+                            px: 1.25,
+                            py: 0.75,
+                            borderRadius: '999px',
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--accent, #4c8dff) 32%, rgba(255,255,255,0.1))',
+                            backgroundColor: 'color-mix(in srgb, var(--accent, #4c8dff) 16%, rgba(20,15,11,0.55))',
+                            color: 'var(--morius-title-text)',
+                            fontSize: '0.84rem',
+                            fontWeight: 800,
+                          }}
+                        >
+                          Читать полностью
+                        </Box>
+                        {isDashboardNewsEditor ? (
                           <Button
-                            onClick={handleOpenDashboardNewsEditor}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleOpenDashboardNewsEditor()
+                            }}
                             sx={{
                               minHeight: 38,
                               width: 'fit-content',
                               px: 1.2,
                               borderRadius: '12px',
                               border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                              backgroundColor: 'rgba(10, 15, 22, 0.54)',
+                              backgroundColor: 'rgba(20,15,11,0.55)',
                               color: APP_TEXT_PRIMARY,
                               textTransform: 'none',
-                              fontWeight: 700,
+                              fontWeight: 800,
+                              backdropFilter: 'blur(6px)',
                               '&:hover': {
-                                backgroundColor: 'rgba(14, 20, 28, 0.7)',
+                                backgroundColor: 'rgba(255,255,255,0.06)',
                               },
                             }}
                           >
                             Редактировать новость
                           </Button>
-                        </Box>
-                      ) : null}
+                        ) : null}
+                      </Stack>
                     </Stack>
                   </>
                 ) : (
@@ -2515,14 +2683,17 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   sx={{
                     display: 'flex',
                     flexDirection: { xs: 'row', xl: 'column' },
-                    gap: 1.05,
+                    gap: 0,
                     flex: { xl: 1 },
                     width: '100%',
                     minWidth: 0,
                     maxWidth: '100%',
                     height: { xl: 0, xs: 'auto' },
-                    overflowX: { xs: 'auto', xl: 'visible' },
-                    overflowY: 'visible',
+                    overflowX: { xs: 'auto', xl: 'hidden' },
+                    overflowY: 'hidden',
+                    borderRadius: '14px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    background: 'var(--morius-card-alt-gradient)',
                     pb: { xs: 0.2, xl: 0 },
                     pr: { xs: 0.2, xl: 0 },
                     scrollSnapType: { xs: 'x mandatory', xl: 'none' },
@@ -2552,13 +2723,12 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       ))
                     : dashboardNews.map((item) => {
                         const isSelected = item.id === selectedDashboardNews?.id
+                        const isUpdateCategory = item.category.toLowerCase().includes('обнов')
                         return (
                           <ButtonBase
                             key={item.id}
-                            onClick={() => {
-                              setSelectedDashboardNewsId(item.id)
-                              setNewsProgressKey((k) => k + 1)
-                            }}
+                            aria-label={`Открыть новость: ${item.title}`}
+                            onClick={() => handleOpenDashboardNewsDialog(item)}
                             sx={{
                               position: 'relative',
                               overflow: 'hidden',
@@ -2570,19 +2740,30 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                               justifyContent: 'flex-start',
                               alignItems: 'stretch',
                               textAlign: 'left',
-                              borderRadius: '10px',
+                              borderRadius: 0,
                               p: 1.15,
                               scrollSnapAlign: 'start',
                               boxSizing: 'border-box',
-                              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                              // Both states semi-transparent; selected more opaque
+                              border: 'none',
+                              borderBottom: 'var(--morius-border-width) solid var(--morius-divider-color)',
                               background: isSelected
-                                ? 'color-mix(in srgb, var(--morius-card-bg) 80%, transparent)'
-                                : 'color-mix(in srgb, var(--morius-card-bg) 45%, transparent)',
+                                ? 'color-mix(in srgb, var(--accent, #4c8dff) 11%, transparent)'
+                                : 'transparent',
                               backdropFilter: 'blur(6px)',
                               transition: 'background 200ms ease',
+                              '&::before': isSelected
+                                ? {
+                                    content: '""',
+                                    position: 'absolute',
+                                    top: 0,
+                                    bottom: 0,
+                                    left: 0,
+                                    width: 3,
+                                    backgroundColor: 'var(--accent, #4c8dff)',
+                                  }
+                                : undefined,
                               '&:hover': {
-                                background: 'color-mix(in srgb, var(--morius-card-bg) 80%, transparent)',
+                                background: isSelected ? 'color-mix(in srgb, var(--accent, #4c8dff) 11%, transparent)' : 'rgba(255,255,255,0.04)',
                               },
                             }}
                           >
@@ -2604,8 +2785,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                                 }}
                               />
                             ) : null}
-                            <Stack spacing={0.45} sx={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', minHeight: 0 }}>
-                              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                            <Stack spacing={0.45} sx={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', minHeight: 0, pr: 3 }}>
+                              <Typography sx={{ color: isUpdateCategory ? 'var(--morius-gold)' : 'var(--morius-muted-text)', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase' }}>
                                 {item.category}
                               </Typography>
                               <Typography
@@ -2624,7 +2805,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                               </Typography>
                               <Typography
                                 sx={{
-                                  color: 'rgba(226, 235, 246, 0.68)',
+                                  color: 'var(--morius-text-secondary)',
                                   fontSize: '0.82rem',
                                   fontWeight: 650,
                                   lineHeight: 1.35,
@@ -2637,6 +2818,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                                 {item.description}
                               </Typography>
                             </Stack>
+                            <SvgIcon sx={{ position: 'absolute', top: '50%', right: 12, zIndex: 1, transform: 'translateY(-50%)', width: 18, height: 18, color: 'var(--morius-muted-text)' }}>
+                              <path d="M8.7 5.3 12.4 9l-3.7 3.7-1.1-1.1L9.4 9 7.6 6.4l1.1-1.1Z" fill="currentColor" />
+                            </SvgIcon>
                           </ButtonBase>
                         )
                       })}
@@ -2659,6 +2843,24 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               </Alert>
             ) : null}
             <Box
+              role={selectedDashboardNews ? 'button' : undefined}
+              tabIndex={selectedDashboardNews ? 0 : undefined}
+              aria-label={selectedDashboardNews ? `Открыть новость: ${selectedDashboardNews.title}` : undefined}
+              onClick={() => {
+                if (dashboardNewsSwipeSuppressClickRef.current) {
+                  return
+                }
+                handleOpenDashboardNewsDialog(selectedDashboardNews)
+              }}
+              onKeyDown={(event) => {
+                if (!selectedDashboardNews || (event.key !== 'Enter' && event.key !== ' ')) {
+                  return
+                }
+                event.preventDefault()
+                handleOpenDashboardNewsDialog(selectedDashboardNews)
+              }}
+              onTouchStart={handleDashboardNewsTouchStart}
+              onTouchEnd={handleDashboardNewsTouchEnd}
               sx={{
                 position: 'relative',
                 overflow: 'hidden',
@@ -2666,6 +2868,12 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 height: { xs: 382, sm: 420 },
                 borderRadius: '0 0 16px 16px',
                 background: APP_CARD_BACKGROUND,
+                cursor: selectedDashboardNews ? 'pointer' : 'default',
+                touchAction: 'pan-y',
+                outline: 'none',
+                '&:focus-visible': {
+                  boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent, #4c8dff) 48%, transparent)',
+                },
                 '&::before': {
                   content: '""',
                   position: 'absolute',
@@ -2753,9 +2961,42 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     >
                       {selectedDashboardNews.description}
                     </Typography>
+                    <Stack direction="row" alignItems="center" spacing={0.8} sx={{ pt: 0.2, flexWrap: 'wrap' }}>
+                      <Box
+                        sx={{
+                          px: 1,
+                          py: 0.55,
+                          borderRadius: '999px',
+                          border: 'var(--morius-border-width) solid rgba(255,255,255,0.12)',
+                          backgroundColor: 'rgba(9,9,9,0.42)',
+                          color: 'rgba(255,255,255,0.82)',
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                        }}
+                      >
+                        {selectedDashboardNews.date_label}
+                      </Box>
+                      <Box
+                        sx={{
+                          px: 1,
+                          py: 0.55,
+                          borderRadius: '999px',
+                          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--accent, #4c8dff) 34%, rgba(255,255,255,0.12))',
+                          backgroundColor: 'color-mix(in srgb, var(--accent, #4c8dff) 18%, rgba(9,9,9,0.42))',
+                          color: '#fff',
+                          fontSize: '0.78rem',
+                          fontWeight: 900,
+                        }}
+                      >
+                        Читать полностью
+                      </Box>
+                    </Stack>
                     {isDashboardNewsEditor ? (
                       <Button
-                        onClick={handleOpenDashboardNewsEditor}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleOpenDashboardNewsEditor()
+                        }}
                         sx={{
                           width: 'fit-content',
                           minHeight: 32,
@@ -2804,10 +3045,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             ) : null}
           </Box>
 
-          <Box sx={{ display: 'grid', gap: 1.4 }}>
+          <Box sx={{ display: 'grid', gap: 1.35 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
               <Box>
-                <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: { xs: '1.45rem', md: '1.72rem' }, fontWeight: 950, lineHeight: 1.05 }}>
+                <Typography sx={{ color: 'var(--morius-title-text)', fontFamily: '"Spectral", serif', fontSize: { xs: '1.45rem', md: '26px' }, fontWeight: 700, lineHeight: 1.08 }}>
                   Креаторы месяца
                 </Typography>
                 <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.96rem', lineHeight: 1.45 }}>
@@ -2824,15 +3065,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             <Box
               sx={{
                 display: 'grid',
-                gap: { xs: 1.1, md: 1.25 },
-                alignItems: 'end',
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
-                pt: { xs: 0, md: 2.2 },
+                borderRadius: '14px',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                background: 'var(--morius-card-gradient)',
+                overflow: 'hidden',
+                boxShadow: 'none',
               }}
             >
               {isCreatorMonthInitialLoading
-                ? [2, 1, 3].map((place) => renderCreatorMonthSkeletonCard(place))
-                : [creatorMonthSlots[1], creatorMonthSlots[0], creatorMonthSlots[2]].map((slot) => renderCreatorMonthCard(slot))}
+                ? [1, 2, 3].map((place) => renderCreatorMonthSkeletonCard(place))
+                : creatorMonthSlots.map((slot) => renderCreatorMonthCard(slot))}
             </Box>
           </Box>
 
@@ -3450,6 +3692,223 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           </Button>
         </DialogActions>
       </Dialog>
+
+      <BaseDialog
+        open={Boolean(dashboardNewsDialogItem)}
+        onClose={handleCloseDashboardNewsDialog}
+        maxWidth="lg"
+        transitionComponent={DialogTransition}
+        rawChildren
+        protectTextInputClose={false}
+        showCloseButton={false}
+        backdropSx={{
+          backgroundColor: 'rgba(0,0,0,0.72)',
+          backdropFilter: 'blur(10px)',
+        }}
+        paperSx={{
+          overflow: 'hidden',
+          borderRadius: { xs: '20px 20px 0 0', md: '18px' },
+          background: 'linear-gradient(180deg, #17171c 0%, #111114 100%)',
+          color: 'var(--morius-text-primary)',
+          width: { xs: '100%', md: 'min(1040px, calc(100vw - 48px))' },
+          maxHeight: { xs: '92dvh', md: 'min(860px, 92dvh)' },
+          m: { xs: 0, md: 2 },
+        }}
+      >
+        {dashboardNewsDialogItem ? (
+          <Box
+            sx={{
+              position: 'relative',
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1.08fr) minmax(360px, 0.92fr)' },
+              minHeight: { md: 620 },
+              maxHeight: { xs: '92dvh', md: 'min(860px, 92dvh)' },
+              overflow: 'hidden',
+            }}
+          >
+            <Box
+              sx={{
+                position: 'relative',
+                minHeight: { xs: 258, sm: 340, md: 620 },
+                overflow: 'hidden',
+                background: dashboardNewsDialogAmbient,
+              }}
+            >
+              <Box
+                component="img"
+                src={dashboardNewsDialogImage}
+                alt=""
+                loading="eager"
+                decoding="async"
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  objectPosition: '72% 28%',
+                }}
+              />
+              <Box
+                aria-hidden
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  background:
+                    'linear-gradient(90deg, rgba(9,9,9,0.1) 0%, rgba(9,9,9,0.08) 46%, rgba(9,9,9,0.56) 100%), linear-gradient(0deg, rgba(9,9,9,0.76) 0%, transparent 42%)',
+                }}
+              />
+              <Stack
+                direction="row"
+                spacing={0.8}
+                sx={{
+                  position: 'absolute',
+                  left: { xs: 16, md: 20 },
+                  right: { xs: 64, md: 20 },
+                  bottom: { xs: 16, md: 20 },
+                  zIndex: 2,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <Box
+                  sx={{
+                    px: 1.15,
+                    py: 0.62,
+                    borderRadius: '999px',
+                    border: 'var(--morius-border-width) solid rgba(255,255,255,0.12)',
+                    backgroundColor: 'rgba(9,9,9,0.48)',
+                    backdropFilter: 'blur(8px)',
+                    color: dashboardNewsDialogItem.category.toLowerCase().includes('обнов') ? 'var(--morius-gold)' : 'var(--accent, #4c8dff)',
+                    fontSize: '0.78rem',
+                    fontWeight: 900,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {dashboardNewsDialogItem.category}
+                </Box>
+                <Box
+                  sx={{
+                    px: 1.15,
+                    py: 0.62,
+                    borderRadius: '999px',
+                    border: 'var(--morius-border-width) solid rgba(255,255,255,0.12)',
+                    backgroundColor: 'rgba(9,9,9,0.48)',
+                    backdropFilter: 'blur(8px)',
+                    color: '#d8d3ca',
+                    fontSize: '0.78rem',
+                    fontWeight: 800,
+                  }}
+                >
+                  {dashboardNewsDialogItem.date_label}
+                </Box>
+              </Stack>
+              <Box
+                component="button"
+                type="button"
+                aria-label="Закрыть новость"
+                onClick={handleCloseDashboardNewsDialog}
+                sx={{
+                  position: 'absolute',
+                  top: { xs: 14, md: 16 },
+                  right: { xs: 14, md: 16 },
+                  zIndex: 3,
+                  width: 42,
+                  height: 42,
+                  borderRadius: '12px',
+                  border: 'var(--morius-border-width) solid rgba(255,255,255,0.12)',
+                  backgroundColor: 'rgba(9,9,9,0.48)',
+                  color: 'var(--morius-title-text)',
+                  display: 'grid',
+                  placeItems: 'center',
+                  cursor: 'pointer',
+                  backdropFilter: 'blur(10px)',
+                  '&:hover': {
+                    borderColor: 'var(--morius-hover-border)',
+                    backgroundColor: 'rgba(255,255,255,0.07)',
+                  },
+                }}
+              >
+                <SvgIcon sx={{ width: 20, height: 20 }}>
+                  <path d="M6.7 6.7a1 1 0 0 1 1.4 0L12 10.6l3.9-3.9a1 1 0 1 1 1.4 1.4L13.4 12l3.9 3.9a1 1 0 0 1-1.4 1.4L12 13.4l-3.9 3.9a1 1 0 0 1-1.4-1.4l3.9-3.9-3.9-3.9a1 1 0 0 1 0-1.4" fill="currentColor" />
+                </SvgIcon>
+              </Box>
+            </Box>
+
+            <Box
+              sx={{
+                position: 'relative',
+                overflowY: 'auto',
+                minHeight: 0,
+                maxHeight: { xs: 'calc(92dvh - 258px)', sm: 'calc(92dvh - 340px)', md: 'min(860px, 92dvh)' },
+                px: { xs: 2, sm: 2.5, md: 3.25 },
+                py: { xs: 2.1, md: 3.2 },
+                borderLeft: { md: 'var(--morius-border-width) solid var(--morius-divider-color)' },
+                background:
+                  'radial-gradient(circle at 18% 0%, rgba(205,166,89,0.08) 0%, transparent 36%), linear-gradient(180deg, rgba(23,23,28,0.98) 0%, rgba(17,17,20,0.98) 100%)',
+              }}
+            >
+              <Stack spacing={{ xs: 1.35, md: 1.65 }}>
+                <Typography
+                  component="h2"
+                  sx={{
+                    color: 'var(--morius-title-text)',
+                    fontFamily: '"Spectral", serif',
+                    fontSize: { xs: '2rem', sm: '2.35rem', md: '3rem' },
+                    fontWeight: 700,
+                    lineHeight: 1.02,
+                    letterSpacing: 0,
+                    pr: { md: 1.5 },
+                  }}
+                >
+                  {dashboardNewsDialogItem.title}
+                </Typography>
+                <Box
+                  sx={{
+                    height: 1,
+                    backgroundColor: 'var(--morius-divider-color)',
+                  }}
+                />
+                <Typography
+                  sx={{
+                    color: '#d8d3ca',
+                    fontSize: { xs: '1rem', md: '1.04rem' },
+                    lineHeight: { xs: 1.68, md: 1.72 },
+                    whiteSpace: 'pre-line',
+                    overflowWrap: 'anywhere',
+                    userSelect: 'text',
+                  }}
+                >
+                  {dashboardNewsDialogItem.description}
+                </Typography>
+                <Box
+                  component="button"
+                  type="button"
+                  onClick={handleCloseDashboardNewsDialog}
+                  sx={{
+                    alignSelf: 'flex-start',
+                    mt: 0.5,
+                    minHeight: 40,
+                    px: 1.35,
+                    borderRadius: '12px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: 'rgba(255,255,255,0.03)',
+                    color: 'var(--morius-text-primary)',
+                    font: 'inherit',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    '&:hover': {
+                      borderColor: 'var(--morius-hover-border)',
+                      backgroundColor: 'rgba(255,255,255,0.06)',
+                    },
+                  }}
+                >
+                  Закрыть
+                </Box>
+              </Stack>
+            </Box>
+          </Box>
+        ) : null}
+      </BaseDialog>
 
       <BaseDialog
         open={isDashboardNewsEditorOpen}

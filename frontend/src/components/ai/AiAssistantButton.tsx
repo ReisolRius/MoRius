@@ -73,11 +73,11 @@ function AiAssistantButton({ user, authToken, size }: AiAssistantButtonProps) {
           color: 'var(--morius-title-text)',
           backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, transparent)',
           border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
-          boxShadow: '0 0 22px color-mix(in srgb, var(--morius-accent) 20%, transparent)',
+          boxShadow: 'none',
           position: 'relative',
           '&:hover': {
             backgroundColor: 'color-mix(in srgb, var(--morius-accent) 22%, transparent)',
-            boxShadow: '0 0 28px color-mix(in srgb, var(--morius-accent) 28%, transparent)',
+            boxShadow: 'var(--morius-neutral-shadow)',
           },
         }}
       >

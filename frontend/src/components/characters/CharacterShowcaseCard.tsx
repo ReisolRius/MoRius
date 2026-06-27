@@ -54,10 +54,10 @@ function CharacterShowcaseCard({
         sx={{
           position: 'relative',
           width: '100%',
-          height: 182,
+          height: 200,
           overflow: 'hidden',
           background:
-            'radial-gradient(circle at 24% 18%, color-mix(in srgb, var(--morius-accent) 14%, transparent), transparent 34%), linear-gradient(155deg, color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%) 0%, color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%) 100%)',
+            'linear-gradient(160deg, #4a3a66, #2a2142 68%, #15101f)',
         }}
       >
         {imageUrl ? (
@@ -78,18 +78,38 @@ function CharacterShowcaseCard({
           sx={{
             position: 'absolute',
             inset: 0,
-            background: 'linear-gradient(180deg, rgba(8, 12, 18, 0.74) 0%, rgba(8, 12, 18, 0.3) 34%, rgba(8, 12, 18, 0.16) 100%)',
+            background: 'linear-gradient(180deg, transparent 45%, rgba(10,8,12,0.82))',
           }}
         />
         {heroHeader ? (
           <Box
             sx={{
               position: 'absolute',
-              top: 12,
-              left: 12,
-              right: 72,
+              top: 14,
+              left: 16,
+              right: actionSlot ? 62 : 14,
               zIndex: 2,
               minWidth: 0,
+              maxWidth: actionSlot ? 'calc(100% - 78px)' : 'calc(100% - 30px)',
+              overflow: 'visible',
+              '& > *': {
+                minWidth: 0,
+                maxWidth: '100%',
+              },
+              '& .morius-framed-avatar': {
+                flexShrink: '0 !important',
+                marginRight: '6px',
+                zIndex: 0,
+              },
+              '& .MuiTypography-root': {
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                position: 'relative',
+                zIndex: 1,
+                paddingRight: '10px',
+              },
             }}
           >
             {heroHeader}
@@ -121,8 +141,8 @@ function CharacterShowcaseCard({
           flex: 1,
           px: 1.35,
           py: 1.18,
-          backgroundColor: 'var(--morius-card-bg)',
-          borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+          background: 'var(--morius-card-gradient)',
+          borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)',
         }}
       >
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
@@ -130,8 +150,9 @@ function CharacterShowcaseCard({
             title={title}
             sx={{
               color: 'var(--morius-text-primary)',
-              fontSize: '1.06rem',
-              fontWeight: 800,
+              fontFamily: '"Spectral", serif',
+              fontSize: '1.08rem',
+              fontWeight: 700,
               lineHeight: 1.16,
               minWidth: 0,
               flex: 1,
@@ -161,7 +182,7 @@ function CharacterShowcaseCard({
         </Typography>
 
         {shouldRenderFooter ? (
-          <Stack direction="row" justifyContent="space-between" alignItems="flex-end" spacing={1.2} sx={{ mt: 'auto' }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-end" spacing={1.2} sx={{ mt: 'auto', pt: 1, borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)' }}>
             <Typography
               sx={{
                 color: 'rgba(201, 212, 225, 0.88)',
@@ -199,20 +220,21 @@ function CharacterShowcaseCard({
         maxWidth: '100%',
         minWidth: 0,
         p: 0,
-        borderRadius: '18px',
+        borderRadius: 'var(--morius-radius)',
         border: highlighted
           ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 58%, var(--morius-card-border))'
           : 'var(--morius-border-width) solid var(--morius-card-border)',
-        backgroundColor: 'var(--morius-card-bg)',
+        background: 'var(--morius-card-gradient)',
         overflow: 'hidden',
         justifyContent: 'stretch',
         alignItems: 'stretch',
-        boxShadow: highlighted ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 18%, transparent), 0 12px 26px rgba(0, 0, 0, 0.18)' : 'none',
+        boxShadow: 'none',
         transition: 'transform 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease',
         '&:hover': {
           backgroundColor: 'var(--morius-card-bg)',
-          borderColor: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-card-border))',
-          transform: disabled ? 'none' : 'translateY(-2px)',
+          borderColor: 'var(--morius-hover-border)',
+          transform: disabled ? 'none' : 'translateY(-5px)',
+          boxShadow: disabled ? 'none' : 'var(--morius-neutral-shadow)',
         },
       }}
     >

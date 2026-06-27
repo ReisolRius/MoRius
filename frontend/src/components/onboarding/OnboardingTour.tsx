@@ -1190,7 +1190,7 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
             </Box>
 
             <Box sx={{ mt: 1.1, width: 7, borderRadius: '999px', backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 54%, transparent)', overflow: 'hidden', alignSelf: 'center', flex: 1, minHeight: 88 }}>
-              <Box sx={{ width: '100%', height: `${chapterProgress}%`, borderRadius: '999px', background: 'linear-gradient(180deg, var(--morius-accent) 0%, color-mix(in srgb, var(--morius-button-active) 82%, var(--morius-accent)) 100%)', boxShadow: '0 0 14px color-mix(in srgb, var(--morius-accent) 26%, transparent)', transition: 'height 260ms cubic-bezier(0.22, 1, 0.36, 1)' }} />
+              <Box sx={{ width: '100%', height: `${chapterProgress}%`, borderRadius: '999px', background: 'linear-gradient(180deg, var(--morius-accent) 0%, color-mix(in srgb, var(--morius-button-active) 82%, var(--morius-accent)) 100%)', boxShadow: 'none', transition: 'height 260ms cubic-bezier(0.22, 1, 0.36, 1)' }} />
             </Box>
           </Box>
 
@@ -1279,9 +1279,9 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
                   font: 'inherit',
                   fontWeight: 800,
                   cursor: isBusyAction ? 'default' : 'pointer',
-                  boxShadow: '0 12px 24px color-mix(in srgb, var(--morius-accent) 16%, transparent)',
+                  boxShadow: 'var(--morius-neutral-shadow)',
                   transition: 'transform 180ms ease, box-shadow 180ms ease, filter 180ms ease',
-                  '&:hover': isBusyAction ? undefined : { transform: 'translateY(-1px)', boxShadow: '0 16px 28px color-mix(in srgb, var(--morius-accent) 22%, transparent)', backgroundColor: 'transparent' },
+                  '&:hover': isBusyAction ? undefined : { transform: 'translateY(-1px)', boxShadow: '0 18px 34px -22px rgba(0,0,0,0.78)', backgroundColor: 'transparent' },
                 }}
               >
                 {activeStepIndex === steps.length - 1 ? 'Завершить' : activeStepIndex === 0 ? 'Начать' : 'Далее'}

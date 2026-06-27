@@ -1233,7 +1233,7 @@ function InstructionTemplateDialog({
                 outline: 'none',
                 fontSize: '0.96rem',
                 lineHeight: 1.45,
-                fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+                fontFamily: '"Manrope", "Segoe UI", sans-serif',
               }}
             />
             <Stack spacing={0.6}>

@@ -15,7 +15,7 @@ export interface FooterProps {
 }
 
 const FOOTER_CREDIT = 'Бондарук Александр Георгиевич | ИНН: 772702320496 | ОГРНИП: 325774600487692 | Почта: alexunderstood8@gmail.com'
-const TEXT_COLOR = '#b6ada4'
+const TEXT_COLOR = 'var(--morius-text-secondary)'
 
 /** Telegram circle icon — extracted from Figma f0adfe.svg (left half, viewBox 0 0 50 52) */
 function TelegramIcon() {
@@ -48,15 +48,20 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
   return (
     <Box
       component="footer"
-      sx={{ backgroundColor: 'var(--morius-app-base)', width: '100%' }}
+      sx={{
+        width: '100%',
+        mt: { xs: 4, md: 6 },
+        backgroundColor: 'rgba(0,0,0,0.25)',
+        borderTop: 'var(--morius-border-width) solid rgba(255,255,255,0.06)',
+      }}
     >
       {/* ── Top bar: logo | nav links | social icons ─────────────────── */}
       <Box
         sx={{
-          maxWidth: 1400,
+          maxWidth: 1320,
           mx: 'auto',
           px: { xs: '20px', md: '60px' },
-          py: { xs: '20px', md: '28px' },
+          py: { xs: '18px', md: '24px' },
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -69,7 +74,7 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
           component="img"
           src={logoUrl}
           alt="Morius"
-          sx={{ height: { xs: 50, md: 64 }, width: 'auto', flexShrink: 0, opacity: 0.9 }}
+          sx={{ height: { xs: 40, md: 42 }, width: 'auto', flexShrink: 0, opacity: 0.85 }}
         />
 
         {/* Nav links — centered on desktop, full-width row on mobile */}
@@ -91,11 +96,11 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
                   color: TEXT_COLOR, font: 'inherit',
                   fontSize: { xs: '14px', md: '17px' },
                   fontWeight: 400,
-                  fontFamily: '"Nunito Sans", sans-serif',
+                  fontFamily: '"Manrope", sans-serif',
                   cursor: 'pointer', whiteSpace: 'nowrap',
                   transition: 'color 180ms ease',
                   '&:hover': { color: 'var(--morius-title-text)' },
-                  '&:focus-visible': { outline: '2px solid rgba(205,223,246,0.56)', outlineOffset: '2px', borderRadius: '3px' },
+                  '&:focus-visible': { outline: '2px solid color-mix(in srgb, var(--accent, #4c8dff) 48%, transparent)', outlineOffset: '2px', borderRadius: '3px' },
                 }}
               >
                 {link.label}
@@ -110,7 +115,7 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
                 sx={{
                   color: TEXT_COLOR, textDecoration: 'none',
                   fontSize: { xs: '14px', md: '17px' },
-                  fontWeight: 400, fontFamily: '"Nunito Sans", sans-serif',
+                  fontWeight: 400, fontFamily: '"Manrope", sans-serif',
                   whiteSpace: 'nowrap',
                   transition: 'color 180ms ease',
                   '&:hover': { color: 'var(--morius-title-text)' },
@@ -123,7 +128,7 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
         </Stack>
 
         {/* Social icon buttons from Figma */}
-        <Stack direction="row" spacing="16px" alignItems="center" sx={{ flexShrink: 0, order: { xs: 1, md: 0 }, ml: { xs: 'auto', md: 0 } }}>
+        <Stack direction="row" spacing="10px" alignItems="center" sx={{ flexShrink: 0, order: { xs: 1, md: 0 }, ml: { xs: 'auto', md: 0 } }}>
           {vkLink?.href && (
             <Box
               component="a"
@@ -133,10 +138,15 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
               aria-label={vkLink.label}
               title={vkLink.label}
               sx={{
+                width: 38,
+                height: 38,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 textDecoration: 'none', borderRadius: '12px',
-                transition: 'opacity 180ms ease, transform 180ms ease',
-                '&:hover': { opacity: 0.8, transform: 'translateY(-1px)' },
+                border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+                backgroundColor: 'rgba(255,255,255,0.03)',
+                transition: 'border-color 180ms ease, transform 180ms ease',
+                '& svg': { width: 24, height: 24 },
+                '&:hover': { borderColor: 'var(--accent, #4c8dff)', transform: 'translateY(-1px)' },
                 '&:focus-visible': { outline: '2px solid rgba(205,223,246,0.56)', outlineOffset: '3px', borderRadius: '14px' },
               }}
             >
@@ -152,11 +162,16 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
               aria-label={telegramLink.label}
               title={telegramLink.label}
               sx={{
+                width: 38,
+                height: 38,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                textDecoration: 'none', borderRadius: '50%',
-                transition: 'opacity 180ms ease, transform 180ms ease',
-                '&:hover': { opacity: 0.8, transform: 'translateY(-1px)' },
-                '&:focus-visible': { outline: '2px solid rgba(205,223,246,0.56)', outlineOffset: '3px', borderRadius: '50%' },
+                textDecoration: 'none', borderRadius: '12px',
+                border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+                backgroundColor: 'rgba(255,255,255,0.03)',
+                transition: 'border-color 180ms ease, transform 180ms ease',
+                '& svg': { width: 24, height: 24 },
+                '&:hover': { borderColor: 'var(--accent, #4c8dff)', transform: 'translateY(-1px)' },
+                '&:focus-visible': { outline: '2px solid color-mix(in srgb, var(--accent, #4c8dff) 48%, transparent)', outlineOffset: '3px', borderRadius: '12px' },
               }}
             >
               <TelegramIcon />
@@ -170,7 +185,7 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
         aria-hidden
         sx={{
           height: '1px',
-          backgroundColor: 'rgba(255,255,255,0.1)',
+          backgroundColor: 'rgba(255,255,255,0.06)',
           mx: 0,
         }}
       />
@@ -191,10 +206,10 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
         <Box
           component="span"
           sx={{
-            color: TEXT_COLOR,
+            color: 'var(--morius-quiet-text)',
             fontSize: { xs: '11px', sm: '13px', md: '14px' },
             fontWeight: 400,
-            fontFamily: '"Nunito Sans", sans-serif',
+            fontFamily: '"Manrope", sans-serif',
             lineHeight: 1.5,
           }}
         >
@@ -203,10 +218,10 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
         <Box
           component="span"
           sx={{
-            color: TEXT_COLOR,
+            color: 'var(--morius-quiet-text)',
             fontSize: '14px',
             fontWeight: 400,
-            fontFamily: '"Nunito Sans", sans-serif',
+            fontFamily: '"Manrope", sans-serif',
             whiteSpace: 'nowrap',
           }}
         >

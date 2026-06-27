@@ -2377,7 +2377,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                           lineHeight: 1,
                           cursor: 'pointer',
                           userSelect: 'none',
-                          boxShadow: isActive ? '0 0 24px color-mix(in srgb, var(--morius-accent) 50%, transparent)' : 'none',
+                          boxShadow: isActive ? '0 14px 28px -24px rgba(0,0,0,0.78)' : 'none',
                           transition: 'box-shadow 250ms ease, color 200ms ease',
                           '&:hover': {
                             color: 'var(--morius-title-text)',
@@ -2405,7 +2405,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       borderRadius: '12px',
                       color: APP_TEXT_PRIMARY,
                       backgroundColor: canSubmit ? 'var(--morius-accent)' : 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #7d8795)',
-                      boxShadow: canSubmit ? '0 10px 24px color-mix(in srgb, var(--morius-accent) 28%, transparent)' : 'none',
+                      boxShadow: canSubmit ? 'var(--morius-neutral-shadow)' : 'none',
                       '&:hover': {
                         backgroundColor: canSubmit ? 'color-mix(in srgb, var(--morius-accent) 86%, #ffffff 14%)' : 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #7d8795)',
                       },

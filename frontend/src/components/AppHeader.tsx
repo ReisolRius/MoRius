@@ -110,12 +110,12 @@ const MOBILE_BOTTOM_NAV_HEIGHT = `calc(${MOBILE_BOTTOM_NAV_CONTENT_HEIGHT}px + $
 const MOBILE_SHEET_TOP_OFFSET = 'calc(var(--morius-header-menu-top) + 8px)'
 const MOBILE_ACTION_CARD_HEIGHT = 118
 const HEADER_NAV_KEYS = new Set(['dashboard', 'games-all', 'community-worlds'])
-const HEADER_NAV_ACTIVE_COLOR = '#4F8DFF'
+const HEADER_NAV_ACTIVE_COLOR = 'var(--accent, #4c8dff)'
 const HEADER_PLAY_ICON_COLOR = '#FFFFFF'
-const HEADER_PLAY_BUTTON_WIDTH = 72
+const HEADER_PLAY_BUTTON_WIDTH = 44
 const HEADER_PLAY_BUTTON_HEIGHT = HEADER_BUTTON_SIZE
 const HEADER_PLAY_ICON_SIZE = 20
-const HEADER_CONTENT_MAX_WIDTH = 1120
+const HEADER_CONTENT_MAX_WIDTH = 1320
 
 const headerBackdropSx = {
   position: 'fixed',
@@ -125,9 +125,10 @@ const headerBackdropSx = {
   height: 'var(--morius-header-menu-top)',
   zIndex: 34,
   pointerEvents: 'none',
-  backgroundColor: 'color-mix(in srgb, var(--morius-app-base) 50%, transparent)',
-  backdropFilter: 'blur(4px)',
-  WebkitBackdropFilter: 'blur(4px)',
+  background: 'linear-gradient(180deg, rgba(11,11,13,0.94), rgba(11,11,13,0.66))',
+  borderBottom: 'var(--morius-border-width) solid rgba(255,255,255,0.06)',
+  backdropFilter: 'blur(16px)',
+  WebkitBackdropFilter: 'blur(16px)',
 } as const
 
 const shellButtonSx = {
@@ -137,17 +138,18 @@ const shellButtonSx = {
   minHeight: HEADER_BUTTON_SIZE,
   maxWidth: HEADER_BUTTON_SIZE,
   maxHeight: HEADER_BUTTON_SIZE,
-  borderRadius: '99px !important',
-  border: 'none',
-  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, #000 38%) !important',
-  color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
-  transition: 'background-color 160ms ease, color 160ms ease',
+  borderRadius: '12px !important',
+  border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+  backgroundColor: 'rgba(255,255,255,0.03) !important',
+  color: '#cfcdd4 !important',
+  transition: 'background-color 160ms ease, color 160ms ease, border-color 160ms ease',
   '&:hover': {
     color: 'var(--morius-title-text) !important',
-    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 52%, #000 48%) !important',
+    backgroundColor: 'rgba(255,255,255,0.06) !important',
+    borderColor: 'var(--morius-hover-border)',
   },
   '&:active': {
-    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 44%, #000 56%) !important',
+    backgroundColor: 'rgba(255,255,255,0.08) !important',
   },
 } as const
 
@@ -161,10 +163,10 @@ const headerRoundActionButtonSx = {
   flex: `0 0 ${HEADER_BUTTON_SIZE}px`,
   mr: 1,
   p: 0,
-  borderRadius: '99px !important',
-  color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
-  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, #000 38%) !important',
-  border: 'none',
+  borderRadius: '12px !important',
+  color: '#cfcdd4 !important',
+  backgroundColor: 'rgba(255,255,255,0.03) !important',
+  border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
   boxShadow: 'none !important',
   opacity: '1 !important',
   transition: 'background-color 160ms ease, color 160ms ease',
@@ -172,20 +174,21 @@ const headerRoundActionButtonSx = {
   overflow: 'hidden',
   '&:hover': {
     color: 'var(--morius-title-text) !important',
-    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 52%, #000 48%) !important',
+    backgroundColor: 'rgba(255,255,255,0.06) !important',
+    borderColor: 'var(--morius-hover-border)',
     opacity: '1 !important',
   },
   '&:active': {
-    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 44%, #000 56%) !important',
+    backgroundColor: 'rgba(255,255,255,0.08) !important',
   },
 } as const
 
 const headerPlayActionButtonSx = {
   '--morius-header-play-width': `${HEADER_PLAY_BUTTON_WIDTH}px`,
   '--morius-header-play-height': `${HEADER_PLAY_BUTTON_HEIGHT}px`,
-  '--morius-header-play-radius': '14px',
+  '--morius-header-play-radius': '12px',
   '--morius-header-play-icon-size': `${HEADER_PLAY_ICON_SIZE}px`,
-  '--morius-header-play-bg': '#5A91EC',
+  '--morius-header-play-bg': 'linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 82%, #ffffff 18%), var(--accent, #4c8dff))',
   minWidth: HEADER_PLAY_BUTTON_WIDTH,
   width: HEADER_PLAY_BUTTON_WIDTH,
   height: HEADER_PLAY_BUTTON_HEIGHT,
@@ -195,24 +198,24 @@ const headerPlayActionButtonSx = {
   flex: `0 0 ${HEADER_PLAY_BUTTON_WIDTH}px`,
   mr: 1,
   p: 0,
-  borderRadius: '14px !important',
+  borderRadius: '12px !important',
   color: '#FFFFFF !important',
-  backgroundColor: '#5A91EC !important',
+  background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 82%, #ffffff 18%), var(--accent, #4c8dff)) !important',
   border: 'none',
-  boxShadow: '0 8px 20px rgba(67, 126, 229, 0.24) !important',
+  boxShadow: 'none !important',
   opacity: '1 !important',
   transition: 'background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
   position: 'relative',
   overflow: 'hidden',
   '&:hover': {
     color: '#FFFFFF !important',
-    backgroundColor: '#659DF4 !important',
-    boxShadow: '0 10px 24px rgba(67, 126, 229, 0.3) !important',
+    background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 88%, #ffffff 12%), color-mix(in srgb, var(--accent, #4c8dff) 92%, #000 8%)) !important',
+    boxShadow: 'none !important',
     opacity: '1 !important',
   },
   '&:active': {
-    backgroundColor: '#4F86E4 !important',
-    boxShadow: '0 6px 16px rgba(67, 126, 229, 0.22) !important',
+    background: 'color-mix(in srgb, var(--accent, #4c8dff) 88%, #000 12%) !important',
+    boxShadow: 'none !important',
     transform: 'translateY(1px)',
   },
 } as const
@@ -806,8 +809,7 @@ function AppHeader({
         onClick={handleToggleHeaderQuickActions}
         sx={{
           ...headerPlayActionButtonSx,
-          '--morius-header-play-bg': isHeaderQuickActionsOpen ? '#659DF4' : '#5A91EC',
-          backgroundColor: `${isHeaderQuickActionsOpen ? '#659DF4' : '#5A91EC'} !important`,
+          opacity: isHeaderQuickActionsOpen ? 0.96 : 1,
         }}
       >
         <ThemedSvgIcon markup={mobilePlayIconMarkup} size={HEADER_PLAY_ICON_SIZE} sx={{ color: HEADER_PLAY_ICON_COLOR }} />
@@ -823,18 +825,18 @@ function AppHeader({
         PaperProps={{
           sx: {
             mt: 1.05,
-            width: 292,
+            width: 288,
             maxWidth: 'calc(100vw - 28px)',
-            p: 0,
-            borderRadius: 0,
-            border: 'none',
-            background: 'transparent',
-            boxShadow: 'none',
+            p: 0.7,
+            borderRadius: '18px',
+            border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+            background: 'linear-gradient(180deg, #1a1a1e, #141417)',
+            boxShadow: '0 30px 70px -20px rgba(0,0,0,0.85)',
             overflow: 'visible',
           },
         }}
       >
-        <Stack spacing={1.05}>
+        <Stack spacing={0.35}>
           {headerQuickActionItems.map((item) => {
             const isContinueAction = item.key === 'continue'
             const hasCoverImage = isContinueAction && item.imageMode === 'cover' && Boolean(item.imageSrc)
@@ -851,23 +853,23 @@ function AppHeader({
                 sx={{
                   position: 'relative',
                   width: '100%',
-                  minHeight: isContinueAction ? 112 : 58,
-                  height: isContinueAction ? 112 : 58,
-                  px: isContinueAction ? 1.35 : 1.65,
+                  minHeight: isContinueAction ? 72 : 54,
+                  height: isContinueAction ? 72 : 54,
+                  px: 1,
                   py: isContinueAction ? 1.15 : 0,
                   justifyContent: 'flex-start',
                   alignItems: 'center',
                   overflow: 'hidden',
                   borderRadius: '12px',
-                  border: 'none',
+                  border: 'var(--morius-border-width) solid transparent',
                   color: 'var(--morius-title-text)',
                   textTransform: 'none',
                   textAlign: 'left',
-                  background: hasCoverImage ? 'transparent' : 'color-mix(in srgb, var(--morius-elevated-bg) 88%, black 12%)',
-                  boxShadow: '0 14px 30px rgba(0, 0, 0, 0.22)',
+                  background: isContinueAction ? 'rgba(255,255,255,0.05)' : 'transparent',
+                  boxShadow: 'none',
                   transition: 'transform 160ms ease, background 160ms ease, opacity 160ms ease',
                   '&:hover': {
-                    background: hasCoverImage ? 'transparent' : 'color-mix(in srgb, var(--morius-elevated-bg) 74%, black 26%)',
+                    background: 'rgba(255,255,255,0.06)',
                     transform: item.disabled ? 'none' : 'translateY(-1px)',
                   },
                   '&:hover .morius-header-action-cover-shade': {
@@ -930,15 +932,31 @@ function AppHeader({
                     alignItems: 'flex-start',
                   }}
                 >
-                  <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0, width: '100%' }}>
-                    {item.iconMarkup ? <ThemedSvgIcon markup={item.iconMarkup} size={isContinueAction ? 18 : 20} /> : null}
+                  <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0, width: '100%' }}>
+                    {item.iconMarkup ? (
+                      <Box
+                        sx={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: '10px',
+                          display: 'grid',
+                          placeItems: 'center',
+                          flexShrink: 0,
+                          border: 'var(--morius-border-width) solid var(--morius-chip-border)',
+                          backgroundColor: 'var(--morius-chip-bg)',
+                          color: isContinueAction ? 'var(--accent, #4c8dff)' : '#cfcdd4',
+                        }}
+                      >
+                        <ThemedSvgIcon markup={item.iconMarkup} size={isContinueAction ? 18 : 20} />
+                      </Box>
+                    ) : null}
                     <Typography
                       noWrap={!isContinueAction}
                       sx={{
                         minWidth: 0,
                         color: hasCoverImage ? '#f5f8ff' : 'var(--morius-title-text)',
-                        fontSize: isContinueAction ? '0.96rem' : '1.08rem',
-                        fontWeight: 900,
+                        fontSize: isContinueAction ? '0.96rem' : '0.94rem',
+                        fontWeight: 800,
                         lineHeight: 1.08,
                       }}
                     >
@@ -1694,7 +1712,8 @@ function AppHeader({
               {headerNavItems.map((item, index) => {
                 const MenuIcon = primaryMenuIconByKey[item.key] ?? primaryMenuIcons[index % primaryMenuIcons.length]
                 const isActive = isHeaderNavItemActive(item)
-                const navItemColor = isActive ? HEADER_NAV_ACTIVE_COLOR : 'var(--morius-title-text)'
+                const navItemColor = isActive ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)'
+                const navIconColor = isActive ? HEADER_NAV_ACTIVE_COLOR : 'var(--morius-text-secondary)'
 
                 return (
                   <Button
@@ -1704,20 +1723,20 @@ function AppHeader({
                     sx={{
                       minWidth: 0,
                       minHeight: HEADER_BUTTON_SIZE,
-                      px: 0.35,
+                      px: 1,
                       py: 0,
                       gap: 1,
                       border: 'none',
-                      borderRadius: '99px !important',
-                      backgroundColor: 'transparent !important',
+                      borderRadius: '10px !important',
+                      backgroundColor: isActive ? 'rgba(255,255,255,0.05) !important' : 'transparent !important',
                       color: `${navItemColor} !important`,
                       textTransform: 'none',
                       fontSize: '0.9rem',
                       fontWeight: 800,
                       lineHeight: 1,
                       '&:hover': {
-                        backgroundColor: 'transparent !important',
-                        color: `${navItemColor} !important`,
+                        backgroundColor: 'rgba(255,255,255,0.05) !important',
+                        color: 'var(--morius-title-text) !important',
                       },
                       '&:active': {
                         backgroundColor: 'transparent !important',
@@ -1727,9 +1746,9 @@ function AppHeader({
                     <Box
                       sx={{
                         display: 'inline-flex',
-                        color: `${navItemColor} !important`,
-                        '&, & *': { color: `${navItemColor} !important` },
-                        '& svg': { color: `${navItemColor} !important` },
+                        color: `${navIconColor} !important`,
+                        '&, & *': { color: `${navIconColor} !important` },
+                        '& svg': { color: `${navIconColor} !important` },
                         '& path': { fill: 'currentColor !important', stroke: 'currentColor !important' },
                       }}
                     >

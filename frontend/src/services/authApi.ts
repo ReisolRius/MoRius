@@ -538,7 +538,7 @@ function normalizeCurrentUserThemeSettings(
       corrected_text_color:
         typeof story?.corrected_text_color === 'string' && story.corrected_text_color.trim()
           ? story.corrected_text_color
-          : '#578EEE',
+          : '#4c8dff',
       player_text_color:
         typeof story?.player_text_color === 'string' && story.player_text_color.trim()
           ? story.player_text_color
@@ -559,7 +559,7 @@ function normalizeCurrentUserThemeSettings(
           text_primary: typeof item.palette?.text_primary === 'string' ? item.palette.text_primary : '#E5E0D8',
           background: typeof item.palette?.background === 'string' ? item.palette.background : '#111111',
           surface: typeof item.palette?.surface === 'string' ? item.palette.surface : '#171716',
-          front: typeof item.palette?.front === 'string' ? item.palette.front : '#578EEE',
+          front: typeof item.palette?.front === 'string' ? item.palette.front : '#4c8dff',
           input: typeof item.palette?.input === 'string' ? item.palette.input : '#262624',
         },
         story: normalizeCurrentUserThemeSettings({

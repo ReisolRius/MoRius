@@ -54,14 +54,14 @@ const AUTH_PASSWORD_MAX_LENGTH = 128
 const AUTH_CODE_LENGTH = 6
 const RESEND_COOLDOWN_SECONDS = 60
 const RESEND_COOLDOWN_REGEX = /please wait\s+(\d+)\s+seconds?/i
-const LOGIN_BUTTON_COLOR = '#578EEE'
-const LOGIN_BUTTON_HOVER = '#477AD7'
-const REGISTER_LINK_COLOR = '#578EEE'
-const PAGE_BACKGROUND = '#121212'
-const INPUT_BACKGROUND = '#1b2024'
-const INPUT_TEXT = '#f1f1f1'
-const MUTED_TEXT = '#8f98a3'
-const BORDER_COLOR = '#343c45'
+const LOGIN_BUTTON_COLOR = '#4c8dff'
+const LOGIN_BUTTON_HOVER = 'color-mix(in srgb, #4c8dff 88%, #000 12%)'
+const REGISTER_LINK_COLOR = '#4c8dff'
+const PAGE_BACKGROUND = '#090909'
+const INPUT_BACKGROUND = '#111114'
+const INPUT_TEXT = '#f3f1ec'
+const MUTED_TEXT = '#9b9aa0'
+const BORDER_COLOR = 'rgba(255,255,255,0.09)'
 
 function extractResendCooldownSeconds(detail: string): number | null {
   const match = detail.match(RESEND_COOLDOWN_REGEX)
@@ -122,7 +122,7 @@ function AuthField({
             borderRadius: '11px',
             backgroundColor: INPUT_BACKGROUND,
             color: INPUT_TEXT,
-            fontFamily: '"Nunito Sans", sans-serif',
+            fontFamily: '"Manrope", sans-serif',
             fontSize: '1rem',
             fontWeight: 400,
             '& fieldset': {
@@ -146,7 +146,7 @@ function AuthField({
             mt: 0.6,
             mx: 0,
             color: '#ff8585',
-            fontFamily: '"Nunito Sans", sans-serif',
+            fontFamily: '"Manrope", sans-serif',
             fontSize: '0.84rem',
             fontWeight: 700,
           },
@@ -235,7 +235,7 @@ function ProviderGlyph({ provider }: { provider: 'vk' | 'yandex' | 'mail' }) {
         borderRadius: provider === 'vk' ? '6px' : '50%',
         color: provider === 'vk' ? '#ffffff' : config.color,
         backgroundColor: provider === 'vk' ? config.color : 'transparent',
-        fontFamily: '"Nunito Sans", sans-serif',
+        fontFamily: '"Manrope", sans-serif',
         fontSize: config.fontSize,
         fontWeight: 900,
         lineHeight: 1,
@@ -289,7 +289,7 @@ function GoogleAuthButton({
         border: `1px solid ${BORDER_COLOR}`,
         color: INPUT_TEXT,
         backgroundColor: 'transparent',
-        fontFamily: '"Nunito Sans", sans-serif',
+        fontFamily: '"Manrope", sans-serif',
         fontSize: '1rem',
         fontWeight: 700,
         textTransform: 'none',
@@ -330,7 +330,7 @@ function ProviderAuthButton({
         border: `1px solid ${BORDER_COLOR}`,
         color: INPUT_TEXT,
         backgroundColor: 'transparent',
-        fontFamily: '"Nunito Sans", sans-serif',
+        fontFamily: '"Manrope", sans-serif',
         fontSize: '1rem',
         fontWeight: 700,
         textTransform: 'none',
@@ -705,7 +705,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
         gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) minmax(0, 1fr)' },
         backgroundColor: PAGE_BACKGROUND,
         color: INPUT_TEXT,
-        fontFamily: '"Nunito Sans", sans-serif',
+        fontFamily: '"Manrope", sans-serif',
         overflow: 'hidden',
       }}
     >
@@ -731,7 +731,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
             overflow: 'hidden',
             borderRadius: { md: '12px', xl: '14px' },
             background:
-              'radial-gradient(ellipse at 35% 18%, rgba(87,142,238,0.18) 0%, transparent 42%), linear-gradient(180deg, #111927 0%, #121212 100%)',
+              'radial-gradient(ellipse at 50% -8%, rgba(205,166,89,0.14) 0%, transparent 48%), linear-gradient(180deg, #17171c 0%, #111114 100%)',
           }}
         >
           <Box
@@ -803,7 +803,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
               mb: { xs: 3.2, md: 3.6 },
               textAlign: 'center',
               color: '#ffffff',
-              fontFamily: '"Nunito Sans", sans-serif',
+        fontFamily: '"Manrope", sans-serif',
               fontSize: { xs: '1.68rem', sm: '1.85rem', md: '2rem' },
               lineHeight: 1.15,
               fontWeight: 700,
@@ -1002,9 +1002,9 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                   minHeight: 57,
                   borderRadius: '10px',
                   border: 'none',
-                  background: `${LOGIN_BUTTON_COLOR} !important`,
+                  background: 'linear-gradient(135deg, #4c8dff 0%, color-mix(in srgb, #4c8dff 78%, #ffffff 22%) 100%) !important',
                   color: '#ffffff !important',
-                  fontFamily: '"Nunito Sans", sans-serif',
+                  fontFamily: '"Manrope", sans-serif',
                   fontSize: '1.05rem',
                   fontWeight: 700,
                   textTransform: 'none',
@@ -1014,7 +1014,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                   },
                   '&:disabled': {
                     opacity: 0.66,
-                    background: `${LOGIN_BUTTON_COLOR} !important`,
+                    background: 'linear-gradient(135deg, #4c8dff 0%, color-mix(in srgb, #4c8dff 78%, #ffffff 22%) 100%) !important',
                     color: '#ffffff !important',
                   },
                 }}

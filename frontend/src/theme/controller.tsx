@@ -34,8 +34,8 @@ export const MORIUS_CUSTOM_THEME_STORAGE_KEY = 'morius.ui.custom-theme'
 const STORY_HISTORY_FONT_FAMILY_OPTIONS: readonly StoryHistoryFontFamilyOption[] = [
   {
     id: 'default',
-    title: 'Nunito Sans',
-    cssFontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+    title: 'Manrope',
+    cssFontFamily: '"Manrope", "Segoe UI", sans-serif',
   },
 ]
 

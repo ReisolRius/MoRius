@@ -1,4 +1,4 @@
-﻿import {
+import {
   forwardRef,
   Fragment,
   lazy,
@@ -409,7 +409,7 @@ function EnvironmentModuleCard({
             ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 82%, transparent)'
             : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
           boxShadow: isDragging
-            ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 34%, transparent), 0 0 32px color-mix(in srgb, var(--morius-accent) 22%, transparent), 0 24px 48px rgba(0, 0, 0, 0.34)'
+            ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 34%, transparent), 0 24px 48px rgba(0, 0, 0, 0.46)'
             : isShifted
               ? '0 24px 48px rgba(0, 0, 0, 0.34)'
               : '0 18px 34px rgba(0, 0, 0, 0.22)',
@@ -904,7 +904,7 @@ const STORY_APPEARANCE_TEXT_STYLE_OPTIONS: Array<{
   label: string
   cssFontFamily: string
 }> = [
-  { id: 'default', label: 'Стандарт', cssFontFamily: '"Nunito Sans", system-ui, sans-serif' },
+  { id: 'default', label: 'Стандарт', cssFontFamily: '"Manrope", system-ui, sans-serif' },
   { id: 'serif', label: 'Засечки', cssFontFamily: 'Georgia, "Times New Roman", "Noto Serif", serif' },
   { id: 'terminal', label: 'Терминал', cssFontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, "Courier New", monospace' },
 ]
@@ -914,10 +914,10 @@ const STORY_VISIBLE_ASSISTANT_TURNS_PAGE = 20
 const STORY_LOAD_OLDER_SCROLL_TOP_THRESHOLD = 160
 const STORY_TRIM_TO_RECENT_SCROLL_BOTTOM_THRESHOLD = 220
 const COMPOSER_TOP_ACTION_BUTTON_SIZE = 46
-const COMPOSER_SEND_BUTTON_SIZE = 40
-const COMPOSER_INPUT_MIN_HEIGHT = 44
+const COMPOSER_SEND_BUTTON_SIZE = 42
+const COMPOSER_INPUT_MIN_HEIGHT = 58
 const COMPOSER_INPUT_MAX_HEIGHT = 184
-const STORY_COMPOSER_FALLBACK_HEIGHT = 152
+const STORY_COMPOSER_FALLBACK_HEIGHT = 170
 const STORY_MESSAGES_VIEWPORT_FALLBACK_BOTTOM =
   STORY_COMPOSER_FALLBACK_HEIGHT + moriusThemeTokens.layout.interfaceGap + 40
 const STORY_CONTINUE_PROMPT = 'Продолжай'
@@ -6308,7 +6308,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       height: 2,
       borderRadius: '2px 2px 0 0',
       backgroundColor: isActive ? 'var(--morius-accent)' : 'transparent',
-      boxShadow: isActive ? '0 0 10px color-mix(in srgb, var(--morius-accent) 60%, transparent)' : 'none',
+      boxShadow: 'none',
       transition: 'background-color 160ms ease',
     },
     '&:hover': {
@@ -18401,7 +18401,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               backgroundColor: isActive
                                 ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-elevated-bg))'
                                 : 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
-                              boxShadow: isActive ? '0 0 22px color-mix(in srgb, var(--morius-accent) 22%, transparent)' : 'none',
+                              boxShadow: isActive ? '0 14px 28px -24px rgba(0,0,0,0.78)' : 'none',
                               flexShrink: 0,
                             }}
                           >
@@ -22821,7 +22821,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                               borderRadius: '3px',
                                               backgroundColor: segment.color,
                                               flexShrink: 0,
-                                              boxShadow: `0 0 6px color-mix(in srgb, ${segment.color} 50%, transparent)`,
+                                              boxShadow: 'none',
                                             }}
                                           />
                                           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>{segment.label}</Typography>
@@ -24058,7 +24058,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                             >
                                               {option.label}
                                             </Typography>
-                                            <Typography sx={{ color: option.accent, fontSize: '0.84rem', fontWeight: 900, fontFamily: '"Nunito Sans", system-ui, sans-serif', lineHeight: 1 }}>
+                                            <Typography sx={{ color: option.accent, fontSize: '0.84rem', fontWeight: 900, fontFamily: '"Manrope", system-ui, sans-serif', lineHeight: 1 }}>
                                               Aa
                                             </Typography>
                                           </Stack>
@@ -24752,7 +24752,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 44%, var(--morius-card-border))',
                     background:
                       'linear-gradient(135deg, color-mix(in srgb, var(--morius-button-active) 78%, transparent) 0%, color-mix(in srgb, var(--morius-card-bg) 92%, transparent) 100%)',
-                    boxShadow: '0 10px 24px color-mix(in srgb, var(--morius-accent) 14%, transparent)',
+                    boxShadow: '0 14px 26px -22px rgba(0,0,0,0.78)',
                   }}
                 >
                   <Box
@@ -24761,7 +24761,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       height: 8,
                       borderRadius: '50%',
                       backgroundColor: 'var(--morius-accent)',
-                      boxShadow: '0 0 14px color-mix(in srgb, var(--morius-accent) 62%, transparent)',
+                      boxShadow: 'none',
                       flexShrink: 0,
                     }}
                   />
@@ -26387,10 +26387,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     left: { xs: 12, sm: 14 },
                     top: '50%',
                     transform: 'translateY(-50%)',
-                    width: 38,
-                    height: 38,
-                    minWidth: 38,
-                    minHeight: 38,
+                    width: 42,
+                    height: 42,
+                    minWidth: 42,
+                    minHeight: 42,
                     p: 0,
                     zIndex: 2,
                     borderRadius: '50%',
@@ -26485,8 +26485,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     <Box
                       component="span"
                       sx={{
-                        width: 38,
-                        height: 38,
+                        width: 42,
+                        height: 42,
                         borderRadius: '50%',
                         display: 'grid',
                         placeItems: 'center',
@@ -26535,13 +26535,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 color: 'var(--morius-title-text)',
                 fontSize: { xs: '1rem', sm: '1.02rem' },
                 lineHeight: 1.45,
-                fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+                fontFamily: '"Manrope", "Segoe UI", sans-serif',
                 boxSizing: 'border-box',
-                px: { xs: 1.95, sm: 2.15 },
-                pl: { xs: 7.2, sm: 7.55 },
-                pt: { xs: '8px', sm: '9px' },
-                pb: { xs: '8px', sm: '9px' },
-                pr: { xs: 7, sm: 7 },
+                px: { xs: 2.05, sm: 2.3 },
+                pl: { xs: 7.7, sm: 8.05 },
+                pt: { xs: '14px', sm: '15px' },
+                pb: { xs: '14px', sm: '15px' },
+                pr: { xs: 7.4, sm: 7.6 },
                 overflowY: 'hidden',
                 '&::placeholder': {
                   color: 'var(--morius-text-secondary)',
@@ -27000,7 +27000,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 outline: 'none',
                 fontSize: '0.94rem',
                 lineHeight: 1.43,
-                fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+                fontFamily: '"Manrope", "Segoe UI", sans-serif',
               }}
             />
             <TextLimitIndicator
@@ -27282,7 +27282,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               fontWeight: 900,
               fontSize: '1.15rem',
               lineHeight: '30px',
-              fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+              fontFamily: '"Manrope", "Segoe UI", sans-serif',
               color: 'inherit',
             }}
           >
@@ -27794,7 +27794,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 outline: 'none',
                 fontSize: '0.96rem',
                 lineHeight: 1.45,
-                fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+                fontFamily: '"Manrope", "Segoe UI", sans-serif',
               }}
             />
             <TextLimitIndicator currentLength={instructionContentDraft.length} maxLength={8000} />
@@ -28099,7 +28099,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 outline: 'none',
                 fontSize: '0.96rem',
                 lineHeight: 1.45,
-                fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+                fontFamily: '"Manrope", "Segoe UI", sans-serif',
               }}
             />
             <TextLimitIndicator currentLength={plotCardContentDraft.length} maxLength={STORY_PLOT_CARD_CONTENT_MAX_LENGTH} />
@@ -28454,7 +28454,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 outline: 'none',
                 fontSize: '0.96rem',
                 lineHeight: 1.45,
-                fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+                fontFamily: '"Manrope", "Segoe UI", sans-serif',
               }}
             />
             <TextLimitIndicator currentLength={memoryBlockContentDraft.length} maxLength={STORY_MEMORY_BLOCK_CONTENT_MAX_LENGTH} />
@@ -29376,7 +29376,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       outline: 'none',
                       fontSize: '0.92rem',
                       lineHeight: 1.4,
-                      fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+                      fontFamily: '"Manrope", "Segoe UI", sans-serif',
                     }}
                   />
                   <TextLimitIndicator

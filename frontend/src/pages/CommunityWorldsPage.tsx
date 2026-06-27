@@ -2212,7 +2212,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     userSelect: 'none',
                     backgroundColor: 'var(--morius-elevated-bg)',
                     color: isActive ? 'var(--morius-title-text)' : APP_TEXT_SECONDARY,
-                    boxShadow: isActive ? '0 0 24px color-mix(in srgb, var(--morius-accent) 50%, transparent)' : 'none',
+                    boxShadow: isActive ? '0 14px 28px -24px rgba(0,0,0,0.78)' : 'none',
                     transition: 'box-shadow 250ms ease, color 200ms ease',
                     '&:hover': { color: 'var(--morius-title-text)' },
                     '&:focus-visible': { outline: '2px solid rgba(205, 223, 246, 0.56)', outlineOffset: '2px' },

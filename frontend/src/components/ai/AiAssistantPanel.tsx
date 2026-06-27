@@ -271,7 +271,7 @@ function AiAssistantMessageList({
               placeItems: 'center',
               color: 'var(--morius-accent)',
               backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, transparent)',
-              boxShadow: '0 0 34px color-mix(in srgb, var(--morius-accent) 22%, transparent)',
+              boxShadow: '0 18px 34px -24px rgba(0, 0, 0, 0.78)',
             }}
           >
             <ThemedSvgIcon markup={aiIconMarkup} size={28} />
@@ -952,7 +952,7 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
                   placeItems: 'center',
                   color: 'var(--morius-accent)',
                   backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, transparent)',
-                  boxShadow: '0 0 28px color-mix(in srgb, var(--morius-accent) 22%, transparent)',
+                  boxShadow: '0 16px 30px -22px rgba(0, 0, 0, 0.78)',
                 }}
               >
                 <ThemedSvgIcon markup={aiIconMarkup} size={23} />

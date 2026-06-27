@@ -140,7 +140,7 @@ function createCustomThemeId() {
   return `custom-${Date.now().toString(36)}`
 }
 
-function normalizeHexColor(value: string, fallback = '#578EEE'): string {
+function normalizeHexColor(value: string, fallback = '#4c8dff'): string {
   const normalized = value.trim().toUpperCase()
   return /^#[0-9A-F]{6}$/.test(normalized) ? normalized : fallback
 }
@@ -797,7 +797,7 @@ function SettingsDialog({
     applyResolvedTheme(themeSettings)
   }
 
-  const activeFieldColor = editingColorField ? (isPaletteField(editingColorField) ? themeDraft.palette[editingColorField] : themeDraft.story[editingColorField]) : '#578EEE'
+  const activeFieldColor = editingColorField ? (isPaletteField(editingColorField) ? themeDraft.palette[editingColorField] : themeDraft.story[editingColorField]) : '#4c8dff'
   const activeColorInputValue = colorInputDraft || activeFieldColor
   const pickerColorValue = normalizeHexColor(activeColorInputValue, activeFieldColor).toLowerCase()
   const previewDescription = profileDescription.trim() || 'Краткое описание профиля'
@@ -1513,14 +1513,14 @@ function SettingsDialog({
                               ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))'
                               : 'color-mix(in srgb, var(--morius-card-bg) 72%, var(--morius-elevated-bg) 28%)',
                             boxShadow: isActive
-                              ? '0 0 24px color-mix(in srgb, var(--morius-accent) 18%, transparent), 0 18px 36px rgba(0, 0, 0, 0.22)'
+                              ? '0 18px 36px rgba(0, 0, 0, 0.28)'
                               : '0 14px 30px rgba(0, 0, 0, 0.18)',
                             '&:hover': {
                               backgroundColor: isActive
                                 ? 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))'
                                 : 'color-mix(in srgb, var(--morius-card-bg) 66%, var(--morius-elevated-bg) 34%)',
                               boxShadow: isActive
-                                ? '0 0 28px color-mix(in srgb, var(--morius-accent) 22%, transparent), 0 20px 38px rgba(0, 0, 0, 0.24)'
+                                ? '0 20px 38px rgba(0, 0, 0, 0.3)'
                                 : '0 16px 32px rgba(0, 0, 0, 0.2)',
                             },
                           }}
@@ -1552,7 +1552,7 @@ function SettingsDialog({
                               ? 'color-mix(in srgb, var(--morius-accent) 11%, var(--morius-card-bg))'
                               : 'color-mix(in srgb, var(--morius-card-bg) 72%, var(--morius-elevated-bg) 28%)',
                             boxShadow: isActive
-                              ? '0 0 24px color-mix(in srgb, var(--morius-accent) 18%, transparent), 0 18px 36px rgba(0, 0, 0, 0.22)'
+                              ? '0 18px 36px rgba(0, 0, 0, 0.28)'
                               : '0 14px 30px rgba(0, 0, 0, 0.18)',
                           }}
                         >
@@ -1696,7 +1696,7 @@ function SettingsDialog({
                                       border: 'none',
                                       backgroundColor: color,
                                       boxShadow: isActive
-                                        ? '0 0 0 2px color-mix(in srgb, var(--morius-accent) 82%, white 18%), 0 10px 18px rgba(0, 0, 0, 0.18)'
+                                        ? '0 0 0 2px color-mix(in srgb, var(--morius-accent) 72%, white 12%), 0 10px 18px rgba(0, 0, 0, 0.18)'
                                         : '0 8px 16px rgba(0, 0, 0, 0.16)',
                                     }}
                                   />

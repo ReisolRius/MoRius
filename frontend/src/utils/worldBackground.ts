@@ -11,41 +11,43 @@ function seededFraction(seed: number, salt: number): number {
   return raw - Math.floor(raw)
 }
 
+const CINEMATIC_FALLBACK_PALETTES = [
+  ['#5e3e54', '#2e2230', '#181219'],
+  ['#525860', '#272b30', '#15181b'],
+  ['#4a3a66', '#2a2142', '#15101f'],
+  ['#356b66', '#26384c', '#181f2a'],
+  ['#5e2c34', '#321a22', '#1a1014'],
+  ['#2c5346', '#193029', '#0f1814'],
+] as const
+
 export function buildWorldFallbackArtwork(worldId: number): WorldFallbackArtwork {
   const safeWorldId = Math.max(1, Math.trunc(Number.isFinite(worldId) ? worldId : 1))
-  const hueA = Math.floor(seededFraction(safeWorldId, 1) * 360)
-  const hueB = Math.floor(seededFraction(safeWorldId, 2) * 360)
-  const hueC = Math.floor(seededFraction(safeWorldId, 3) * 360)
-  const hueD = Math.floor(seededFraction(safeWorldId, 4) * 360)
-
-  const auraAX = 12 + seededFraction(safeWorldId, 5) * 76
-  const auraAY = 8 + seededFraction(safeWorldId, 6) * 74
-  const auraBX = 18 + seededFraction(safeWorldId, 7) * 72
-  const auraBY = 20 + seededFraction(safeWorldId, 8) * 68
+  const palette = CINEMATIC_FALLBACK_PALETTES[
+    Math.floor(seededFraction(safeWorldId, 1) * CINEMATIC_FALLBACK_PALETTES.length)
+  ] ?? CINEMATIC_FALLBACK_PALETTES[0]
+  const [colorOne, colorTwo, colorThree] = palette
+  const auraAX = 16 + seededFraction(safeWorldId, 5) * 68
+  const auraAY = 10 + seededFraction(safeWorldId, 6) * 54
   const stripeAngle = Math.floor(seededFraction(safeWorldId, 9) * 180)
 
-  const sizeOneX = 180 + safeWorldId * 0.73
-  const sizeOneY = 220 + safeWorldId * 0.61
-  const sizeTwoX = 240 + safeWorldId * 0.57
-  const sizeTwoY = 210 + safeWorldId * 0.67
+  const sizeOneX = 210 + safeWorldId * 0.53
+  const sizeOneY = 250 + safeWorldId * 0.41
   const stripeSize = 32 + safeWorldId * 0.19
 
   const shiftAX = safeWorldId * 4.83
   const shiftAY = safeWorldId * 3.17
-  const shiftBX = safeWorldId * 2.91
-  const shiftBY = safeWorldId * 5.27
   const shiftCX = safeWorldId * 1.71
   const shiftCY = safeWorldId * 1.29
 
   return {
     backgroundImage: [
-      `radial-gradient(circle at ${auraAX.toFixed(2)}% ${auraAY.toFixed(2)}%, hsla(${hueA}, 72%, 56%, 0.25) 0%, transparent 54%)`,
-      `radial-gradient(circle at ${auraBX.toFixed(2)}% ${auraBY.toFixed(2)}%, hsla(${hueB}, 64%, 44%, 0.21) 0%, transparent 58%)`,
-      `linear-gradient(156deg, hsla(${hueC}, 42%, 19%, 0.97) 0%, hsla(${hueD}, 48%, 10%, 0.99) 100%)`,
-      `repeating-linear-gradient(${stripeAngle}deg, rgba(255, 255, 255, 0.045) 0px, rgba(255, 255, 255, 0.045) 1px, transparent 1px, transparent 14px)`,
+      `radial-gradient(circle at ${auraAX.toFixed(2)}% ${auraAY.toFixed(2)}%, rgba(255,255,255,0.08) 0%, transparent 52%)`,
+      `linear-gradient(160deg, ${colorOne}, ${colorTwo} 68%, ${colorThree})`,
+      'linear-gradient(180deg, transparent 45%, rgba(10,8,12,0.82))',
+      `repeating-linear-gradient(${stripeAngle}deg, rgba(255,255,255,0.032) 0px, rgba(255,255,255,0.032) 1px, transparent 1px, transparent 16px)`,
     ].join(', '),
-    backgroundSize: `${sizeOneX.toFixed(2)}px ${sizeOneY.toFixed(2)}px, ${sizeTwoX.toFixed(2)}px ${sizeTwoY.toFixed(2)}px, cover, ${stripeSize.toFixed(2)}px ${stripeSize.toFixed(2)}px`,
-    backgroundPosition: `${shiftAX.toFixed(2)}px ${shiftAY.toFixed(2)}px, ${shiftBX.toFixed(2)}px ${shiftBY.toFixed(2)}px, center, ${shiftCX.toFixed(2)}px ${shiftCY.toFixed(2)}px`,
-    backgroundRepeat: 'repeat, repeat, no-repeat, repeat',
+    backgroundSize: `${sizeOneX.toFixed(2)}px ${sizeOneY.toFixed(2)}px, cover, cover, ${stripeSize.toFixed(2)}px ${stripeSize.toFixed(2)}px`,
+    backgroundPosition: `${shiftAX.toFixed(2)}px ${shiftAY.toFixed(2)}px, center, center, ${shiftCX.toFixed(2)}px ${shiftCY.toFixed(2)}px`,
+    backgroundRepeat: 'repeat, no-repeat, no-repeat, repeat',
   }
 }

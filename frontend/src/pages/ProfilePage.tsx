@@ -4578,7 +4578,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       backgroundColor: 'var(--morius-elevated-bg)',
                       textTransform: 'none',
                       '&:hover': {
-                        backgroundColor: 'transparent',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)',
                       },
                     }}
                   >
@@ -4626,7 +4626,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     color: 'var(--morius-text-primary)',
                     textTransform: 'none',
                     '&:hover': {
-                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #000 28%)',
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)',
                     },
                   }}
                 >
@@ -4644,7 +4644,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       color: 'var(--morius-text-primary)',
                       textTransform: 'none',
                       '&:hover': {
-                        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #000 28%)',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)',
                       },
                     }}
                   >
@@ -4667,7 +4667,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     color: 'var(--morius-text-primary)',
                     textTransform: 'none',
                     '&:hover': {
-                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #000 28%)',
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)',
                     },
                   }}
                 >
@@ -4741,7 +4741,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         color: 'color-mix(in srgb, var(--morius-title-text) 78%, transparent) !important',
                         p: '0 !important',
                         '&:hover': {
-                          backgroundColor: 'var(--morius-button-hover) !important',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%) !important',
                           color: 'var(--morius-title-text) !important',
                         },
                       }}
@@ -4786,7 +4786,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         textTransform: 'none',
                         fontWeight: 700,
                         fontSize: '0.84rem',
-                        '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                        '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)' },
                       }}
                     >
                       {isFollowSaving ? <CircularProgress size={16} sx={{ color: 'var(--morius-title-text)' }} /> : profileView?.is_following ? 'Отписаться' : 'Подписаться'}
@@ -4804,7 +4804,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         textTransform: 'none',
                         fontWeight: 700,
                         fontSize: '0.84rem',
-                        '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                        '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)' },
                       }}
                     >
                       Настройки
@@ -4823,7 +4823,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         textTransform: 'none',
                         fontWeight: 700,
                         fontSize: '0.84rem',
-                        '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                        '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)' },
                       }}
                     >
                       Админка
@@ -4842,7 +4842,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         textTransform: 'none',
                         fontWeight: 700,
                         fontSize: '0.84rem',
-                        '&:hover': { backgroundColor: 'rgba(175, 72, 72, 0.4)', color: '#ffe1e1' },
+                        '&:hover': { backgroundColor: 'rgba(175, 72, 72, 0.48)', color: '#ffe1e1' },
                       }}
                     >
                       Выход
@@ -5287,7 +5287,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                             textTransform: 'none',
                             fontWeight: 700,
                             '&:hover': {
-                              backgroundColor: 'var(--morius-button-hover)',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)',
                               color: 'var(--morius-title-text)',
                               boxShadow: '0 10px 24px rgba(0, 0, 0, 0.2)',
                             },
@@ -5308,7 +5308,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                             textTransform: 'none',
                             fontWeight: 700,
                             '&:hover': {
-                              backgroundColor: 'var(--morius-button-hover)',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)',
                               color: 'var(--morius-title-text)',
                               boxShadow: '0 10px 24px rgba(0, 0, 0, 0.2)',
                             },
@@ -5331,7 +5331,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                             textTransform: 'none',
                             fontWeight: 700,
                             '&:hover': {
-                              backgroundColor: 'var(--morius-button-hover)',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)',
                               color: 'var(--morius-title-text)',
                               boxShadow: '0 10px 24px rgba(0, 0, 0, 0.2)',
                             },
@@ -5354,7 +5354,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                             textTransform: 'none',
                             fontWeight: 700,
                             '&:hover': {
-                              backgroundColor: 'rgba(175, 72, 72, 0.34)',
+                              backgroundColor: 'rgba(175, 72, 72, 0.46)',
                               color: '#ffe1e1',
                             },
                           }}

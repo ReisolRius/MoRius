@@ -208,7 +208,7 @@ function ActionPill({ onClick, disabled, children, active, danger, primary, full
         backgroundColor: bg,
         color,
         cursor: disabled ? 'not-allowed' : 'pointer',
-        fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+        fontFamily: '"Manrope", "Segoe UI", sans-serif',
         fontWeight: 700,
         fontSize: '0.88rem',
         lineHeight: 1,
@@ -437,7 +437,7 @@ function CardTabButton({ label, active, onClick }: { label: string; active: bool
         border: 'none',
         borderRadius: '9999px',
         color: active ? 'var(--morius-title-text)' : APP_TEXT_PRIMARY,
-        fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+        fontFamily: '"Manrope", "Segoe UI", sans-serif',
         fontWeight: 700,
         fontSize: '0.88rem',
         lineHeight: 1,
@@ -838,7 +838,7 @@ function CommunityWorldDialog({
         backdropSx={dialogBackdropSx}
         paperSx={{
           '--community-world-card-bg': isYamiTheme
-            ? '#121212'
+            ? '#090909'
             : isRiusDungeonTheme
               ? '#111418'
               : 'var(--morius-card-bg)',

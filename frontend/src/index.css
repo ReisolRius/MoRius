@@ -32,10 +32,9 @@ body {
   color: var(--morius-text-secondary);
   font-size: var(--morius-body-size);
   line-height: 1.5;
-  font-family: "Nunito Sans", "Segoe UI", sans-serif;
+  font-family: "Manrope", "Segoe UI", sans-serif;
   font-weight: 400;
-  letter-spacing: 0.01em;
-  font-variation-settings: "wdth" 100, "wght" 400, "opsz" 14;
+  letter-spacing: 0;
 }
 
 @keyframes morius-ai-orb-pulse {
@@ -43,12 +42,12 @@ body {
   100% {
     transform: scale(0.82);
     opacity: 0.58;
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--morius-accent) 30%, transparent);
+    box-shadow: none;
   }
   50% {
     transform: scale(1.08);
     opacity: 1;
-    box-shadow: 0 0 0 8px color-mix(in srgb, var(--morius-accent) 0%, transparent);
+    box-shadow: none;
   }
 }
 
@@ -58,7 +57,7 @@ body.morius-auth-route #root {
   height: 100dvh !important;
   min-height: 100dvh !important;
   overflow: hidden !important;
-  background: #121212 !important;
+  background: #090909 !important;
 }
 
 body.morius-auth-route .morius-auth-page-root {
@@ -72,7 +71,7 @@ body.morius-auth-route .morius-auth-page-root {
   height: 100dvh !important;
   min-height: 100dvh !important;
   overflow: hidden !important;
-  background: #121212 !important;
+  background: #090909 !important;
   isolation: isolate;
 }
 
@@ -102,7 +101,7 @@ button,
 input,
 textarea,
 select {
-  font-family: "Nunito Sans", "Segoe UI", sans-serif;
+  font-family: "Manrope", "Segoe UI", sans-serif;
 }
 
 .morius-app-shell {
@@ -110,8 +109,7 @@ select {
   color: var(--morius-text-primary);
   font-size: var(--morius-body-size);
   line-height: 1.5;
-  letter-spacing: 0.01em;
-  font-variation-settings: "wdth" 100, "wght" 400, "opsz" 14;
+  letter-spacing: 0;
 }
 
 .morius-app-shell .MuiTypography-root,
@@ -119,18 +117,38 @@ select {
 .morius-app-shell .MuiInputBase-root,
 .morius-app-shell .MuiMenuItem-root,
 .morius-app-shell .MuiTooltip-tooltip {
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   line-height: 1.5;
+}
+
+.morius-app-shell *,
+.morius-app-shell *::before,
+.morius-app-shell *::after {
+  letter-spacing: 0 !important;
+}
+
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: 300;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  display: inline-block;
+  text-transform: none;
+  white-space: nowrap;
+  direction: ltr;
+  font-feature-settings: "liga";
+  -webkit-font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
 }
 
 .morius-app-shell h1,
 .morius-app-shell .MuiTypography-h1 {
   font-size: var(--morius-heading-size);
   line-height: 1.1;
-  letter-spacing: -0.04em;
-  font-weight: 900;
-  font-stretch: 125%;
-  font-variation-settings: "wdth" 125, "wght" 900, "opsz" 6;
+  letter-spacing: 0;
+  font-family: "Spectral", "Times New Roman", serif;
+  font-weight: 700;
 }
 
 .morius-app-shell h2,
@@ -139,7 +157,8 @@ select {
 .morius-app-shell .MuiTypography-h3,
 .morius-app-shell .MuiDialogTitle-root {
   line-height: 1.2;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
+  font-family: "Spectral", "Times New Roman", serif;
   font-weight: 700;
 }
 
@@ -184,7 +203,7 @@ select {
 }
 
 .morius-app-shell .morius-surface-card {
-  background: var(--morius-card-bg) !important;
+  background: var(--morius-card-gradient) !important;
   border-color: var(--morius-card-border) !important;
   border-width: var(--morius-border-width) !important;
   color: var(--morius-text-primary) !important;
@@ -192,7 +211,7 @@ select {
 }
 
 .morius-app-shell .morius-surface-button {
-  background: var(--morius-elevated-bg) !important;
+  background: var(--morius-card-alt-gradient) !important;
   border-color: var(--morius-card-border) !important;
   border-width: var(--morius-border-width) !important;
   color: var(--morius-title-text) !important;
@@ -212,6 +231,53 @@ select {
 .morius-app-shell .MuiAlert-root {
   border-width: var(--morius-border-width) !important;
   border-radius: var(--morius-radius) !important;
+}
+
+.morius-app-shell .MuiPaper-root,
+.morius-app-shell .MuiMenu-paper,
+.morius-app-shell .MuiPopover-paper,
+.morius-app-shell .MuiDialog-paper,
+.morius-app-shell .MuiAlert-root {
+  background: var(--morius-card-gradient) !important;
+  border: var(--morius-border-width) solid var(--morius-card-border) !important;
+  box-shadow: 0 30px 70px -20px rgba(0,0,0,0.85) !important;
+}
+
+.morius-app-shell .MuiMenu-paper,
+.morius-app-shell .MuiPopover-paper {
+  background: linear-gradient(180deg, #1a1a1e, #141417) !important;
+  border-color: rgba(255,255,255,0.09) !important;
+}
+
+.morius-app-shell .MuiButton-root,
+.morius-app-shell .MuiIconButton-root {
+  box-shadow: none !important;
+}
+
+.morius-app-shell .MuiButton-root:hover,
+.morius-app-shell .MuiIconButton-root:hover {
+  border-color: var(--morius-hover-border) !important;
+}
+
+.morius-app-shell .MuiTypography-root,
+.morius-app-shell p,
+.morius-app-shell span,
+.morius-app-shell label {
+  text-wrap: pretty;
+}
+
+.morius-app-shell h1,
+.morius-app-shell h2,
+.morius-app-shell h3,
+.morius-app-shell .morius-title,
+.morius-app-shell .morius-subtitle {
+  font-family: "Spectral", "Times New Roman", serif !important;
+  font-weight: 700 !important;
+  color: var(--morius-title-text) !important;
+}
+
+.morius-app-shell .MuiDialogTitle-root .MuiTypography-root {
+  font-family: "Spectral", "Times New Roman", serif !important;
 }
 
 .morius-app-shell .MuiButton-root {
@@ -241,27 +307,27 @@ select {
 }
 
 .morius-app-shell .MuiIconButton-root.morius-composer-send-button {
-  width: 24px !important;
-  height: 24px !important;
-  min-width: 24px !important;
-  min-height: 24px !important;
+  width: 42px !important;
+  height: 42px !important;
+  min-width: 42px !important;
+  min-height: 42px !important;
   padding: 0 !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-composer-send-button img,
 .morius-app-shell .MuiIconButton-root.morius-composer-send-button svg,
 .morius-app-shell .MuiIconButton-root.morius-composer-send-button .morius-stop-indicator {
-  width: 12px !important;
-  height: 12px !important;
+  width: 18px !important;
+  height: 18px !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-main-hero-avatar-button {
-  width: 38px !important;
-  height: 38px !important;
-  min-width: 38px !important;
-  min-height: 38px !important;
-  max-width: 38px !important;
-  max-height: 38px !important;
+  width: 42px !important;
+  height: 42px !important;
+  min-width: 42px !important;
+  min-height: 42px !important;
+  max-width: 42px !important;
+  max-height: 42px !important;
   padding: 0 !important;
   border-radius: 9999px !important;
   border: none !important;
@@ -328,17 +394,19 @@ select {
   min-height: var(--morius-action-size) !important;
   max-width: var(--morius-action-size) !important;
   max-height: var(--morius-action-size) !important;
-  border-radius: 9999px !important;
-  background: var(--morius-elevated-bg) !important;
-  color: color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important;
+  border-radius: 12px !important;
+  border: var(--morius-border-width) solid rgba(255,255,255,0.09) !important;
+  background: rgba(255,255,255,0.03) !important;
+  color: #cfcdd4 !important;
   box-shadow: none !important;
   overflow: visible !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-header-ai-button:hover {
-  background: color-mix(in srgb, var(--morius-elevated-bg) 82%, black 18%) !important;
+  background: rgba(255,255,255,0.06) !important;
   color: var(--morius-title-text) !important;
-  box-shadow: 0 10px 24px rgba(0,0,0,0.22) !important;
+  border-color: var(--morius-hover-border) !important;
+  box-shadow: none !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-header-ai-button:active {
@@ -346,28 +414,28 @@ select {
 }
 
 .morius-app-shell .MuiIconButton-root.morius-header-play-button {
-  width: var(--morius-header-play-width, 72px) !important;
-  height: var(--morius-header-play-height, 40px) !important;
-  min-width: var(--morius-header-play-width, 72px) !important;
-  min-height: var(--morius-header-play-height, 40px) !important;
-  max-width: var(--morius-header-play-width, 72px) !important;
-  max-height: var(--morius-header-play-height, 40px) !important;
-  border-radius: var(--morius-header-play-radius, 14px) !important;
-  background: var(--morius-header-play-bg, #5A91EC) !important;
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  min-height: 44px !important;
+  max-width: 44px !important;
+  max-height: 44px !important;
+  border-radius: 12px !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 82%, #ffffff 18%), var(--accent, #4c8dff)) !important;
   color: #fff !important;
-  box-shadow: 0 8px 20px rgba(67, 126, 229, 0.24) !important;
+  box-shadow: none !important;
   overflow: hidden !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-header-play-button:hover {
-  background: #659DF4 !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 88%, #ffffff 12%), color-mix(in srgb, var(--accent, #4c8dff) 92%, #000 8%)) !important;
   color: #fff !important;
-  box-shadow: 0 10px 24px rgba(67, 126, 229, 0.3) !important;
+  box-shadow: none !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-header-play-button:active {
-  background: #4F86E4 !important;
-  box-shadow: 0 6px 16px rgba(67, 126, 229, 0.22) !important;
+  background: color-mix(in srgb, var(--accent, #4c8dff) 88%, #000 12%) !important;
+  box-shadow: none !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-header-play-button svg {
@@ -476,8 +544,8 @@ body::-webkit-scrollbar-thumb:hover,
   margin-left: 4px;
   transform: translateY(3px);
   border-radius: 2px;
-  background: linear-gradient(180deg, #cdddff, #5b8cff);
-  box-shadow: 0 0 9px rgba(91, 140, 255, 0.85);
+  background: linear-gradient(180deg, #f3f1ec, var(--accent, #4c8dff));
+  box-shadow: none;
   animation: morius-caret-blink-glow 0.9s ease-in-out infinite;
 }
 
@@ -496,15 +564,15 @@ body::-webkit-scrollbar-thumb:hover,
 
 @keyframes morius-stop-pulse {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--morius-accent) 42%, transparent);
+    box-shadow: none;
     transform: scale(1);
   }
   70% {
-    box-shadow: 0 0 0 9px color-mix(in srgb, var(--morius-accent) 0%, transparent);
+    box-shadow: none;
     transform: scale(1.04);
   }
   100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--morius-accent) 0%, transparent);
+    box-shadow: none;
     transform: scale(1);
   }
 }
@@ -512,10 +580,10 @@ body::-webkit-scrollbar-thumb:hover,
 @keyframes morius-composer-glow {
   0%,
   100% {
-    box-shadow: inset 0 0 0 0 color-mix(in srgb, var(--morius-accent) 8%, transparent);
+    box-shadow: inset 0 0 0 0 transparent;
   }
   50% {
-    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--morius-card-border) 60%, transparent);
+    box-shadow: inset 0 0 0 1px var(--morius-card-border);
   }
 }
 
@@ -618,20 +686,20 @@ body::-webkit-scrollbar-thumb:hover,
 @keyframes morius-stop-glow {
   0%,
   100% {
-    box-shadow: 0 0 16px rgba(91, 140, 255, 0.28), 0 0 0 0 rgba(91, 140, 255, 0.3);
+    box-shadow: none;
   }
   50% {
-    box-shadow: 0 0 32px rgba(91, 140, 255, 0.55), 0 0 0 6px rgba(91, 140, 255, 0);
+    box-shadow: none;
   }
 }
 
 @keyframes morius-send-glow {
   0%,
   100% {
-    box-shadow: 0 3px 12px rgba(63, 111, 230, 0.35), 0 0 0 0 rgba(91, 140, 255, 0);
+    box-shadow: none;
   }
   50% {
-    box-shadow: 0 5px 18px rgba(91, 140, 255, 0.5), 0 0 0 5px rgba(91, 140, 255, 0);
+    box-shadow: none;
   }
 }
 
@@ -646,7 +714,7 @@ body::-webkit-scrollbar-thumb:hover,
   position: absolute;
   inset: -40%;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(91, 140, 255, 0.55), transparent 70%);
+  background: radial-gradient(circle, rgba(255,255,255,0.12), transparent 70%);
   filter: blur(2px);
   z-index: 0;
   animation: morius-orb-halo 2.8s ease-in-out infinite;
@@ -658,10 +726,10 @@ body::-webkit-scrollbar-thumb:hover,
   border-radius: 50%;
   background: conic-gradient(
     from 90deg,
-    rgba(91, 140, 255, 0),
-    rgba(91, 140, 255, 0.1) 130deg,
-    rgba(143, 180, 255, 0.85) 300deg,
-    #cdddff 360deg
+    rgba(76, 141, 255, 0),
+    rgba(76, 141, 255, 0.1) 130deg,
+    color-mix(in srgb, var(--accent, #4c8dff) 74%, #fff 26%) 300deg,
+    #f3f1ec 360deg
   );
   z-index: 1;
   animation: morius-orb-spin 1.5s linear infinite;
@@ -671,8 +739,8 @@ body::-webkit-scrollbar-thumb:hover,
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: radial-gradient(circle at 34% 30%, #f2f6ff, #6f9bff 55%, #2f5fd0 100%);
-  box-shadow: 0 0 12px rgba(91, 140, 255, 0.55);
+  background: radial-gradient(circle at 34% 30%, #f3f1ec, var(--accent, #4c8dff) 58%, #243452 100%);
+  box-shadow: none;
   z-index: 2;
   animation: morius-orb-breathe 2.8s ease-in-out infinite;
 }
@@ -708,10 +776,10 @@ body::-webkit-scrollbar-thumb:hover,
   border-radius: 50%;
   background: conic-gradient(
     from 90deg,
-    rgba(91, 140, 255, 0),
-    rgba(91, 140, 255, 0.12) 130deg,
-    rgba(143, 180, 255, 0.9) 300deg,
-    #cdddff 360deg
+    rgba(76, 141, 255, 0),
+    rgba(76, 141, 255, 0.12) 130deg,
+    color-mix(in srgb, var(--accent, #4c8dff) 78%, #fff 22%) 300deg,
+    #f3f1ec 360deg
   );
   z-index: 0;
   animation: morius-orb-spin 1.4s linear infinite;
@@ -732,8 +800,8 @@ body::-webkit-scrollbar-thumb:hover,
   width: 13px;
   height: 13px;
   border-radius: 4px;
-  background: linear-gradient(135deg, #a9c6ff, #5b8cff);
-  box-shadow: 0 0 9px rgba(91, 140, 255, 0.7);
+  background: linear-gradient(135deg, #f3f1ec, var(--accent, #4c8dff));
+  box-shadow: none;
 }
 
 .morius-send-button-circle {
@@ -742,7 +810,7 @@ body::-webkit-scrollbar-thumb:hover,
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #6f9bff, #3f6fe6);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 82%, #fff 18%), var(--accent, #4c8dff));
   animation: morius-send-glow 2.8s ease-in-out infinite;
 }
 

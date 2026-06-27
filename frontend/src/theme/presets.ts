@@ -29,12 +29,12 @@ export type MoriusThemePlaceholder = {
 
 const classicDarkColors: MoriusThemeColors = {
   ...moriusThemeTokens.colors,
-  accent: '#578EEE',
-  buttonHover: 'color-mix(in srgb, #578EEE 28%, #171716 72%)',
-  buttonActive: 'color-mix(in srgb, #578EEE 36%, #171716 64%)',
-  sendButton: 'color-mix(in srgb, #578EEE 30%, #FFFFFF 70%)',
-  panelGradient: '#31302E',
-  dialogBg: '#0F0F0F',
+  accent: '#4c8dff',
+  buttonHover: 'rgba(255,255,255,0.06)',
+  buttonActive: 'color-mix(in srgb, #4c8dff 11%, transparent)',
+  sendButton: '#4c8dff',
+  panelGradient: '#121216',
+  dialogBg: '#111114',
 }
 
 const blueSteelColors: MoriusThemeColors = {
@@ -125,24 +125,24 @@ const yamiRiusColors: MoriusThemeColors = {
 
 const riusDungeonColors: MoriusThemeColors = {
   ...moriusThemeTokens.colors,
-  appBackground: '#19191A',
-  appBase: '#19191A',
-  appSurface: '#222426',
-  appElevated: '#222426',
-  inputBg: '#222426',
-  inputBorder: 'rgba(201, 210, 223, 0.34)',
-  appBorder: 'transparent',
-  accent: '#578EEE',
-  titleText: '#dbdde7',
-  textPrimary: '#e6e6e7',
-  textSecondary: '#818a94',
-  buttonHover: '#578EEE',
-  buttonActive: '#578EEE',
-  sendButton: '#578EEE',
-  panelGradient: '#222426',
-  bootBackground: '#19191A',
-  baseText: '#a4adb6',
-  dialogBg: '#19191A',
+  appBackground: '#090909',
+  appBase: '#090909',
+  appSurface: '#17171c',
+  appElevated: '#16161b',
+  inputBg: '#111114',
+  inputBorder: 'rgba(255,255,255,0.09)',
+  appBorder: 'rgba(255,255,255,0.07)',
+  accent: '#4c8dff',
+  titleText: '#fbf9f4',
+  textPrimary: '#f3f1ec',
+  textSecondary: '#9b9aa0',
+  buttonHover: 'rgba(255,255,255,0.06)',
+  buttonActive: 'color-mix(in srgb, #4c8dff 11%, transparent)',
+  sendButton: '#4c8dff',
+  panelGradient: '#121216',
+  bootBackground: '#090909',
+  baseText: '#9b9aa0',
+  dialogBg: '#111114',
 }
 
 export const moriusThemePresets: readonly MoriusThemePreset[] = [

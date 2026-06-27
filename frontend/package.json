@@ -12,7 +12,6 @@
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "@fontsource/nunito-sans": "^5.2.7",
     "@mui/material": "^7.3.8",
     "@react-oauth/google": "^0.13.4",
     "react": "^19.2.0",

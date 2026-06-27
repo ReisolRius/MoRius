@@ -11,7 +11,6 @@ import ProgressiveAvatar from '../media/ProgressiveAvatar'
 // ─── constants ─────────────────────────────────────────────────────────────
 export const MOBILE_CARD_HEIGHT = 130
 export const MOBILE_CARD_IMAGE_WIDTH = 116
-const CARD_BG = 'var(--morius-card-bg)'
 const CARD_BORDER = 'var(--morius-card-border)'
 const TEXT_PRIMARY = 'var(--morius-text-primary)'
 const TEXT_SECONDARY = 'var(--morius-text-secondary)'
@@ -121,14 +120,13 @@ export function MobileCardItem({
         border: isActive
           ? '1.5px solid var(--morius-accent)'
           : `var(--morius-border-width) solid ${CARD_BORDER}`,
-        boxShadow: isActive
-          ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 40%, transparent) inset, 0 0 18px color-mix(in srgb, var(--morius-accent) 14%, transparent)'
-          : 'none',
-        backgroundColor: CARD_BG,
+        boxShadow: 'none',
+        background: 'var(--morius-card-gradient)',
         overflow: 'hidden',
         cursor: 'pointer',
         flexShrink: 0,
-        transition: 'border-color 180ms ease, box-shadow 180ms ease',
+        transition: 'border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease',
+        '&:hover': { borderColor: 'var(--morius-hover-border)', boxShadow: 'var(--morius-neutral-shadow)' },
         '&:active': { borderColor: isActive ? 'var(--morius-accent)' : 'rgba(203,216,234,0.36)' },
         '&:focus-visible': { outline: '2px solid rgba(205,223,246,0.62)', outlineOffset: '2px' },
       }}
