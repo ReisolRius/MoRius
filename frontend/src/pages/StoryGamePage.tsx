@@ -18878,6 +18878,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
                   <RightPanelSectionHeading title="Персонажи" count={`${displayedNpcCards.length}/${rawNpcCards.length}`} />
                   <Stack spacing={1.25}>
+                    <Stack direction="row" spacing={0.65}>
+                      <Button
+                        onClick={() => handleOpenCreateWorldCardDialog('npc')}
+                        disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
+                        sx={{ ...rightPanelCompactActionButtonSx, flex: 1, minHeight: 40 }}
+                      >
+                        Создать
+                      </Button>
+                      <Button
+                        onClick={() => void handleOpenCharacterSelectorForNpc()}
+                        disabled={isGenerating || isCreatingGame}
+                        sx={{ ...rightPanelCompactActionButtonSx, flex: 1, minHeight: 40 }}
+                      >
+                        Из шаблона
+                      </Button>
+                    </Stack>
                     <Stack direction="row" spacing={0.65} alignItems="center">
                       <Box
                         sx={{
