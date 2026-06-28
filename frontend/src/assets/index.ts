@@ -1,4 +1,4 @@
-import logo from './brand/logo.svg'
+import logo from './brand/logo.png'
 import backIcon from './icons/back.svg'
 import arrowBackIcon from './icons/arrowback.svg'
 import aiIcon from './icons/ai.svg'

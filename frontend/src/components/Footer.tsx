@@ -1,5 +1,5 @@
 import { Box, Stack } from '@mui/material'
-import logoUrl from '../assets/brand/logo.svg'
+import { brandLogo } from '../assets'
 
 export interface FooterLink {
   label: string
@@ -72,7 +72,7 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
         {/* Logo */}
         <Box
           component="img"
-          src={logoUrl}
+          src={brandLogo}
           alt="Morius"
           sx={{ height: { xs: 40, md: 42 }, width: 'auto', flexShrink: 0, opacity: 0.85 }}
         />
