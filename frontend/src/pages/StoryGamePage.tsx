@@ -75,7 +75,6 @@ import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT, AI_ASSISTANT_OPEN_EVENT } from '..
 import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import ImageCropper from '../components/ImageCropper'
-import HeaderAccountActions from '../components/HeaderAccountActions'
 import AdvancedRegenerationDialog from '../components/story/AdvancedRegenerationDialog'
 import WorldCardBannerPreview from '../components/story/WorldCardBannerPreview'
 import WorldCardTemplatePickerDialog from '../components/story/WorldCardTemplatePickerDialog'
@@ -770,7 +769,6 @@ const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Введите ваше действие...'
 const OUT_OF_TOKENS_INPUT_PLACEHOLDER = 'Недостаточно валюты'
-const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const STORY_GAME_TITLE_MAX_LENGTH = 160
 const STORY_CARD_TITLE_MAX_LENGTH = 120
 const STORY_MEMORY_BLOCK_TITLE_MAX_LENGTH = 160
@@ -17867,10 +17865,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         showAiAssistantAction={user.ai_assistant_visible ?? true}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         onOpenBugReportDialog={handleOpenBugReportDialog}
-        rightActionsWidth={124}
+        rightActionsWidth={56}
         rightActions={
+          !isRightPanelOpen ? (
           <Stack data-tour-id="story-game-menu-toggle-group" direction="row" alignItems="center" sx={{ gap: 'var(--morius-icon-gap)' }}>
-            {!isRightPanelOpen ? (
             <Tooltip disableInteractive title={isRightPanelOpen ? 'Закрыть игровое меню' : 'Открыть игровое меню'}>
               <IconButton
                 data-tour-id="story-game-menu-toggle"
@@ -17917,16 +17915,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </SvgIcon>
               </IconButton>
             </Tooltip>
-            ) : null}
-            <HeaderAccountActions
-              user={user}
-              authToken={authToken}
-              avatarSize={HEADER_AVATAR_SIZE}
-              onOpenProfile={() => onNavigate('/profile')}
-              showDailyRewards={false}
-              hideAvatarBelowQuery="(max-width:499.95px)"
-            />
           </Stack>
+          ) : null
         }
       />
 
@@ -18024,7 +18014,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             py: 1.05,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-end',
             flexShrink: 0,
             borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 58%, transparent)',
             opacity: !isGameMenuOpen && isEnvironmentModuleCardDetached ? 0 : 1,
@@ -18032,22 +18022,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             transition: 'opacity 180ms ease',
           }}
         >
-          <Box
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: '10px',
-              display: 'grid',
-              placeItems: 'center',
-              color: 'var(--morius-accent)',
-              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 78%, #000 22%)',
-              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 76%, transparent)',
-              boxShadow: '0 12px 28px rgba(0, 0, 0, 0.26)',
-              flexShrink: 0,
-            }}
-          >
-            <Box component="img" src={riusMenuIcon} alt="" sx={{ width: 17, height: 15, display: 'block' }} />
-          </Box>
           <Tooltip disableInteractive title="Свернуть меню игры">
             <IconButton
               aria-label="Свернуть меню игры"
@@ -18236,12 +18210,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               />
               <Stack spacing={0.2} sx={{ minWidth: 0, alignItems: 'flex-start' }}>
                 <Typography noWrap sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 900, lineHeight: 1.15 }}>
-                  Вы
+                  {profileName}
                 </Typography>
                 <Stack direction="row" spacing={0.45} alignItems="center" sx={{ minWidth: 0 }}>
-                  <Typography noWrap sx={{ color: 'var(--morius-title-text)', fontSize: '0.82rem', fontWeight: 800, lineHeight: 1.15 }}>
-                    {profileName}
-                  </Typography>
                   <SoulIcon size={14} sx={{ color: 'var(--morius-accent)', flexShrink: 0 }} />
                   <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.78rem', fontWeight: 900, lineHeight: 1.15 }}>
                     {user.coins.toLocaleString('ru-RU')}
@@ -18731,7 +18702,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               }}
             >
               <SvgIcon sx={{ fontSize: 21 }}>
-                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20v-2Z" />
+                <path d="M4 13h12.17l-5.59 5.59L12 20l8-8-8-8-1.42 1.41L16.17 11H4v2Z" />
               </SvgIcon>
             </IconButton>
           </Stack>
@@ -24839,7 +24810,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               sx={{
                 px: { xs: 0.3, md: 0.8 },
                 mb: shouldUseStoryIntroLayout ? 0 : 1.1,
-                textAlign: shouldUseStoryIntroLayout ? 'center' : 'left',
+                textAlign: 'center',
               }}
             >
               <Typography
