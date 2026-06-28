@@ -4621,12 +4621,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     display: isOwnProfile ? 'inline-flex' : 'none',
                     minHeight: 34,
                     borderRadius: '999px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: 'var(--morius-elevated-bg)',
-                    color: 'var(--morius-text-primary)',
+                    border: 'var(--morius-border-width) solid rgba(255, 196, 196, 0.34)',
+                    backgroundColor: 'rgba(116, 38, 38, 0.92)',
+                    color: '#fff3f3',
                     textTransform: 'none',
                     '&:hover': {
-                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)',
+                      backgroundColor: 'rgba(138, 45, 45, 0.98)',
+                      color: '#ffffff',
                     },
                   }}
                 >
@@ -4836,13 +4837,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         minHeight: 38,
                         px: 1.6,
                         borderRadius: '12px',
-                        border: 'none',
-                        backgroundColor: 'rgba(175, 72, 72, 0.26)',
-                        color: 'color-mix(in srgb, #ffd0d0 88%, var(--morius-title-text))',
+                        border: 'var(--morius-border-width) solid rgba(255, 196, 196, 0.34)',
+                        backgroundColor: 'rgba(116, 38, 38, 0.92)',
+                        color: '#fff3f3',
                         textTransform: 'none',
                         fontWeight: 700,
                         fontSize: '0.84rem',
-                        '&:hover': { backgroundColor: 'rgba(175, 72, 72, 0.48)', color: '#ffe1e1' },
+                        '&:hover': { backgroundColor: 'rgba(138, 45, 45, 0.98)', color: '#ffffff' },
                       }}
                     >
                       Выход
@@ -5348,14 +5349,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                             minHeight: 40,
                             px: 1.75,
                             borderRadius: '999px',
-                            border: 'none',
-                            backgroundColor: 'rgba(175, 72, 72, 0.2)',
-                            color: 'color-mix(in srgb, #ffd0d0 88%, var(--morius-title-text))',
+                            border: 'var(--morius-border-width) solid rgba(255, 196, 196, 0.34)',
+                            backgroundColor: 'rgba(116, 38, 38, 0.92)',
+                            color: '#fff3f3',
                             textTransform: 'none',
                             fontWeight: 700,
                             '&:hover': {
-                              backgroundColor: 'rgba(175, 72, 72, 0.46)',
-                              color: '#ffe1e1',
+                              backgroundColor: 'rgba(138, 45, 45, 0.98)',
+                              color: '#ffffff',
                             },
                           }}
                         >

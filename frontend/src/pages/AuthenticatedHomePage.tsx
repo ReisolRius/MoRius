@@ -116,6 +116,8 @@ import type { StoryCommunityCharacterSummary, StoryCommunityInstructionTemplateS
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import { MobileCardItem, MobileCardSlider } from '../components/mobile/MobileCardSlider'
+import { getProfileBannerPreset } from '../constants/profileBanners'
+import { resolveProfileBannerImageUrl } from '../utils/cosmeticImageFallbacks'
 
 type AuthenticatedHomePageProps = {
   user: AuthUser
@@ -678,7 +680,7 @@ function getDashboardNewsAmbientGradient(slot: number): string {
 
 function formatCreatorRating(value: number, count: number): string {
   if (!Number.isFinite(value) || count <= 0) {
-    return 'нет оценок'
+    return '0'
   }
   return `${value.toFixed(1)} (${count})`
 }
@@ -2001,6 +2003,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     const creator = slot.user
     const place = slot.slot
     const isFirstPlace = place === 1
+    const creatorBannerPreset = creator ? getProfileBannerPreset(creator.profile_banner_id) : null
+    const creatorBannerSrc = creator
+      ? resolveProfileBannerImageUrl(creator.profile_banner_id, creator.profile_banner_image_url ?? null) ?? creatorBannerPreset?.src ?? null
+      : null
     const statItems = [
       ['Игры', slot.stats.worlds_count],
       ['Персонажи', slot.stats.characters_count],
@@ -2016,7 +2022,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           width: '100%',
           minHeight: 66,
           display: 'grid',
-          gridTemplateColumns: { xs: '32px 46px minmax(0, 1fr) minmax(60px, 74px)', md: '42px 46px minmax(0, 1fr) repeat(4, minmax(64px, 82px))' },
+          gridTemplateColumns: { xs: '32px 46px minmax(0, 1fr) 72px', md: '42px 46px minmax(0, 1fr) repeat(4, 104px)' },
           alignItems: 'center',
           gap: 1,
           px: { xs: 1, md: 1.25 },
@@ -2044,6 +2050,37 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           },
         }}
       >
+        {creatorBannerSrc ? (
+          <Box aria-hidden sx={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+            <Box
+              component="img"
+              src={creatorBannerSrc}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                width: { xs: '72%', md: '54%' },
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'center center',
+                opacity: isFirstPlace ? 0.26 : 0.18,
+                filter: 'saturate(0.88) contrast(1.05)',
+                maskImage: 'linear-gradient(90deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.48) 42%, transparent 100%)',
+                WebkitMaskImage: 'linear-gradient(90deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.48) 42%, transparent 100%)',
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                background:
+                  'linear-gradient(90deg, rgba(7,8,13,0.12) 0%, rgba(7,8,13,0.04) 38%, transparent 72%)',
+              }}
+            />
+          </Box>
+        ) : null}
         <Typography
           sx={{
             fontFamily: '"Spectral", serif',
@@ -2109,7 +2146,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               key={`${place}-${label}`}
               sx={{
                 display: { xs: isRating ? 'grid' : 'none', md: 'grid' },
-                minWidth: 60,
+                width: '100%',
+                minWidth: 0,
+                height: { xs: 52, md: 62 },
                 py: 0.7,
                 px: 1,
                 borderRadius: '10px',
@@ -2117,9 +2156,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 backgroundColor: isFirstPlace && isRating ? 'rgba(216,166,74,0.08)' : 'var(--morius-chip-bg)',
                 gap: 0.2,
                 zIndex: 1,
+                alignContent: 'center',
               }}
             >
-              <Typography sx={{ color: 'var(--morius-muted-text)', fontSize: '9px', fontWeight: 800, lineHeight: 1, textTransform: 'uppercase' }}>
+              <Typography sx={{ color: 'var(--morius-muted-text)', fontSize: '9px', fontWeight: 800, lineHeight: 1, textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {label}
               </Typography>
               <Typography sx={{ color: isRating ? 'var(--morius-rating-gold)' : APP_TEXT_PRIMARY, fontSize: '15px', fontWeight: 800, lineHeight: 1.18, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -2727,8 +2767,11 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         return (
                           <ButtonBase
                             key={item.id}
-                            aria-label={`Открыть новость: ${item.title}`}
-                            onClick={() => handleOpenDashboardNewsDialog(item)}
+                            aria-label={`Показать новость: ${item.title}`}
+                            onClick={() => {
+                              setSelectedDashboardNewsId(item.id)
+                              setNewsProgressKey((key) => key + 1)
+                            }}
                             sx={{
                               position: 'relative',
                               overflow: 'hidden',
