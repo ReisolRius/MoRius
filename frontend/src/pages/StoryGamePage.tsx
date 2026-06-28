@@ -7498,6 +7498,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     !shouldShowStoryMessagesLoadingSkeleton &&
     !isLoadingGameMessages &&
     !shouldShowVisualNovelStage
+  const shouldUseStoryIntroLayout =
+    messages.length === 0 &&
+    !shouldShowStoryMessagesLoadingSkeleton &&
+    !isLoadingGameMessages &&
+    !shouldShowVisualNovelStage
   const goToPreviousVnBeat = useCallback(() => {
     setVnBeatIndex((previousIndex) => Math.max(0, previousIndex - 1))
   }, [])
@@ -17865,6 +17870,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         rightActionsWidth={124}
         rightActions={
           <Stack data-tour-id="story-game-menu-toggle-group" direction="row" alignItems="center" sx={{ gap: 'var(--morius-icon-gap)' }}>
+            {!isRightPanelOpen ? (
             <Tooltip disableInteractive title={isRightPanelOpen ? 'Закрыть игровое меню' : 'Открыть игровое меню'}>
               <IconButton
                 data-tour-id="story-game-menu-toggle"
@@ -17911,6 +17917,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </SvgIcon>
               </IconButton>
             </Tooltip>
+            ) : null}
             <HeaderAccountActions
               user={user}
               authToken={authToken}
@@ -17929,7 +17936,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           top: 'var(--morius-header-top-offset)',
           left: 'var(--morius-header-side-offset)',
           zIndex: 50,
-          display: 'flex',
+          display: isGameMenuOpen ? 'none' : 'flex',
           alignItems: 'center',
           gap: 1,
         }}
@@ -17984,12 +17991,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       <Box
         sx={{
           position: 'fixed',
-          top: 'calc(var(--morius-header-top-offset) + 52px)',
-          left: { xs: 8, md: 'var(--morius-header-side-offset)' },
-          bottom: { xs: 8, md: 'var(--morius-interface-gap)' },
-          width: { xs: 'min(292px, calc(100vw - 16px))', md: 304 },
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: { xs: 'min(304px, 100vw)', md: 304 },
           zIndex: 44,
-          borderRadius: '16px',
+          borderRadius: 0,
           backgroundColor:
             !isGameMenuOpen && isEnvironmentModuleCardDetached
               ? 'transparent'
@@ -18011,6 +18018,60 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           overflow: 'visible',
         }}
       >
+        <Box
+          sx={{
+            px: 1.1,
+            py: 1.05,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexShrink: 0,
+            borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 58%, transparent)',
+            opacity: !isGameMenuOpen && isEnvironmentModuleCardDetached ? 0 : 1,
+            pointerEvents: !isGameMenuOpen && isEnvironmentModuleCardDetached ? 'none' : 'auto',
+            transition: 'opacity 180ms ease',
+          }}
+        >
+          <Box
+            sx={{
+              width: 40,
+              height: 40,
+              borderRadius: '10px',
+              display: 'grid',
+              placeItems: 'center',
+              color: 'var(--morius-accent)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 78%, #000 22%)',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 76%, transparent)',
+              boxShadow: '0 12px 28px rgba(0, 0, 0, 0.26)',
+              flexShrink: 0,
+            }}
+          >
+            <Box component="img" src={riusMenuIcon} alt="" sx={{ width: 17, height: 15, display: 'block' }} />
+          </Box>
+          <Tooltip disableInteractive title="Свернуть меню игры">
+            <IconButton
+              aria-label="Свернуть меню игры"
+              onClick={() => setIsGameMenuOpen(false)}
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: '10px',
+                color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent)',
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 74%, #000 26%)',
+                border: 'none',
+                boxShadow: '0 12px 28px rgba(0, 0, 0, 0.26)',
+                '&:hover': {
+                  color: 'var(--morius-title-text)',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 58%, #000 42%)',
+                },
+              }}
+            >
+              <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 21 }}>
+                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20v-2Z" />
+              </SvgIcon>
+            </IconButton>
+          </Tooltip>
+        </Box>
         <Stack
           spacing={1.25}
           sx={{
@@ -18146,6 +18207,51 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Box>
 
           <Button
+            onClick={() => onNavigate('/profile')}
+            sx={{
+              minHeight: 58,
+              borderRadius: '12px',
+              textTransform: 'none',
+              justifyContent: 'flex-start',
+              px: 1,
+              py: 0.8,
+              color: 'var(--morius-title-text)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #000 12%)',
+              '&:hover': {
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #fff 4%)',
+              },
+            }}
+          >
+            <Stack direction="row" alignItems="center" spacing={0.85} sx={{ minWidth: 0, width: '100%' }}>
+              <ProgressiveAvatar
+                src={user.avatar_url}
+                fallbackLabel={profileName}
+                alt=""
+                size={40}
+                scale={user.avatar_scale}
+                frameId={user.avatar_frame_id}
+                frameImageUrl={user.avatar_frame_image_url ?? null}
+                priority
+                sx={{ flexShrink: 0 }}
+              />
+              <Stack spacing={0.2} sx={{ minWidth: 0, alignItems: 'flex-start' }}>
+                <Typography noWrap sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 900, lineHeight: 1.15 }}>
+                  Вы
+                </Typography>
+                <Stack direction="row" spacing={0.45} alignItems="center" sx={{ minWidth: 0 }}>
+                  <Typography noWrap sx={{ color: 'var(--morius-title-text)', fontSize: '0.82rem', fontWeight: 800, lineHeight: 1.15 }}>
+                    {profileName}
+                  </Typography>
+                  <SoulIcon size={14} sx={{ color: 'var(--morius-accent)', flexShrink: 0 }} />
+                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.78rem', fontWeight: 900, lineHeight: 1.15 }}>
+                    {user.coins.toLocaleString('ru-RU')}
+                  </Typography>
+                </Stack>
+              </Stack>
+            </Stack>
+          </Button>
+
+          <Button
             onClick={handleLeaveStoryGame}
             sx={{
               minHeight: 48,
@@ -18166,11 +18272,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           <Typography
             sx={{
               color: 'var(--morius-title-text)',
-              textAlign: 'center',
-              fontSize: '1.1rem',
+              textAlign: 'left',
+              fontSize: '0.76rem',
               fontWeight: 900,
               lineHeight: 1.2,
               pt: 0.25,
+              textTransform: 'uppercase',
+              letterSpacing: 0.8,
             }}
           >
             Модули
@@ -18442,7 +18550,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           onClick={() => setIsRightPanelOpen(false)}
           sx={{
             position: 'fixed',
-            top: 'var(--morius-header-menu-top)',
+            top: 0,
             left: 0,
             right: 0,
             bottom: 0,
@@ -18457,21 +18565,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       <Box
         sx={{
           position: 'fixed',
-          top: { xs: 'var(--morius-header-menu-top)', md: 'var(--morius-header-menu-top)' },
+          top: 0,
           left: 'auto',
-          right: { xs: 0, md: 'var(--morius-interface-gap)' },
-          bottom: { xs: 0, md: 'var(--morius-interface-gap)' },
+          right: 0,
+          bottom: 0,
           width: { xs: 'min(400px, 100vw)', md: rightPanelWidth },
           maxWidth: { xs: '100vw', md: 'none' },
-          maxHeight: { xs: 'calc(100svh - var(--morius-header-menu-top))', md: 'none' },
+          maxHeight: '100svh',
           zIndex: 47,
-          borderRadius: { xs: 0, md: '18px' },
+          borderRadius: 0,
           border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 90%, transparent)',
           backgroundColor: '#090A0E !important',
           backgroundImage: 'linear-gradient(180deg, #11131A 0%, #090A0E 100%) !important',
           transform: {
             xs: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 24px), 0, 0)',
-            md: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + var(--morius-interface-gap)), 0, 0)',
+            md: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 24px), 0, 0)',
           },
           opacity: isRightPanelOpen ? 1 : 0,
           pointerEvents: isRightPanelOpen ? 'auto' : 'none',
@@ -18542,46 +18650,70 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             alignItems="center"
             justifyContent="space-between"
             spacing={1}
-            sx={{ pb: { xs: 1.1, md: 1.2 } }}
+            sx={{ pb: 0 }}
           >
-            <Stack direction="row" spacing={0.95} alignItems="center" sx={{ minWidth: 0 }}>
-              <Box
+            <Box
+              data-tour-id="story-right-subtabs"
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                alignItems: 'center',
+                gap: 0,
+                p: 0.42,
+                minHeight: { xs: 48, md: 52 },
+                borderRadius: '18px',
+                backgroundColor: 'color-mix(in srgb, var(--morius-app-bg) 78%, #000 22%)',
+                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
+                boxShadow: 'none',
+                flex: 1,
+                minWidth: 0,
+              }}
+            >
+              <Button
+                data-tour-id="story-right-subtab-primary"
+                onClick={() => {
+                  setRightPanelMode('world')
+                  setActiveWorldPanelTab('story')
+                }}
                 sx={{
-                  flexShrink: 0,
-                  width: { xs: 34, md: 36 },
-                  height: { xs: 34, md: 36 },
-                  borderRadius: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'color-mix(in srgb, var(--morius-accent) 42%, var(--morius-title-text))',
-                  backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-elevated-bg) 84%)',
-                  border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
-                  boxShadow: 'none',
-                  '& .MuiSvgIcon-root': {
-                    width: { xs: 18, md: 19 },
-                    height: { xs: 18, md: 19 },
-                  },
+                  ...rightPanelModeSegmentSx(rightPanelMode === 'world'),
+                  minHeight: { xs: 38, md: 42 },
+                  borderRadius: '14px',
+                  gap: 0.62,
+                  fontSize: { xs: '0.82rem', md: '0.86rem' },
+                  fontWeight: rightPanelMode === 'world' ? 950 : 850,
+                  color: rightPanelMode === 'world'
+                    ? 'var(--morius-title-text) !important'
+                    : 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent) !important',
                 }}
               >
-                {rightPanelMode === 'ai' ? <RightPanelAiIcon /> : <RightPanelCardsIcon />}
-              </Box>
-              <Typography
-                noWrap
+                <RightPanelCardsIcon />
+                Карточки
+              </Button>
+              <Button
+                data-tour-id="story-right-subtab-secondary"
+                onClick={() => {
+                  setRightPanelMode('ai')
+                  setActiveAiPanelTab('settings')
+                }}
                 sx={{
-                  color: 'var(--morius-title-text)',
-                  fontSize: { xs: '1.28rem', md: '1.38rem' },
-                  fontWeight: 900,
-                  lineHeight: 1.05,
-                  letterSpacing: 0,
-                  minWidth: 0,
+                  ...rightPanelModeSegmentSx(rightPanelMode === 'ai'),
+                  minHeight: { xs: 38, md: 42 },
+                  borderRadius: '14px',
+                  gap: 0.62,
+                  fontSize: { xs: '0.82rem', md: '0.86rem' },
+                  fontWeight: rightPanelMode === 'ai' ? 950 : 850,
+                  color: rightPanelMode === 'ai'
+                    ? 'var(--morius-title-text) !important'
+                    : 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent) !important',
                 }}
               >
-                {rightPanelModeMeta.title}
-              </Typography>
-            </Stack>
+                <RightPanelAiIcon />
+                Рассказчик
+              </Button>
+            </Box>
             <IconButton
-              aria-label="Закрыть"
+              aria-label={`Свернуть ${rightPanelModeMeta.title.toLowerCase()}`}
               onClick={() => setIsRightPanelOpen(false)}
               sx={{
                 ...rightPanelModeButtonSx(false),
@@ -18599,68 +18731,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               }}
             >
               <SvgIcon sx={{ fontSize: 21 }}>
-                <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20v-2Z" />
               </SvgIcon>
             </IconButton>
           </Stack>
-          <Box
-            data-tour-id="story-right-subtabs"
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              alignItems: 'center',
-              gap: 0,
-              p: 0.42,
-              minHeight: { xs: 58, md: 64 },
-              borderRadius: '18px',
-              backgroundColor: 'color-mix(in srgb, var(--morius-app-bg) 78%, #000 22%)',
-              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
-              boxShadow: 'none',
-            }}
-          >
-            <Button
-              data-tour-id="story-right-subtab-primary"
-              onClick={() => {
-                setRightPanelMode('world')
-                setActiveWorldPanelTab('story')
-              }}
-              sx={{
-                ...rightPanelModeSegmentSx(rightPanelMode === 'world'),
-                minHeight: { xs: 48, md: 54 },
-                borderRadius: '14px',
-                gap: 0.62,
-                fontSize: { xs: '0.96rem', md: '1.02rem' },
-                fontWeight: rightPanelMode === 'world' ? 950 : 850,
-                color: rightPanelMode === 'world'
-                  ? 'var(--morius-title-text) !important'
-                  : 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent) !important',
-              }}
-            >
-              <RightPanelCardsIcon />
-              Карточки
-            </Button>
-            <Button
-              data-tour-id="story-right-subtab-secondary"
-              onClick={() => {
-                setRightPanelMode('ai')
-                setActiveAiPanelTab('settings')
-              }}
-              sx={{
-                ...rightPanelModeSegmentSx(rightPanelMode === 'ai'),
-                minHeight: { xs: 48, md: 54 },
-                borderRadius: '14px',
-                gap: 0.62,
-                fontSize: { xs: '0.96rem', md: '1.02rem' },
-                fontWeight: rightPanelMode === 'ai' ? 950 : 850,
-                color: rightPanelMode === 'ai'
-                  ? 'var(--morius-title-text) !important'
-                  : 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent) !important',
-              }}
-            >
-              <RightPanelAiIcon />
-              Рассказчик
-            </Button>
-          </Box>
         </Box>
         <Box
           sx={{
@@ -24747,7 +24821,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }}
       >
         <Box
-          sx={storyStageSx}
+          sx={[
+            storyStageSx,
+            shouldUseStoryIntroLayout
+              ? {
+                  minHeight: '100%',
+                  justifyContent: 'center',
+                  pb: { xs: 6, md: 8 },
+                }
+              : null,
+          ]}
         >
           {shouldShowStoryTitleLoadingSkeleton ? (
             <StoryTitleLoadingSkeleton />
@@ -24755,7 +24838,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             <Box
               sx={{
                 px: { xs: 0.3, md: 0.8 },
-                mb: 1.1,
+                mb: shouldUseStoryIntroLayout ? 0 : 1.1,
+                textAlign: shouldUseStoryIntroLayout ? 'center' : 'left',
               }}
             >
               <Typography
@@ -24782,7 +24866,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               >
                 {activeDisplayTitle}
               </Typography>
-              {isPrivateStoryGame ? (
+              {isPrivateStoryGame || shouldUseStoryIntroLayout || messages.length > 0 ? (
                 <Box
                   sx={{
                     mt: 0.8,
@@ -24823,6 +24907,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             sx={{
               px: { xs: 0.3, md: 0.8 },
               pb: { xs: 1.5, md: 1.8 },
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: shouldUseStoryIntroLayout ? 'center' : 'stretch',
             }}
           >
             {shouldShowEmotionStage ? (
@@ -25139,7 +25226,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   </Stack>
                 </Box>
               ) : messages.length === 0 ? (
-                <Stack spacing={1.2} sx={{ color: 'rgba(210, 219, 234, 0.72)', mt: 0.6, maxWidth: 820 }}>
+                <Stack
+                  spacing={1.2}
+                  alignItems={shouldUseStoryIntroLayout ? 'center' : 'flex-start'}
+                  sx={{
+                    color: 'rgba(210, 219, 234, 0.72)',
+                    mt: shouldUseStoryIntroLayout ? 1.65 : 0.6,
+                    maxWidth: 820,
+                    textAlign: shouldUseStoryIntroLayout ? 'center' : 'left',
+                  }}
+                >
                   <Typography sx={{ fontSize: { xs: '1.05rem', md: '1.2rem' }, color: 'rgba(226, 232, 243, 0.9)' }}>
                     {INITIAL_STORY_PLACEHOLDER}
                   </Typography>
