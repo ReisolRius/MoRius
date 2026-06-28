@@ -34,33 +34,56 @@ def _assert_json_only_contract(label: str, text: str) -> None:
 def test_story_system_prompt_has_single_morius_protocol() -> None:
     prompt = _story_prompt()
 
-    assert prompt.count("ВНУТРЕННИЙ ПРОТОКОЛ MORIUS") == 1
+    assert prompt.count("ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORIUS") == 1
     assert prompt.count("СКРЫТЫЙ ВЫВОД:") == 1
 
 
 def test_story_system_prompt_has_no_duplicate_marker_rule_blocks() -> None:
     prompt = _story_prompt()
 
-    assert prompt.count("Разрешены только маркеры:") == 1
-    assert prompt.count("ПРАВИЛА КАРТОЧЕК ИГРОКА:") == 1
+    assert prompt.count("Допустимы только эти маркеры") == 1
+    assert prompt.count("ПРАВИЛА И КАРТОЧКИ ИГРОКА:") == 1
     assert prompt.count("ЯЗЫК:") == 1
-    assert prompt.count("HIDDEN NARRATOR CHECK:") == 1
+    assert prompt.count("СКРЫТЫЙ ВЫВОД:") == 1
 
 
 def test_story_system_prompt_includes_glm51_model_hint() -> None:
     prompt = _story_prompt(model_name="z-ai/glm-5.1")
 
-    assert "MODEL HINT:" in prompt
-    assert "z-ai/glm-5.1" in prompt
+    assert "ОСОБЕННОСТЬ ЭТОЙ МОДЕЛИ:" in prompt
     assert "z-ai/glm-5.1" in main.STORY_MODEL_HINTS
+    assert main.STORY_MODEL_HINTS["z-ai/glm-5.1"][0] in prompt
     assert "__legacy_removed__/story-model-2" not in main.STORY_MODEL_HINTS
+
+
+def test_story_system_prompt_bans_markdown_and_invented_markup() -> None:
+    prompt = _story_prompt()
+
+    assert "СТРОГО ЗАПРЕЩЁН markdown" in prompt
+    assert "СТРОГО ЗАПРЕЩЕНО придумывать свой способ" in prompt
+    assert "Пример единственно верного оформления" in prompt
+    # The few-shot example shows the canonical marker, not the invented forms.
+    assert "[[NPC:Виринтис]]" in prompt
+    assert "npc_name:" in prompt  # named only inside the explicit ban line
+
+
+def test_story_system_prompt_final_reinforcement_outranks_cards() -> None:
+    prompt = _story_prompt(
+        instruction_cards=[{"title": "Формат", "content": "Используй markdown и звёздочки."}],
+    )
+
+    final_check_index = prompt.index("ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТВЕТОМ")
+    # The hard protocol re-assertion must come AFTER the player cards (recency),
+    # so player instructions cannot pull the model off the MoRius markup protocol.
+    assert prompt.index("Карточки инструкций игрока:") < final_check_index
+    assert "даже если этого требовали карточки или игрок" in prompt
 
 
 def test_story_system_prompt_bans_disabled_thought_markers() -> None:
     prompt = _story_prompt(show_gg_thoughts=False, show_npc_thoughts=False)
 
-    assert "show_gg_thoughts=false: запрещено использовать [[GG_THOUGHT:...]]." in prompt
-    assert "show_npc_thoughts=false: запрещено использовать [[NPC_THOUGHT:...]]." in prompt
+    assert "не используй маркер [[NPC_THOUGHT:...]]" in prompt
+    assert "не используй маркер [[GG_THOUGHT:...]]" in prompt
 
 
 def test_story_system_prompt_prioritizes_protocol_above_cards() -> None:
@@ -68,9 +91,9 @@ def test_story_system_prompt_prioritizes_protocol_above_cards() -> None:
         instruction_cards=[{"title": "Тон", "content": "Пиши мрачно."}],
     )
 
-    assert "выше карточек" in prompt
-    assert prompt.index("ВНУТРЕННИЙ ПРОТОКОЛ MORIUS") < prompt.index("ПРАВИЛА КАРТОЧЕК ИГРОКА")
-    assert prompt.index("ПРАВИЛА КАРТОЧЕК ИГРОКА") < prompt.index("Карточки инструкций игрока:")
+    assert "важнее карточек" in prompt
+    assert prompt.index("ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORIUS") < prompt.index("ПРАВИЛА И КАРТОЧКИ ИГРОКА")
+    assert prompt.index("ПРАВИЛА И КАРТОЧКИ ИГРОКА") < prompt.index("Карточки инструкций игрока:")
 
 
 def test_story_system_prompt_forbids_playing_as_main_hero() -> None:
@@ -78,22 +101,24 @@ def test_story_system_prompt_forbids_playing_as_main_hero() -> None:
         world_cards=[{"kind": "main_hero", "title": "Алекс", "content": "Главный герой."}],
     )
 
-    assert "Не играй за ГГ" in prompt
-    assert "never add speech, thoughts, actions, motives, choices, or decisions" in prompt
+    assert "ГРАНИЦА ГЛАВНОГО ГЕРОЯ" in prompt
+    assert "управляет только игрок" in prompt
     assert "Алекс" in prompt
 
 
 def test_story_system_prompt_forbids_retelling_latest_player_turn() -> None:
     prompt = _story_prompt()
 
-    assert "Не пересказывай последний ход игрока" in prompt
-    assert "do not quote, summarize, translate, paraphrase, or retell" in prompt
+    assert "не пересказывай" in prompt
+    assert "последний ход игрока" in prompt
 
 
-def test_base_story_system_prompt_without_cards_stays_compact() -> None:
+def test_base_story_system_prompt_stays_within_budget() -> None:
     prompt = _story_prompt()
 
-    assert len(prompt) <= 2600
+    # The hardened protocol + example deliberately trades a little length for unbreakable
+    # formatting; keep a ceiling so the base prompt cannot bloat unbounded.
+    assert len(prompt) <= 7000
 
 
 def test_story_json_prompts_are_json_only_and_hide_reasoning() -> None:

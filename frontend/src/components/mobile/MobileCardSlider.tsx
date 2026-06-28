@@ -239,6 +239,8 @@ export function MobileCardItem({
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            wordBreak: 'break-word',
             flex: 1,
           }}
         >

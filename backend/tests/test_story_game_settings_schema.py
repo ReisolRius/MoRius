@@ -14,6 +14,11 @@ from app.models import StoryMessage  # noqa: E402
 from app import main as monolith_main  # noqa: E402
 from app.services.story_games import (  # noqa: E402
     STORY_DEFAULT_LLM_MODEL,
+    STORY_DEFAULT_REPETITION_PENALTY,
+    STORY_DEFAULT_TEMPERATURE,
+    STORY_DEFAULT_TOP_K,
+    STORY_DEFAULT_TOP_R,
+    STORY_MODEL_SAMPLING_PROFILES,
     coerce_story_image_model,
     coerce_story_llm_model,
     get_story_turn_cost_tokens,
@@ -24,6 +29,10 @@ from app.services.story_games import (  # noqa: E402
     normalize_story_appearance_ui_style,
     normalize_story_context_limit_chars,
     normalize_story_llm_model,
+    normalize_story_repetition_penalty,
+    normalize_story_temperature,
+    normalize_story_top_k,
+    normalize_story_top_r,
 )
 from app.services.story_runtime import _calculate_story_turn_cost_tokens  # noqa: E402
 
@@ -187,6 +196,76 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
                     tuple(get_story_turn_cost_tokens(usage, model_name) for usage in usage_by_tier),
                     expected_costs,
                 )
+
+    def test_per_model_sampling_defaults_apply_when_value_is_omitted(self) -> None:
+        # When the player has not overridden a slider, each narrator model seeds its own
+        # tuned default instead of a single global one.
+        for model_name, profile in STORY_MODEL_SAMPLING_PROFILES.items():
+            with self.subTest(model_name=model_name):
+                self.assertEqual(
+                    normalize_story_temperature(None, model_name=model_name),
+                    round(profile["temperature"], 2),
+                )
+                self.assertEqual(
+                    normalize_story_top_r(None, model_name=model_name),
+                    round(profile["top_r"], 2),
+                )
+                self.assertEqual(
+                    normalize_story_top_k(None, model_name=model_name),
+                    int(profile["top_k"]),
+                )
+                self.assertEqual(
+                    normalize_story_repetition_penalty(None, model_name=model_name),
+                    round(profile["repetition_penalty"], 2),
+                )
+
+    def test_deepseek_v4_pro_gets_tuned_sampling_defaults(self) -> None:
+        # The problem model: keep top_k unconstrained and a calm repetition penalty; the
+        # formatting discipline is enforced by the prompt + sanitizer, not by clamping prose.
+        model_name = "deepseek/deepseek-v4-pro"
+        self.assertEqual(normalize_story_temperature(None, model_name=model_name), 0.85)
+        self.assertEqual(normalize_story_top_r(None, model_name=model_name), 0.92)
+        self.assertEqual(normalize_story_top_k(None, model_name=model_name), 0)
+        self.assertEqual(normalize_story_repetition_penalty(None, model_name=model_name), 1.05)
+
+    def test_unknown_model_falls_back_to_global_sampling_defaults(self) -> None:
+        # An unprofiled / unknown model id keeps the global defaults.
+        model_name = "some/unknown-model"
+        self.assertNotIn(model_name, STORY_MODEL_SAMPLING_PROFILES)
+        self.assertEqual(normalize_story_temperature(None, model_name=model_name), STORY_DEFAULT_TEMPERATURE)
+        self.assertEqual(normalize_story_top_r(None, model_name=model_name), STORY_DEFAULT_TOP_R)
+        self.assertEqual(normalize_story_top_k(None, model_name=model_name), STORY_DEFAULT_TOP_K)
+        self.assertEqual(
+            normalize_story_repetition_penalty(None, model_name=model_name),
+            STORY_DEFAULT_REPETITION_PENALTY,
+        )
+
+    def test_explicit_player_sampling_values_override_per_model_defaults(self) -> None:
+        # An explicit value always wins over the per-model default, so players keep control.
+        model_name = "deepseek/deepseek-v4-pro"
+        self.assertEqual(normalize_story_temperature(1.5, model_name=model_name), 1.5)
+        self.assertEqual(normalize_story_top_r(0.5, model_name=model_name), 0.5)
+        self.assertEqual(normalize_story_top_k(120, model_name=model_name), 120)
+        self.assertEqual(normalize_story_repetition_penalty(1.3, model_name=model_name), 1.3)
+
+    def test_every_selectable_narrator_model_has_a_sampling_profile(self) -> None:
+        # The backend mirror of the frontend presets must cover every selectable narrator so
+        # game creation and API clients always seed tuned values, never a bare global default.
+        from app.services.story_games import STORY_SUPPORTED_LLM_MODELS
+
+        self.assertEqual(set(STORY_MODEL_SAMPLING_PROFILES), set(STORY_SUPPORTED_LLM_MODELS))
+
+    def test_per_model_sampling_profiles_stay_in_valid_ranges(self) -> None:
+        for model_name, profile in STORY_MODEL_SAMPLING_PROFILES.items():
+            with self.subTest(model_name=model_name):
+                self.assertGreaterEqual(profile["temperature"], 0.0)
+                self.assertLessEqual(profile["temperature"], 2.0)
+                self.assertGreaterEqual(profile["top_r"], 0.1)
+                self.assertLessEqual(profile["top_r"], 1.0)
+                self.assertGreaterEqual(int(profile["top_k"]), 0)
+                self.assertLessEqual(int(profile["top_k"]), 200)
+                self.assertGreaterEqual(profile["repetition_penalty"], 1.0)
+                self.assertLessEqual(profile["repetition_penalty"], 2.0)
 
     def test_qwen_service_model_is_not_a_selectable_narrator(self) -> None:
         self.assertEqual(

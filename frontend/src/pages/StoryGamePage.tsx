@@ -914,7 +914,7 @@ const STORY_VISIBLE_ASSISTANT_TURNS_PAGE = 20
 const STORY_LOAD_OLDER_SCROLL_TOP_THRESHOLD = 160
 const STORY_TRIM_TO_RECENT_SCROLL_BOTTOM_THRESHOLD = 220
 const COMPOSER_TOP_ACTION_BUTTON_SIZE = 46
-const COMPOSER_SEND_BUTTON_SIZE = 42
+const COMPOSER_SEND_BUTTON_SIZE = 34
 const COMPOSER_INPUT_MIN_HEIGHT = 58
 const COMPOSER_INPUT_MAX_HEIGHT = 184
 const STORY_COMPOSER_FALLBACK_HEIGHT = 170
@@ -2326,6 +2326,9 @@ const RIGHT_PANEL_WIDTH_MAX = 520
 const RIGHT_PANEL_WIDTH_DEFAULT = 440
 const STORY_STAGE_MAX_WIDTH = 1180
 const RIGHT_PANEL_CARD_HEIGHT = 198
+const RIGHT_PANEL_CHARACTER_ROW_CARD_HEIGHT = 112
+const RIGHT_PANEL_TEXT_ROW_CARD_HEIGHT = 92
+const RIGHT_PANEL_PLOT_ROW_CARD_HEIGHT = 108
 const ASSISTANT_DIALOGUE_AVATAR_SIZE = 30
 const ASSISTANT_DIALOGUE_AVATAR_GAP = 0.9
 const STRUCTURED_MARKER_START_PATTERN = /^\[\[\s*([^\]:]+?)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]*)$/iu
@@ -18790,11 +18793,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               ...rightPanelCardSx,
                               ...(isActiveHero ? rightPanelActiveCardSx : {}),
                               p: { xs: 1.05, md: 1.15 },
+                              height: RIGHT_PANEL_CHARACTER_ROW_CARD_HEIGHT,
                               display: 'flex',
-                              alignItems: 'center',
+                              alignItems: 'flex-start',
                               gap: 1,
                               cursor: 'pointer',
                               outline: 'none',
+                              overflow: 'hidden',
                             }}
                           >
                             <RightPanelInitialAvatar
@@ -18846,9 +18851,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   fontSize: { xs: '0.82rem', md: '0.86rem' },
                                   fontWeight: 650,
                                   lineHeight: 1.24,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 3,
+                                  WebkitBoxOrient: 'vertical',
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
+                                  whiteSpace: 'normal',
                                 }}
                               >
                                 {replaceMainHeroInlineTags(card.content, card.title)}
@@ -19000,13 +19008,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 ...rightPanelCardSx,
                                 ...(isCardContextActive ? rightPanelActiveCardSx : {}),
                                 p: 0.9,
-                                minHeight: 70,
+                                height: RIGHT_PANEL_CHARACTER_ROW_CARD_HEIGHT,
                                 display: 'flex',
-                                alignItems: 'center',
+                                alignItems: 'flex-start',
                                 gap: 0.85,
                                 cursor: 'pointer',
                                 opacity: card.is_locked ? 0.86 : 1,
                                 outline: 'none',
+                                overflow: 'hidden',
                               }}
                             >
                               <RightPanelInitialAvatar
@@ -19047,9 +19056,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                       fontSize: '0.82rem',
                                       fontWeight: 650,
                                       lineHeight: 1.22,
+                                      display: '-webkit-box',
+                                      WebkitLineClamp: 4,
+                                      WebkitBoxOrient: 'vertical',
                                       overflow: 'hidden',
                                       textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
+                                      whiteSpace: 'normal',
                                   }}
                                 >
                                   {card.content}
@@ -19208,12 +19220,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               ...rightPanelCardSx,
                               ...(isCardContextActive ? rightPanelActiveCardSx : {}),
                               p: 0.9,
-                              minHeight: 68,
+                              height: RIGHT_PANEL_TEXT_ROW_CARD_HEIGHT,
                               display: 'flex',
                               alignItems: 'center',
                               gap: 0.85,
                               cursor: 'pointer',
                               outline: 'none',
+                              overflow: 'hidden',
                             }}
                           >
                             <RightPanelInitialAvatar
@@ -19264,9 +19277,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   fontSize: '0.82rem',
                                   fontWeight: 650,
                                   lineHeight: 1.22,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
+                                  whiteSpace: 'normal',
                                 }}
                               >
                                 {replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
@@ -19358,11 +19374,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             ...rightPanelCardSx,
                             ...(card.is_active ? rightPanelGreenCardSx : {}),
                             p: 1,
-                            minHeight: 74,
+                            height: RIGHT_PANEL_TEXT_ROW_CARD_HEIGHT,
                             display: 'flex',
                             alignItems: 'center',
                             gap: 1,
                             opacity: card.is_active ? 1 : 0.82,
+                            overflow: 'hidden',
                           }}
                         >
                           <Stack spacing={0.25} sx={{ minWidth: 0, flex: 1 }}>
@@ -19382,9 +19399,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 fontSize: '0.82rem',
                                 fontWeight: 650,
                                 lineHeight: 1.22,
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
+                                whiteSpace: 'normal',
                               }}
                             >
                               {replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
@@ -19485,9 +19505,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   ...rightPanelCardSx,
                                   ...(isPlotCardContextActive && !isPlotCardDisabled ? rightPanelActiveCardSx : {}),
                                   p: 1,
+                                  height: RIGHT_PANEL_PLOT_ROW_CARD_HEIGHT,
                                   opacity: isPlotCardDisabled ? 0.72 : 1,
                                   display: 'flex',
                                   gap: 1,
+                                  overflow: 'hidden',
                                 }}
                               >
                                 <Stack spacing={0.28} sx={{ minWidth: 0, flex: 1 }}>
@@ -19500,9 +19522,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                       fontSize: '0.82rem',
                                       fontWeight: 650,
                                       lineHeight: 1.22,
+                                      display: '-webkit-box',
+                                      WebkitLineClamp: 2,
+                                      WebkitBoxOrient: 'vertical',
                                       overflow: 'hidden',
                                       textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
+                                      whiteSpace: 'normal',
                                     }}
                                   >
                                     {replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
@@ -21577,7 +21602,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           '&:hover': { backgroundColor: 'rgba(28, 30, 38, 0.86)' },
                         }}
                       >
-                        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0 }}>
+                        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
                           <Box
                             sx={{
                               width: 38,
@@ -21594,7 +21619,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               <path d="M4 7h10v2H4V7Zm12-2a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM10 15h10v2H10v-2Zm-2-2a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z" fill="currentColor" />
                             </SvgIcon>
                           </Box>
-                          <Stack spacing={0.18} sx={{ minWidth: 0 }}>
+                          <Stack spacing={0.18} sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
                             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950, lineHeight: 1.12 }}>
                               Продвинутые настройки
                             </Typography>
@@ -21866,9 +21891,27 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           '&:hover': { backgroundColor: 'rgba(28, 30, 38, 0.86)' },
                         }}
                       >
-                        <Stack spacing={0.18} sx={{ textAlign: 'left' }}>
+                        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
+                          <Box
+                            sx={{
+                              width: 38,
+                              height: 38,
+                              borderRadius: '12px',
+                              display: 'grid',
+                              placeItems: 'center',
+                              color: 'color-mix(in srgb, var(--morius-title-text) 82%, transparent)',
+                              backgroundColor: 'rgba(255,255,255,0.055)',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <SvgIcon sx={{ fontSize: 22 }}>
+                              <path d="M12 3C7.03 3 3 6.58 3 11c0 3.31 2.69 6 6 6h1.4c0.86 0 1.55 0.69 1.55 1.55S12.64 20 13.5 20H15c3.31 0 6-2.69 6-6.5C21 7.7 16.97 3 12 3ZM7.5 11.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3-3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm4 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm2 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z" fill="currentColor" />
+                            </SvgIcon>
+                          </Box>
+                          <Stack spacing={0.18} sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
                           <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950 }}>Оформление</Typography>
                           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontWeight: 650 }}>Фон, стиль UI и текста</Typography>
+                          </Stack>
                         </Stack>
                         <SvgIcon
                           sx={{
@@ -26541,7 +26584,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 pl: { xs: 7.7, sm: 8.05 },
                 pt: { xs: '14px', sm: '15px' },
                 pb: { xs: '14px', sm: '15px' },
-                pr: { xs: 7.4, sm: 7.6 },
+                pr: { xs: 6.35, sm: 6.55 },
                 overflowY: 'hidden',
                 '&::placeholder': {
                   color: 'var(--morius-text-secondary)',
@@ -26622,8 +26665,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         }
                       : {}),
                     '& svg': {
-                      width: 18,
-                      height: 18,
+                      width: 15,
+                      height: 15,
                     },
                     '&:hover': {
                       backgroundColor: 'transparent',
@@ -26655,7 +26698,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <Box className="morius-stop-button__square" aria-hidden="true" />
                     </Box>
                   ) : isFinalizingStoryTurn ? (
-                    <AssetMaskIcon src={icons.send} size={18} />
+                    <AssetMaskIcon src={icons.send} size={15} />
                   ) : showMicAction ? (
                     <Box
                       sx={{
@@ -26670,8 +26713,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   ) : (
                     <Box className="morius-send-button-circle">
                       <svg
-                        width="18"
-                        height="18"
+                        width="15"
+                        height="15"
                         viewBox="0 0 24 24"
                         fill="none"
                         aria-hidden="true"

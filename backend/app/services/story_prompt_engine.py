@@ -780,53 +780,53 @@ def _request_story_character_state_scene_guidance(
 
         state_parts: list[str] = []
         if status_value:
-            state_parts.append(f"health_status='{status_value}'")
+            state_parts.append(f"состояние_здоровья='{status_value}'")
         if clothing_value:
-            state_parts.append(f"clothing='{clothing_value}'")
+            state_parts.append(f"одежда='{clothing_value}'")
         if equipment_value:
-            state_parts.append(f"equipment='{equipment_value}'")
+            state_parts.append(f"снаряжение='{equipment_value}'")
         if mood_value:
-            state_parts.append(f"mood='{mood_value}'")
+            state_parts.append(f"настроение='{mood_value}'")
         if attitude_value:
-            state_parts.append(f"attitude_to_hero='{attitude_value}'")
+            state_parts.append(f"отношение_к_ГГ='{attitude_value}'")
         if personality_value:
-            state_parts.append(f"personality='{personality_value}'")
+            state_parts.append(f"характер='{personality_value}'")
         if state_parts:
             directives.append(
-                f"{character_name}: start the very next reply from the saved live state {', '.join(state_parts)}."
+                f"{character_name}: начни самый следующий ответ строго из сохранённого живого состояния {', '.join(state_parts)}."
             )
             directives.append(
-                f"{character_name}: make that state visible through dialogue wording, initiative, distance, boundaries, patience, warmth or coldness, symptoms, and body language instead of writing neutral prose that contradicts the card."
+                f"{character_name}: покажи это состояние через слова в репликах, инициативу, дистанцию, границы, терпение, теплоту или холодность, симптомы и язык тела, а не нейтральной прозой, противоречащей карточке."
             )
 
         if manual_fixed_fields:
             rendered_manual_fields: list[str] = []
             if "status" in manual_fixed_fields and status_value:
-                rendered_manual_fields.append(f"health_status='{status_value}'")
+                rendered_manual_fields.append(f"состояние_здоровья='{status_value}'")
             if "mood" in manual_fixed_fields and mood_value:
-                rendered_manual_fields.append(f"mood='{mood_value}'")
+                rendered_manual_fields.append(f"настроение='{mood_value}'")
             if "attitude_to_hero" in manual_fixed_fields and attitude_value:
-                rendered_manual_fields.append(f"attitude_to_hero='{attitude_value}'")
+                rendered_manual_fields.append(f"отношение_к_ГГ='{attitude_value}'")
             if rendered_manual_fields:
                 directives.append(
-                    f"{character_name}: the player manually fixed {', '.join(rendered_manual_fields)} for the next reply, so treat it as authoritative start-of-scene continuity."
+                    f"{character_name}: игрок вручную зафиксировал {', '.join(rendered_manual_fields)} для следующего ответа — считай это обязательной точкой отсчёта на начало сцены."
                 )
                 directives.append(
-                    f"{character_name}: do not silently pre-shift a manually fixed field before the scene itself visibly earns that change."
+                    f"{character_name}: не меняй зафиксированное поле заранее и незаметно, пока сама сцена явно не оправдает это изменение."
                 )
 
         if character_kind == "npc" and attitude_value.casefold() == "нейтральное":
             directives.append(
-                f"{character_name}: if attitude_to_hero starts neutral, keep the interaction ordinary and bounded unless this very reply clearly earns a stronger shift."
+                f"{character_name}: если отношение к ГГ нейтральное, держи общение обычным и сдержанным, пока именно этот ответ явно не заслужит более сильный сдвиг."
             )
         if character_kind == "main_hero" and status_value:
             directives.append(
-                f"{character_name}: when the saved health status affects movement, speech, stamina, pain, steadiness, or symptoms, let the narration respect those limits."
+                f"{character_name}: если сохранённое состояние здоровья влияет на движение, речь, выносливость, боль, устойчивость или симптомы, пусть повествование уважает эти ограничения."
             )
 
     if latest_user_turn and directives:
         directives.append(
-            f"Use the newest player move as the immediate trigger context, but do not let it erase the saved start-of-scene state before the reply begins: '{latest_user_turn[:220].rstrip()}'."
+            f"Используй самый свежий ход игрока как непосредственный повод, но не давай ему стереть сохранённое состояние на начало сцены до начала ответа: '{latest_user_turn[:220].rstrip()}'."
         )
 
     normalized_directives: list[str] = []
@@ -942,7 +942,7 @@ def _build_story_provider_messages(
     state_guidance_prompt = ""
     if state_guidance_directives:
         state_guidance_prompt = (
-            "CHARACTER STATE SCENE GUIDANCE (MANDATORY FOR THE NEXT REPLY):\n"
+            "ОРИЕНТИР ПО СОСТОЯНИЮ ПЕРСОНАЖЕЙ (ОБЯЗАТЕЛЕН ДЛЯ СЛЕДУЮЩЕГО ОТВЕТА):\n"
             + "\n".join(
                 f"{index}. {directive}"
                 for index, directive in enumerate(state_guidance_directives, start=1)

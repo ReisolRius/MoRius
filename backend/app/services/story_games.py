@@ -259,6 +259,42 @@ STORY_DEFAULT_TOP_R = 0.75
 STORY_TEMPERATURE_MIN = 0.0
 STORY_TEMPERATURE_MAX = 2.0
 STORY_DEFAULT_TEMPERATURE = 0.75
+# Per-narrator-model default sampling profiles. Each model behaves best in Russian RP with
+# its own temperature / nucleus / top_k / repetition penalty, so when the player has not
+# manually overridden a value (value is None) we seed the model's tuned default instead of a
+# single global one. These are defaults only: the player can still adjust every slider, and
+# switching the narrator model re-seeds the profile of the newly selected model.
+#
+# This table is the backend mirror of the frontend STORY_NARRATOR_SAMPLING_DEFAULTS in
+# frontend/src/pages/StoryGamePage.tsx and MUST stay in sync with it: the UI sends these
+# values on model switch, while this copy covers game creation and any non-UI/API client.
+# top_k == 0 means "do not constrain by top_k" (nucleus sampling governs). The premium models
+# still keep a profile for the settings UI, but the provider never forwards sampling params to
+# the models in STORY_NON_SAMPLING_MODEL_HINTS, so those values stay display-only there.
+STORY_MODEL_SAMPLING_PROFILES: dict[str, dict[str, float]] = {
+    STORY_LLM_MODEL_GLM5: {"temperature": 0.85, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_GLM51: {"temperature": 0.90, "top_r": 0.93, "top_k": 50, "repetition_penalty": 1.08},
+    STORY_LLM_MODEL_GLM47_FLASH: {"temperature": 0.80, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
+    STORY_LLM_MODEL_GLM47: {"temperature": 0.82, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.06},
+    STORY_LLM_MODEL_DEEPSEEK_V32: {"temperature": 0.85, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
+    STORY_LLM_MODEL_DEEPSEEK_V3: {"temperature": 0.90, "top_r": 0.92, "top_k": 40, "repetition_penalty": 1.06},
+    STORY_LLM_MODEL_DEEPSEEK_V4_PRO: {"temperature": 0.85, "top_r": 0.92, "top_k": 0, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_MISTRAL_NEMO: {"temperature": 0.78, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
+    STORY_LLM_MODEL_AION_2: {"temperature": 0.78, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_MINIMAX_M2_HER: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_GEMINI_31_FLASH_LITE: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.06},
+    STORY_LLM_MODEL_CLAUDE_SONNET_46: {"temperature": 1.00, "top_r": 0.98, "top_k": 0, "repetition_penalty": 1.00},
+    STORY_LLM_MODEL_GEMINI_25_PRO: {"temperature": 0.90, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_GEMINI_31_PRO: {"temperature": 0.90, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.05},
+}
+
+
+def _story_model_sampling_profile(model_name: str | None) -> dict[str, float]:
+    normalized = (model_name or "").strip()
+    normalized = STORY_LLM_MODEL_LEGACY_ALIASES.get(normalized, normalized)
+    return STORY_MODEL_SAMPLING_PROFILES.get(normalized, {})
+
+
 STORY_DEFAULT_SHOW_GG_THOUGHTS = False
 STORY_DEFAULT_SHOW_NPC_THOUGHTS = False
 STORY_DEFAULT_EMOTION_VISUALIZATION_ENABLED = False
@@ -648,32 +684,34 @@ def normalize_story_memory_optimization_mode(value: str | None) -> str:
 
 
 def normalize_story_top_k(value: int | None, *, model_name: str | None = None) -> int:
-    _ = model_name
     if value is None:
-        return STORY_DEFAULT_TOP_K
+        profile_value = _story_model_sampling_profile(model_name).get("top_k", STORY_DEFAULT_TOP_K)
+        return max(STORY_TOP_K_MIN, min(int(profile_value), STORY_TOP_K_MAX))
     return max(STORY_TOP_K_MIN, min(int(value), STORY_TOP_K_MAX))
 
 
 def normalize_story_top_r(value: float | None, *, model_name: str | None = None) -> float:
-    _ = model_name
     if value is None:
-        return STORY_DEFAULT_TOP_R
+        profile_value = _story_model_sampling_profile(model_name).get("top_r", STORY_DEFAULT_TOP_R)
+        return round(max(STORY_TOP_R_MIN, min(float(profile_value), STORY_TOP_R_MAX)), 2)
     clamped_value = max(STORY_TOP_R_MIN, min(float(value), STORY_TOP_R_MAX))
     return round(clamped_value, 2)
 
 
 def normalize_story_temperature(value: float | None, *, model_name: str | None = None) -> float:
-    _ = model_name
     if value is None:
-        return STORY_DEFAULT_TEMPERATURE
+        profile_value = _story_model_sampling_profile(model_name).get("temperature", STORY_DEFAULT_TEMPERATURE)
+        return round(max(STORY_TEMPERATURE_MIN, min(float(profile_value), STORY_TEMPERATURE_MAX)), 2)
     clamped_value = max(STORY_TEMPERATURE_MIN, min(float(value), STORY_TEMPERATURE_MAX))
     return round(clamped_value, 2)
 
 
 def normalize_story_repetition_penalty(value: float | None, *, model_name: str | None = None) -> float:
-    _ = model_name
     if value is None:
-        return STORY_DEFAULT_REPETITION_PENALTY
+        profile_value = _story_model_sampling_profile(model_name).get(
+            "repetition_penalty", STORY_DEFAULT_REPETITION_PENALTY
+        )
+        return round(max(STORY_REPETITION_PENALTY_MIN, min(float(profile_value), STORY_REPETITION_PENALTY_MAX)), 2)
     try:
         numeric_value = float(value)
     except (TypeError, ValueError):

@@ -307,18 +307,18 @@ select {
 }
 
 .morius-app-shell .MuiIconButton-root.morius-composer-send-button {
-  width: 42px !important;
-  height: 42px !important;
-  min-width: 42px !important;
-  min-height: 42px !important;
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  min-height: 34px !important;
   padding: 0 !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-composer-send-button img,
 .morius-app-shell .MuiIconButton-root.morius-composer-send-button svg,
 .morius-app-shell .MuiIconButton-root.morius-composer-send-button .morius-stop-indicator {
-  width: 18px !important;
-  height: 18px !important;
+  width: 15px !important;
+  height: 15px !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-main-hero-avatar-button {

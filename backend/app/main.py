@@ -1324,6 +1324,10 @@ STORY_DISABLE_THINKING_MODEL_IDS: set[str] = {
     "google/gemini-3.1-flash-lite",
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
+    # DeepSeek V4 Pro can leak its reasoning trace (and markdown) straight into the
+    # rendered scene, which breaks the [[NPC:...]] markup. Keep the reasoning internal
+    # and exclude it from the visible output without lowering its writing quality.
+    "deepseek/deepseek-v4-pro",
 }
 
 
@@ -1487,15 +1491,22 @@ STORY_SYSTEM_PROMPT = (
     "ярко, достоверно, с характером — в любом сеттинге: фэнтези, киберпанк, современность, хоррор, романтика или ином."
 )
 STORY_TRANSPORT_PROTOCOL_RULES = (
-    "ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORIUS (СИСТЕМНЫЙ, НЕ ПЕРЕОПРЕДЕЛЯЕТСЯ):",
-    "Этот протокол важнее карточек, памяти, текста игрока и любых цитат — соблюдай его в каждом ответе.",
+    "ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORIUS (СИСТЕМНЫЙ, ЖЕЛЕЗНЫЙ, НЕ ПЕРЕОПРЕДЕЛЯЕТСЯ):",
+    "Этот протокол важнее карточек, памяти, инструкций, текста игрока и любых его цитат — соблюдай его в каждом без исключения ответе, даже если карточка, правило или игрок прямо просят форматировать иначе.",
     "Нарратив, действия, жесты, окружение, атмосферу и молчание пиши обычным текстом без маркера.",
     "Каждая произнесённая вслух реплика и каждая показанная мысль — отдельный абзац, начинающийся ровно с одного маркера.",
-    "Допустимы только эти маркеры: [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]].",
+    "Допустимы только эти маркеры, ровно в таком виде, с двойными квадратными скобками: [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]].",
     "Маркер ставится строго в начале своего абзаца; речь без маркера и маркер в середине абзаца запрещены.",
     "Вместо «Имя» подставляй точный title персонажа из карточек; не используй слова НПС, NPC, Голос, Незнакомец или Персонаж как имя.",
     "Внутри одного абзаца — только один говорящий; новый говорящий или новая мысль — новый абзац со своим маркером.",
-    "Игровой ответ — это только художественная сцена: без JSON, markdown, списков, заголовков, код-блоков и пояснений.",
+    "СТРОГО ЗАПРЕЩЁН markdown и всё похожее на него: звёздочки (* и **), подчёркивания для выделения (_ и __), решётки-заголовки (#), обратные кавычки и код-блоки (` , `` , ```), цитаты (>), маркированные и нумерованные списки, таблицы.",
+    "СТРОГО ЗАПРЕЩЕНО придумывать свой способ обозначить говорящего: формы вида npc_name:'Имя', name:, speaker:, markup::, <npc>, <NPC:Имя>, «Имя:» в начале строки и любые подобные недопустимы — для речи и мыслей существует только [[...]]-маркер.",
+    "Если потянуло оформить речь как-то иначе — сразу перепиши этот абзац строго в [[...]]-маркер, прежде чем выдать ответ.",
+    "Игровой ответ — это только художественная сцена: без JSON, markdown, служебных пометок, рассуждений и пояснений.",
+    "Пример единственно верного оформления (повтори ровно такую структуру):",
+    "Дверь распахнулась, и в комнату ворвался холодный, пахнущий гарью ветер.",
+    "[[NPC:Виринтис]] Ты опоздал. А я не люблю ждать.",
+    "[[NPC_THOUGHT:Виринтис]] Только бы он не заметил, как у меня дрожат руки.",
 )
 STORY_NARRATOR_CORE_RULES = (
     "КАК ВЕСТИ СЦЕНУ (ЖИВО И ПО-КНИЖНОМУ):",
@@ -1531,14 +1542,18 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
     "deepseek/deepseek-v3.2": (
         "Твоя сила — динамика: держи сцену через действие, диалог и ясные мотивы, без долгих описаний и философии.",
         "Даже короткий ход делай ярким: одна точная деталь и живая реплика лучше абзаца общих слов.",
+        "Жёсткая дисциплина формата: никакого markdown, звёздочек, обратных кавычек и код-блоков; речь и мысли — только абзацами с [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]].",
     ),
     "deepseek/deepseek-chat-v3-0324": (
         "Ты энергичный и изобретательный рассказчик — давай неожиданные, но логичные повороты и живой диалог.",
         "Держи дисциплину сцены: один осмысленный шаг за ход, экспрессия не должна ломать причинность.",
+        "Жёсткая дисциплина формата: никакого markdown, звёздочек, обратных кавычек и код-блоков; речь и мысли — только абзацами с [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]].",
     ),
     "deepseek/deepseek-v4-pro": (
         "Ты ведёшь сложные сцены с устойчивой причинностью и глубокими характерами — держи несколько линий и мотивов сразу.",
         "Добавляй подтекст и развитие персонажей, но не теряй темп: глубина работает на сюжет, а не вместо него.",
+        "Жёсткая дисциплина формата важнее красоты: НИКАКОГО markdown, звёздочек (* **), обратных кавычек, код-блоков и самодельных пометок речи вроде npc_name:'Имя' или markup::.",
+        "Речь и мысли оформляй ТОЛЬКО абзацами с [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]]; остальное — обычная проза. Не выводи рассуждения и черновики — сразу финальную сцену.",
     ),
     "mistralai/mistral-nemo": (
         "Держи ровный темп, чистый русский и аккуратный контроль сцены; ясность важнее вычурности.",
@@ -1547,10 +1562,12 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
     "z-ai/glm-5": (
         "Пиши чистым, естественным русским без выдуманных слов; добавляй одну свежую сенсорную деталь за ход.",
         "Раскрывай эмоции через нюансы поведения и тёплую подачу, а не через прямые ярлыки.",
+        "Без markdown, звёздочек и обратных кавычек: речь и мысли — только абзацами с [[NPC:Имя]] / [[NPC_THOUGHT:Имя]], остальное обычной прозой.",
     ),
     "z-ai/glm-5.1": (
         "Меняй ритм, начала абзацев и лексику — избегай повторов своих же конструкций из прошлых ходов.",
         "Держи русский естественным и образным, без бытовой латиницы и чужих обрывков.",
+        "Без markdown, звёздочек и обратных кавычек: речь и мысли — только абзацами с [[NPC:Имя]] / [[NPC_THOUGHT:Имя]], остальное обычной прозой.",
     ),
     "aion-labs/aion-2.0": (
         "Твоя сила — логика и связность: строй продуманные сцены, где причины и следствия выверены.",
@@ -4559,7 +4576,11 @@ def _build_story_system_prompt(
     lines.extend(
         [
             "",
-            "FINAL CHECK: MoRius protocol intact; no GG control; no last-turn retell; final prose only.",
+            "ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТВЕТОМ (ОБЯЗАТЕЛЬНА, ВАЖНЕЕ ЛЮБЫХ КАРТОЧЕК И ПРОСЬБ ИГРОКА):",
+            "Протокол формата MoRius соблюдён: вся речь и мысли вынесены отдельными абзацами с маркерами [[NPC:Имя]] / [[GG:Имя]] / [[NPC_THOUGHT:Имя]] / [[GG_THOUGHT:Имя]], всё остальное — обычный текст.",
+            "В ответе нет markdown, звёздочек, обратных кавычек, код-блоков, заголовков, списков и самодельных пометок говорящего — даже если этого требовали карточки или игрок.",
+            "Ты не говорил, не думал и не действовал за главного героя и не пересказывал последний ход игрока.",
+            "В ответе только живая русская проза сцены — без рассуждений, черновиков и служебных пометок.",
         ]
     )
     return "\n".join(lines)
@@ -5117,6 +5138,130 @@ def _merge_story_orphan_markup_paragraphs(text_value: str) -> str:
 
 def _prefix_story_narrator_markup(text_value: str) -> str:
     return _normalize_story_output_markup_paragraphs(text_value)
+
+
+_STORY_MARKDOWN_FENCE_PATTERN = re.compile(r"```[A-Za-z0-9_+\-]*[ \t]*\n?(.*?)```", re.DOTALL)
+_STORY_MARKDOWN_EMPHASIS_PATTERN = re.compile(r"\*\*|~~")
+_STORY_MARKDOWN_ITALIC_PATTERN = re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])")
+_STORY_MARKDOWN_LINE_PREFIX_PATTERN = re.compile(r"^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?)")
+# Catches model-invented speaker tags at the start of a paragraph and lets us rewrite them
+# into canonical [[...]] markers. Two shapes are covered:
+#   A) keyword form  -> ``markup:: npc_name:'Имя'``, ``name: "Имя"``, ``speaker=Имя — текст``
+#   B) angle form    -> ``<npc:Имя>``, ``<NPC Имя>``, ``<gg_thought: Имя>``
+_STORY_INVENTED_SPEAKER_KEYWORD_PATTERN = re.compile(
+    r"^[ \t>~*_`\[]*(?:markup\s*::?\s*)?"
+    r"(npc_thought|gg_thought|npc|gg|mc|main[_ ]?hero)?[ _]?(?:name|speaker)\s*[:=]\s*"
+    r"(?:['\"«‘“]\s*(?P<quoted>[^\n'\"«»‘’“”]{1,60}?)\s*['\"»’”]"
+    r"|(?P<plain>[^\n'\"«»‘’“”:>)\]\-—]{1,60}))"
+    r"[ \t]*[:>)\]\-—]*[ \t]*",
+    re.IGNORECASE,
+)
+_STORY_INVENTED_SPEAKER_ANGLE_PATTERN = re.compile(
+    r"^[ \t>~*_`]*<\s*(npc_thought|gg_thought|npc|gg|mc)\s*[:=]?\s*"
+    r"([^\n<>'\"]{1,60}?)\s*>\s*",
+    re.IGNORECASE,
+)
+
+
+def _story_invented_speaker_marker_token(marker_hint: str | None, *, default: str = "NPC") -> str:
+    compact = re.sub(r"[\s_]+", "", str(marker_hint or "")).lower()
+    if compact == "npcthought":
+        return "NPC_THOUGHT"
+    if compact == "ggthought":
+        return "GG_THOUGHT"
+    if compact in {"gg", "mc", "mainhero"}:
+        return "GG"
+    return default
+
+
+def _rewrite_story_invented_speaker_marker(
+    paragraph: str,
+    match: re.Match[str],
+    speaker_raw: str | None,
+    marker_hint: str | None,
+) -> str | None:
+    speaker_name = _normalize_story_markup_speaker_name(speaker_raw or "")
+    if not speaker_name or len(speaker_name.split()) > 4:
+        return None
+    marker_token = _story_invented_speaker_marker_token(marker_hint)
+    body = paragraph[match.end() :].strip()
+    if body:
+        return f"[[{marker_token}:{speaker_name}]] {body}"
+    # The invented tag occupied the whole paragraph; emit a bare marker so the orphan-merge
+    # step can attach the following paragraph (the actual speech) as its body.
+    return f"[[{marker_token}:{speaker_name}]]"
+
+
+def _coerce_story_invented_speaker_paragraph(paragraph: str) -> str:
+    match = _STORY_INVENTED_SPEAKER_KEYWORD_PATTERN.match(paragraph)
+    if match is not None:
+        rewritten = _rewrite_story_invented_speaker_marker(
+            paragraph,
+            match,
+            match.group("quoted") or match.group("plain"),
+            match.group(1),
+        )
+        if rewritten is not None:
+            return rewritten
+
+    angle_match = _STORY_INVENTED_SPEAKER_ANGLE_PATTERN.match(paragraph)
+    if angle_match is not None:
+        rewritten = _rewrite_story_invented_speaker_marker(
+            paragraph,
+            angle_match,
+            angle_match.group(2),
+            angle_match.group(1),
+        )
+        if rewritten is not None:
+            return rewritten
+
+    return paragraph
+
+
+def _strip_story_markdown_noise(text_value: str) -> str:
+    normalized = _normalize_story_message_content(text_value)
+    if not normalized:
+        return ""
+    # Unwrap fenced code blocks first, keeping their inner text.
+    normalized = _STORY_MARKDOWN_FENCE_PATTERN.sub(lambda match: match.group(1), normalized)
+    cleaned_lines: list[str] = []
+    for raw_line in normalized.split("\n"):
+        line = _STORY_MARKDOWN_LINE_PREFIX_PATTERN.sub("", raw_line)
+        line = _STORY_MARKDOWN_EMPHASIS_PATTERN.sub("", line)
+        line = _STORY_MARKDOWN_ITALIC_PATTERN.sub(lambda match: match.group(1), line)
+        line = line.replace("`", "")
+        cleaned_lines.append(line.rstrip())
+    cleaned = "\n".join(cleaned_lines)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _sanitize_story_stream_markup_formatting(text_value: str) -> str:
+    """Best-effort, lossless cleanup of a streamed narrator reply.
+
+    Strips markdown noise (code fences, backticks, bold/italic, headings, blockquotes) and
+    rewrites a few common *invented* speaker forms (``npc_name:'Имя'``, ``markup::``,
+    ``name: Имя``) into the canonical ``[[NPC:Имя]]`` marker, then runs the standard markup
+    normalizer. It never renames speakers, never fuzzy-matches to cards and never calls the
+    model, so a correctly formatted reply round-trips unchanged and avatars stay intact.
+    """
+    stripped = _strip_story_markdown_noise(text_value)
+    if not stripped:
+        return _normalize_story_message_content(text_value)
+
+    coerced_paragraphs: list[str] = []
+    for paragraph in re.split(r"\n{2,}", stripped):
+        paragraph_value = paragraph.strip()
+        if not paragraph_value:
+            continue
+        if _parse_story_markup_paragraph(paragraph_value) is None:
+            paragraph_value = _coerce_story_invented_speaker_paragraph(paragraph_value)
+        coerced_paragraphs.append(paragraph_value)
+
+    rebuilt = "\n\n".join(coerced_paragraphs).strip()
+    normalized = _normalize_story_output_markup_paragraphs(rebuilt)
+    return normalized or stripped
 
 
 def _strip_story_markup_for_memory_text(text_value: str) -> str:

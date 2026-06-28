@@ -509,6 +509,31 @@ def _normalize_story_message_content(value: Any) -> str:
     return str(value or "").replace("\r\n", "\n").strip()
 
 
+def _sanitize_streamed_story_markup(value: Any) -> str:
+    """Final safety net for the streamed reply.
+
+    Delegates to the monolith markup sanitizer, which strips markdown noise and rewrites
+    invented speaker tags into canonical [[...]] markers. It is lossless for correctly
+    formatted replies, so this stays a no-op for well-behaved models (e.g. Gemini) while
+    repairing models that ignore the format protocol (e.g. DeepSeek V4 Pro). On any failure
+    we fall back to the raw provider text, so behaviour never regresses below today's.
+    """
+    raw = _normalize_story_message_content(value)
+    if not raw:
+        return raw
+    try:
+        from app import main as monolith_main
+
+        sanitizer = getattr(monolith_main, "_sanitize_story_stream_markup_formatting", None)
+        if callable(sanitizer):
+            cleaned = str(sanitizer(raw) or "").replace("\r\n", "\n").strip()
+            if cleaned:
+                return cleaned
+    except Exception:
+        logger.exception("Failed to sanitize streamed story markup; using raw provider text")
+    return raw
+
+
 def _should_use_english_memory_source(model_name: str | None) -> bool:
     return _normalize_story_model_id(model_name) in STORY_MEMORY_SOURCE_EN_MODEL_IDS
 
@@ -1742,9 +1767,12 @@ def _stream_story_response(
             _persist_cancelled_output()
             return
 
-    # Preserve the provider's final text. The legacy post-generation normalizers
-    # rewrote dialogue markers after streaming and could break avatars/text.
-    normalized_output = str(produced or "").replace("\r\n", "\n").strip()
+    # Preserve the provider's final text, but run one lossless markup safety net first.
+    # The legacy post-generation normalizers fuzzy-matched speakers to cards and called the
+    # model again, which could break avatars/text; this sanitizer only strips markdown noise
+    # and rewrites invented speaker tags into canonical [[...]] markers, so a correctly
+    # formatted reply is unchanged while models that ignore the protocol get repaired.
+    normalized_output = _sanitize_streamed_story_markup(produced)
 
     try:
         assistant_message.content = normalized_output
