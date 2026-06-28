@@ -49,7 +49,7 @@ import {
   type GrowProps,
   type SelectChangeEvent,
 } from '@mui/material'
-import { icons } from '../assets'
+import { brandLogo, icons } from '../assets'
 import narratorFreyaPortrait from '../assets/images/narrators/freya.svg'
 import narratorOgmaPortrait from '../assets/images/narrators/ogma.svg'
 import narratorVelesPortrait from '../assets/images/narrators/veles.svg'
@@ -18014,7 +18014,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             py: 1.05,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
             flexShrink: 0,
             borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 58%, transparent)',
             opacity: !isGameMenuOpen && isEnvironmentModuleCardDetached ? 0 : 1,
@@ -18022,6 +18022,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             transition: 'opacity 180ms ease',
           }}
         >
+          <Box
+            component="img"
+            src={brandLogo}
+            alt="MoRius"
+            sx={{
+              width: 92,
+              height: 50,
+              display: 'block',
+              objectFit: 'contain',
+              objectPosition: 'left center',
+              flexShrink: 0,
+            }}
+          />
           <Tooltip disableInteractive title="Свернуть меню игры">
             <IconButton
               aria-label="Свернуть меню игры"
