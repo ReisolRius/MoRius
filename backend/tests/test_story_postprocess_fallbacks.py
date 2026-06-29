@@ -426,22 +426,69 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
         self.assertEqual(blocks[0].layer, "location")
         self.assertIn("в зале гильдии у стойки", blocks[0].content)
 
-    def test_location_upsert_does_nothing_without_should_update(self) -> None:
+    def test_location_upsert_does_nothing_without_should_update_for_same_place(self) -> None:
         game = SimpleNamespace(id=10, current_location_label="старое место")
 
-        with patch.object(story_memory_pipeline, "_create_story_memory_block") as create_mock:
+        with (
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", return_value=[]),
+            patch.object(story_memory_pipeline, "_create_story_memory_block") as create_mock,
+        ):
             changed = story_memory_pipeline._upsert_story_location_memory_block(
                 db=SimpleNamespace(),
                 game=game,
                 assistant_message=SimpleNamespace(id=20),
                 latest_user_prompt="",
                 latest_assistant_text="",
-                resolved_payload_override={"should_update": False, "current": {"display": "новое место"}},
+                resolved_payload_override={"should_update": False, "current": {"display": "старое место"}},
             )
 
         self.assertFalse(changed)
         self.assertEqual(game.current_location_label, "старое место")
         create_mock.assert_not_called()
+
+    def test_location_upsert_repairs_false_should_update_when_place_differs(self) -> None:
+        blocks: list[SimpleNamespace] = []
+        game = SimpleNamespace(id=10, current_location_label="старая улица")
+
+        class FakeSession:
+            def flush(self):
+                return None
+
+        def create_memory_block(**kwargs):
+            block = SimpleNamespace(
+                id=1,
+                game_id=kwargs["game_id"],
+                assistant_message_id=kwargs["assistant_message_id"],
+                layer=kwargs["layer"],
+                title=kwargs["title"],
+                content=kwargs["content"],
+                token_count=1,
+            )
+            blocks.append(block)
+            return block
+
+        with (
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", return_value=blocks),
+            patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
+        ):
+            changed = story_memory_pipeline._upsert_story_location_memory_block(
+                db=FakeSession(),
+                game=game,
+                assistant_message=SimpleNamespace(id=20),
+                latest_user_prompt="Я вхожу в зал гильдии.",
+                latest_assistant_text="Двери зала гильдии закрываются за спиной.",
+                resolved_payload_override={
+                    "changed": False,
+                    "should_update": False,
+                    "current": {"display": "зал гильдии"},
+                    "evidence": "герой вошел в зал гильдии",
+                },
+            )
+
+        self.assertTrue(changed)
+        self.assertEqual(game.current_location_label, "зал гильдии")
+        self.assertEqual(blocks[0].layer, "location")
+        self.assertIn("зал гильдии", blocks[0].content)
 
     def test_auto_npc_update_existing_card_deduplicates_by_id(self) -> None:
         existing = SimpleNamespace(

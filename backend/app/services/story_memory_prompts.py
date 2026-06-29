@@ -210,8 +210,9 @@ def build_game_state_analysis_messages(
             (
                 "LOCATION: determine the current scene location after this turn. "
                 "Set changed=true and should_update=true only when the character actually moved to another place "
-                "relative to PREVIOUS_LOCATION. If the newest text does not establish a new place, return "
-                "should_update=false. Do not invent geography."
+                "relative to PREVIOUS_LOCATION. If your current.display is non-empty and differs from "
+                "PREVIOUS_LOCATION.display, changed and should_update must both be true. If the newest text does "
+                "not establish a new place, return should_update=false. Do not invent geography."
             )
         )
         response_shape["location"] = {
@@ -449,6 +450,7 @@ _WORLD_ANALYSIS_SYSTEM_BLOCKS: dict[str, str] = {
         "строка места. Заполняй country/region/city/district/street/place_name/place_type/"
         "room_or_area только при явных или уверенно выводимых данных, иначе null. changed=true и "
         "should_update=true только если место реально сменилось относительно PREVIOUS_LOCATION; "
+        "если current.display непустой и отличается от PREVIOUS_LOCATION.display, оба флага должны быть true; "
         "иначе should_update=false. Не выдумывай географию."
     ),
     "environment": (

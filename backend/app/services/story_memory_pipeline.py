@@ -925,6 +925,65 @@ def _normalize_story_location_memory_label(value: str) -> str:
     return normalized
 
 
+def _normalize_story_location_label_for_compare(value: str) -> str:
+    normalized = _normalize_story_location_memory_label(value).casefold().replace("ё", "е")
+    normalized = re.sub(r"[«»\"'`]+", "", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip(" .,:;!?")
+    normalized = re.sub(
+        r"^(?:за пределами|внутри|снаружи|около|возле|перед|во|в|на|у|за)\s+",
+        "",
+        normalized,
+    ).strip(" .,:;!?")
+    return normalized
+
+
+def _is_story_location_label_actionable(label: str) -> bool:
+    normalized = _normalize_story_location_label_for_compare(label)
+    return bool(normalized) and normalized not in {
+        "unknown",
+        "current location",
+        "same location",
+        "previous location",
+        "неизвестно",
+        "неизвестное место",
+        "другое место",
+        "новое место",
+        "текущая локация",
+        "текущее место",
+        "то же место",
+        "прежнее место",
+    }
+
+
+def _story_location_labels_match(left: str, right: str) -> bool:
+    normalized_left = _normalize_story_location_label_for_compare(left)
+    normalized_right = _normalize_story_location_label_for_compare(right)
+    return bool(normalized_left and normalized_right and normalized_left == normalized_right)
+
+
+def _normalize_story_location_payload_update_decision(
+    payload: dict[str, Any],
+    *,
+    previous_location_content: str = "",
+    current_location_label: str = "",
+) -> dict[str, Any]:
+    normalized_payload = dict(payload)
+    content = _location_payload_to_content(normalized_payload)
+    if content:
+        normalized_payload["content"] = content
+    label = _normalize_story_location_memory_label(content)
+    if not _is_story_location_label_actionable(label):
+        return normalized_payload
+    previous_label = _normalize_story_location_memory_label(
+        previous_location_content
+    ) or _normalize_story_location_memory_label(current_location_label)
+    labels_differ = not previous_label or not _story_location_labels_match(label, previous_label)
+    if labels_differ:
+        normalized_payload["changed"] = True
+        normalized_payload["should_update"] = True
+    return normalized_payload
+
+
 def _resolve_story_location_memory_label(*, label: str | None = None, content: str | None = None) -> str:
     return _normalize_story_location_memory_label(label or content or "")
 
@@ -970,12 +1029,19 @@ def _upsert_story_location_memory_block(
 ) -> bool:
     _ = (latest_user_prompt, latest_assistant_text, previous_assistant_text)
     payload = resolved_payload_override if isinstance(resolved_payload_override, dict) else None
-    if not payload or not bool(payload.get("should_update")):
+    if not payload:
         return False
+    payload = _normalize_story_location_payload_update_decision(
+        payload,
+        previous_location_content=_get_story_latest_location_memory_content(db=db, game_id=game.id),
+        current_location_label=str(getattr(game, "current_location_label", "") or ""),
+    )
     content = _location_payload_to_content(payload)
     if not content:
         return False
     label = _normalize_story_location_memory_label(content)
+    if not bool(payload.get("should_update")):
+        return False
     manual_override_label = _normalize_story_location_memory_label(
         str(getattr(game, "current_location_manual_override_label", "") or "")
     )
@@ -1597,6 +1663,11 @@ def _extract_story_postprocess_memory_payload(
             if bool(location.get("changed")) and not bool(location.get("should_update")):
                 location["should_update"] = True
             location["content"] = _location_payload_to_content(location)
+            location = _normalize_story_location_payload_update_decision(
+                location,
+                previous_location_content=current_location_content,
+                current_location_label=str(getattr(game, "current_location_label", "") or ""),
+            )
         result["location"] = location
     if character_state_enabled:
         auto_state = (
@@ -1729,6 +1800,11 @@ def _extract_story_world_analysis_payload(
         if bool(location.get("changed")) and not bool(location.get("should_update")):
             location["should_update"] = True
         location["content"] = _location_payload_to_content(location)
+        location = _normalize_story_location_payload_update_decision(
+            location,
+            previous_location_content=current_location_content,
+            current_location_label=str(getattr(game, "current_location_label", "") or ""),
+        )
         result["location"] = location
     if environment_enabled:
         result["environment"] = payload.environment.model_dump(mode="json")

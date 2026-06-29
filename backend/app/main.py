@@ -7263,7 +7263,15 @@ def _resolve_story_turn_postprocess_payload(
         normalized_location_content = story_memory_pipeline._normalize_story_location_memory_content(
             str(location_payload.get("content") or "")
         )
-        if normalized_location_content:
+        normalized_location_label = story_memory_pipeline._normalize_story_location_memory_label(
+            normalized_location_content
+        )
+        is_actionable_location = (
+            story_memory_pipeline._is_story_location_label_actionable(normalized_location_label)
+            if hasattr(story_memory_pipeline, "_is_story_location_label_actionable")
+            else bool(normalized_location_label)
+        )
+        if normalized_location_content and is_actionable_location:
             effective_location_content = normalized_location_content
 
     if environment_time_enabled:
