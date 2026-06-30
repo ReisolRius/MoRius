@@ -1215,6 +1215,46 @@ class StoryCharacterEmotionGenerateJobOut(BaseModel):
     completed_at: datetime | None
 
 
+StorySummaryJobStatus = Literal["queued", "running", "completed", "failed"]
+
+
+class StorySummaryGenerateRequest(BaseModel):
+    style_prompt: str | None = Field(default=None, max_length=600)
+
+
+class StorySummarySegmentOut(BaseModel):
+    type: str
+    text: str | None = None
+    caption: str | None = None
+    prompt: str | None = None
+    image_url: str | None = None
+    image_data_url: str | None = None
+
+
+class StorySummaryResultOut(BaseModel):
+    title: str
+    style_prompt: str
+    segments: list[StorySummarySegmentOut]
+    image_count: int
+    truncated: bool = False
+
+
+class StorySummaryJobOut(BaseModel):
+    id: int
+    status: StorySummaryJobStatus
+    stage: str
+    completed_images: int
+    total_images: int
+    error_detail: str | None
+    charged_tokens: int
+    result: StorySummaryResultOut | None = None
+    user: UserOut | None = None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+
+
 class StoryInstructionCardCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=8_000)

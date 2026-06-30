@@ -770,6 +770,41 @@ export type StoryCharacterEmotionGenerationJobPayload = {
   completed_at?: string | null
 }
 
+export type StorySummaryJobStatus = 'queued' | 'running' | 'completed' | 'failed'
+
+export type StorySummarySegment = {
+  type: 'heading' | 'paragraph' | 'image' | string
+  text?: string | null
+  caption?: string | null
+  prompt?: string | null
+  image_url?: string | null
+  image_data_url?: string | null
+}
+
+export type StorySummaryResult = {
+  title: string
+  style_prompt: string
+  segments: StorySummarySegment[]
+  image_count: number
+  truncated: boolean
+}
+
+export type StorySummaryJobPayload = {
+  id: number
+  status: StorySummaryJobStatus
+  stage: string
+  completed_images: number
+  total_images: number
+  error_detail?: string | null
+  charged_tokens: number
+  result?: StorySummaryResult | null
+  user?: AuthUser
+  created_at: string
+  updated_at: string
+  started_at?: string | null
+  completed_at?: string | null
+}
+
 export type StoryTurnImage = {
   id: number
   assistant_message_id: number

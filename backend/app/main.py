@@ -41,6 +41,7 @@ from app.models import (
     StoryMessage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
+    StorySummaryJob,
     StoryTurnImage,
     User,
     StoryWorldCard,
@@ -71,6 +72,7 @@ from app.routers.story_instruction_templates import router as story_instruction_
 from app.routers.story_messages import router as story_messages_router
 from app.routers.story_memory import router as story_memory_router
 from app.routers.story_read import router as story_read_router
+from app.routers.story_summary import router as story_summary_router
 from app.routers.story_turn_image import router as story_turn_image_router
 from app.routers.story_undo import router as story_undo_router
 from app.routers.story_world_cards import router as story_world_cards_router
@@ -93,6 +95,10 @@ from app.schemas import (
     StoryGenerateRequest,
     StoryInstructionCardInput,
     StoryPlotCardChangeEventOut,
+    StorySummaryGenerateRequest,
+    StorySummaryJobOut,
+    StorySummaryResultOut,
+    StorySummarySegmentOut,
     StoryTurnImageGenerateOut,
     StoryTurnImageGenerateRequest,
     UserOut,
@@ -554,6 +560,33 @@ STORY_CHARACTER_EMOTION_JOB_TERMINAL_STATUSES = {
     STORY_CHARACTER_EMOTION_JOB_STATUS_FAILED,
 }
 STORY_CHARACTER_EMOTION_JOB_ERROR_MAX_LENGTH = 1_000
+
+# --- Story summary ("Подвести итоги") configuration ---------------------------------
+STORY_SUMMARY_NARRATIVE_MODEL = POLZA_GEMINI_25_FLASH_MODEL
+STORY_SUMMARY_IMAGE_MODEL = STORY_TURN_IMAGE_MODEL_NANO_BANANO_2
+STORY_SUMMARY_MIN_TURNS = 10
+STORY_SUMMARY_MAX_IMAGES = 10
+STORY_SUMMARY_BASE_COST_TOKENS = 60
+STORY_SUMMARY_PER_IMAGE_COST_TOKENS = 44
+STORY_SUMMARY_MIN_COST_TOKENS = 100
+STORY_SUMMARY_MAX_COST_TOKENS = 500
+STORY_SUMMARY_NARRATIVE_MAX_TOKENS = 16_000
+STORY_SUMMARY_SOURCE_HISTORY_MIN_TOKENS = 4_000
+STORY_SUMMARY_KEY_MEMORY_MAX_CHARS = 24_000
+STORY_SUMMARY_DEV_MEMORY_MAX_CHARS = 28_000
+STORY_SUMMARY_CHARACTER_MAX_CHARS = 1_400
+STORY_SUMMARY_IMAGE_PROMPT_MAX_CHARS = 1_400
+STORY_SUMMARY_NARRATIVE_READ_TIMEOUT_SECONDS = 240
+STORY_SUMMARY_JOB_STATUS_QUEUED = "queued"
+STORY_SUMMARY_JOB_STATUS_RUNNING = "running"
+STORY_SUMMARY_JOB_STATUS_COMPLETED = "completed"
+STORY_SUMMARY_JOB_STATUS_FAILED = "failed"
+STORY_SUMMARY_JOB_TERMINAL_STATUSES = {
+    STORY_SUMMARY_JOB_STATUS_COMPLETED,
+    STORY_SUMMARY_JOB_STATUS_FAILED,
+}
+STORY_SUMMARY_JOB_ERROR_MAX_LENGTH = 1_000
+
 STORY_SCENE_EMOTION_ANALYSIS_MODEL = STORY_SERVICE_TEXT_MODEL
 STORY_SCENE_EMOTION_ANALYSIS_REQUEST_MAX_TOKENS = 180
 STORY_SCENE_EMOTION_MAIN_HERO_ALIASES = (
@@ -1688,6 +1721,7 @@ app.include_router(story_graph_router)
 app.include_router(story_turn_image_router)
 app.include_router(story_messages_router)
 app.include_router(story_read_router)
+app.include_router(story_summary_router)
 app.include_router(story_undo_router)
 app.include_router(story_world_cards_router)
 if admin_router is not None:
@@ -15094,6 +15128,871 @@ def generate_story_character_emotion_pack_impl(
         db=db,
         charge_tokens=True,
     )
+
+
+# =====================================================================================
+# Story summary ("Подвести итоги"): literary retelling + illustrations
+# =====================================================================================
+
+
+def _clamp_story_summary_cost(image_count: int) -> int:
+    raw_cost = STORY_SUMMARY_BASE_COST_TOKENS + STORY_SUMMARY_PER_IMAGE_COST_TOKENS * max(int(image_count), 0)
+    return max(STORY_SUMMARY_MIN_COST_TOKENS, min(STORY_SUMMARY_MAX_COST_TOKENS, raw_cost))
+
+
+def _normalize_story_summary_style_prompt(value: str | None) -> str:
+    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip()
+    if len(normalized) > 600:
+        normalized = normalized[:600].rstrip()
+    return normalized
+
+
+def _normalize_story_summary_job_error_detail(value: str | None) -> str:
+    normalized = " ".join(str(value or "").split()).strip()
+    if len(normalized) > STORY_SUMMARY_JOB_ERROR_MAX_LENGTH:
+        normalized = normalized[:STORY_SUMMARY_JOB_ERROR_MAX_LENGTH].rstrip()
+    return normalized
+
+
+def _build_story_summary_character_context(world_cards: list[StoryWorldCard]) -> list[dict[str, str]]:
+    characters: list[dict[str, str]] = []
+    for card in world_cards:
+        card_kind = _normalize_story_world_card_kind(getattr(card, "kind", ""))
+        if card_kind not in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_NPC}:
+            continue
+        name = " ".join(str(getattr(card, "title", "") or "").split()).strip()
+        if not name:
+            continue
+        explicit_fields = _story_world_card_explicit_prompt_fields(card)
+        appearance_parts: list[str] = []
+        content_value = _normalize_story_markup_to_plain_text(
+            _normalize_story_message_content(getattr(card, "content", None))
+        )
+        if content_value:
+            appearance_parts.append(content_value)
+        race_value = explicit_fields.get("race", "")
+        clothing_value = explicit_fields.get("clothing", "")
+        if race_value:
+            appearance_parts.append(f"Раса: {race_value}.")
+        if clothing_value:
+            appearance_parts.append(f"Одежда: {clothing_value}.")
+        appearance = _normalize_story_prompt_text(
+            " ".join(appearance_parts),
+            max_chars=STORY_SUMMARY_CHARACTER_MAX_CHARS,
+        )
+        if not appearance:
+            continue
+        characters.append(
+            {
+                "role": "Главный герой (ГГ)" if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO else "Персонаж (НПС)",
+                "name": name,
+                "appearance": appearance,
+            }
+        )
+        if len(characters) >= 24:
+            break
+    return characters
+
+
+def _build_story_summary_world_lore(world_cards: list[StoryWorldCard]) -> str:
+    lore_parts: list[str] = []
+    for card in world_cards:
+        card_kind = _normalize_story_world_card_kind(getattr(card, "kind", ""))
+        if card_kind not in {STORY_WORLD_CARD_KIND_WORLD_PROFILE, STORY_WORLD_CARD_KIND_WORLD}:
+            continue
+        title = " ".join(str(getattr(card, "title", "") or "").split()).strip()
+        content_value = _normalize_story_markup_to_plain_text(
+            _normalize_story_message_content(getattr(card, "content", None))
+        )
+        if not content_value:
+            continue
+        lore_parts.append(f"{title}: {content_value}" if title else content_value)
+    return _normalize_story_prompt_text("\n\n".join(lore_parts), max_chars=14_000)
+
+
+def _build_story_summary_memory_context(
+    memory_blocks: list[StoryMemoryBlock],
+) -> tuple[str, str]:
+    key_parts: list[str] = []
+    dev_parts: list[str] = []
+    dev_layers = {
+        STORY_MEMORY_LAYER_SUPER,
+        "facts",
+        STORY_MEMORY_LAYER_COMPRESSED,
+        STORY_MEMORY_LAYER_RAW,
+        "latest_full",
+        "fresh_detailed",
+        "raw_pending",
+    }
+    for block in memory_blocks:
+        layer_value = _normalize_story_memory_layer(getattr(block, "layer", ""))
+        try:
+            block_out = _story_memory_block_to_out(block)
+            title_value = " ".join(str(getattr(block_out, "title", "") or "").split()).strip()
+            content_value = str(getattr(block_out, "content", "") or "").strip()
+        except Exception:
+            title_value = " ".join(str(getattr(block, "title", "") or "").split()).strip()
+            content_value = _normalize_story_markup_to_plain_text(
+                _normalize_story_message_content(getattr(block, "content", None))
+            )
+        if not content_value:
+            continue
+        entry = f"{title_value}: {content_value}" if title_value else content_value
+        if layer_value == STORY_MEMORY_LAYER_KEY:
+            key_parts.append(entry)
+        elif layer_value in dev_layers:
+            dev_parts.append(entry)
+    key_text = _normalize_story_prompt_text("\n\n".join(key_parts), max_chars=STORY_SUMMARY_KEY_MEMORY_MAX_CHARS)
+    dev_text = _normalize_story_prompt_text("\n\n".join(dev_parts), max_chars=STORY_SUMMARY_DEV_MEMORY_MAX_CHARS)
+    return key_text, dev_text
+
+
+def _build_story_summary_history_context(
+    messages: list[StoryMessage],
+    *,
+    token_budget: int,
+) -> tuple[str, bool]:
+    effective_budget = max(int(token_budget), STORY_SUMMARY_SOURCE_HISTORY_MIN_TOKENS)
+    selected_lines: list[str] = []
+    consumed_tokens = 0
+    truncated = False
+    total_eligible = 0
+    for message in reversed(messages):
+        role_value = str(getattr(message, "role", "") or "")
+        if role_value not in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE}:
+            continue
+        content_value = _normalize_story_markup_to_plain_text(
+            _normalize_story_message_content(getattr(message, "content", None))
+        )
+        if not content_value:
+            continue
+        total_eligible += 1
+        speaker = "Игрок" if role_value == STORY_USER_ROLE else "Рассказчик"
+        line = f"{speaker}: {content_value}"
+        line_tokens = _estimate_story_tokens(line)
+        if selected_lines and consumed_tokens + line_tokens > effective_budget:
+            truncated = True
+            break
+        selected_lines.append(line)
+        consumed_tokens += line_tokens
+    selected_lines.reverse()
+    history_text = "\n\n".join(selected_lines).strip()
+    return history_text, truncated
+
+
+def _build_story_summary_source_context(db: Session, game: StoryGame) -> dict[str, Any]:
+    messages = _list_story_messages(db, game.id)
+    world_cards = _list_story_world_cards(db, game.id)
+    memory_blocks = _list_story_memory_blocks(db, game.id)
+
+    characters = _build_story_summary_character_context(world_cards)
+    world_lore = _build_story_summary_world_lore(world_cards)
+    key_memory_text, dev_memory_text = _build_story_summary_memory_context(memory_blocks)
+
+    context_budget = max(int(getattr(game, "context_limit_chars", 0) or 0), 0)
+    memory_tokens_used = _estimate_story_tokens(f"{key_memory_text}\n{dev_memory_text}")
+    history_budget = max(context_budget - memory_tokens_used, STORY_SUMMARY_SOURCE_HISTORY_MIN_TOKENS)
+    history_text, truncated = _build_story_summary_history_context(messages, token_budget=history_budget)
+
+    return {
+        "title": " ".join(str(getattr(game, "title", "") or "").split()).strip() or "Моя история",
+        "characters": characters,
+        "world_lore": world_lore,
+        "key_memory_text": key_memory_text,
+        "dev_memory_text": dev_memory_text,
+        "history_text": history_text,
+        "truncated": truncated,
+    }
+
+
+def _build_story_summary_gemini_messages(
+    *,
+    source_context: dict[str, Any],
+    style_prompt: str,
+    max_images: int,
+) -> list[dict[str, str]]:
+    system_prompt = (
+        "Ты — талантливый русскоязычный писатель. Тебе дали записи чужой ролевой партии, "
+        "и ты пишешь по ним цельную художественную книгу так, будто кто-то наблюдал за приключением игрока "
+        "и литературно его пересказал.\n\n"
+        "СТРОГИЕ ПРАВИЛА:\n"
+        "1. Пиши ТОЛЬКО на русском языке, богатым художественным стилем, в прошедшем времени, от третьего лица.\n"
+        "2. Это пересказ-книга: свяжи события в плавное повествование, передай атмосферу, эмоции и ключевые сцены. "
+        "Сохрани канву событий и характеры персонажей. Ориентируйся примерно на 5–14 глав.\n"
+        "3. Используй ТОЛЬКО предоставленные материалы (память, история, персонажи, лор). Не выдумывай крупных "
+        "новых сюжетных поворотов и не противоречь фактам.\n"
+        f"4. Расставь до {max_images} иллюстраций в самых важных, визуально сильных и переломных сценах. "
+        "Иллюстрации не обязательны для каждой главы — выбирай действительно ключевые моменты. Если ярких сцен "
+        "мало, сделай меньше иллюстраций.\n"
+        "5. Для каждой иллюстрации составь подробный визуальный промпт НА РУССКОМ: опиши сцену, обстановку, "
+        "освещение, действие и тех персонажей, что в кадре, обязательно повторив их внешность из карточек "
+        "персонажей, чтобы облик оставался узнаваемым. Художественный стиль будет применён автоматически, "
+        "поэтому в промпте делай упор на содержание сцены, а не на технику рисования.\n\n"
+        "ФОРМАТ ОТВЕТА (обычный текст, БЕЗ JSON, без markdown-таблиц, без пояснений до или после):\n"
+        "- Первая строка — название книги в виде: # Название книги\n"
+        "- Заголовок главы — отдельной строкой в виде: ## Глава 1. Название главы\n"
+        "- Абзацы повествования — обычным текстом. КАЖДЫЙ абзац пиши целиком одним сплошным куском "
+        "и ОТДЕЛЯЙ соседние абзацы ПУСТОЙ СТРОКОЙ. Не разбивай один абзац на несколько строк вручную.\n"
+        "- Иллюстрация — на отдельной строке (с пустыми строками до и после) строго в формате: "
+        "[[КАРТИНКА: подробный визуальный промпт сцены на русском | короткая подпись]]\n"
+        "  (часть после символа | — это подпись к иллюстрации; промпт и подпись пиши на русском, "
+        "не используй внутри переносов строк и символа |).\n\n"
+        "Пример (обрати внимание на пустые строки между блоками):\n"
+        "# Тени над Эльдором\n"
+        "\n"
+        "## Глава 1. Пробуждение\n"
+        "\n"
+        "Холодный рассвет застал героя у руин старой башни. Ветер шептал древние имена, и каждый шаг "
+        "отзывался эхом в пустых залах.\n"
+        "\n"
+        "[[КАРТИНКА: руины древней башни на рассвете, седой воин в потёртом плаще смотрит вдаль | Рассвет у башни]]\n"
+        "\n"
+        "Он сделал первый шаг навстречу судьбе, не зная, что ждёт его за поворотом.\n\n"
+        "Пиши связный, законченный пересказ. Не оборачивай ответ в кавычки или блоки кода."
+    )
+
+    sections: list[str] = []
+    sections.append(f"НАЗВАНИЕ ИГРЫ: {source_context.get('title', '')}".strip())
+
+    characters = source_context.get("characters") or []
+    if characters:
+        character_lines = []
+        for character in characters:
+            character_lines.append(
+                f"- {character.get('role', '')} «{character.get('name', '')}»: {character.get('appearance', '')}"
+            )
+        sections.append("ПЕРСОНАЖИ (внешность для иллюстраций):\n" + "\n".join(character_lines))
+
+    world_lore = str(source_context.get("world_lore") or "").strip()
+    if world_lore:
+        sections.append("МИР И ЛОР:\n" + world_lore)
+
+    key_memory_text = str(source_context.get("key_memory_text") or "").strip()
+    if key_memory_text:
+        sections.append("ВАЖНАЯ ПАМЯТЬ (ключевые закреплённые моменты):\n" + key_memory_text)
+
+    dev_memory_text = str(source_context.get("dev_memory_text") or "").strip()
+    if dev_memory_text:
+        sections.append("РАЗВИВАЮЩАЯСЯ ПАМЯТЬ (сжатая история приключения):\n" + dev_memory_text)
+
+    history_text = str(source_context.get("history_text") or "").strip()
+    if history_text:
+        sections.append("ХОД ИСТОРИИ (реплики игрока и рассказчика):\n" + history_text)
+
+    if style_prompt:
+        sections.append(
+            "ПОЖЕЛАНИЕ ПО СТИЛЮ ИЛЛЮСТРАЦИЙ (для справки): "
+            + style_prompt
+            + ". Учитывай атмосферу, но в промптах описывай прежде всего содержание сцены."
+        )
+
+    sections.append(
+        "Напиши по этим материалам цельную книгу-пересказ на русском в указанном выше текстовом формате "
+        "(# название, ## заголовки глав, абзацы, строки [[КАРТИНКА: ... | подпись]])."
+    )
+
+    user_prompt = "\n\n".join(part for part in sections if part).strip()
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+STORY_SUMMARY_IMAGE_MARKER_PATTERN = re.compile(
+    r"^\s*\[\[\s*(?:КАРТИНКА|ИЛЛЮСТРАЦИЯ|IMAGE|IMG|PICTURE)\s*[:\-—]\s*(.+?)\s*\]\]\s*$",
+    re.IGNORECASE,
+)
+STORY_SUMMARY_HEADING_PATTERN = re.compile(r"^(#{2,6})\s+(.*\S)\s*$")
+STORY_SUMMARY_TITLE_PATTERN = re.compile(r"^#\s+(.*\S)\s*$")
+STORY_SUMMARY_TEXT_BLOCK_TYPES = {"paragraph", "heading"}
+
+
+def _has_story_summary_text(blocks: list[dict[str, str]]) -> bool:
+    return any(block.get("type") in STORY_SUMMARY_TEXT_BLOCK_TYPES for block in blocks)
+
+
+def _clean_story_summary_inline(value: str) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    text = text.strip("*_`").strip()
+    return text
+
+
+def _append_story_summary_image_block(
+    blocks: list[dict[str, str]],
+    *,
+    raw_body: str,
+    image_count: int,
+) -> int:
+    if image_count >= STORY_SUMMARY_MAX_IMAGES:
+        return image_count
+    body = str(raw_body or "").strip()
+    if not body:
+        return image_count
+    if "|" in body:
+        prompt_part, caption_part = body.split("|", 1)
+    elif "—" in body and body.count("—") == 1:
+        prompt_part, caption_part = body.split("—", 1)
+    else:
+        prompt_part, caption_part = body, ""
+    scene_prompt = " ".join(prompt_part.split()).strip()[:STORY_SUMMARY_IMAGE_PROMPT_MAX_CHARS].strip()
+    if not scene_prompt:
+        return image_count
+    caption = " ".join(caption_part.split()).strip()[:200]
+    blocks.append({"type": "image", "prompt": scene_prompt, "caption": caption})
+    return image_count + 1
+
+
+def _parse_story_summary_markup(raw_text: str) -> tuple[str, list[dict[str, str]]]:
+    cleaned = str(raw_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = re.sub(r"```[a-zA-Z]*", "", cleaned).replace("```", "")
+    title_value = ""
+    blocks: list[dict[str, str]] = []
+    image_count = 0
+    paragraph_lines: list[str] = []
+
+    def _flush_paragraph() -> None:
+        nonlocal paragraph_lines
+        if not paragraph_lines:
+            return
+        # Rejoin soft-wrapped lines into a single flowing paragraph.
+        paragraph_text = _clean_story_summary_inline(" ".join(paragraph_lines))
+        if paragraph_text:
+            blocks.append({"type": "paragraph", "text": paragraph_text})
+        paragraph_lines = []
+
+    for raw_line in cleaned.split("\n"):
+        stripped = raw_line.strip()
+        if not stripped:
+            # Blank line = paragraph boundary.
+            _flush_paragraph()
+            continue
+
+        image_match = STORY_SUMMARY_IMAGE_MARKER_PATTERN.match(stripped)
+        if image_match is not None:
+            _flush_paragraph()
+            image_count = _append_story_summary_image_block(
+                blocks,
+                raw_body=image_match.group(1),
+                image_count=image_count,
+            )
+            continue
+
+        title_match = STORY_SUMMARY_TITLE_PATTERN.match(stripped)
+        if title_match is not None:
+            _flush_paragraph()
+            candidate_title = _clean_story_summary_inline(title_match.group(1))
+            if candidate_title and not title_value:
+                title_value = candidate_title[:200]
+            continue
+
+        heading_match = STORY_SUMMARY_HEADING_PATTERN.match(stripped)
+        if heading_match is not None:
+            _flush_paragraph()
+            heading_text = _clean_story_summary_inline(heading_match.group(2))
+            if heading_text:
+                blocks.append({"type": "heading", "text": heading_text[:200]})
+            continue
+
+        paragraph_lines.append(stripped)
+
+    _flush_paragraph()
+    return title_value, blocks
+
+
+def _normalize_story_summary_blocks(raw_payload: Any) -> tuple[str, list[dict[str, str]]]:
+    if not isinstance(raw_payload, dict):
+        return "", []
+    title_value = " ".join(str(raw_payload.get("title") or raw_payload.get("name") or "").split()).strip()
+    raw_blocks: Any = None
+    for key in ("blocks", "segments", "chapters", "parts", "content", "items"):
+        candidate = raw_payload.get(key)
+        if isinstance(candidate, list):
+            raw_blocks = candidate
+            break
+    if not isinstance(raw_blocks, list):
+        return title_value, []
+
+    normalized_blocks: list[dict[str, str]] = []
+    image_count = 0
+    for raw_block in raw_blocks:
+        if not isinstance(raw_block, dict):
+            if isinstance(raw_block, str) and raw_block.strip():
+                normalized_blocks.append({"type": "paragraph", "text": raw_block.strip()})
+            continue
+        raw_type = str(raw_block.get("type") or raw_block.get("kind") or "").strip().lower()
+        prompt_value = " ".join(
+            str(raw_block.get("prompt") or raw_block.get("image_prompt") or raw_block.get("description") or "").split()
+        ).strip()
+        is_image = raw_type in {"image", "illustration", "picture", "img", "иллюстрация", "картинка"} or (
+            not raw_type and prompt_value and not str(raw_block.get("text") or raw_block.get("content") or "").strip()
+        )
+        if is_image:
+            scene_prompt = prompt_value or " ".join(str(raw_block.get("text") or "").split()).strip()
+            if not scene_prompt:
+                continue
+            if image_count >= STORY_SUMMARY_MAX_IMAGES:
+                continue
+            caption = " ".join(str(raw_block.get("caption") or raw_block.get("title") or "").split()).strip()
+            normalized_blocks.append(
+                {
+                    "type": "image",
+                    "prompt": scene_prompt[:STORY_SUMMARY_IMAGE_PROMPT_MAX_CHARS].strip(),
+                    "caption": caption[:200].strip(),
+                }
+            )
+            image_count += 1
+            continue
+        heading_value = " ".join(str(raw_block.get("heading") or "").split()).strip()
+        text_value = str(raw_block.get("text") or raw_block.get("content") or raw_block.get("body") or "").strip()
+        if raw_type in {"heading", "title", "chapter", "header", "заголовок", "глава"}:
+            heading_text = heading_value or text_value
+            if heading_text:
+                normalized_blocks.append({"type": "heading", "text": " ".join(heading_text.split()).strip()[:200]})
+            continue
+        if heading_value:
+            normalized_blocks.append({"type": "heading", "text": heading_value[:200]})
+        if text_value:
+            normalized_blocks.append({"type": "paragraph", "text": text_value})
+    return title_value, normalized_blocks
+
+
+def _fallback_story_summary_paragraphs(raw_text: str) -> list[dict[str, str]]:
+    cleaned = str(raw_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = re.sub(r"```[a-zA-Z]*", "", cleaned).replace("```", "")
+    blocks: list[dict[str, str]] = []
+    for chunk in re.split(r"\n\s*\n", cleaned):
+        text = _clean_story_summary_inline(chunk.replace("\n", " "))
+        # Skip leftover JSON scaffolding lines.
+        if not text or text in {"{", "}", "[", "]"}:
+            continue
+        if text.startswith(('"blocks"', '"segments"', '"title"')):
+            continue
+        blocks.append({"type": "paragraph", "text": text})
+    return blocks
+
+
+def _parse_story_summary_response(raw_narrative: str) -> tuple[str, list[dict[str, str]]]:
+    raw_text = str(raw_narrative or "")
+
+    # 1) Structured JSON, if the model still returned it.
+    parsed_payload = _extract_json_object_from_text(raw_text)
+    if isinstance(parsed_payload, dict) and any(
+        key in parsed_payload for key in ("blocks", "segments", "chapters", "parts", "content", "items")
+    ):
+        title_value, blocks = _normalize_story_summary_blocks(parsed_payload)
+        if _has_story_summary_text(blocks):
+            return title_value, blocks
+
+    # 2) Plain-text marker format (the requested output) — resilient to truncation.
+    title_value, blocks = _parse_story_summary_markup(raw_text)
+    if _has_story_summary_text(blocks):
+        return title_value, blocks
+
+    # 3) Last resort: treat the whole response as prose split into paragraphs.
+    return "", _fallback_story_summary_paragraphs(raw_text)
+
+
+def _build_story_summary_image_prompt(*, scene_prompt: str, style_prompt: str) -> str:
+    normalized_style = _normalize_story_summary_style_prompt(style_prompt)
+    parts: list[str] = []
+    if normalized_style:
+        parts.append(
+            f"ХУДОЖЕСТВЕННЫЙ СТИЛЬ ИЛЛЮСТРАЦИИ (ГЛАВНЫЙ ПРИОРИТЕТ): {normalized_style}. "
+            "Строго следуй этому стилю и его указаниям; он важнее любых противоречащих стилевых слов из описания сцены."
+        )
+    else:
+        parts.append(
+            "ХУДОЖЕСТВЕННЫЙ СТИЛЬ ИЛЛЮСТРАЦИИ: атмосферная книжная иллюстрация с выразительным светом и тонкой детализацией."
+        )
+    parts.append("Книжная иллюстрация к сцене. " + scene_prompt.strip())
+    parts.append(
+        "СТРОГИЙ ЗАПРЕТ ТЕКСТА: никаких видимых букв, надписей, подписей, водяных знаков, логотипов, "
+        "субтитров, цифр или элементов интерфейса в кадре."
+    )
+    final_prompt = _join_story_turn_image_prompt_parts(parts)
+    return _limit_story_turn_image_request_prompt(final_prompt, model_name=STORY_SUMMARY_IMAGE_MODEL)
+
+
+def _serialize_story_summary_result(result: dict[str, Any]) -> str:
+    try:
+        return json.dumps(result, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return ""
+
+
+def _deserialize_story_summary_result(raw_value: str) -> StorySummaryResultOut | None:
+    normalized = str(raw_value or "").strip()
+    if not normalized:
+        return None
+    try:
+        payload = json.loads(normalized)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    raw_segments = payload.get("segments")
+    segments: list[StorySummarySegmentOut] = []
+    if isinstance(raw_segments, list):
+        for raw_segment in raw_segments:
+            if not isinstance(raw_segment, dict):
+                continue
+            try:
+                segments.append(StorySummarySegmentOut.model_validate(raw_segment))
+            except Exception:
+                continue
+    try:
+        return StorySummaryResultOut(
+            title=str(payload.get("title") or "Моя история"),
+            style_prompt=str(payload.get("style_prompt") or ""),
+            segments=segments,
+            image_count=max(int(payload.get("image_count") or 0), 0),
+            truncated=bool(payload.get("truncated")),
+        )
+    except Exception:
+        return None
+
+
+def _story_summary_job_to_out(job: StorySummaryJob, *, user: User | None = None) -> StorySummaryJobOut:
+    status_value = str(getattr(job, "status", "") or "").strip().lower()
+    if status_value not in STORY_SUMMARY_JOB_TERMINAL_STATUSES and status_value not in {
+        STORY_SUMMARY_JOB_STATUS_QUEUED,
+        STORY_SUMMARY_JOB_STATUS_RUNNING,
+    }:
+        status_value = STORY_SUMMARY_JOB_STATUS_FAILED
+    result_out = _deserialize_story_summary_result(getattr(job, "result_payload", ""))
+    user_payload = UserOut.model_validate(user) if user is not None else None
+    return StorySummaryJobOut(
+        id=int(job.id),
+        status=status_value,
+        stage=str(getattr(job, "stage", "") or ""),
+        completed_images=max(int(getattr(job, "completed_images", 0) or 0), 0),
+        total_images=max(int(getattr(job, "total_images", 0) or 0), 0),
+        error_detail=_normalize_story_summary_job_error_detail(getattr(job, "error_detail", "")) or None,
+        charged_tokens=max(int(getattr(job, "charged_tokens", 0) or 0), 0),
+        result=result_out,
+        user=user_payload,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        started_at=getattr(job, "started_at", None),
+        completed_at=getattr(job, "completed_at", None),
+    )
+
+
+def _set_story_summary_job_progress(
+    db: Session,
+    job: StorySummaryJob,
+    *,
+    stage: str,
+    completed_images: int | None = None,
+    total_images: int | None = None,
+) -> None:
+    job.status = STORY_SUMMARY_JOB_STATUS_RUNNING
+    job.stage = str(stage or "")[:48]
+    if total_images is not None:
+        job.total_images = max(int(total_images), 0)
+    if completed_images is not None:
+        job.completed_images = max(0, min(int(completed_images), max(int(job.total_images or 0), 0)))
+    db.commit()
+
+
+def _process_story_summary_job(job_id: int) -> None:
+    db = SessionLocal()
+    try:
+        job = db.scalar(select(StorySummaryJob).where(StorySummaryJob.id == job_id))
+        if job is None or str(job.status or "").strip().lower() in STORY_SUMMARY_JOB_TERMINAL_STATUSES:
+            return
+
+        user = db.scalar(select(User).where(User.id == job.user_id))
+        game = db.scalar(select(StoryGame).where(StoryGame.id == job.game_id))
+        if user is None or game is None:
+            job.status = STORY_SUMMARY_JOB_STATUS_FAILED
+            job.error_detail = "Игра или владелец не найдены"
+            job.stage = ""
+            job.completed_at = datetime.now(timezone.utc)
+            job.reserved_tokens = 0
+            db.commit()
+            return
+
+        job.status = STORY_SUMMARY_JOB_STATUS_RUNNING
+        job.error_detail = ""
+        job.stage = "preparing"
+        if job.started_at is None:
+            job.started_at = datetime.now(timezone.utc)
+        db.commit()
+
+        style_prompt = _normalize_story_summary_style_prompt(getattr(job, "style_prompt", ""))
+        source_context = _build_story_summary_source_context(db, game)
+
+        _set_story_summary_job_progress(db, job, stage="writing")
+        gemini_messages = _build_story_summary_gemini_messages(
+            source_context=source_context,
+            style_prompt=style_prompt,
+            max_images=STORY_SUMMARY_MAX_IMAGES,
+        )
+        raw_narrative = _request_polza_story_text(
+            gemini_messages,
+            model_name=STORY_SUMMARY_NARRATIVE_MODEL,
+            allow_service_fallback=False,
+            translate_input=False,
+            temperature=0.85,
+            max_tokens=STORY_SUMMARY_NARRATIVE_MAX_TOKENS,
+            request_timeout=(15, STORY_SUMMARY_NARRATIVE_READ_TIMEOUT_SECONDS),
+        )
+        narrative_title, normalized_blocks = _parse_story_summary_response(raw_narrative)
+        text_block_count = sum(1 for block in normalized_blocks if block.get("type") in {"paragraph", "heading"})
+        logger.info(
+            "Story summary narrative parsed: job_id=%s response_chars=%s text_blocks=%s image_blocks=%s",
+            job_id,
+            len(str(raw_narrative or "")),
+            text_block_count,
+            sum(1 for block in normalized_blocks if block.get("type") == "image"),
+        )
+        if text_block_count == 0:
+            logger.warning(
+                "Story summary narrative empty after parsing: job_id=%s response_preview=%r",
+                job_id,
+                str(raw_narrative or "")[:600],
+            )
+            raise RuntimeError("Модель вернула пустой ответ. Попробуйте ещё раз.")
+
+        image_blocks = [block for block in normalized_blocks if block.get("type") == "image"]
+        total_images = len(image_blocks)
+        _set_story_summary_job_progress(db, job, stage="illustrating", completed_images=0, total_images=total_images)
+
+        generated_images = 0
+        for image_block in image_blocks:
+            scene_prompt = str(image_block.get("prompt") or "").strip()
+            if not scene_prompt:
+                image_block["_dropped"] = "1"
+                continue
+            visual_prompt = _build_story_summary_image_prompt(scene_prompt=scene_prompt, style_prompt=style_prompt)
+            if not visual_prompt:
+                image_block["_dropped"] = "1"
+                continue
+            try:
+                generation_payload = _request_story_turn_image(
+                    prompt=visual_prompt,
+                    model_name=STORY_SUMMARY_IMAGE_MODEL,
+                )
+            except Exception as image_exc:
+                logger.warning(
+                    "Story summary illustration failed (skipping): job_id=%s error=%s",
+                    job_id,
+                    image_exc,
+                )
+                image_block["_dropped"] = "1"
+                continue
+            resolved_image_url = str(generation_payload.get("image_url") or "").strip() or None
+            resolved_image_data_url = str(generation_payload.get("image_data_url") or "").strip() or None
+            if resolved_image_url is None and resolved_image_data_url is None:
+                image_block["_dropped"] = "1"
+                continue
+            image_block["image_url"] = resolved_image_url or ""
+            image_block["image_data_url"] = resolved_image_data_url or ""
+            generated_images += 1
+            _set_story_summary_job_progress(
+                db,
+                job,
+                stage="illustrating",
+                completed_images=generated_images,
+                total_images=total_images,
+            )
+
+        segments: list[dict[str, Any]] = []
+        for block in normalized_blocks:
+            block_type = block.get("type")
+            if block_type == "image":
+                if block.get("_dropped") == "1":
+                    continue
+                segments.append(
+                    {
+                        "type": "image",
+                        "caption": block.get("caption") or None,
+                        "prompt": block.get("prompt") or None,
+                        "image_url": block.get("image_url") or None,
+                        "image_data_url": block.get("image_data_url") or None,
+                    }
+                )
+            elif block_type == "heading":
+                segments.append({"type": "heading", "text": block.get("text") or ""})
+            else:
+                segments.append({"type": "paragraph", "text": block.get("text") or ""})
+
+        result_payload = {
+            "title": narrative_title or source_context.get("title") or "Моя история",
+            "style_prompt": style_prompt,
+            "segments": segments,
+            "image_count": generated_images,
+            "truncated": bool(source_context.get("truncated")),
+        }
+
+        actual_cost = _clamp_story_summary_cost(generated_images)
+        reserved_tokens = max(int(getattr(job, "reserved_tokens", 0) or 0), 0)
+        refund = max(reserved_tokens - actual_cost, 0)
+        if refund > 0:
+            _add_user_tokens(db, int(job.user_id), refund)
+
+        job.status = STORY_SUMMARY_JOB_STATUS_COMPLETED
+        job.stage = "completed"
+        job.completed_images = generated_images
+        job.total_images = total_images
+        job.charged_tokens = actual_cost
+        job.reserved_tokens = 0
+        job.result_payload = _serialize_story_summary_result(result_payload)
+        job.error_detail = ""
+        job.completed_at = datetime.now(timezone.utc)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        job = db.scalar(select(StorySummaryJob).where(StorySummaryJob.id == job_id))
+        if job is None:
+            logger.exception("Story summary job failed before persistence: job_id=%s", job_id)
+            return
+        detail = _normalize_story_summary_job_error_detail(str(exc).strip() or "Не удалось подвести итоги")
+        try:
+            if int(getattr(job, "reserved_tokens", 0) or 0) > 0:
+                _add_user_tokens(db, int(job.user_id), int(job.reserved_tokens))
+                job.reserved_tokens = 0
+            job.status = STORY_SUMMARY_JOB_STATUS_FAILED
+            job.stage = ""
+            job.error_detail = detail or "Не удалось подвести итоги"
+            job.completed_at = datetime.now(timezone.utc)
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("Story summary job refund failed: job_id=%s", job_id)
+    finally:
+        db.close()
+
+
+def _start_story_summary_job(job_id: int) -> None:
+    worker = Thread(
+        target=_process_story_summary_job,
+        args=(int(job_id),),
+        name=f"story-summary-job-{int(job_id)}",
+        daemon=True,
+    )
+    worker.start()
+
+
+def _fail_story_summary_job_after_spawn_error(job_id: int, error_text: str) -> None:
+    db = SessionLocal()
+    try:
+        job = db.scalar(select(StorySummaryJob).where(StorySummaryJob.id == int(job_id)))
+        if job is None:
+            return
+        detail = _normalize_story_summary_job_error_detail(error_text) or "Не удалось запустить подведение итогов"
+        if int(getattr(job, "reserved_tokens", 0) or 0) > 0:
+            _add_user_tokens(db, int(job.user_id), int(job.reserved_tokens))
+            job.reserved_tokens = 0
+        job.status = STORY_SUMMARY_JOB_STATUS_FAILED
+        job.stage = ""
+        job.error_detail = detail
+        job.completed_at = datetime.now(timezone.utc)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Story summary spawn recovery failed: job_id=%s", job_id)
+    finally:
+        db.close()
+
+
+def queue_story_summary_job_impl(
+    game_id: int,
+    payload: StorySummaryGenerateRequest,
+    authorization: str | None,
+    db: Session,
+) -> StorySummaryJobOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+
+    messages = _list_story_messages(db, game.id)
+    completed_turns = _count_story_completed_turns(messages)
+    if completed_turns < STORY_SUMMARY_MIN_TURNS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Подвести итоги можно после {STORY_SUMMARY_MIN_TURNS} ходов",
+        )
+
+    existing_active_job = db.scalar(
+        select(StorySummaryJob)
+        .where(
+            StorySummaryJob.user_id == int(user.id),
+            StorySummaryJob.game_id == int(game.id),
+            StorySummaryJob.status.in_([STORY_SUMMARY_JOB_STATUS_QUEUED, STORY_SUMMARY_JOB_STATUS_RUNNING]),
+        )
+        .order_by(StorySummaryJob.id.desc())
+    )
+    if existing_active_job is not None:
+        db.refresh(user)
+        return _story_summary_job_to_out(existing_active_job, user=user)
+
+    reserve_tokens = STORY_SUMMARY_MAX_COST_TOKENS
+    if int(getattr(user, "coins", 0) or 0) < reserve_tokens:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"Нужно не менее {reserve_tokens} солов, чтобы подвести итоги",
+        )
+
+    style_prompt = _normalize_story_summary_style_prompt(getattr(payload, "style_prompt", None))
+
+    if not _spend_user_tokens_if_sufficient(db, int(user.id), reserve_tokens):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"Нужно не менее {reserve_tokens} солов, чтобы подвести итоги",
+        )
+
+    job = StorySummaryJob(
+        user_id=int(user.id),
+        game_id=int(game.id),
+        status=STORY_SUMMARY_JOB_STATUS_QUEUED,
+        stage="queued",
+        style_prompt=style_prompt,
+        image_model=STORY_SUMMARY_IMAGE_MODEL,
+        result_payload="",
+        error_detail="",
+        completed_images=0,
+        total_images=0,
+        reserved_tokens=reserve_tokens,
+        charged_tokens=0,
+        started_at=None,
+        completed_at=None,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(user)
+    db.refresh(job)
+
+    try:
+        _start_story_summary_job(job.id)
+    except Exception as exc:
+        logger.exception("Failed to start story summary job thread: job_id=%s", job.id)
+        _fail_story_summary_job_after_spawn_error(job.id, str(exc).strip() or "Не удалось запустить подведение итогов")
+        db.refresh(user)
+        db.refresh(job)
+
+    return _story_summary_job_to_out(job, user=user)
+
+
+def get_story_summary_job_impl(
+    game_id: int,
+    job_id: int,
+    authorization: str | None,
+    db: Session,
+) -> StorySummaryJobOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    job = db.scalar(
+        select(StorySummaryJob).where(
+            StorySummaryJob.id == int(job_id),
+            StorySummaryJob.game_id == int(game.id),
+            StorySummaryJob.user_id == int(user.id),
+        )
+    )
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задача подведения итогов не найдена")
+    db.refresh(user)
+    return _story_summary_job_to_out(job, user=user)
 
 
 def generate_story_turn_image_impl(

@@ -76,6 +76,7 @@ import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import ImageCropper from '../components/ImageCropper'
 import AdvancedRegenerationDialog from '../components/story/AdvancedRegenerationDialog'
+import StorySummaryDialog from '../components/story/StorySummaryDialog'
 import WorldCardBannerPreview from '../components/story/WorldCardBannerPreview'
 import WorldCardTemplatePickerDialog from '../components/story/WorldCardTemplatePickerDialog'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
@@ -6499,6 +6500,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isRerollTurnPendingReplacement, setIsRerollTurnPendingReplacement] = useState(false)
   const [advancedRegenerationEnabled, setAdvancedRegenerationEnabled] = useState(false)
   const [advancedRegenerationDialogOpen, setAdvancedRegenerationDialogOpen] = useState(false)
+  const [isSummaryDialogOpen, setIsSummaryDialogOpen] = useState(false)
   const [selectedSmartRegenerationMode, setSelectedSmartRegenerationMode] = useState<SmartRegenerationMode>(
     DEFAULT_SMART_REGENERATION_MODE,
   )
@@ -18235,6 +18237,42 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Stack>
           </Button>
 
+          <Tooltip
+            disableInteractive
+            title={storyTurnCount >= 10 ? '' : `Доступно после 10 ходов (сейчас ${storyTurnCount})`}
+          >
+            <Box>
+              <Button
+                fullWidth
+                onClick={() => setIsSummaryDialogOpen(true)}
+                disabled={!activeGameId || storyTurnCount < 10}
+                startIcon={<Box component="span" sx={{ fontSize: '1.1rem', lineHeight: 1 }}>📖</Box>}
+                sx={{
+                  minHeight: 50,
+                  borderRadius: '12px',
+                  textTransform: 'none',
+                  fontSize: '0.98rem',
+                  fontWeight: 900,
+                  color: '#11070A',
+                  background:
+                    'linear-gradient(135deg, color-mix(in srgb, var(--morius-accent) 92%, #fff 8%), var(--morius-accent))',
+                  boxShadow: '0 16px 34px -18px color-mix(in srgb, var(--morius-accent) 82%, transparent)',
+                  '&:hover': {
+                    background:
+                      'linear-gradient(135deg, var(--morius-accent), color-mix(in srgb, var(--morius-accent) 80%, #000 20%))',
+                  },
+                  '&.Mui-disabled': {
+                    color: 'color-mix(in srgb, var(--morius-title-text) 60%, transparent)',
+                    background: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #000 12%)',
+                    boxShadow: 'none',
+                  },
+                }}
+              >
+                Подвести итоги
+              </Button>
+            </Box>
+          </Tooltip>
+
           <Button
             onClick={handleLeaveStoryGame}
             sx={{
@@ -27425,6 +27463,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         onToggleOption={handleToggleSmartRegenerationOption}
         onDefaultRegenerate={handleDefaultRegenerationFromDialog}
         onSmartRegenerate={handleSmartRegenerationFromDialog}
+      />
+
+      <StorySummaryDialog
+        open={isSummaryDialogOpen}
+        onClose={() => setIsSummaryDialogOpen(false)}
+        token={authToken}
+        gameId={activeGameId}
+        gameTitle={activeDisplayTitle}
+        contextLimitChars={contextLimitChars}
+        turnCount={storyTurnCount}
+        onUserUpdate={onUserUpdate}
       />
 
       <BaseDialog

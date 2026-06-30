@@ -45,6 +45,7 @@
   StoryStreamProgressPayload,
   StoryStreamRetryPayload,
   StoryStreamStartPayload,
+  StorySummaryJobPayload,
   StoryTurnImageGenerationPayload,
   StoryVNBeat,
   StoryWorldCard,
@@ -2791,6 +2792,41 @@ export async function generateStoryTurnImage(payload: {
       Authorization: `Bearer ${payload.token}`,
     },
     body: JSON.stringify(requestPayload),
+  })
+}
+
+export async function queueStorySummaryJob(payload: {
+  token: string
+  gameId: number
+  stylePrompt?: string
+  signal?: AbortSignal
+}): Promise<StorySummaryJobPayload> {
+  const requestPayload: Record<string, unknown> = {}
+  if (typeof payload.stylePrompt === 'string') {
+    requestPayload.style_prompt = payload.stylePrompt
+  }
+  return request<StorySummaryJobPayload>(`/api/story/games/${payload.gameId}/summary`, {
+    method: 'POST',
+    signal: payload.signal,
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify(requestPayload),
+  })
+}
+
+export async function getStorySummaryJob(payload: {
+  token: string
+  gameId: number
+  jobId: number
+  signal?: AbortSignal
+}): Promise<StorySummaryJobPayload> {
+  return request<StorySummaryJobPayload>(`/api/story/games/${payload.gameId}/summary/${payload.jobId}`, {
+    method: 'GET',
+    signal: payload.signal,
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
   })
 }
 

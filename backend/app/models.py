@@ -1115,6 +1115,32 @@ class StoryCharacterEmotionGenerationJob(Base):
     )
 
 
+class StorySummaryJob(Base):
+    __tablename__ = "story_summary_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued", server_default="queued", index=True)
+    stage: Mapped[str] = mapped_column(String(48), nullable=False, default="", server_default="")
+    style_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    image_model: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    result_payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    error_detail: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    completed_images: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    total_images: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    reserved_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    charged_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class StoryCommunityCharacterRating(Base):
     __tablename__ = "story_community_character_ratings"
     __table_args__ = (
