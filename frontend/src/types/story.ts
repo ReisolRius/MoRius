@@ -38,6 +38,11 @@ export type StoryNarratorModelId =
   | 'anthropic/claude-sonnet-4.6'
   | 'google/gemini-2.5-pro'
   | 'google/gemini-3.1-pro-preview'
+  // Subscription-only narrator models (gated by an active subscription / admin test).
+  | 'deepseek/deepseek-v4-flash'
+  | 'google/gemini-2.5-flash-lite'
+  | 'z-ai/glm-4.5-air'
+  | 'google/gemini-3-flash-preview'
 export type StoryMemoryOptimizationMode = 'standard' | 'enhanced' | 'maximum'
 export type StoryAppearanceBackgroundMode = 'default' | 'custom'
 export type StoryAppearanceUiStyle = 'default' | 'cyberpunk' | 'fantasy' | 'modern'

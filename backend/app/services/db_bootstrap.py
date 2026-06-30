@@ -53,6 +53,7 @@ from app.models import (
     StoryPlotCardChangeEvent,
     StoryWorldCard,
     StoryWorldCardChangeEvent,
+    Subscription,
     User,
     UserCosmeticPurchase,
     UserEncouragement,
@@ -281,6 +282,10 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN daily_reward_claim_month VARCHAR(7) NOT NULL DEFAULT ''")
     if "daily_reward_claim_mask" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN daily_reward_claim_mask INTEGER NOT NULL DEFAULT 0")
+    if "subscription_turns_date" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN subscription_turns_date VARCHAR(10) NOT NULL DEFAULT ''")
+    if "subscription_turns_used" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN subscription_turns_used INTEGER NOT NULL DEFAULT 0")
     if "referral_code" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN referral_code VARCHAR(24)")
     if "referred_by_user_id" not in user_columns:
@@ -1206,6 +1211,24 @@ def _ensure_community_rating_timestamp_columns_exist() -> None:
             connection.execute(text(f"UPDATE {table_name} SET updated_at = created_at WHERE updated_at IS NULL"))
 
 
+def _ensure_subscription_schema() -> None:
+    inspector = inspect(engine)
+    table_name = Subscription.__tablename__
+    if not inspector.has_table(table_name):
+        return
+    existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+    alter_statements: list[str] = []
+    if "provider_payment_id" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {table_name} ADD COLUMN provider_payment_id VARCHAR(128)"
+        )
+    if not alter_statements:
+        return
+    with engine.begin() as connection:
+        for statement in alter_statements:
+            _execute_schema_statement(connection, statement)
+
+
 def _ensure_shop_schema_columns_exist() -> None:
     inspector = inspect(engine)
     table_column_specs: dict[str, tuple[tuple[str, str], ...]] = {
@@ -1897,6 +1920,7 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     _ensure_story_turn_image_history_schema()
     _ensure_dashboard_news_schema()
     _ensure_shop_schema_columns_exist()
+    _ensure_subscription_schema()
     _ensure_shop_system_cosmetics()
     _ensure_story_soft_undo_columns_exist()
     _ensure_story_graph_undo_columns_exist()

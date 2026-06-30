@@ -20,6 +20,14 @@ POLZA_GEMINI_25_FLASH_MODEL = "google/gemini-2.5-flash"
 POLZA_GEMINI_25_FLASH_LITE_MODEL = "google/gemini-2.5-flash-lite"
 POLZA_DEFAULT_STORY_MODEL = "z-ai/glm-5"
 POLZA_DEFAULT_IMAGE_MODEL = "black-forest-labs/flux.2-pro"
+# Subscription-only narrator models (accessible only with an active subscription/admin test,
+# never purchasable with sols). Provider IDs are .env-overridable so routing can be tuned
+# without code changes. Keep these in sync with the tier definitions in
+# app/services/payments.py SUBSCRIPTION_PLANS and the frontend catalog.
+SUBSCRIPTION_DEFAULT_MODEL_DEEPSEEK_V4_FLASH = "deepseek/deepseek-v4-flash"
+SUBSCRIPTION_DEFAULT_MODEL_GEMINI_25_FLASH_LITE = "google/gemini-2.5-flash-lite"
+SUBSCRIPTION_DEFAULT_MODEL_GLM_45_AIR = "z-ai/glm-4.5-air"
+SUBSCRIPTION_DEFAULT_MODEL_GEMINI_3_FLASH_PREVIEW = "google/gemini-3-flash-preview"
 DEFAULT_CORS_ORIGINS = [
     "http://localhost:5173",
     "https://mo-rius.vercel.app",
@@ -254,6 +262,11 @@ class Settings:
     yookassa_receipt_payment_mode: str
     yookassa_receipt_payment_subject: str
     subscriptions_enabled: bool
+    payments_recurring_charge_token: str
+    subscription_model_deepseek_v4_flash: str
+    subscription_model_gemini_25_flash_lite: str
+    subscription_model_glm_45_air: str
+    subscription_model_gemini_3_flash_preview: str
     story_llm_provider: str
     gigachat_authorization_key: str
     gigachat_scope: str
@@ -377,7 +390,26 @@ settings = Settings(
     yookassa_receipt_vat_code=min(_to_int(os.getenv("YOOKASSA_RECEIPT_VAT_CODE"), 1, minimum=1), 6),
     yookassa_receipt_payment_mode=os.getenv("YOOKASSA_RECEIPT_PAYMENT_MODE", "full_payment").strip(),
     yookassa_receipt_payment_subject=os.getenv("YOOKASSA_RECEIPT_PAYMENT_SUBJECT", "service").strip(),
-    subscriptions_enabled=_to_bool(os.getenv("SUBSCRIPTIONS_ENABLED"), default=False),
+    subscriptions_enabled=_to_bool(os.getenv("SUBSCRIPTIONS_ENABLED"), default=True),
+    # Shared secret a scheduler (cron/worker) sends to POST /api/payments/subscriptions/run-recurring
+    # to trigger monthly renewals. Empty → the endpoint is disabled (no anonymous renewals).
+    payments_recurring_charge_token=os.getenv("PAYMENTS_RECURRING_CHARGE_TOKEN", "").strip(),
+    subscription_model_deepseek_v4_flash=_env(
+        "SUBSCRIPTION_MODEL_DEEPSEEK_V4_FLASH",
+        SUBSCRIPTION_DEFAULT_MODEL_DEEPSEEK_V4_FLASH,
+    ).strip(),
+    subscription_model_gemini_25_flash_lite=_env(
+        "SUBSCRIPTION_MODEL_GEMINI_25_FLASH_LITE",
+        SUBSCRIPTION_DEFAULT_MODEL_GEMINI_25_FLASH_LITE,
+    ).strip(),
+    subscription_model_glm_45_air=_env(
+        "SUBSCRIPTION_MODEL_GLM_45_AIR",
+        SUBSCRIPTION_DEFAULT_MODEL_GLM_45_AIR,
+    ).strip(),
+    subscription_model_gemini_3_flash_preview=_env(
+        "SUBSCRIPTION_MODEL_GEMINI_3_FLASH_PREVIEW",
+        SUBSCRIPTION_DEFAULT_MODEL_GEMINI_3_FLASH_PREVIEW,
+    ).strip(),
     story_llm_provider=_normalize_story_llm_provider(_env("STORY_LLM_PROVIDER", "openrouter")),
     gigachat_authorization_key=os.getenv("GIGACHAT_AUTHORIZATION_KEY", "").strip(),
     gigachat_scope=os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS").strip(),

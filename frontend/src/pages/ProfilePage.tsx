@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   ButtonBase,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -4555,6 +4556,32 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       <Typography sx={{ fontSize: { xs: '1.34rem', md: '1.54rem' }, fontWeight: 800 }}>{resolvedProfileName}</Typography>
                       {isOwnProfile ? (
                         <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>{user.email}</Typography>
+                      ) : null}
+                      {isOwnProfile && user.subscription ? (
+                        <Stack direction="row" spacing={0.8} alignItems="center" useFlexGap flexWrap="wrap" sx={{ mt: 0.3 }}>
+                          <Chip
+                            label={`Подписка «${user.subscription.plan_title}»`}
+                            size="small"
+                            sx={{ height: 24, fontWeight: 900, fontSize: '0.72rem', color: '#101317', backgroundColor: 'var(--morius-accent)' }}
+                          />
+                          <Button
+                            onClick={() => onNavigate('/shop?manage=cards')}
+                            sx={{
+                              minHeight: 28,
+                              px: 1.1,
+                              borderRadius: '999px',
+                              textTransform: 'none',
+                              fontSize: '0.76rem',
+                              fontWeight: 800,
+                              color: 'var(--morius-text-primary)',
+                              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                              backgroundColor: 'var(--morius-elevated-bg)',
+                              '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #fff 12%)' },
+                            }}
+                          >
+                            Управление подпиской и картами
+                          </Button>
+                        </Stack>
                       ) : null}
                       <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.92rem', whiteSpace: 'pre-wrap' }}>
                         {resolvedProfileDescription || 'Описание пока не добавлено.'}

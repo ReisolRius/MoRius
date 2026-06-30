@@ -8,6 +8,17 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from app.services.media import build_media_display_url, normalize_media_scale, resolve_media_display_url
 
 
+class UserSubscriptionOut(BaseModel):
+    plan_id: str
+    plan_title: str
+    daily_turn_limit: int
+    daily_turns_used: int
+    daily_turns_remaining: int
+    memory_token_cap: int
+    models: list[str] = Field(default_factory=list)
+    is_mock: bool = False
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -45,6 +56,7 @@ class UserOut(BaseModel):
     referral_applied_at: datetime | None = None
     referral_bonus_claimed_at: datetime | None = None
     active_theme_id: str | None = None
+    subscription: "UserSubscriptionOut | None" = None
     is_banned: bool
     ban_expires_at: datetime | None
     created_at: datetime
@@ -604,6 +616,9 @@ class SubscriptionPlanOut(BaseModel):
     price_rub: int
     period: str
     monthly_coins: int
+    models: list[str] = Field(default_factory=list)
+    daily_turn_limit: int = 0
+    memory_token_cap: int = 0
     perks: list[str] = Field(default_factory=list)
     badge: str | None = None
 
@@ -659,6 +674,17 @@ class MockSubscriptionCreateRequest(BaseModel):
 class SubscriptionCreateResponse(BaseModel):
     subscription: SubscriptionOut
     method: SavedPaymentMethodOut
+
+
+class SubscriptionCheckoutRequest(BaseModel):
+    plan_id: str = Field(min_length=1, max_length=32)
+
+
+class SubscriptionCheckoutResponse(BaseModel):
+    payment_id: str
+    confirmation_url: str
+    status: str
+    subscription_id: int
 
 
 class CosmeticItemOut(BaseModel):

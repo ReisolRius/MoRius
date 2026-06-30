@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models import (
     StoryCharacterStateSnapshot,
     StoryCommunityWorldComment,
@@ -192,9 +193,24 @@ STORY_LLM_MODEL_CLAUDE_SONNET_46 = "anthropic/claude-sonnet-4.6"
 STORY_LLM_MODEL_GEMINI_25_PRO = "google/gemini-2.5-pro"
 STORY_LLM_MODEL_GEMINI_31_PRO = "google/gemini-3.1-pro-preview"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V3
+
+# Subscription-only narrator models (accessible ONLY with an active subscription or admin
+# test — never purchasable with sols). Provider IDs are .env-overridable via config.settings;
+# kept in sync with SUBSCRIPTION_PLANS in app/services/payments.py.
+STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH = settings.subscription_model_deepseek_v4_flash
+STORY_LLM_MODEL_SUB_GEMINI_25_FLASH_LITE = settings.subscription_model_gemini_25_flash_lite
+STORY_LLM_MODEL_SUB_GLM_45_AIR = settings.subscription_model_glm_45_air
+STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW = settings.subscription_model_gemini_3_flash_preview
+STORY_SUBSCRIPTION_LLM_MODELS = {
+    STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH,
+    STORY_LLM_MODEL_SUB_GEMINI_25_FLASH_LITE,
+    STORY_LLM_MODEL_SUB_GLM_45_AIR,
+    STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW,
+}
+
+# NOTE: do not alias "google/gemini-3-flash-preview" here — it is a real subscription model id.
 STORY_LLM_MODEL_LEGACY_ALIASES: dict[str, str] = {
     "google/gemini-3-flash": STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
-    "google/gemini-3-flash-preview": STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
 }
 STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
@@ -211,6 +227,7 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_CLAUDE_SONNET_46,
     STORY_LLM_MODEL_GEMINI_25_PRO,
     STORY_LLM_MODEL_GEMINI_31_PRO,
+    *STORY_SUBSCRIPTION_LLM_MODELS,
 }
 STORY_EXTENDED_CONTEXT_LLM_MODELS = {
     STORY_LLM_MODEL_GLM51,

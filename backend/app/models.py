@@ -54,6 +54,10 @@ class User(Base):
     daily_reward_cycle_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     daily_reward_claim_month: Mapped[str] = mapped_column(String(7), nullable=False, default="", server_default="")
     daily_reward_claim_mask: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Per-day counter for subscription-model turns (resets at Europe/Moscow midnight). The
+    # date string is the Moscow calendar day (YYYY-MM-DD) the counter currently belongs to.
+    subscription_turns_date: Mapped[str] = mapped_column(String(10), nullable=False, default="", server_default="")
+    subscription_turns_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     referral_code: Mapped[str | None] = mapped_column(String(24), unique=True, nullable=True, index=True)
     referred_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     referral_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -211,6 +215,9 @@ class Subscription(Base):
     plan_id: Mapped[str] = mapped_column(String(32), nullable=False)
     plan_title: Mapped[str] = mapped_column(String(120), nullable=False)
     price_rub: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # ЮKassa payment id of the latest charge (first payment, then each renewal). Used to match
+    # the activation webhook and to poll pending first payments. NULL for admin mock rows.
+    provider_payment_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", server_default="active")
     payment_method_id: Mapped[int | None] = mapped_column(
         ForeignKey("saved_payment_methods.id", ondelete="SET NULL"), nullable=True, index=True

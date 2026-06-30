@@ -264,6 +264,9 @@ export type SubscriptionPlan = {
   price_rub: number
   period: string
   monthly_coins: number
+  models: string[]
+  daily_turn_limit: number
+  memory_token_cap: number
   perks: string[]
   badge: string | null
 }
@@ -310,6 +313,13 @@ export type SubscriptionListResponse = {
 export type MockSubscriptionResponse = {
   subscription: SubscriptionDetail
   method: SavedPaymentMethod
+}
+
+export type SubscriptionCheckoutResponse = {
+  payment_id: string
+  confirmation_url: string
+  status: string
+  subscription_id: number
 }
 
 export type CosmeticItemKind = 'avatar_frame' | 'profile_banner'
@@ -1845,6 +1855,23 @@ export async function createMockSubscription(payload: {
         card_expiry: payload.card_expiry,
         card_holder: payload.card_holder,
       }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function createSubscriptionCheckout(payload: {
+  token: string
+  plan_id: string
+}): Promise<SubscriptionCheckoutResponse> {
+  return requestJson<SubscriptionCheckoutResponse>(
+    '/api/payments/subscriptions/checkout',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({ plan_id: payload.plan_id }),
     },
     AUTH_NETWORK_ERROR,
   )

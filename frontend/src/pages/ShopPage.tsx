@@ -30,6 +30,7 @@ import {
   createCoinTopUpPayment,
   createDemoPaymentMethod,
   createMockSubscription,
+  createSubscriptionCheckout,
   deleteSavedPaymentMethod,
   deleteShopCosmeticItem,
   createShopCosmeticItem,
@@ -101,15 +102,14 @@ const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     subtitle: 'Для регулярной игры без оглядки на счётчик',
     price_rub: 299,
     period: 'month',
-    monthly_coins: 350,
+    monthly_coins: 0,
+    models: ['deepseek/deepseek-v4-flash', 'google/gemini-2.5-flash-lite'],
+    daily_turn_limit: 40,
+    memory_token_cap: 8000,
     perks: [
       '2 модели для отыгрыша: DeepSeek V4 Flash и Gemini 2.5 Flash Lite',
-      'До 40 ходов в день на включённых моделях — без списания солов',
-      'Память сцены до 8K токенов + авто-сжатие сюжета (короткие и средние арки)',
-      '350 солов на счёт каждый месяц — на премиум-модели и длинные сцены',
-      'Скидка 5% на все пакеты солов',
-      '2 регенерации ответа на сообщение',
-      'Значок подписчика в профиле и комментариях',
+      'До 40 ходов в день на этих моделях — без списания солов',
+      'Память сцены до 8K токенов',
     ],
     badge: null,
   },
@@ -119,38 +119,36 @@ const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     subtitle: 'Расширенный доступ для активных хронистов',
     price_rub: 599,
     period: 'month',
-    monthly_coins: 750,
+    monthly_coins: 0,
+    models: ['deepseek/deepseek-v4-flash', 'google/gemini-2.5-flash-lite', 'z-ai/glm-4.5-air'],
+    daily_turn_limit: 60,
+    memory_token_cap: 20000,
     perks: [
-      '3 модели включено: + GLM 4.5 Air с живым литературным слогом',
-      'Доступ к «умной» DeepSeek V3.2 — за солы со скидкой 10%',
-      'До 60 ходов в день на включённых моделях — без списания солов',
-      'Память сцены до 20K токенов — длинные сюжетные дуги',
-      '750 солов на счёт каждый месяц',
-      'Скидка 10% на все пакеты солов',
-      'Ранний доступ к новым мирам и моделям',
-      '4 регенерации ответа на сообщение',
-      'Эксклюзивная рамка аватарки подписчика',
+      '3 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite и GLM 4.5 Air',
+      'До 60 ходов в день на этих моделях — без списания солов',
+      'Память сцены до 20K токенов',
     ],
     badge: 'Популярный',
   },
   {
     id: 'constellation',
     title: 'Созвездие',
-    subtitle: 'Максимум памяти, лучшие модели и приоритет',
+    subtitle: 'Максимум памяти и лучшие модели',
     price_rub: 1190,
     period: 'month',
-    monthly_coins: 1600,
+    monthly_coins: 0,
+    models: [
+      'deepseek/deepseek-v4-flash',
+      'google/gemini-2.5-flash-lite',
+      'z-ai/glm-4.5-air',
+      'google/gemini-3-flash-preview',
+    ],
+    daily_turn_limit: 90,
+    memory_token_cap: 32000,
     perks: [
-      'Все включённые модели + премиум Gemini 3 Flash Preview (за солы, макс. скидка)',
-      'До 90 ходов в день на включённых моделях — без списания солов',
-      'Память сцены до 32K токенов — самые длинные арки; сверхдлинная 64K+ за солы',
-      '1600 солов на счёт каждый месяц',
-      'Скидка 15% на все пакеты солов',
-      'Приоритетная очередь генераций — отвечает первым в час пик',
-      'Расширенный модуль памяти и локаций',
-      '6 регенераций ответа на сообщение',
-      'Все эксклюзивные рамки и баннеры подписки',
-      'Приоритетная поддержка',
+      '4 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite, GLM 4.5 Air и Gemini 3 Flash Preview',
+      'До 90 ходов в день на этих моделях — без списания солов',
+      'Память сцены до 32K токенов',
     ],
     badge: null,
   },
@@ -286,8 +284,10 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   const [cancelingId, setCancelingId] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const canManageShop = isPrivilegedUser(user)
-  // Subscriptions are previewable by staff before ЮKassa approval; players see "скоро".
-  const subscriptionsAvailable = subscriptionsEnabled || canManageShop
+  const isAdmin = user.role.trim().toLowerCase() === 'administrator'
+  // Subscriptions are previewable/testable ONLY by an administrator before ЮKassa launch.
+  // Players and moderators see "Скоро добавим" until SUBSCRIPTIONS_ENABLED is flipped on.
+  const subscriptionsAvailable = subscriptionsEnabled || isAdmin
 
   const loadCatalog = useCallback(() => {
     setIsLoadingCatalog(true)
@@ -339,11 +339,31 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   }, [])
 
   useEffect(() => {
-    if (canManageShop || subscriptionsEnabled) {
+    if (isAdmin || subscriptionsEnabled) {
       loadPaymentMethods()
       loadSubscriptions()
     }
-  }, [canManageShop, subscriptionsEnabled, loadPaymentMethods, loadSubscriptions])
+  }, [isAdmin, subscriptionsEnabled, loadPaymentMethods, loadSubscriptions])
+
+  // Deep link from the profile "Управление подпиской и картами" button: open card management
+  // (отмена автопродления / отвязка карты) in one click.
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('manage') !== 'cards') {
+      return
+    }
+    setUnbindConsent({})
+    setJustSubscribed(false)
+    setIsCardsOpen(true)
+    loadPaymentMethods()
+    loadSubscriptions()
+    params.delete('manage')
+    const nextSearch = params.toString()
+    window.history.replaceState({}, '', `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`)
+  }, [loadPaymentMethods, loadSubscriptions])
 
   const plans = catalog?.plans.length ? catalog.plans : DEFAULT_PLANS
   const paidFrames = useMemo(() => (catalog?.avatar_frames ?? []).map(withKnownCosmeticImageUrl), [catalog?.avatar_frames])
@@ -571,13 +591,28 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
     if (!subscribePlan || !subscribeConsent) {
       return
     }
-    // Staff run the mock checkout to capture the full flow for ЮKassa moderation.
-    // Real autopayment charges are wired once ЮKassa approves them.
-    if (canManageShop) {
+    // Administrators keep an internal mock checkout (no real charge) for quick UI/screenshot tests;
+    // everyone else goes through the real ЮKassa redirect checkout that saves the card for renewals.
+    if (isAdmin) {
       handleOpenCheckout(subscribePlan)
       return
     }
-    setSubscribeInfo(true)
+    void startRealSubscriptionCheckout(subscribePlan)
+  }
+
+  const startRealSubscriptionCheckout = async (plan: SubscriptionPlan) => {
+    if (isPaying) {
+      return
+    }
+    setIsPaying(true)
+    setError('')
+    try {
+      const response = await createSubscriptionCheckout({ token: authToken, plan_id: plan.id })
+      window.location.href = response.confirmation_url
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Не удалось перейти к оплате подписки')
+      setIsPaying(false)
+    }
   }
 
   const handleOpenCheckout = (plan: SubscriptionPlan) => {
@@ -1050,12 +1085,9 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
                   {!subscriptionsAvailable ? (
                     <Chip label="Скоро добавим" size="small" sx={{ height: 24, fontWeight: 900, fontSize: '0.72rem', color: 'var(--morius-title-text)', backgroundColor: 'var(--morius-elevated-bg)' }} />
                   ) : null}
-                  {!subscriptionsEnabled && canManageShop ? (
-                    <Chip label="Предпросмотр • админ" size="small" sx={{ height: 24, fontWeight: 900, fontSize: '0.72rem', color: '#101317', backgroundColor: '#F2B356' }} />
-                  ) : null}
                 </Stack>
                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', lineHeight: 1.45, maxWidth: 760, mt: 0.4 }}>
-                  Подписка даёт безлимитную игру на включённых моделях, бонус солов на премиум-модели, скидку на пакеты и привилегии. Автопродление раз в месяц, отмена и отвязка карты — в любой момент.
+                  Подписка открывает доступ к отдельным моделям рассказчика, даёт лимит ходов в день на этих моделях без списания солов и увеличивает память сцены. Автопродление раз в месяц, отмена и отвязка карты — в любой момент.
                 </Typography>
               </Box>
               {subscriptionsAvailable ? (
@@ -1328,7 +1360,11 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
               </Typography>
               <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', fontWeight: 700 }}>/ мес</Typography>
             </Stack>
-            <SoulAmount amount={subscribePlan?.monthly_coins ?? 0} iconSize={18} />
+            {subscribePlan ? (
+              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', fontWeight: 700, lineHeight: 1.4 }}>
+                {subscribePlan.models.length} модел{subscribePlan.models.length === 1 ? 'ь' : (subscribePlan.models.length < 5 ? 'и' : 'ей')} по подписке · до {subscribePlan.daily_turn_limit} ходов/день · память до {Math.round(subscribePlan.memory_token_cap / 1000)}K токенов
+              </Typography>
+            ) : null}
             <Box sx={{ borderRadius: '14px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-elevated-bg)', p: 1.4 }}>
               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 900, mb: 0.8 }}>
                 Условия списания

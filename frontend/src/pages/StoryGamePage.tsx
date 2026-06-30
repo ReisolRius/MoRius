@@ -1339,6 +1339,88 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
   (option): option is StoryNarratorModelOption =>
     option.id !== 'mistralai/mistral-nemo',
 )
+
+// Subscription-only narrator models, shown as a separate labelled group ("Модели по подписке")
+// in the narrator dropdown. They are selectable only when the active subscription (or admin test)
+// includes them; for everyone else they are locked. `minPlanTitle` powers the locked hint.
+type StorySubscriptionNarratorModelOption = StoryNarratorModelOption & {
+  minPlanTitle: string
+}
+const STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS: StorySubscriptionNarratorModelOption[] = [
+  {
+    id: 'deepseek/deepseek-v4-flash',
+    title: 'DeepSeek V4 Flash',
+    description:
+      'Быстрая подписочная модель: живой темп и динамичные сцены сплошным текстом. Доступна по подписке без списания солов.',
+    portraitSrc: narratorVelesPortrait,
+    portraitAlt: 'DeepSeek V4 Flash',
+    minPlanTitle: 'Искра',
+    stats: [
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 5 },
+      { label: 'Глубина', value: 3 },
+    ],
+  },
+  {
+    id: 'google/gemini-2.5-flash-lite',
+    title: 'Gemini 2.5 Flash Lite',
+    description:
+      'Лёгкая и быстрая модель Google: аккуратный сплошной текст без лишней воды. Доступна по подписке.',
+    portraitSrc: narratorOgmaPortrait,
+    portraitAlt: 'Gemini 2.5 Flash Lite',
+    minPlanTitle: 'Искра',
+    stats: [
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 5 },
+      { label: 'Глубина', value: 3 },
+    ],
+  },
+  {
+    id: 'z-ai/glm-4.5-air',
+    title: 'GLM 4.5 Air',
+    description:
+      'Живой литературный слог GLM в лёгкой версии. Доступна с тарифа «Пламя» и выше.',
+    portraitSrc: narratorFreyaPortrait,
+    portraitAlt: 'GLM 4.5 Air',
+    minPlanTitle: 'Пламя',
+    stats: [
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 4 },
+    ],
+  },
+  {
+    id: 'google/gemini-3-flash-preview',
+    title: 'Gemini 3 Flash Preview',
+    description:
+      'Премиальная Gemini 3 Flash для самых требовательных сцен. Доступна на тарифе «Созвездие».',
+    portraitSrc: narratorOgmaPortrait,
+    portraitAlt: 'Gemini 3 Flash Preview',
+    minPlanTitle: 'Созвездие',
+    stats: [
+      { label: 'Интеллект', value: 5 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 5 },
+    ],
+  },
+]
+const STORY_SUBSCRIPTION_NARRATOR_MODEL_IDS = new Set<StoryNarratorModelId>(
+  STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS.map((option) => option.id),
+)
+function isStorySubscriptionNarratorModelId(value: string | null | undefined): boolean {
+  return STORY_SUBSCRIPTION_NARRATOR_MODEL_IDS.has((value ?? '') as StoryNarratorModelId)
+}
+function formatRussianTurnsLabel(count: number): string {
+  const safeCount = Math.max(0, Math.trunc(count))
+  const mod100 = safeCount % 100
+  const mod10 = safeCount % 10
+  let word = 'ходов'
+  if (mod100 < 11 || mod100 > 14) {
+    if (mod10 === 1) word = 'ход'
+    else if (mod10 >= 2 && mod10 <= 4) word = 'хода'
+  }
+  return `${safeCount} ${word}`
+}
 const STORY_IMAGE_MODEL_OPTIONS: Array<{
   id: StoryImageModelId
   title: string
@@ -4744,6 +4826,9 @@ function normalizeStoryNarratorModelId(value: string | null | undefined): StoryN
   if (STORY_NARRATOR_MODEL_OPTIONS.some((option) => option.id === normalized)) {
     return normalized
   }
+  if (STORY_SUBSCRIPTION_NARRATOR_MODEL_IDS.has(normalized)) {
+    return normalized
+  }
   return STORY_DEFAULT_NARRATOR_MODEL_ID
 }
 
@@ -7217,7 +7302,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [appearanceBackgroundMode, appearanceGradientEnabled, appearanceUiStyle, storyAppearanceBackground])
   const selectedNarratorOption = useMemo(
-    () => STORY_NARRATOR_MODEL_OPTIONS.find((option) => option.id === storyLlmModel) ?? STORY_NARRATOR_MODEL_OPTIONS[0],
+    () =>
+      STORY_NARRATOR_MODEL_OPTIONS.find((option) => option.id === storyLlmModel) ??
+      STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS.find((option) => option.id === storyLlmModel) ??
+      STORY_NARRATOR_MODEL_OPTIONS[0],
+    [storyLlmModel],
+  )
+  const unlockedSubscriptionModelIds = useMemo(
+    () => new Set<StoryNarratorModelId>((user.subscription?.models ?? []) as StoryNarratorModelId[]),
+    [user.subscription],
+  )
+  const isSubscriptionNarratorSelected = useMemo(
+    () => isStorySubscriptionNarratorModelId(storyLlmModel),
     [storyLlmModel],
   )
   const selectedNarratorSamplingDefaults = useMemo(
@@ -18227,11 +18323,38 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 <Typography noWrap sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 900, lineHeight: 1.15 }}>
                   {profileName}
                 </Typography>
-                <Stack direction="row" spacing={0.45} alignItems="center" sx={{ minWidth: 0 }}>
-                  <SoulIcon size={14} sx={{ color: 'var(--morius-accent)', flexShrink: 0 }} />
-                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.78rem', fontWeight: 900, lineHeight: 1.15 }}>
-                    {user.coins.toLocaleString('ru-RU')}
+                {user.subscription ? (
+                  <Typography
+                    noWrap
+                    sx={{
+                      color: 'var(--morius-accent)',
+                      fontSize: '0.66rem',
+                      fontWeight: 900,
+                      lineHeight: 1.1,
+                      letterSpacing: '0.03em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {user.subscription.plan_title}
                   </Typography>
+                ) : null}
+                <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0 }}>
+                  <Stack direction="row" spacing={0.45} alignItems="center" sx={{ minWidth: 0 }}>
+                    <SoulIcon size={14} sx={{ color: 'var(--morius-accent)', flexShrink: 0 }} />
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.78rem', fontWeight: 900, lineHeight: 1.15 }}>
+                      {user.coins.toLocaleString('ru-RU')}
+                    </Typography>
+                  </Stack>
+                  {user.subscription ? (
+                    <Tooltip disableInteractive title="Накопленные ходы на моделях по подписке (неизрасходованные переносятся, обнуляются при продлении)">
+                      <Stack direction="row" spacing={0.35} alignItems="center" sx={{ minWidth: 0 }}>
+                        <Box component="span" sx={{ fontSize: '0.72rem', lineHeight: 1, flexShrink: 0 }}>🎟️</Box>
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', fontWeight: 900, lineHeight: 1.15 }}>
+                          {formatRussianTurnsLabel(user.subscription.daily_turns_remaining)}
+                        </Typography>
+                      </Stack>
+                    </Tooltip>
+                  ) : null}
                 </Stack>
               </Stack>
             </Stack>
@@ -21412,8 +21535,41 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               {option.title}
                             </MenuItem>
                           ))}
+                          <MenuItem
+                            disabled
+                            divider
+                            sx={{ opacity: 1, fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--morius-accent)' }}
+                          >
+                            Модели по подписке
+                          </MenuItem>
+                          {STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS.map((option) => {
+                            const unlocked = unlockedSubscriptionModelIds.has(option.id)
+                            return (
+                              <MenuItem key={option.id} value={option.id} disabled={!unlocked}>
+                                {option.title}
+                                {unlocked ? '' : ` · ${option.minPlanTitle}`}
+                              </MenuItem>
+                            )
+                          })}
                         </Select>
                       </FormControl>
+                      {isSubscriptionNarratorSelected ? (
+                        <Box
+                          sx={{
+                            mt: 0.8,
+                            borderRadius: '12px',
+                            border: '1px solid color-mix(in srgb, var(--morius-accent) 40%, var(--morius-card-border))',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-elevated-bg) 90%)',
+                            p: 1,
+                          }}
+                        >
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem', lineHeight: 1.4 }}>
+                            Модель по подписке: сплошной текст без оптимизации памяти, модуля «Место действия» и
+                            визуальной новеллы. Ответ ограничен 450 токенами, ход не списывает солы (тратится накопленный
+                            лимит ходов подписки). Включаемые модули работают за солы.
+                          </Typography>
+                        </Box>
+                      ) : null}
                     </Stack>
                   </Box>
 
@@ -22490,8 +22646,41 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 {option.title}
                               </MenuItem>
                             ))}
+                            <MenuItem
+                              disabled
+                              divider
+                              sx={{ opacity: 1, fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--morius-accent)' }}
+                            >
+                              Модели по подписке
+                            </MenuItem>
+                            {STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS.map((option) => {
+                              const unlocked = unlockedSubscriptionModelIds.has(option.id)
+                              return (
+                                <MenuItem key={option.id} value={option.id} disabled={!unlocked}>
+                                  {option.title}
+                                  {unlocked ? '' : ` · ${option.minPlanTitle}`}
+                                </MenuItem>
+                              )
+                            })}
                           </Select>
                         </FormControl>
+                        {isSubscriptionNarratorSelected ? (
+                          <Box
+                            sx={{
+                              mt: 0.95,
+                              borderRadius: '14px',
+                              border: '1px solid color-mix(in srgb, var(--morius-accent) 40%, var(--morius-card-border))',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-elevated-bg) 90%)',
+                              p: 1.1,
+                            }}
+                          >
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.4 }}>
+                              Модель по подписке: сплошной текст без оптимизации памяти, модуля «Место действия» и
+                              визуальной новеллы. Ответ ограничен 450 токенами, ход не списывает солы (тратится
+                              накопленный лимит ходов подписки). Включаемые модули работают за солы.
+                            </Typography>
+                          </Box>
+                        ) : null}
                         <Box
                           sx={{
                             mt: 0.95,

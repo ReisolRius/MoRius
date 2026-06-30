@@ -180,10 +180,36 @@ def serialize_user_out(user: User, *, db: Session | None = None) -> UserOut:
     except Exception:
         avatar_frame_image_url = None
         profile_banner_image_url = None
+
+    subscription_payload = None
+    try:
+        from app.schemas import UserSubscriptionOut
+        from app.services.subscriptions import (
+            get_daily_turns_remaining,
+            get_period_turns_used,
+            get_subscription_entitlement,
+        )
+
+        entitlement = get_subscription_entitlement(db, user)
+        if entitlement is not None:
+            subscription_payload = UserSubscriptionOut(
+                plan_id=entitlement["plan_id"],
+                plan_title=entitlement["plan_title"],
+                daily_turn_limit=int(entitlement["daily_turn_limit"]),
+                daily_turns_used=get_period_turns_used(user, entitlement),
+                daily_turns_remaining=get_daily_turns_remaining(user, entitlement),
+                memory_token_cap=int(entitlement["memory_token_cap"]),
+                models=list(entitlement["models"]),
+                is_mock=bool(entitlement.get("is_mock", False)),
+            )
+    except Exception:
+        subscription_payload = None
+
     return payload.model_copy(
         update={
             "avatar_frame_image_url": avatar_frame_image_url,
             "profile_banner_image_url": profile_banner_image_url,
+            "subscription": subscription_payload,
         }
     )
 

@@ -33,9 +33,21 @@ export type AuthUser = {
   referral_applied_at?: string | null
   referral_bonus_claimed_at?: string | null
   active_theme_id?: string | null
+  subscription?: UserSubscription | null
   is_banned: boolean
   ban_expires_at: string | null
   created_at: string
+}
+
+export type UserSubscription = {
+  plan_id: string
+  plan_title: string
+  daily_turn_limit: number
+  daily_turns_used: number
+  daily_turns_remaining: number
+  memory_token_cap: number
+  models: string[]
+  is_mock: boolean
 }
 
 export type AuthResponse = {

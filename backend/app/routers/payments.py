@@ -21,6 +21,8 @@ from app.schemas import (
     MockSubscriptionCreateRequest,
     SavedPaymentMethodListResponse,
     SavedPaymentMethodOut,
+    SubscriptionCheckoutRequest,
+    SubscriptionCheckoutResponse,
     SubscriptionCreateResponse,
     SubscriptionListResponse,
     SubscriptionOut,
@@ -39,7 +41,9 @@ from app.services.payments import (
     PAYMENT_PROVIDER,
     SUBSCRIPTION_PERIOD_DAYS,
     SUBSCRIPTION_PLANS,
+    charge_due_subscriptions,
     create_payment_in_provider,
+    create_subscription_payment_in_provider,
     detect_card_brand,
     fetch_payment_from_provider,
     get_coin_plan,
@@ -51,6 +55,8 @@ from app.services.payments import (
     is_yookassa_webhook_token_valid,
     parse_card_expiry,
     sync_purchase_status,
+    sync_subscription_status,
+    sync_user_pending_subscriptions,
 )
 from app.services.referrals import get_referred_reward_amount_for_purchase
 
@@ -111,6 +117,9 @@ def get_subscription_plans() -> SubscriptionPlanListResponse:
                 price_rub=int(plan["price_rub"]),
                 period=str(plan["period"]),
                 monthly_coins=int(plan["monthly_coins"]),
+                models=[str(model) for model in plan.get("models", [])],
+                daily_turn_limit=int(plan.get("daily_turn_limit", 0)),
+                memory_token_cap=int(plan.get("memory_token_cap", 0)),
                 perks=[str(perk) for perk in plan["perks"]],
                 badge=(str(plan["badge"]) if plan.get("badge") else None),
             )
@@ -197,8 +206,9 @@ def delete_saved_payment_method(
     if method is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment method not found")
 
-    # Unbinding the card stops auto-renewal: cancel any active subscriptions tied to it.
-    now = datetime.now(timezone.utc)
+    # Unbinding the card stops the NEXT auto-renewal without dropping the subscription: detach the
+    # card so any active subscription keeps working until its paid period ends, then simply lapses
+    # (no card → renewal can't happen). The user keeps what they already paid for.
     related_subscriptions = db.scalars(
         select(Subscription).where(
             Subscription.payment_method_id == method.id,
@@ -206,9 +216,6 @@ def delete_saved_payment_method(
         )
     ).all()
     for subscription in related_subscriptions:
-        subscription.status = "canceled"
-        subscription.canceled_at = now
-        subscription.next_charge_at = None
         subscription.payment_method_id = None
 
     was_default = bool(method.is_default)
@@ -234,6 +241,8 @@ def list_subscriptions(
     db: Session = Depends(get_db),
 ) -> SubscriptionListResponse:
     user = get_current_user(db, authorization)
+    # Backstop for the webhook: reconcile any pending first-payments when the shop loads.
+    sync_user_pending_subscriptions(db, user)
     subscriptions = db.scalars(
         select(Subscription)
         .where(Subscription.user_id == user.id)
@@ -244,21 +253,135 @@ def list_subscriptions(
     )
 
 
+@router.post("/api/payments/subscriptions/checkout", response_model=SubscriptionCheckoutResponse)
+def create_subscription_checkout(
+    payload: SubscriptionCheckoutRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> SubscriptionCheckoutResponse:
+    """Real ЮKassa subscription checkout: create a first payment that saves the card, open a
+    pending subscription and return the redirect URL. The subscription is activated on the
+    payment.succeeded webhook (or the pending-sync backstop)."""
+    user = get_current_user(db, authorization)
+    if not is_subscriptions_enabled():
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Подписки временно недоступны")
+    plan = get_subscription_plan(payload.plan_id)
+
+    provider_payment_payload = create_subscription_payment_in_provider(plan, user)
+    provider_payment_id = str(provider_payment_payload.get("id", "")).strip()
+    if not provider_payment_id:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider did not return payment id")
+    provider_status = str(provider_payment_payload.get("status", "pending")).strip().lower() or "pending"
+    confirmation_payload = provider_payment_payload.get("confirmation")
+    confirmation_url = ""
+    if isinstance(confirmation_payload, dict):
+        confirmation_url = str(confirmation_payload.get("confirmation_url", "")).strip()
+    if not confirmation_url:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider did not return confirmation url")
+
+    subscription = db.scalar(
+        select(Subscription).where(Subscription.provider_payment_id == provider_payment_id)
+    )
+    if subscription is None:
+        subscription = Subscription(
+            user_id=user.id,
+            plan_id=str(plan["id"]),
+            plan_title=str(plan["title"]),
+            price_rub=int(plan["price_rub"]),
+            provider_payment_id=provider_payment_id,
+            status="pending",
+            is_mock=False,
+        )
+        db.add(subscription)
+    db.flush()
+
+    # If the gateway already settled synchronously, activate immediately.
+    if provider_status in {"succeeded", "canceled"}:
+        sync_subscription_status(
+            db=db,
+            subscription=subscription,
+            user=user,
+            provider_payment_payload=provider_payment_payload,
+        )
+    else:
+        db.commit()
+    db.refresh(subscription)
+
+    return SubscriptionCheckoutResponse(
+        payment_id=provider_payment_id,
+        confirmation_url=confirmation_url,
+        status=subscription.status,
+        subscription_id=int(subscription.id),
+    )
+
+
+@router.post("/api/payments/subscriptions/{payment_id}/sync", response_model=SubscriptionCreateResponse)
+def sync_subscription_payment(
+    payment_id: str,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> SubscriptionCreateResponse:
+    """Reconcile a subscription payment after the ЮKassa redirect back to the app."""
+    user = get_current_user(db, authorization)
+    subscription = db.scalar(
+        select(Subscription).where(
+            Subscription.provider_payment_id == payment_id,
+            Subscription.user_id == user.id,
+        )
+    )
+    if subscription is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subscription not found")
+    if subscription.status == "pending":
+        provider_payment_payload = fetch_payment_from_provider(payment_id)
+        sync_subscription_status(
+            db=db,
+            subscription=subscription,
+            user=user,
+            provider_payment_payload=provider_payment_payload,
+        )
+    method_out = SavedPaymentMethodOut(
+        id=0, title="", card_type="", card_last4="", expiry_month="", expiry_year="",
+        is_default=False, is_demo=False, created_at=None,
+    )
+    if subscription.payment_method_id is not None:
+        method = db.get(SavedPaymentMethod, subscription.payment_method_id)
+        if method is not None:
+            method_out = SavedPaymentMethodOut.model_validate(method)
+    return SubscriptionCreateResponse(
+        subscription=_serialize_subscription(db, subscription),
+        method=method_out,
+    )
+
+
+@router.post("/api/payments/subscriptions/run-recurring", response_model=MessageResponse)
+def run_recurring_subscription_charges(
+    token: str | None = Query(default=None, alias="token"),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    """Scheduler entrypoint (cron/worker) for monthly renewals. Protected by a shared secret."""
+    configured = settings.payments_recurring_charge_token
+    if not configured or not token or token.strip() != configured:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    result = charge_due_subscriptions(db)
+    return MessageResponse(message=f"charged={result['charged']} failed={result['failed']} due={result['due']}")
+
+
 @router.post("/api/payments/subscriptions/mock", response_model=SubscriptionCreateResponse)
 def create_mock_subscription(
     payload: MockSubscriptionCreateRequest,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> SubscriptionCreateResponse:
-    """Staff-only mock checkout: save a card and open an active subscription.
+    """Administrator-only test checkout: save a card and open an active subscription.
 
-    Used to capture the full subscription flow (card entry → payment → linked card →
-    unbinding) for ЮKassa moderation before real autopayments are switched on. No
-    real money moves and the full card number is never stored — only the last 4 digits.
+    This grants a real entitlement (unlocked subscription models, daily turns, memory cap) so an
+    administrator can fully test how subscriptions behave before players get the live button — and
+    it also captures the full flow (card entry → payment → linked card → unbinding) for ЮKassa
+    moderation. No real money moves and the full card number is never stored — only the last 4 digits.
     """
     user = get_current_user(db, authorization)
-    if not user_has_admin_panel_access(user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or moderator access required")
+    if str(getattr(user, "role", "") or "").strip().lower() != "administrator":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator access required")
 
     plan = get_subscription_plan(payload.plan_id)
 
@@ -487,22 +610,39 @@ def yookassa_webhook(
     if not payment_id:
         return MessageResponse(message="ignored")
 
-    purchase = db.scalar(select(CoinPurchase).where(CoinPurchase.provider_payment_id == payment_id))
-    if purchase is None:
-        return MessageResponse(message="ignored")
-
     if event and not event.startswith("payment."):
         return MessageResponse(message="ignored")
 
-    user = db.get(User, purchase.user_id)
+    purchase = db.scalar(select(CoinPurchase).where(CoinPurchase.provider_payment_id == payment_id))
+    if purchase is not None:
+        user = db.get(User, purchase.user_id)
+        if user is None:
+            return MessageResponse(message="ignored")
+        try:
+            provider_payment_payload = fetch_payment_from_provider(payment_id)
+            sync_purchase_status(
+                db=db,
+                purchase=purchase,
+                user=user,
+                provider_payment_payload=provider_payment_payload,
+            )
+        except HTTPException:
+            db.rollback()
+            return MessageResponse(message="ignored")
+        return MessageResponse(message="ok")
+
+    # Not a coin top-up — try a subscription first payment / renewal.
+    subscription = db.scalar(select(Subscription).where(Subscription.provider_payment_id == payment_id))
+    if subscription is None:
+        return MessageResponse(message="ignored")
+    user = db.get(User, subscription.user_id)
     if user is None:
         return MessageResponse(message="ignored")
-
     try:
         provider_payment_payload = fetch_payment_from_provider(payment_id)
-        sync_purchase_status(
+        sync_subscription_status(
             db=db,
-            purchase=purchase,
+            subscription=subscription,
             user=user,
             provider_payment_payload=provider_payment_payload,
         )

@@ -35,6 +35,7 @@ from app.models import (
 from app.schemas import StoryGenerateRequest, StoryInstructionCardInput, UserOut
 from app.services.story_games import (
     STORY_RESPONSE_MAX_TOKENS_MAX,
+    STORY_SUBSCRIPTION_LLM_MODELS,
     coerce_story_llm_model,
     normalize_story_environment_enabled,
     normalize_story_environment_time_enabled,
@@ -204,6 +205,17 @@ def _sse_event(event: str, payload: dict[str, Any]) -> str:
 
 def _sse_keepalive() -> str:
     return ": keepalive\n\n"
+
+
+def _serialize_story_user_payload(db: Session, user: Any) -> dict[str, Any]:
+    """Serialize the user for SSE turn payloads, including the live subscription block
+    (plan + remaining daily turns) so the client left menu updates after every turn."""
+    try:
+        from app.services.auth_identity import serialize_user_out
+
+        return serialize_user_out(user, db=db).model_dump(mode="json")
+    except Exception:
+        return UserOut.model_validate(user).model_dump(mode="json")
 
 
 # A one-time ~2 KB SSE comment sent the instant the stream opens. Some proxies/CDNs buffer a
@@ -1414,6 +1426,9 @@ def _stream_story_response(
     story_generation_id: str,
     precharged_graph_cost_tokens: int = 0,
     discarded_assistant_message_ids: list[int] | None = None,
+    is_subscription_turn: bool = False,
+    subscription_daily_turn_limit: int = 0,
+    subscription_period_start: str = "",
 ):
     assistant_message: StoryMessage | None = None
     discarded_assistant_ids = [
@@ -1844,6 +1859,41 @@ def _stream_story_response(
 
     if _stop_requested("before_billing"):
         return
+
+    if is_subscription_turn:
+        # Consume one daily turn (the authoritative atomic guard) instead of charging sols for
+        # the base model cost. Module surcharges, if any, are still charged below.
+        try:
+            from app.services.subscriptions import try_consume_subscription_turn
+
+            if not try_consume_subscription_turn(
+                db,
+                user_id=int(user.id),
+                daily_turn_limit=int(subscription_daily_turn_limit),
+                period_start=str(subscription_period_start),
+            ):
+                db.rollback()
+                if assistant_message is not None:
+                    db.delete(assistant_message)
+                deps.touch_story_game(game)
+                commit_with_retry(db)
+                _restore_discarded_assistant_steps("subscription_daily_limit")
+                yield _sse_event(
+                    "error",
+                    {"detail": "Дневной лимит ходов по подписке исчерпан"},
+                )
+                return
+            commit_with_retry(db)
+            db.refresh(user)
+        except Exception as exc:
+            logger.exception(
+                "Failed to consume subscription turn: game_id=%s user_id=%s",
+                game.id,
+                user.id,
+            )
+            db.rollback()
+            yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
+            return
 
     if turn_cost_tokens > 0:
         try:
@@ -2307,7 +2357,7 @@ def _stream_story_response(
                 "created_at": assistant_message.created_at.isoformat(),
                 "updated_at": assistant_message.updated_at.isoformat(),
             },
-            "user": UserOut.model_validate(user).model_dump(mode="json"),
+            "user": _serialize_story_user_payload(db, user),
             "turn_cost_tokens": turn_cost_tokens,
             "world_card_events": [],
             "plot_card_events": [],
@@ -2366,7 +2416,7 @@ def _stream_story_response(
             "created_at": assistant_message.created_at.isoformat(),
             "updated_at": assistant_message.updated_at.isoformat(),
         },
-        "user": UserOut.model_validate(user).model_dump(mode="json"),
+        "user": _serialize_story_user_payload(db, user),
         "turn_cost_tokens": turn_cost_tokens,
         "plot_cards": _safe_dump_stream_items(
             [deps.plot_card_to_out(card) for card in deps.list_story_plot_cards(db, game.id)]
@@ -2418,6 +2468,34 @@ def _generate_story_response_locked(
     story_model_name = coerce_story_llm_model(getattr(game, "story_llm_model", None))
     if payload.story_llm_model is not None:
         story_model_name = coerce_story_llm_model(payload.story_llm_model)
+    # Subscription-only narrator models: gate by an active subscription (or admin test) that
+    # includes the model, and by the tier's daily-turn limit. Subscription turns render as plain
+    # text (no memory optimization / environment / visual novel), cap responses at 450 tokens,
+    # never charge sols for the base model cost, and consume one daily turn instead.
+    is_subscription_turn = story_model_name in STORY_SUBSCRIPTION_LLM_MODELS
+    subscription_entitlement: dict[str, Any] | None = None
+    subscription_memory_cap = 0
+    if is_subscription_turn:
+        from app.services.subscriptions import (
+            get_daily_turns_remaining,
+            get_subscription_entitlement,
+        )
+
+        subscription_entitlement = get_subscription_entitlement(db, user)
+        allowed_subscription_models = (
+            set(subscription_entitlement["models"]) if subscription_entitlement else set()
+        )
+        if story_model_name not in allowed_subscription_models:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Эта модель доступна только по активной подписке",
+            )
+        if get_daily_turns_remaining(user, subscription_entitlement) <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Дневной лимит ходов по подписке исчерпан. Лимит обновится в полночь по Москве.",
+            )
+        subscription_memory_cap = int(subscription_entitlement["memory_token_cap"])
     raw_memory_optimization_enabled = getattr(game, "memory_optimization_enabled", None)
     # Memory optimization is mandatory for story runtime.
     memory_optimization_enabled = True
@@ -2441,6 +2519,12 @@ def _generate_story_response_locked(
         game.environment_weather_enabled = environment_weather_enabled
     if bool(getattr(game, "environment_enabled", None)) != environment_enabled:
         game.environment_enabled = environment_enabled
+    if is_subscription_turn:
+        # Subscription turns never use the environment ("Место действия") module — skip it for this
+        # turn without overwriting the user's stored game setting.
+        environment_enabled = False
+        environment_time_enabled = False
+        environment_weather_enabled = False
     if environment_enabled:
         try:
             from app.services import story_memory_pipeline as _story_memory_pipeline
@@ -2548,6 +2632,20 @@ def _generate_story_response_locked(
         game.context_limit_chars,
         model_name=story_model_name,
     )
+    if is_subscription_turn:
+        # Plain continuous text: disable memory optimization, the visual novel and the emotion
+        # stage (environment was already disabled above). Clamp the response to 450 tokens and the
+        # scene memory to the tier cap. Toggleable modules are left as-is (they still cost sols).
+        memory_optimization_enabled = False
+        visual_novel_enabled = False
+        ambient_enabled = False
+        emotion_visualization_enabled = False
+        from app.services.subscriptions import SUBSCRIPTION_RESPONSE_MAX_TOKENS
+
+        story_response_max_tokens = SUBSCRIPTION_RESPONSE_MAX_TOKENS
+        story_response_max_tokens_enabled = True
+        if subscription_memory_cap > 0:
+            context_limit_chars = min(context_limit_chars, subscription_memory_cap)
     turn_cost_tokens = 0
     messages = deps.list_story_messages(db, game.id)
     discard_last_assistant_steps = max(int(payload.discard_last_assistant_steps or 0), 0)
@@ -3078,6 +3176,10 @@ def _generate_story_response_locked(
         memory_optimization_enabled=memory_optimization_enabled,
         accelerated_service_enabled=bool(getattr(game, "accelerated_service_enabled", False)),
     )
+    if is_subscription_turn:
+        # The base model cost is covered by the subscription — a daily turn is consumed at billing
+        # instead. Toggleable modules below still add their sol surcharge.
+        turn_cost_tokens = 0
     graph_enabled_for_billing = bool(getattr(game, "auto_graph_nodes_enabled", False)) or bool(
         getattr(game, "auto_graph_edges_enabled", False)
     )
@@ -3130,6 +3232,13 @@ def _generate_story_response_locked(
         story_generation_id=story_generation_id,
         precharged_graph_cost_tokens=precharged_graph_cost_tokens,
         discarded_assistant_message_ids=discarded_assistant_message_ids,
+        is_subscription_turn=is_subscription_turn,
+        subscription_daily_turn_limit=(
+            int(subscription_entitlement["daily_turn_limit"]) if subscription_entitlement else 0
+        ),
+        subscription_period_start=(
+            str(subscription_entitlement["period_start"]) if subscription_entitlement else ""
+        ),
     )
 
     def _safe_stream():

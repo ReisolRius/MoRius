@@ -4,7 +4,7 @@ import base64
 import ipaddress
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -14,7 +14,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import CoinPurchase, User
+from app.models import CoinPurchase, SavedPaymentMethod, Subscription, User
 from app.services.concurrency import grant_purchase_coins_once
 from app.services.referrals import (
     ReferralRewardGrantResult,
@@ -55,9 +55,31 @@ COIN_TOP_UP_PLANS: tuple[dict[str, Any], ...] = (
 )
 COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
 
+# Subscription-only narrator models, resolved from .env-overridable settings (see config.py).
+# These models are accessible ONLY with an active subscription (or admin test) — never for sols.
+SUBSCRIPTION_MODEL_DEEPSEEK_V4_FLASH = settings.subscription_model_deepseek_v4_flash
+SUBSCRIPTION_MODEL_GEMINI_25_FLASH_LITE = settings.subscription_model_gemini_25_flash_lite
+SUBSCRIPTION_MODEL_GLM_45_AIR = settings.subscription_model_glm_45_air
+SUBSCRIPTION_MODEL_GEMINI_3_FLASH_PREVIEW = settings.subscription_model_gemini_3_flash_preview
+
+# Tier model bundles (each higher tier is a superset of the one below).
+_SPARK_MODELS = (
+    SUBSCRIPTION_MODEL_DEEPSEEK_V4_FLASH,
+    SUBSCRIPTION_MODEL_GEMINI_25_FLASH_LITE,
+)
+_FLAME_MODELS = (*_SPARK_MODELS, SUBSCRIPTION_MODEL_GLM_45_AIR)
+_CONSTELLATION_MODELS = (*_FLAME_MODELS, SUBSCRIPTION_MODEL_GEMINI_3_FLASH_PREVIEW)
+
+# Every model that is gated behind a subscription, across all tiers.
+ALL_SUBSCRIPTION_MODELS: tuple[str, ...] = _CONSTELLATION_MODELS
+
 # Recurring subscription plans (auto-renewing memberships charged monthly via ЮKassa
-# autopayments). Kept in one place so the shop UI, the plans endpoint and the future
-# recurring-charge job all read the same source of truth. Prices are in RUB.
+# autopayments). Kept in one place so the shop UI, the plans endpoint, the entitlement
+# resolver and the future recurring-charge job all read the same source of truth.
+# The ONLY differences between tiers are: available models, daily turns, scene memory.
+# Prices are in RUB. `daily_turn_limit` = turns/day on subscription models (no sol charge);
+# `memory_token_cap` = max scene-memory tokens. Subscription turns never grant or spend sols
+# for the base model cost (toggleable modules still cost sols).
 SUBSCRIPTION_PLANS: tuple[dict[str, Any], ...] = (
     {
         "id": "spark",
@@ -65,15 +87,14 @@ SUBSCRIPTION_PLANS: tuple[dict[str, Any], ...] = (
         "subtitle": "Для регулярной игры без оглядки на счётчик",
         "price_rub": 299,
         "period": "month",
-        "monthly_coins": 350,
+        "monthly_coins": 0,
+        "models": list(_SPARK_MODELS),
+        "daily_turn_limit": 40,
+        "memory_token_cap": 8000,
         "perks": [
             "2 модели для отыгрыша: DeepSeek V4 Flash и Gemini 2.5 Flash Lite",
-            "До 40 ходов в день на включённых моделях — без списания солов",
-            "Память сцены до 8K токенов + авто-сжатие сюжета (короткие и средние арки)",
-            "350 солов на счёт каждый месяц — на премиум-модели и длинные сцены",
-            "Скидка 5% на все пакеты солов",
-            "2 регенерации ответа на сообщение",
-            "Значок подписчика в профиле и комментариях",
+            "До 40 ходов в день на этих моделях — без списания солов",
+            "Память сцены до 8K токенов",
         ],
         "badge": None,
     },
@@ -83,38 +104,31 @@ SUBSCRIPTION_PLANS: tuple[dict[str, Any], ...] = (
         "subtitle": "Расширенный доступ для активных хронистов",
         "price_rub": 599,
         "period": "month",
-        "monthly_coins": 750,
+        "monthly_coins": 0,
+        "models": list(_FLAME_MODELS),
+        "daily_turn_limit": 60,
+        "memory_token_cap": 20000,
         "perks": [
-            "3 модели включено: + GLM 4.5 Air с живым литературным слогом",
-            "Доступ к «умной» DeepSeek V3.2 — за солы со скидкой 10%",
-            "До 60 ходов в день на включённых моделях — без списания солов",
-            "Память сцены до 20K токенов — длинные сюжетные дуги",
-            "750 солов на счёт каждый месяц",
-            "Скидка 10% на все пакеты солов",
-            "Ранний доступ к новым мирам и моделям",
-            "4 регенерации ответа на сообщение",
-            "Эксклюзивная рамка аватарки подписчика",
+            "3 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite и GLM 4.5 Air",
+            "До 60 ходов в день на этих моделях — без списания солов",
+            "Память сцены до 20K токенов",
         ],
         "badge": "Популярный",
     },
     {
         "id": "constellation",
         "title": "Созвездие",
-        "subtitle": "Максимум памяти, лучшие модели и приоритет",
+        "subtitle": "Максимум памяти и лучшие модели",
         "price_rub": 1190,
         "period": "month",
-        "monthly_coins": 1600,
+        "monthly_coins": 0,
+        "models": list(_CONSTELLATION_MODELS),
+        "daily_turn_limit": 90,
+        "memory_token_cap": 32000,
         "perks": [
-            "Все включённые модели + премиум Gemini 3 Flash Preview (за солы, макс. скидка)",
-            "До 90 ходов в день на включённых моделях — без списания солов",
-            "Память сцены до 32K токенов — самые длинные арки; сверхдлинная 64K+ за солы",
-            "1600 солов на счёт каждый месяц",
-            "Скидка 15% на все пакеты солов",
-            "Приоритетная очередь генераций — отвечает первым в час пик",
-            "Расширенный модуль памяти и локаций",
-            "6 регенераций ответа на сообщение",
-            "Все эксклюзивные рамки и баннеры подписки",
-            "Приоритетная поддержка",
+            "4 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite, GLM 4.5 Air и Gemini 3 Flash Preview",
+            "До 90 ходов в день на этих моделях — без списания солов",
+            "Память сцены до 32K токенов",
         ],
         "badge": None,
     },
@@ -273,7 +287,13 @@ def _normalize_receipt_item_description(raw_value: str) -> str:
     return compact
 
 
-def _build_receipt_payload(plan: dict[str, Any], user: User, amount_value: str) -> dict[str, Any] | None:
+def _build_receipt_payload(
+    plan: dict[str, Any],
+    user: User,
+    amount_value: str,
+    *,
+    description_override: str | None = None,
+) -> dict[str, Any] | None:
     if not settings.yookassa_receipt_enabled:
         return None
 
@@ -290,7 +310,8 @@ def _build_receipt_payload(plan: dict[str, Any], user: User, amount_value: str) 
     vat_code = settings.yookassa_receipt_vat_code
 
     item_description = _normalize_receipt_item_description(
-        f"MoRius оплата покупки солов: {plan['title']} ({plan['price_rub']} руб)"
+        description_override
+        or f"MoRius оплата покупки солов: {plan['title']} ({plan['price_rub']} руб)"
     )
     item_payload: dict[str, Any] = {
         "description": item_description,
@@ -404,6 +425,246 @@ def create_payment_in_provider(plan: dict[str, Any], user: User) -> dict[str, An
 
 def fetch_payment_from_provider(payment_id: str) -> dict[str, Any]:
     return _perform_yookassa_request("GET", f"/payments/{payment_id}")
+
+
+def _subscription_description(plan: dict[str, Any]) -> str:
+    return f"MoRius подписка: {plan['title']} ({plan['price_rub']} руб/мес)"
+
+
+def create_subscription_payment_in_provider(plan: dict[str, Any], user: User) -> dict[str, Any]:
+    """First subscription payment: redirect checkout that also SAVES the card for auto-renewal.
+
+    On success ЮKassa returns ``payment_method.id`` (because ``save_payment_method=true``); we store
+    it so subsequent months are charged merchant-initiated, without the user re-entering the card.
+    """
+    idempotence_key = secrets.token_hex(16)
+    amount_value = f"{plan['price_rub']:.2f}"
+    description = _subscription_description(plan)
+    payment_payload: dict[str, Any] = {
+        "amount": {"value": amount_value, "currency": "RUB"},
+        "capture": True,
+        "save_payment_method": True,
+        "confirmation": {
+            "type": "redirect",
+            "return_url": settings.payments_return_url,
+        },
+        "description": description,
+        "metadata": {
+            "app": "morius",
+            "kind": "subscription",
+            "user_id": str(user.id),
+            "plan_id": str(plan["id"]),
+        },
+    }
+    receipt_payload = _build_receipt_payload(plan, user, amount_value, description_override=description)
+    if receipt_payload is not None:
+        payment_payload["receipt"] = receipt_payload
+    return _perform_yookassa_request(
+        "POST",
+        "/payments",
+        json_payload=payment_payload,
+        idempotence_key=idempotence_key,
+    )
+
+
+def create_subscription_recurring_payment_in_provider(
+    plan: dict[str, Any],
+    user: User,
+    saved_payment_method_id: str,
+) -> dict[str, Any]:
+    """Merchant-initiated monthly renewal charge against a previously saved card (no confirmation)."""
+    idempotence_key = secrets.token_hex(16)
+    amount_value = f"{plan['price_rub']:.2f}"
+    description = _subscription_description(plan)
+    payment_payload: dict[str, Any] = {
+        "amount": {"value": amount_value, "currency": "RUB"},
+        "capture": True,
+        "payment_method_id": saved_payment_method_id,
+        "description": description,
+        "metadata": {
+            "app": "morius",
+            "kind": "subscription_recurring",
+            "user_id": str(user.id),
+            "plan_id": str(plan["id"]),
+        },
+    }
+    receipt_payload = _build_receipt_payload(plan, user, amount_value, description_override=description)
+    if receipt_payload is not None:
+        payment_payload["receipt"] = receipt_payload
+    return _perform_yookassa_request(
+        "POST",
+        "/payments",
+        json_payload=payment_payload,
+        idempotence_key=idempotence_key,
+    )
+
+
+def _extract_saved_card_details(payment_payload: dict[str, Any]) -> dict[str, str] | None:
+    """Pull the saved payment_method id + masked card info out of a succeeded ЮKassa payment."""
+    method = payment_payload.get("payment_method")
+    if not isinstance(method, dict):
+        return None
+    method_id = str(method.get("id", "")).strip()
+    if not method_id:
+        return None
+    card = method.get("card") if isinstance(method.get("card"), dict) else {}
+    last4 = str(card.get("last4", "")).strip()[-4:]
+    first6 = str(card.get("first6", "")).strip()[:6]
+    expiry_month = str(card.get("expiry_month", "")).strip().zfill(2)[:2] if card.get("expiry_month") else ""
+    expiry_year = str(card.get("expiry_year", "")).strip()[:4]
+    brand_source = first6 or last4
+    brand = detect_card_brand(brand_source) if brand_source else "Карта"
+    title = str(method.get("title", "")).strip() or (f"{brand} •••• {last4}" if last4 else brand)
+    return {
+        "method_id": method_id,
+        "last4": last4,
+        "first6": first6,
+        "expiry_month": expiry_month,
+        "expiry_year": expiry_year,
+        "brand": brand,
+        "title": title,
+    }
+
+
+def _upsert_saved_method_from_payment(db: Session, user: User, payment_payload: dict[str, Any]) -> SavedPaymentMethod | None:
+    details = _extract_saved_card_details(payment_payload)
+    if details is None:
+        return None
+    method = db.scalar(
+        select(SavedPaymentMethod).where(
+            SavedPaymentMethod.user_id == user.id,
+            SavedPaymentMethod.provider_payment_method_id == details["method_id"],
+        )
+    )
+    if method is not None:
+        return method
+    has_any = db.scalar(
+        select(SavedPaymentMethod.id).where(SavedPaymentMethod.user_id == user.id).limit(1)
+    )
+    method = SavedPaymentMethod(
+        user_id=user.id,
+        provider=PAYMENT_PROVIDER,
+        provider_payment_method_id=details["method_id"],
+        title=details["title"],
+        card_type=details["brand"],
+        card_last4=details["last4"],
+        card_first6=details["first6"],
+        expiry_month=details["expiry_month"],
+        expiry_year=details["expiry_year"],
+        is_default=has_any is None,
+        is_demo=False,
+    )
+    db.add(method)
+    db.flush()
+    return method
+
+
+def sync_subscription_status(
+    *,
+    db: Session,
+    subscription: Subscription,
+    user: User,
+    provider_payment_payload: dict[str, Any],
+) -> Subscription:
+    """Reconcile a (pending/first) subscription payment: activate + save card on success."""
+    status_value = str(provider_payment_payload.get("status", "")).strip().lower()
+    if status_value == "succeeded":
+        method = _upsert_saved_method_from_payment(db, user, provider_payment_payload)
+        now = _utcnow()
+        subscription.status = "active"
+        if method is not None:
+            subscription.payment_method_id = method.id
+        if subscription.started_at is None:
+            subscription.started_at = now
+        subscription.next_charge_at = now + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+        subscription.canceled_at = None
+    elif status_value == "canceled":
+        subscription.status = "canceled"
+        subscription.canceled_at = _utcnow()
+        subscription.next_charge_at = None
+    db.commit()
+    db.refresh(subscription)
+    return subscription
+
+
+def sync_user_pending_subscriptions(db: Session, user: User) -> None:
+    """Poll ЮKassa for the user's not-yet-activated subscription payments (webhook backstop)."""
+    if not is_payments_configured():
+        return
+    pending = db.scalars(
+        select(Subscription).where(
+            Subscription.user_id == user.id,
+            Subscription.status == "pending",
+            Subscription.provider_payment_id.is_not(None),
+        )
+    ).all()
+    for subscription in pending:
+        try:
+            payload = fetch_payment_from_provider(str(subscription.provider_payment_id))
+            sync_subscription_status(
+                db=db,
+                subscription=subscription,
+                user=user,
+                provider_payment_payload=payload,
+            )
+        except HTTPException:
+            db.rollback()
+
+
+def charge_due_subscriptions(db: Session, *, now: datetime | None = None) -> dict[str, int]:
+    """Merchant-initiated monthly renewals for subscriptions whose charge is due.
+
+    Designed to be called by a scheduler (cron/worker) hitting the run-recurring endpoint.
+    Success advances next_charge_at by one period; a failed charge marks the subscription
+    ``past_due`` (which, combined with the entitlement grace window, ends access).
+    """
+    current = now or _utcnow()
+    charged = 0
+    failed = 0
+    due = db.scalars(
+        select(Subscription).where(
+            Subscription.status == "active",
+            Subscription.is_mock.is_(False),
+            Subscription.next_charge_at.is_not(None),
+            Subscription.next_charge_at <= current,
+        )
+    ).all()
+    for subscription in due:
+        plan = SUBSCRIPTION_PLANS_BY_ID.get(str(subscription.plan_id))
+        method = db.get(SavedPaymentMethod, subscription.payment_method_id) if subscription.payment_method_id else None
+        user = db.get(User, subscription.user_id)
+        # Card was unbound (or never saved): the subscription simply lapses at period end — keep
+        # what was paid for, but do not renew.
+        if method is None or not method.provider_payment_method_id:
+            subscription.status = "expired"
+            db.commit()
+            failed += 1
+            continue
+        if plan is None or user is None:
+            subscription.status = "past_due"
+            db.commit()
+            failed += 1
+            continue
+        try:
+            payload = create_subscription_recurring_payment_in_provider(
+                plan, user, method.provider_payment_method_id
+            )
+            payment_status = str(payload.get("status", "")).strip().lower()
+            payment_id = str(payload.get("id", "")).strip()
+            if payment_status == "succeeded":
+                subscription.provider_payment_id = payment_id or subscription.provider_payment_id
+                subscription.next_charge_at = current + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+                charged += 1
+            else:
+                subscription.status = "past_due"
+                failed += 1
+            db.commit()
+        except HTTPException:
+            db.rollback()
+            subscription.status = "past_due"
+            db.commit()
+            failed += 1
+    return {"charged": charged, "failed": failed, "due": len(due)}
 
 
 def grant_purchase_coins_once_for_purchase(db: Session, purchase: CoinPurchase, user: User) -> bool:
