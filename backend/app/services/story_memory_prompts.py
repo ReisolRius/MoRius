@@ -209,8 +209,10 @@ def build_game_state_analysis_messages(
         module_rules.append(
             (
                 "LOCATION: determine the current scene location after this turn. "
-                "Set changed=true and should_update=true only when the character actually moved to another place "
-                "relative to PREVIOUS_LOCATION. If your current.display is non-empty and differs from "
+                "Set changed=true and should_update=true when the completed turn establishes that the active scene "
+                "is now in a different place relative to PREVIOUS_LOCATION. This includes explicit travel/arrival, "
+                "entering or leaving an area, a narrator line equivalent to 'the action happens in ...', or a scene cut "
+                "whose current place is different. If your current.display is non-empty and differs from "
                 "PREVIOUS_LOCATION.display, changed and should_update must both be true. If the newest text does "
                 "not establish a new place, return should_update=false. Do not invent geography."
             )
@@ -257,12 +259,14 @@ def build_game_state_analysis_messages(
         module_rules.append(
             (
                 "NPC_CARDS: create or update cards only for distinct narratively important NPCs from "
-                "PREVIOUS_NARRATOR_RESPONSE and NARRATOR_RESPONSE. create_card is allowed only when the NPC is "
+                "PLAYER_TURN, PREVIOUS_NARRATOR_RESPONSE, and NARRATOR_RESPONSE. create_card is allowed only when the NPC is "
                 "absent from EXISTING_CHARACTER_CARDS and NPC_DEDUP_CANDIDATES. update_existing_card must copy "
                 "existing_card_id exactly. Do not create cards for crowds, incidental extras, or the player "
-                "character. If an important NPC is unnamed, invent a lore-appropriate personal name and keep the "
+                "character. A named NPC who speaks, acts, makes a decision, blocks/enables the player, owns an important "
+                "resource, or is likely to recur is important by default. If an important NPC is unnamed, invent a lore-appropriate personal name and keep the "
                 "scene designation among triggers; важному безымянному NPC обязательно придумай личное имя. "
-                "Return all qualifying NPC actions from the turn."
+                "Return all qualifying NPC actions from the turn. Do not return an empty action list when the turn clearly "
+                "introduces or updates an important NPC."
             )
         )
         response_shape["npc_cards"] = {
@@ -452,6 +456,7 @@ _WORLD_ANALYSIS_SYSTEM_BLOCKS: dict[str, str] = {
         "should_update=true только если место реально сменилось относительно PREVIOUS_LOCATION; "
         "если current.display непустой и отличается от PREVIOUS_LOCATION.display, оба флага должны быть true; "
         "иначе should_update=false. Не выдумывай географию."
+        " If the latest turn establishes a different current place through arrival, entry/exit, a scene cut, or an equivalent 'action happens in ...' statement, changed and should_update must be true."
     ),
     "environment": (
         "ENVIRONMENT. Оцени, сколько ВНУТРИИГРОВОГО времени прошло за этот ход, в минутах "

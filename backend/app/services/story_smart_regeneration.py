@@ -42,6 +42,8 @@ SMART_REGENERATION_PREVIOUS_RESPONSE_MAX_CHARS = 1_800
 
 SMART_REGENERATION_OPTION_INSTRUCTIONS: dict[str, tuple[str, ...]] = {
     "preserve_format": (
+        "Hard invariant: every spoken line or visible thought is a separate paragraph that starts with exactly one valid MoRius marker: [[NPC:Name]], [[GG:Name]], [[NPC_THOUGHT:Name]], or [[GG_THOUGHT:Name]].",
+        "Never rewrite MoRius dialogue/thought markers as plain Name:, quotes-only text, markdown, or an unmarked paragraph.",
         "СОХРАНИТЬ ФОРМАТ РЕПЛИК:",
         "Сохрани output contract ответа без изменений.",
         "Не меняй структуру блоков, speaker_id, character_id, имена персонажей, JSON-ключи, теги, delimiters и служебные маркеры.",

@@ -427,6 +427,7 @@ export type AdminManagedUser = {
   is_banned: boolean
   ban_expires_at: string | null
   created_at: string
+  last_payment_at?: string | null
 }
 
 type AdminUserListResponse = {
@@ -1068,6 +1069,7 @@ export async function getCurrentUser(token: string): Promise<AuthUser> {
     '/api/auth/me',
     {
       method: 'GET',
+      cache: 'no-store',
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -1446,7 +1448,7 @@ export async function searchUsersForAdminPanel(payload: {
   query?: string
   limit?: number
   offset?: number
-  sort?: 'created_desc' | 'coins_desc' | 'coins_asc'
+  sort?: 'created_desc' | 'coins_desc' | 'coins_asc' | 'donation_desc'
 }): Promise<AdminUserListResponse> {
   const query = encodeURIComponent((payload.query ?? '').trim())
   const limit = Math.max(1, Math.min(payload.limit ?? 30, 100))

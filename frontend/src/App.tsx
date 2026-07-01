@@ -198,6 +198,7 @@ function normalizeStoredAuthUser(rawValue: unknown): AuthUser | null {
     display_name: typeof value.display_name === 'string' ? value.display_name : null,
     profile_description: typeof value.profile_description === 'string' ? value.profile_description : '',
     profile_banner_id: normalizeProfileBannerId(value.profile_banner_id),
+    profile_banner_image_url: typeof value.profile_banner_image_url === 'string' ? value.profile_banner_image_url : null,
     avatar_frame_id: normalizeAvatarFrameId(value.avatar_frame_id),
     avatar_frame_image_url: typeof value.avatar_frame_image_url === 'string' ? value.avatar_frame_image_url : null,
     avatar_url: typeof value.avatar_url === 'string' ? value.avatar_url : null,
@@ -667,6 +668,24 @@ function App() {
     setIsHydratingSession(false)
   }, [])
 
+  const refreshCurrentUser = useCallback(
+    async (options: { resetOnFailure?: boolean } = {}) => {
+      if (!authToken) {
+        return
+      }
+      try {
+        const user = await getCurrentUser(authToken)
+        setAuthUser(user)
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user))
+      } catch {
+        if (options.resetOnFailure) {
+          resetSession()
+        }
+      }
+    },
+    [authToken, resetSession],
+  )
+
   useEffect(() => {
     if (!authToken) {
       return
@@ -700,6 +719,35 @@ function App() {
       active = false
     }
   }, [authToken, navigate, path, resetSession])
+
+  useEffect(() => {
+    if (!authToken) {
+      return
+    }
+
+    let lastRefreshAt = 0
+    const refreshAfterResume = () => {
+      if (document.visibilityState === 'hidden') {
+        return
+      }
+      const now = Date.now()
+      if (now - lastRefreshAt < 1_500) {
+        return
+      }
+      lastRefreshAt = now
+      void refreshCurrentUser()
+    }
+
+    window.addEventListener('pageshow', refreshAfterResume)
+    window.addEventListener('focus', refreshAfterResume)
+    document.addEventListener('visibilitychange', refreshAfterResume)
+
+    return () => {
+      window.removeEventListener('pageshow', refreshAfterResume)
+      window.removeEventListener('focus', refreshAfterResume)
+      document.removeEventListener('visibilitychange', refreshAfterResume)
+    }
+  }, [authToken, refreshCurrentUser])
 
   useEffect(() => {
     if (!authToken) {

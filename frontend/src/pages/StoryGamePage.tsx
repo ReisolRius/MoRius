@@ -1052,7 +1052,7 @@ const NARRATOR_STAT_FALLBACK_LABELS = ['Интеллект', 'Скорость',
 // narrator model is selected/switched (and are persisted + shown in settings). Players can still
 // fine-tune any value afterwards. Higher temperature/top_r = livelier; higher repetition penalty
 // helps the cheaper, repeat-prone models stay fresh. Note: storyTopK 0 means "do not constrain".
-const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarratorSamplingDefaults> = {
+const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, StoryNarratorSamplingDefaults>> = {
   // Умная и тёплая: чуть выше живости при аккуратной связности.
   'z-ai/glm-5': {
     storyTemperature: 0.85,
@@ -1759,6 +1759,7 @@ function RightPanelSettingRow({
   disabled,
   onToggle,
   tooltip,
+  visible = true,
 }: {
   title: string
   description: string
@@ -1766,7 +1767,12 @@ function RightPanelSettingRow({
   disabled?: boolean
   onToggle: () => void
   tooltip?: string
+  visible?: boolean
 }) {
+  if (!visible) {
+    return null
+  }
+
   return (
     <Stack
       direction="row"
@@ -18371,6 +18377,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 disabled={!activeGameId || storyTurnCount < 10}
                 startIcon={<Box component="span" sx={{ fontSize: '1.1rem', lineHeight: 1 }}>📖</Box>}
                 sx={{
+                  display: isAdministrator ? 'inline-flex' : 'none',
                   minHeight: 50,
                   borderRadius: '12px',
                   textTransform: 'none',
@@ -21771,6 +21778,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       title="Плавная печать"
                       description="Ответ печатается постепенно, как живой набор текста"
                       checked={smoothStreamingEnabled}
+                      visible={isAdministrator}
                       onToggle={toggleSmoothStreamingEnabled}
                       disabled={isGenerating}
                     />
@@ -22008,6 +22016,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               title="Режим игры"
                               description="Проверки навыков и случайные исходы в духе настолки"
                               checked={storyDisplayMode === 'visual_novel'}
+                              visible={isAdministrator}
                               onToggle={() => {
                                 void toggleStoryDisplayMode(storyDisplayMode !== 'visual_novel')
                               }}
@@ -22017,6 +22026,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               title="Спрайты эмоций"
                               description="Портрет говорящего с его текущей эмоцией"
                               checked={emotionVisualizationEnabled}
+                              visible={isAdministrator}
                               onToggle={() => {
                                 void toggleEmotionVisualizationEnabled()
                               }}
@@ -22026,6 +22036,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               title="Эмбиент-подсветка"
                               description="Фон страницы мягко подсвечивается под настроение сцены"
                               checked={ambientEnabled}
+                              visible={isAdministrator}
                               onToggle={() => {
                                 void toggleAmbientEnabled()
                               }}
@@ -22035,6 +22046,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               title="Лимит ответов"
                               description="Включает серверное ограничение ответа"
                               checked={responseTokenLimitEnabled}
+                              visible={isAdministrator}
                               onToggle={() => {
                                 void toggleResponseTokenLimitEnabled()
                               }}
@@ -22052,6 +22064,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               title="RPG pipeline v1"
                               description="Расширенная обработка правил и механик"
                               checked={canonicalStatePipelineEnabled}
+                              visible={isAdministrator}
                               onToggle={() => {
                                 void toggleCanonicalStatePipelineEnabled()
                               }}
@@ -22062,6 +22075,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               title="Safe fallback"
                               description="Подстраховка, если модель отвечает некорректно"
                               checked={canonicalStatePipelineEnabled && canonicalStateSafeFallbackEnabled}
+                              visible={isAdministrator}
                               onToggle={() => {
                                 void toggleCanonicalStateSafeFallbackEnabled()
                               }}
@@ -23300,7 +23314,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           />
                         </Stack>
 
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
                           <Stack direction="row" spacing={0.45} alignItems="center">
                             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                               Плавная печать ответов
@@ -23397,7 +23411,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             gap: 0.72,
                           }}
                         >
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                                 Режим игры
@@ -23418,7 +23432,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             />
                           </Stack>
 
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                                 Спрайты и эмоции
@@ -23439,7 +23453,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             />
                           </Stack>
 
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                                 Эмбиент подсветка
@@ -23460,7 +23474,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             />
                           </Stack>
 
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                                 Лимит ответов
@@ -23486,7 +23500,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             />
                           </Stack>
 
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                                 RPG pipeline v1
@@ -23507,7 +23521,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             />
                           </Stack>
 
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                                 Safe fallback

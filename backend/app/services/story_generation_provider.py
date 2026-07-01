@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app import main as monolith_main
@@ -356,6 +357,27 @@ def _is_polza_incomplete_stream_result(
     if normalized_finish_reason:
         return False
     return not bool(saw_done_marker) and not normalized_finish_reason
+
+
+_STORY_STREAM_CLEAN_TERMINAL_CHARS = frozenset(".!?…»”\"')]}。！？")
+_STORY_STREAM_DANGLING_MARKUP_RE = re.compile(r"(?:\[\[[^\]]*|<[^>]*?)$")
+
+
+def _story_stream_text_needs_tail_recovery(value: str) -> bool:
+    normalized = str(value or "").replace("\r\n", "\n").strip()
+    if not normalized:
+        return False
+    if "\ufffd" in normalized:
+        return True
+    if _STORY_STREAM_DANGLING_MARKUP_RE.search(normalized):
+        return True
+    if normalized[-1] in _STORY_STREAM_CLEAN_TERMINAL_CHARS:
+        return False
+    last_token_match = re.search(r"[^\s]+$", normalized)
+    if not last_token_match:
+        return False
+    last_token = last_token_match.group(0)
+    return bool(re.search(r"[A-Za-zА-Яа-яЁё]$", last_token))
 
 
 def _extract_story_stream_novel_suffix(base_text: str, candidate_text: str) -> str:
@@ -1134,6 +1156,15 @@ def _iter_polza_story_stream_chunks(
                         saw_done_marker=saw_done_marker,
                     ):
                         partial_text = "".join(emitted_text_parts)
+                        if not _story_stream_text_needs_tail_recovery(partial_text):
+                            logger.warning(
+                                "OpenRouter stream closed without terminal metadata, but emitted text looks complete; "
+                                "accepting streamed answer: model=%s provider=%s partial_chars=%s",
+                                model_name,
+                                provider_label,
+                                len(partial_text),
+                            )
+                            return
                         logger.warning(
                             "OpenRouter stream closed without terminal metadata; recovering only the missing tail: "
                             "model=%s provider=%s partial_chars=%s",
@@ -1155,9 +1186,14 @@ def _iter_polza_story_stream_chunks(
                             for chunk in _yield_story_stream_chunks_with_pacing(recovered_tail):
                                 yield chunk
                             return
-                        raise RuntimeError(
-                            "OpenRouter story stream ended incomplete and tail recovery returned no text"
+                        logger.warning(
+                            "OpenRouter stream tail recovery returned no text; keeping emitted partial answer instead "
+                            "of deleting a visible generation: model=%s provider=%s partial_chars=%s",
+                            model_name,
+                            provider_label,
+                            len(partial_text),
                         )
+                        return
                     return
 
                 logger.warning(

@@ -16,10 +16,6 @@ export default function SoulIcon({ size = 18, sx }: SoulIconProps) {
         {
           color: 'inherit',
           filter: 'drop-shadow(0 0 5px rgba(255,255,255,0.16))',
-          '& svg': {
-            transform: 'scale(1.1)',
-            transformOrigin: 'center',
-          },
         },
         ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
       ]}

@@ -102,6 +102,8 @@ GRAPH_ANALYSIS_MAX_EDGES = 260
 GRAPH_LLM_MODULE_NAME = "story_graph_analysis"
 GRAPH_ANALYSIS_MAX_OUTPUT_TOKENS = 10_000
 GRAPH_ANALYSIS_MAX_TURN_CHARS = 30_000
+GRAPH_AI_MIN_EDGE_CONFIDENCE = 0.86
+GRAPH_AI_MIN_EDGE_IMPORTANCE = 4
 GRAPH_DANGLING_RELATION_WORDS = {
     "about",
     "at",
@@ -1801,22 +1803,24 @@ def _build_graph_analysis_messages(
                 "You analyze a text RPG turn for a card relationship graph. Return JSON only; no markdown, reasoning, or commentary. "
                 "All user-visible card names, relationship labels, and relationship descriptions in your JSON are final copy: "
                 "the application will display them as written and will not rewrite or complete them. "
-                "Use Gemini-level semantic judgment, but never invent relationships that are not stated or clearly earned by the current scene. "
-                "Create missing cards for any important named entity required by a new relationship, including characters, "
-                "organizations, factions, guilds, locations, items, world details, rules, plots, and memories. "
-                "Also add graph nodes for important existing or newly created cards that actively participate in the current turn, "
-                "even when there is not enough evidence for an edge yet. Do not wait for repeated evidence across multiple turns. "
-                "Extract every durable fact and relationship explicitly revealed in the turn, even when it is background information "
-                "rather than a newly performed action: memberships, ranks, jobs, alliances, rivalries, ownership, residence, location, "
-                "knowledge, obligations, history, discoveries, and named items all belong in the graph. "
+                "Use Gemini-level semantic judgment, but default to no graph change unless the turn reveals a durable, future-relevant graph fact. "
+                "Create missing cards only for entities with persistent narrative agency, plot weight, ownership/state relevance, or repeated future utility. "
+                "Do not create cards or nodes for transient extras, generic roles, scenery, props, consumables, background objects, incidental services, "
+                "or one-scene obstacles unless the current turn clearly elevates them into a lasting plot element. "
+                "Add graph nodes only for important existing or newly created cards that now matter beyond this immediate scene. "
+                "Do not extract every named thing. Prefer fewer high-signal graph changes over broad coverage. "
+                "Durable facts such as memberships, ranks, alliances, rivalries, ownership, residence, location, knowledge, obligations, history, "
+                "discoveries, and named items belong in the graph only when they are likely to matter in later turns. "
                 "A graph edge must express a durable semantic relationship between its source and target, not merely repeat a one-time action "
                 "from the scene. A gift, warning, conversation, rescue, order, or piece of advice is not by itself a relationship. "
                 "Create an edge only when that event reveals or changes a lasting state such as acquaintance, friendship, trust, mentorship, "
                 "loyalty, rivalry, debt, membership, ownership, knowledge, protection, residence, or another persistent connection. "
-                "One current turn is enough when it establishes a first meaningful encounter, explicit knowledge of abilities or weaknesses, "
-                "a possession/hosting attempt, a bargain, threat, debt, promise, pursuit, protection, command, dependence, or changed attitude. "
+                "One current turn is enough only when it establishes a major first encounter, explicit knowledge of abilities or weaknesses, "
+                "a possession/hosting attempt, a serious bargain, threat, debt, promise, pursuit, protection, command, dependence, or changed attitude "
+                "that is likely to alter future play. "
                 "Do not classify those as transient just because they appeared for the first time. "
-                "Skip edges only for pure co-presence, anonymous crowd action, scenery, or brief unimportant chatter that leaves no useful state. "
+                "Skip edges for pure co-presence, anonymous crowd action, scenery, props, consumables, routine transactions, temporary obstacles, "
+                "minor combat/contact, or brief chatter that leaves no useful persistent state. "
                 "Put the durable relationship in label; put the scene event that revealed or changed it in description as supporting context. "
                 "For example, prefer relationship predicates such as 'longtime allies', 'trusts their judgment', or 'serves as mentor' "
                 "over event summaries such as 'received advice from', 'gave an item to', or 'spoke with'. "
@@ -1832,8 +1836,10 @@ def _build_graph_analysis_messages(
                 "Set active=false when the durable relationship has ended or been explicitly broken; set active=true if it becomes current again. "
                 "When a relationship gains a new still-valid aspect, rewrite description so it contains the complete current durable state, "
                 "preserving relevant established facts and removing facts that the current turn made obsolete. "
-                "A single turn may produce many cards and many edges; return all supported changes without an arbitrary count limit. "
+                "A single turn should usually produce zero to a few graph changes. Return many cards or edges only for a major revelation or scene "
+                "that explicitly changes several durable relationships. "
                 "For a relationship directly stated by the player or narrator, use confidence 0.95 or higher. "
+                "Use createEdges only for importance 4 or 5. Importance 1-3 means the relation is too minor for automatic graph creation. "
                 "Every action must include evidence copied verbatim as a short exact quote from latestUserPrompt or latestAssistantText. "
                 "Keep entity names in the same spelling and language used by the current turn. "
                 "Every newly created entity that belongs on the graph must be referenced by addNodes and/or createEdges. "
@@ -1992,6 +1998,15 @@ def _should_apply_ai_action(
     return (confidence if confidence is not None else 0.0) >= threshold
 
 
+def _graph_ai_edge_signal_skip_reason(raw_edge: dict[str, Any], *, confidence: float | None) -> str | None:
+    importance = _normalize_importance(raw_edge.get("importance"))
+    if importance < GRAPH_AI_MIN_EDGE_IMPORTANCE:
+        return "edge importance below auto-create threshold"
+    if (confidence if confidence is not None else 0.0) < GRAPH_AI_MIN_EDGE_CONFIDENCE:
+        return "edge confidence below auto-create threshold"
+    return None
+
+
 def _apply_graph_analysis_payload(
     db: Session,
     game: StoryGame,
@@ -2044,9 +2059,12 @@ def _apply_graph_analysis_payload(
     for raw_edge in payload.get("createEdges", []) if isinstance(payload.get("createEdges"), list) else []:
         if not isinstance(raw_edge, dict) or not allow_edge_actions:
             continue
+        edge_confidence = _normalize_confidence(raw_edge.get("confidence"))
+        if _graph_ai_edge_signal_skip_reason(raw_edge, confidence=edge_confidence) is not None:
+            continue
         if _should_apply_ai_action(
-            confidence=_normalize_confidence(raw_edge.get("confidence")),
-            threshold=confidence_threshold,
+            confidence=edge_confidence,
+            threshold=max(confidence_threshold, GRAPH_AI_MIN_EDGE_CONFIDENCE),
             apply_high_confidence=apply_high_confidence,
         ):
             add_required_temp_ref(raw_edge.get("sourceCardRef"))
@@ -2183,6 +2201,10 @@ def _apply_graph_analysis_payload(
         if source_ref == target_ref:
             add_skip("edge cannot connect a card to itself")
             continue
+        signal_skip_reason = _graph_ai_edge_signal_skip_reason(raw_edge, confidence=confidence)
+        if signal_skip_reason:
+            add_skip(signal_skip_reason)
+            continue
         relation_type = _normalize_relation_type(raw_edge.get("relationType"))
         label = _compact_text(raw_edge.get("label"), max_chars=160)
         description = _compact_text(raw_edge.get("description"), max_chars=4_000)
@@ -2205,7 +2227,7 @@ def _apply_graph_analysis_payload(
         )
         if _should_apply_ai_action(
             confidence=confidence,
-            threshold=confidence_threshold,
+            threshold=max(confidence_threshold, GRAPH_AI_MIN_EDGE_CONFIDENCE),
             apply_high_confidence=apply_high_confidence,
         ):
             source_node_id = db.scalar(

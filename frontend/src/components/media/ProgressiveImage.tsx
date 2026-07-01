@@ -82,6 +82,34 @@ export default function ProgressiveImage({
     return () => window.clearTimeout(timeoutId)
   }, [loadStatus, resolvedSrc, retryNonce])
 
+  useEffect(() => {
+    if (!resolvedSrc) {
+      return
+    }
+
+    const retryFailedImage = () => {
+      if (document.visibilityState === 'hidden') {
+        return
+      }
+      setImageState((currentState) => {
+        if (currentState.src !== resolvedSrc || currentState.loadStatus !== 'failed') {
+          return currentState
+        }
+        return { src: resolvedSrc, retryNonce: currentState.retryNonce + 1, loadStatus: 'loading' }
+      })
+    }
+
+    window.addEventListener('pageshow', retryFailedImage)
+    window.addEventListener('focus', retryFailedImage)
+    document.addEventListener('visibilitychange', retryFailedImage)
+
+    return () => {
+      window.removeEventListener('pageshow', retryFailedImage)
+      window.removeEventListener('focus', retryFailedImage)
+      document.removeEventListener('visibilitychange', retryFailedImage)
+    }
+  }, [resolvedSrc])
+
   return (
     <Box
       sx={[

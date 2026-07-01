@@ -26,6 +26,14 @@ function resolveFallbackSymbol(value: string): string {
   return value.trim().charAt(0).toUpperCase() || '•'
 }
 
+function buildAvatarImageRequestSrc(src: string | null, retryNonce: number): string | null {
+  if (!src || retryNonce <= 0 || src.startsWith('data:') || src.startsWith('blob:')) {
+    return src
+  }
+  const separator = src.includes('?') ? '&' : '?'
+  return `${src}${separator}morius_avatar_retry=${retryNonce}`
+}
+
 function ProgressiveAvatar({
   src,
   fallbackLabel,
@@ -44,6 +52,7 @@ function ProgressiveAvatar({
     disabled: !resolvedSrc,
   })
   const [loadStatus, setLoadStatus] = useState<ImageLoadStatus>('idle')
+  const [retryNonce, setRetryNonce] = useState(0)
   const fallbackSymbol = resolveFallbackSymbol(fallbackLabel)
   const normalizedScale = Math.max(1, Math.min(3, scale))
   const shouldAttemptImage = Boolean(resolvedSrc)
@@ -52,6 +61,7 @@ function ProgressiveAvatar({
   const isImageLoading = loadStatus === 'loading'
   const shouldRevealImage = isImageLoaded || (shouldLoadImage && loadStatus === 'idle')
   const shouldShowFallbackSymbol = !shouldAttemptImage || loadStatus !== 'loaded'
+  const requestSrc = buildAvatarImageRequestSrc(resolvedSrc, retryNonce)
 
   useEffect(() => {
     if (!resolvedSrc) {
@@ -89,7 +99,7 @@ function ProgressiveAvatar({
       window.clearTimeout(timeoutId)
       setLoadStatus('failed')
     }
-    image.src = resolvedSrc
+    image.src = requestSrc ?? resolvedSrc
 
     return () => {
       isCancelled = true
@@ -97,7 +107,34 @@ function ProgressiveAvatar({
       image.onload = null
       image.onerror = null
     }
-  }, [resolvedSrc, shouldLoadImage])
+  }, [requestSrc, resolvedSrc, shouldLoadImage])
+
+  useEffect(() => {
+    if (!resolvedSrc) {
+      return
+    }
+
+    const retryFailedAvatar = () => {
+      if (document.visibilityState === 'hidden') {
+        return
+      }
+      if (loadStatus !== 'failed') {
+        return
+      }
+      setRetryNonce((currentNonce) => currentNonce + 1)
+      setLoadStatus('idle')
+    }
+
+    window.addEventListener('pageshow', retryFailedAvatar)
+    window.addEventListener('focus', retryFailedAvatar)
+    document.addEventListener('visibilitychange', retryFailedAvatar)
+
+    return () => {
+      window.removeEventListener('pageshow', retryFailedAvatar)
+      window.removeEventListener('focus', retryFailedAvatar)
+      document.removeEventListener('visibilitychange', retryFailedAvatar)
+    }
+  }, [loadStatus, resolvedSrc])
 
   const rootSx = [
     {
@@ -150,7 +187,7 @@ function ProgressiveAvatar({
       {shouldLoadImage && loadStatus !== 'failed' ? (
         <Box
           component="img"
-          src={resolvedSrc ?? undefined}
+          src={requestSrc ?? resolvedSrc ?? undefined}
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}
           fetchPriority={priority ? 'high' : 'auto'}

@@ -983,7 +983,11 @@ def _build_story_provider_messages(
             ]
 
     messages_payload = [{"role": "system", "content": system_prompt}]
-    reroll_system_message = _build_story_reroll_system_message(reroll_discarded_assistant_text)
+    reroll_system_message = _build_story_reroll_system_message(
+        reroll_discarded_assistant_text,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
+    )
     if reroll_system_message is not None:
         messages_payload.append(reroll_system_message)
     if state_guidance_prompt:

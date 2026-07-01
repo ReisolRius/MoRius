@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Iterable, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from sqlalchemy import delete as sa_delete, func, or_, select
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import (
+    CoinPurchase,
     StoryBugReport,
     StoryCommunityWorldComment,
     StoryCharacter,
@@ -34,6 +35,7 @@ from app.models import (
     StoryTurnImage,
     StoryWorldCard,
     StoryWorldCardChangeEvent,
+    Subscription,
     User,
 )
 from app.schemas import (
@@ -138,6 +140,112 @@ def _sync_users_access_state(db: Session, users: list[User]) -> None:
         db.commit()
         for candidate in users:
             db.refresh(candidate)
+
+
+def _normalize_admin_user_search(value: object) -> str:
+    return " ".join(str(value or "").split()).casefold()
+
+
+def _admin_user_matches_query(user: User, normalized_query: str) -> bool:
+    if not normalized_query:
+        return True
+    haystack = " ".join(
+        filter(
+            None,
+            (
+                str(getattr(user, "id", "") or ""),
+                str(getattr(user, "email", "") or ""),
+                str(getattr(user, "display_name", "") or ""),
+                str(getattr(user, "profile_tag", "") or ""),
+                str(getattr(user, "role", "") or ""),
+            ),
+        )
+    )
+    return normalized_query in _normalize_admin_user_search(haystack)
+
+
+def _admin_datetime_sort_value(value: datetime | None) -> float:
+    if value is None:
+        return 0.0
+    normalized = value
+    if normalized.tzinfo is None:
+        normalized = normalized.replace(tzinfo=timezone.utc)
+    return normalized.timestamp()
+
+
+def _merge_latest_payment(
+    target: dict[int, datetime],
+    *,
+    user_id: int,
+    payment_at: datetime | None,
+) -> None:
+    if payment_at is None:
+        return
+    existing = target.get(user_id)
+    if existing is None or _admin_datetime_sort_value(payment_at) > _admin_datetime_sort_value(existing):
+        target[user_id] = payment_at
+
+
+def _latest_payment_at_by_user_id(db: Session, user_ids: Iterable[int]) -> dict[int, datetime]:
+    normalized_user_id_set: set[int] = set()
+    for raw_user_id in user_ids:
+        try:
+            user_id = int(raw_user_id)
+        except (TypeError, ValueError):
+            continue
+        if user_id > 0:
+            normalized_user_id_set.add(user_id)
+    normalized_user_ids = sorted(normalized_user_id_set)
+    if not normalized_user_ids:
+        return {}
+
+    latest_by_user_id: dict[int, datetime] = {}
+    coin_rows = db.execute(
+        select(
+            CoinPurchase.user_id,
+            func.max(func.coalesce(CoinPurchase.coins_granted_at, CoinPurchase.updated_at, CoinPurchase.created_at)),
+        )
+        .where(CoinPurchase.user_id.in_(normalized_user_ids), CoinPurchase.status == "succeeded")
+        .group_by(CoinPurchase.user_id)
+    ).all()
+    for user_id, payment_at in coin_rows:
+        _merge_latest_payment(latest_by_user_id, user_id=int(user_id), payment_at=payment_at)
+
+    subscription_rows = db.execute(
+        select(
+            Subscription.user_id,
+            func.max(func.coalesce(Subscription.updated_at, Subscription.started_at, Subscription.created_at)),
+        )
+        .where(
+            Subscription.user_id.in_(normalized_user_ids),
+            Subscription.is_mock.is_(False),
+            Subscription.provider_payment_id.is_not(None),
+            Subscription.status.in_(("active", "canceled", "expired", "past_due")),
+        )
+        .group_by(Subscription.user_id)
+    ).all()
+    for user_id, payment_at in subscription_rows:
+        _merge_latest_payment(latest_by_user_id, user_id=int(user_id), payment_at=payment_at)
+
+    return latest_by_user_id
+
+
+def _attach_admin_user_payment_metadata(
+    db: Session,
+    users: list[User],
+    *,
+    payment_by_user_id: dict[int, datetime] | None = None,
+) -> dict[int, datetime]:
+    user_ids = [int(getattr(user, "id", 0) or 0) for user in users]
+    resolved_payment_by_user_id = dict(payment_by_user_id or _latest_payment_at_by_user_id(db, user_ids))
+    for user in users:
+        setattr(user, "last_payment_at", resolved_payment_by_user_id.get(int(getattr(user, "id", 0) or 0)))
+    return resolved_payment_by_user_id
+
+
+def _admin_user_out(db: Session, user: User) -> AdminUserOut:
+    _attach_admin_user_payment_metadata(db, [user])
+    return AdminUserOut.model_validate(user)
 
 
 def _author_name_by_user_id(db: Session, *, user_ids: list[int]) -> dict[int, str]:
@@ -484,32 +592,67 @@ def search_users(
     query: str = Query(default="", max_length=SEARCH_QUERY_MAX_LENGTH),
     limit: int = Query(default=DEFAULT_SEARCH_LIMIT, ge=1, le=MAX_SEARCH_LIMIT),
     offset: int = Query(default=0, ge=0),
-    sort: Literal["created_desc", "coins_desc", "coins_asc"] = Query(default="created_desc"),
+    sort: Literal["created_desc", "coins_desc", "coins_asc", "donation_desc"] = Query(default="created_desc"),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> AdminUserListResponse:
     _get_admin_user(db=db, authorization=authorization)
 
-    normalized_query = query.strip().lower()
+    normalized_query = _normalize_admin_user_search(query)
     statement = select(User)
-    if normalized_query:
-        pattern = f"%{normalized_query}%"
-        statement = statement.where(
-            or_(
-                func.lower(User.email).like(pattern),
-                func.lower(func.coalesce(User.display_name, "")).like(pattern),
+    if normalized_query or sort == "donation_desc":
+        users_all = list(db.scalars(statement).all())
+        users_all = [user for user in users_all if _admin_user_matches_query(user, normalized_query)]
+        payment_by_user_id = _latest_payment_at_by_user_id(
+            db,
+            [int(getattr(user, "id", 0) or 0) for user in users_all],
+        )
+        if sort == "coins_desc":
+            users_all.sort(
+                key=lambda user: (
+                    int(getattr(user, "coins", 0) or 0),
+                    _admin_datetime_sort_value(getattr(user, "created_at", None)),
+                    int(getattr(user, "id", 0) or 0),
+                ),
+                reverse=True,
             )
+        elif sort == "coins_asc":
+            users_all.sort(
+                key=lambda user: (
+                    int(getattr(user, "coins", 0) or 0),
+                    -_admin_datetime_sort_value(getattr(user, "created_at", None)),
+                    -int(getattr(user, "id", 0) or 0),
+                )
+            )
+        elif sort == "donation_desc":
+            users_all.sort(
+                key=lambda user: (
+                    _admin_datetime_sort_value(payment_by_user_id.get(int(getattr(user, "id", 0) or 0))),
+                    _admin_datetime_sort_value(getattr(user, "created_at", None)),
+                    int(getattr(user, "id", 0) or 0),
+                ),
+                reverse=True,
+            )
+        else:
+            users_all.sort(
+                key=lambda user: (
+                    _admin_datetime_sort_value(getattr(user, "created_at", None)),
+                    int(getattr(user, "id", 0) or 0),
+                ),
+                reverse=True,
+            )
+
+        total_count = len(users_all)
+        users = users_all[offset : offset + limit]
+        _sync_users_access_state(db, users)
+        _attach_admin_user_payment_metadata(db, users, payment_by_user_id=payment_by_user_id)
+        return AdminUserListResponse(
+            users=[AdminUserOut.model_validate(user) for user in users],
+            total_count=total_count,
+            has_more=offset + len(users) < total_count,
         )
 
-    total_count = max(
-        int(
-            db.scalar(
-                select(func.count()).select_from(statement.subquery())
-            )
-            or 0
-        ),
-        0,
-    )
+    total_count = max(int(db.scalar(select(func.count()).select_from(statement.subquery())) or 0), 0)
 
     if sort == "coins_desc":
         statement = statement.order_by(User.coins.desc(), User.created_at.desc(), User.id.desc())
@@ -522,6 +665,7 @@ def search_users(
 
     users = list(db.scalars(statement).all())
     _sync_users_access_state(db, users)
+    _attach_admin_user_payment_metadata(db, users)
     return AdminUserListResponse(
         users=[AdminUserOut.model_validate(user) for user in users],
         total_count=total_count,
@@ -558,7 +702,7 @@ def update_user_tokens(
     sync_user_access_state(target_user)
     db.commit()
     db.refresh(target_user)
-    return AdminUserOut.model_validate(target_user)
+    return _admin_user_out(db, target_user)
 
 
 @router.post("/api/auth/admin/users/{user_id}/moderator", response_model=AdminUserOut)
@@ -586,7 +730,7 @@ def update_user_moderator_role(
     sync_user_access_state(target_user)
     db.commit()
     db.refresh(target_user)
-    return AdminUserOut.model_validate(target_user)
+    return _admin_user_out(db, target_user)
 
 
 @router.post("/api/auth/admin/users/{user_id}/tag", response_model=AdminUserOut)
@@ -602,7 +746,7 @@ def update_user_profile_tag(
     target_user.profile_tag = payload.tag.strip()
     db.commit()
     db.refresh(target_user)
-    return AdminUserOut.model_validate(target_user)
+    return _admin_user_out(db, target_user)
 
 
 @router.post("/api/auth/admin/users/{user_id}/ban", response_model=AdminUserOut)
@@ -630,7 +774,7 @@ def ban_user(
     sync_user_access_state(target_user)
     db.commit()
     db.refresh(target_user)
-    return AdminUserOut.model_validate(target_user)
+    return _admin_user_out(db, target_user)
 
 
 @router.post("/api/auth/admin/users/{user_id}/unban", response_model=AdminUserOut)
@@ -647,7 +791,7 @@ def unban_user(
     sync_user_access_state(target_user)
     db.commit()
     db.refresh(target_user)
-    return AdminUserOut.model_validate(target_user)
+    return _admin_user_out(db, target_user)
 
 
 @router.get("/api/auth/admin/reports", response_model=AdminReportListResponse)

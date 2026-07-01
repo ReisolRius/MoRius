@@ -73,6 +73,34 @@ function AvatarFrame({ children, frameId, frameImageUrl, size }: AvatarFrameProp
     return () => window.clearTimeout(timeoutId)
   }, [frameRetryNonce, imageSrc, isFrameLoaded, shouldRenderFrameImage])
 
+  useEffect(() => {
+    if (!shouldRenderFrameImage || !imageSrc) {
+      return
+    }
+
+    const retryFailedFrame = () => {
+      if (document.visibilityState === 'hidden') {
+        return
+      }
+      setFrameImageState((currentState) => {
+        if (currentState.imageSrc !== imageSrc || !currentState.hasError) {
+          return currentState
+        }
+        return { imageSrc, retryNonce: currentState.retryNonce + 1, isLoaded: false, hasError: false }
+      })
+    }
+
+    window.addEventListener('pageshow', retryFailedFrame)
+    window.addEventListener('focus', retryFailedFrame)
+    document.addEventListener('visibilitychange', retryFailedFrame)
+
+    return () => {
+      window.removeEventListener('pageshow', retryFailedFrame)
+      window.removeEventListener('focus', retryFailedFrame)
+      document.removeEventListener('visibilitychange', retryFailedFrame)
+    }
+  }, [imageSrc, shouldRenderFrameImage])
+
   return (
     <Box
       className="morius-framed-avatar"

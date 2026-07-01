@@ -2605,6 +2605,10 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   let streamError: Error | null = null
   let streamTerminalEventReceived = false
   let streamCompletedSuccessfully = false
+  let streamStartReceived = false
+  let streamContentReceived = false
+
+  const shouldRecoverInterruptedGeneration = () => !streamStartReceived && !streamContentReceived
 
   const toStreamError = (error: unknown, fallbackMessage: string): Error => {
     const detail = error instanceof Error && error.message.trim() ? error.message : fallbackMessage
@@ -2645,6 +2649,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
     if (parsed.event === 'start') {
       try {
         const payload = JSON.parse(parsed.data) as StoryStreamStartPayload
+        streamStartReceived = true
         options.onStart?.(payload)
       } catch (error) {
         streamError = toStreamError(error, 'Failed to process generation start event')
@@ -2656,6 +2661,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
     if (parsed.event === 'chunk') {
       try {
         const payload = JSON.parse(parsed.data) as StoryStreamChunkPayload
+        if (typeof payload.delta === 'string' && payload.delta.length > 0) {
+          streamContentReceived = true
+        }
         options.onChunk?.(payload)
       } catch (error) {
         streamError = toStreamError(error, 'Failed to process generation chunk event')
@@ -2689,6 +2697,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
     if (parsed.event === 'done') {
       try {
         const payload = normalizeStoryStreamDonePayload(JSON.parse(parsed.data) as StoryStreamDonePayload)
+        streamStartReceived = true
         options.onDone?.(payload)
         streamCompletedSuccessfully = true
       } catch (error) {
@@ -2748,7 +2757,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       throw error
     }
     if (!streamTerminalEventReceived) {
-      await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
+      if (shouldRecoverInterruptedGeneration()) {
+        await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
+      }
       streamError = toStreamError(error, 'Generation stream connection was interrupted')
     }
   }
@@ -2759,12 +2770,14 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
 
   if (!streamTerminalEventReceived && !streamError) {
-    await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
+    if (shouldRecoverInterruptedGeneration()) {
+      await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
+    }
     throw new Error(normalizeStoryProviderErrorMessage('Generation stream ended unexpectedly before terminal event'))
   }
 
   if (streamError) {
-    if (!streamCompletedSuccessfully) {
+    if (!streamCompletedSuccessfully && shouldRecoverInterruptedGeneration()) {
       await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
     }
     throw streamError

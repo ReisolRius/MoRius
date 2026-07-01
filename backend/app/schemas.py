@@ -461,6 +461,7 @@ class AdminUserOut(BaseModel):
     is_banned: bool
     ban_expires_at: datetime | None
     created_at: datetime
+    last_payment_at: datetime | None = None
 
 
 class AdminUserListResponse(BaseModel):

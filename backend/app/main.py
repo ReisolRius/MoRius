@@ -6606,8 +6606,35 @@ def _normalize_story_reroll_reference_text(value: str | None) -> str:
 
 def _build_story_reroll_system_message(
     discarded_assistant_text: str | None,
+    *,
+    show_gg_thoughts: bool = False,
+    show_npc_thoughts: bool = False,
 ) -> dict[str, str] | None:
-    return None
+    reference_text = _normalize_story_reroll_reference_text(discarded_assistant_text)
+    if not reference_text:
+        return None
+
+    thought_rules: list[str] = []
+    if not show_gg_thoughts:
+        thought_rules.append("GG thoughts are disabled: do not use [[GG_THOUGHT:...]] markers.")
+    if not show_npc_thoughts:
+        thought_rules.append("NPC thoughts are disabled: do not use [[NPC_THOUGHT:...]] markers.")
+
+    content = "\n".join(
+        [
+            "This is a reroll that replaces the previous assistant answer.",
+            "Write a fresh answer, but keep the MoRius formatting contract exactly.",
+            "Every spoken line or visible thought must be its own paragraph starting with exactly one marker:",
+            "[[NPC:Name]], [[GG:Name]], [[NPC_THOUGHT:Name]], or [[GG_THOUGHT:Name]].",
+            "Narration paragraphs have no marker. Never downgrade marked dialogue/thoughts to plain Name:, quotes-only lines, markdown bullets, or unmarked text.",
+            "If the discarded answer used these markers, the replacement must keep the same marker protocol even when the scene changes.",
+            *thought_rules,
+            "Do not copy the discarded answer verbatim; use it only as context for what is being replaced.",
+            "DISCARDED_ASSISTANT_ANSWER:",
+            reference_text,
+        ]
+    )
+    return {"role": "system", "content": content}
 
 
 def _build_story_provider_messages(
@@ -6708,7 +6735,11 @@ def _build_story_provider_messages(
             ]
 
     messages_payload = [{"role": "system", "content": system_prompt}]
-    reroll_system_message = _build_story_reroll_system_message(reroll_discarded_assistant_text)
+    reroll_system_message = _build_story_reroll_system_message(
+        reroll_discarded_assistant_text,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
+    )
     if reroll_system_message is not None:
         messages_payload.append(reroll_system_message)
     messages_payload.extend(history)

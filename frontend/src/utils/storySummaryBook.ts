@@ -507,7 +507,10 @@ export function buildStorySummaryPdf(pages: StoryBookPage[]): Blob {
   }
   pushText(`trailer\n<< /Size ${totalObjects + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`)
 
-  return new Blob([concatBytes(chunks)], { type: 'application/pdf' })
+  const pdfBytes = concatBytes(chunks)
+  const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength)
+  new Uint8Array(pdfBuffer).set(pdfBytes)
+  return new Blob([pdfBuffer], { type: 'application/pdf' })
 }
 
 export function sanitizeStoryBookFilename(name: string): string {

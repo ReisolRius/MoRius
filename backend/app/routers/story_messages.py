@@ -12,7 +12,11 @@ from app.schemas import StoryMessageOut, StoryMessageUpdateRequest
 from app.services.auth_identity import get_current_user
 from app.services.story_memory import (
     STORY_MEMORY_LAYER_COMPRESSED,
+    STORY_MEMORY_LAYER_FACTS,
+    STORY_MEMORY_LAYER_FRESH_DETAILED,
+    STORY_MEMORY_LAYER_LATEST_FULL,
     STORY_MEMORY_LAYER_RAW,
+    STORY_MEMORY_LAYER_RAW_PENDING,
     STORY_MEMORY_LAYER_SUPER,
     normalize_story_memory_block_content,
     normalize_story_memory_block_title,
@@ -33,6 +37,15 @@ logger = logging.getLogger(__name__)
 STORY_MESSAGE_BUSY_DETAIL = STORY_GAME_OPERATION_BUSY_DETAIL
 _STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 15.0
 _STORY_INLINE_EDIT_RAW_KEEP_LATEST_ASSISTANT_TURNS = 1
+_STORY_INLINE_EDIT_REPLACEABLE_MEMORY_LAYERS = {
+    STORY_MEMORY_LAYER_LATEST_FULL,
+    STORY_MEMORY_LAYER_RAW,
+    STORY_MEMORY_LAYER_FRESH_DETAILED,
+    STORY_MEMORY_LAYER_COMPRESSED,
+    STORY_MEMORY_LAYER_SUPER,
+    STORY_MEMORY_LAYER_FACTS,
+    STORY_MEMORY_LAYER_RAW_PENDING,
+}
 
 
 def _acquire_story_operation_lease_or_409(*, game_id: int, operation: str):
@@ -168,36 +181,25 @@ def _upsert_latest_turn_raw_memory_block(
         assistant_text=getattr(assistant_message, "content", None),
         main_hero_name=_get_story_main_hero_name_for_raw_memory(db, game_id=int(game.id)),
     )
-    turn_memory_blocks = db.scalars(
+    active_turn_memory_blocks = db.scalars(
         select(StoryMemoryBlock)
         .where(
             StoryMemoryBlock.game_id == int(game.id),
             StoryMemoryBlock.assistant_message_id == int(assistant_message.id),
             StoryMemoryBlock.undone_at.is_(None),
-            StoryMemoryBlock.layer.in_(
-                [
-                    STORY_MEMORY_LAYER_RAW,
-                    STORY_MEMORY_LAYER_COMPRESSED,
-                    STORY_MEMORY_LAYER_SUPER,
-                ]
-            ),
         )
         .order_by(StoryMemoryBlock.id.asc())
     ).all()
-    raw_blocks = [
+    turn_memory_blocks = [
         block
-        for block in turn_memory_blocks
-        if normalize_story_memory_layer(block.layer) == STORY_MEMORY_LAYER_RAW
+        for block in active_turn_memory_blocks
+        if normalize_story_memory_layer(block.layer) in _STORY_INLINE_EDIT_REPLACEABLE_MEMORY_LAYERS
     ]
 
     changed = False
-    for block in turn_memory_blocks:
-        if normalize_story_memory_layer(block.layer) in {STORY_MEMORY_LAYER_COMPRESSED, STORY_MEMORY_LAYER_SUPER}:
-            db.delete(block)
-            changed = True
 
     if not raw_content:
-        for block in raw_blocks:
+        for block in turn_memory_blocks:
             db.delete(block)
             changed = True
         if changed:
@@ -207,13 +209,31 @@ def _upsert_latest_turn_raw_memory_block(
     normalized_content = normalize_story_memory_block_content(raw_content)
     normalized_title = _build_story_raw_memory_block_title(normalized_content)
     token_count = _estimate_story_tokens(normalized_content)
-    primary_block = raw_blocks[0] if raw_blocks else None
+    primary_block = next(
+        (
+            block
+            for block in turn_memory_blocks
+            if normalize_story_memory_layer(block.layer) == STORY_MEMORY_LAYER_LATEST_FULL
+        ),
+        None,
+    )
+    if primary_block is None:
+        primary_block = next(
+            (
+                block
+                for block in turn_memory_blocks
+                if normalize_story_memory_layer(block.layer) == STORY_MEMORY_LAYER_RAW
+            ),
+            None,
+        )
+    if primary_block is None and turn_memory_blocks:
+        primary_block = turn_memory_blocks[0]
     if primary_block is None:
         db.add(
             StoryMemoryBlock(
                 game_id=int(game.id),
                 assistant_message_id=int(assistant_message.id),
-                layer=STORY_MEMORY_LAYER_RAW,
+                layer=STORY_MEMORY_LAYER_LATEST_FULL,
                 title=normalized_title,
                 content=normalized_content,
                 token_count=token_count,
@@ -222,6 +242,9 @@ def _upsert_latest_turn_raw_memory_block(
         db.flush()
         return
 
+    if normalize_story_memory_layer(primary_block.layer) != STORY_MEMORY_LAYER_LATEST_FULL:
+        primary_block.layer = STORY_MEMORY_LAYER_LATEST_FULL
+        changed = True
     if primary_block.title != normalized_title:
         primary_block.title = normalized_title
         changed = True
@@ -231,7 +254,9 @@ def _upsert_latest_turn_raw_memory_block(
     if int(getattr(primary_block, "token_count", 0) or 0) != token_count:
         primary_block.token_count = token_count
         changed = True
-    for duplicate_block in raw_blocks[1:]:
+    for duplicate_block in turn_memory_blocks:
+        if duplicate_block is primary_block:
+            continue
         db.delete(duplicate_block)
         changed = True
     if changed:
@@ -281,7 +306,7 @@ def _sync_turn_raw_memory_after_message_update(
         )
     except Exception:
         logger.exception(
-            "Story message update saved but raw memory sync failed: game_id=%s message_id=%s",
+            "Story message update saved but latest turn memory sync failed: game_id=%s message_id=%s",
             getattr(game, "id", None),
             getattr(message, "id", None),
         )

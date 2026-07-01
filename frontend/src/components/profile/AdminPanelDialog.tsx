@@ -97,7 +97,7 @@ const DEFAULT_MAINTENANCE_MESSAGE =
 const DEFAULT_MAINTENANCE_ETA = 'Ориентировочно скоро вернемся'
 
 type AdminPanelTab = 'users' | 'reports' | 'moderation' | 'bug_reports' | 'maintenance'
-type AdminUserSortMode = 'created_desc' | 'coins_desc' | 'coins_asc'
+type AdminUserSortMode = 'created_desc' | 'coins_desc' | 'coins_asc' | 'donation_desc'
 
 type ModerationWorldDraft = AdminModerationWorldDetail & {
   game: StoryGameSummary
@@ -134,6 +134,17 @@ function formatBanLabel(user: AdminManagedUser): string {
     return 'В бане'
   }
   return `В бане до ${parsed.toLocaleString('ru-RU')}`
+}
+
+function formatLastPaymentLabel(user: AdminManagedUser): string {
+  if (!user.last_payment_at) {
+    return 'Донатов нет'
+  }
+  const parsed = new Date(user.last_payment_at)
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Донат: дата неизвестна'
+  }
+  return `Донат: ${parsed.toLocaleString('ru-RU')}`
 }
 
 function formatReportReasonLabel(reason: AdminReportReason): string {
@@ -351,7 +362,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
     setCustomTagDraft(selectedUser?.profile_tag ?? '')
   }, [selectedUser])
   const usersListContainerRef = useRef<HTMLDivElement | null>(null)
-  const usersRequestInFlightRef = useRef(false)
+  const usersRequestIdRef = useRef(0)
   const moderationDetailRequestIdRef = useRef(0)
 
   const selectedReport = useMemo(
@@ -424,10 +435,8 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
       }
       const append = options?.append ?? false
       const offset = append ? Math.max(0, Math.trunc(options?.offset ?? 0)) : 0
-      if (usersRequestInFlightRef.current) {
-        return
-      }
-      usersRequestInFlightRef.current = true
+      const requestId = usersRequestIdRef.current + 1
+      usersRequestIdRef.current = requestId
       setIsLoadingUsers(true)
       setErrorMessage('')
       try {
@@ -438,6 +447,9 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
           offset,
           sort: userSortMode,
         })
+        if (requestId !== usersRequestIdRef.current) {
+          return
+        }
         const nextUsers = response.users
         setUsers((previous) => {
           if (!append) {
@@ -460,6 +472,9 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
           )
         }
       } catch (error) {
+        if (requestId !== usersRequestIdRef.current) {
+          return
+        }
         const detail = error instanceof Error ? error.message : 'Не удалось загрузить пользователей'
         setErrorMessage(detail)
         if (!append) {
@@ -469,8 +484,9 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
           setSelectedUserId(null)
         }
       } finally {
-        usersRequestInFlightRef.current = false
-        setIsLoadingUsers(false)
+        if (requestId === usersRequestIdRef.current) {
+          setIsLoadingUsers(false)
+        }
       }
     },
     [authToken, canUseAdminPanel, open, userSortMode],
@@ -717,7 +733,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
     setIsSavingMaintenanceSettings(false)
     setErrorMessage('')
     setSuccessMessage('')
-    usersRequestInFlightRef.current = false
+    usersRequestIdRef.current += 1
     moderationDetailRequestIdRef.current = 0
   }, [open, resetModerationDrafts, resetSelectedReportTargetPayloads])
 
@@ -1478,7 +1494,22 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                     <MenuItem value="created_desc">Новые сначала</MenuItem>
                     <MenuItem value="coins_desc">По валюте: сначала больше</MenuItem>
                     <MenuItem value="coins_asc">По валюте: сначала меньше</MenuItem>
+                    <MenuItem value="donation_desc">По донату: последние сверху</MenuItem>
                   </TextField>
+                  <Button
+                    variant="outlined"
+                    onClick={() => void loadUsers(query)}
+                    disabled={!canUseAdminPanel || isApplyingUserAction || isLoadingUsers}
+                    sx={{
+                      minHeight: 40,
+                      textTransform: 'none',
+                      borderRadius: 'var(--morius-radius)',
+                      flexShrink: 0,
+                      px: 2,
+                    }}
+                  >
+                    Обновить
+                  </Button>
                 </Stack>
 
                 <Box
@@ -1530,6 +1561,9 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                               </Typography>
                               <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem' }} noWrap>
                                 {user.email} · {getDisplayedTagLabel(user.role, user.profile_tag)}
+                              </Typography>
+                              <Typography sx={{ color: 'text.secondary', fontSize: '0.76rem' }} noWrap>
+                                {formatLastPaymentLabel(user)}
                               </Typography>
                             </Stack>
                             <Typography sx={{ color: 'text.secondary', ml: 1.2, fontSize: '0.85rem' }}>

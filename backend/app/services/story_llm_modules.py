@@ -260,23 +260,47 @@ class NpcCardsPayload(BaseModel):
         for item in value:
             if not isinstance(item, dict):
                 continue
-            action_type = str(item.get("type") or "").strip() or (
-                "create_card" if isinstance(item.get("new_card"), dict) else "no_action"
-            )
+            action_type = str(item.get("type") or item.get("action") or "").strip()
+            if action_type in {"create", "new", "add", "add_card", "create_npc", "create_character"}:
+                action_type = "create_card"
+            elif action_type in {"update", "update_card", "update_npc", "update_character"}:
+                action_type = "update_existing_card"
+            if not action_type:
+                action_type = (
+                    "create_card"
+                    if isinstance(item.get("new_card"), dict) or str(item.get("name") or "").strip()
+                    else "update_existing_card"
+                    if str(item.get("existing_card_id") or item.get("card_id") or "").strip()
+                    else "no_action"
+                )
             if action_type not in {"create_card", "update_existing_card", "no_action"}:
                 continue
             if action_type == "create_card":
                 new_card = item.get("new_card")
                 if not isinstance(new_card, dict):
-                    continue
+                    new_card = {
+                        key: item.get(key)
+                        for key in (
+                            "name",
+                            "race",
+                            "description",
+                            "personality",
+                            "clothing",
+                            "inventory",
+                            "health_status",
+                            "triggers",
+                            "importance_reason",
+                        )
+                        if key in item
+                    }
                 if not str(new_card.get("name") or "").strip():
                     continue
                 item = {**item, "type": action_type, "new_card": new_card}
             elif action_type == "update_existing_card":
-                raw_id = str(item.get("existing_card_id") or "").strip()
+                raw_id = str(item.get("existing_card_id") or item.get("card_id") or "").strip()
                 if not raw_id.isdigit() or int(raw_id) <= 0:
                     continue
-                item = {**item, "type": action_type}
+                item = {**item, "type": action_type, "existing_card_id": raw_id}
             else:
                 item = {**item, "type": action_type}
             cleaned.append(item)
