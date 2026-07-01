@@ -18,6 +18,7 @@ import {
   Switch,
   TextField,
   Typography,
+  useMediaQuery,
 } from '@mui/material'
 import AppHeader from '../components/AppHeader'
 import HeaderAccountActions from '../components/HeaderAccountActions'
@@ -51,6 +52,85 @@ import {
 import type { AuthUser } from '../types/auth'
 import { moriusThemeTokens } from '../theme'
 import { withKnownCosmeticImageUrl } from '../utils/cosmeticImageFallbacks'
+
+type CosmeticSortMode = 'newest' | 'price'
+
+const SHOP_SHOW_MORE_BUTTON_SX = {
+  minHeight: 46,
+  px: 3,
+  borderRadius: '14px',
+  textTransform: 'none',
+  fontWeight: 800,
+  fontSize: '0.95rem',
+  color: 'var(--morius-title-text)',
+  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+  backgroundColor: 'var(--morius-elevated-bg)',
+  '&:hover': { backgroundColor: 'var(--morius-button-hover)', borderColor: 'var(--morius-hover-border)' },
+} as const
+
+function sortCosmetics(items: CosmeticItem[], mode: CosmeticSortMode): CosmeticItem[] {
+  const sorted = [...items]
+  sorted.sort((a, b) => {
+    if (mode === 'price' && a.price_coins !== b.price_coins) {
+      return a.price_coins - b.price_coins
+    }
+    if (mode === 'newest') {
+      const aTime = a.created_at ? Date.parse(a.created_at) : 0
+      const bTime = b.created_at ? Date.parse(b.created_at) : 0
+      if (aTime !== bTime) {
+        return bTime - aTime
+      }
+    }
+    return b.id - a.id
+  })
+  return sorted
+}
+
+function CosmeticSortToggle({ value, onChange }: { value: CosmeticSortMode; onChange: (mode: CosmeticSortMode) => void }) {
+  const options: Array<{ key: CosmeticSortMode; label: string }> = [
+    { key: 'newest', label: 'По новизне' },
+    { key: 'price', label: 'По цене' },
+  ]
+  return (
+    <Stack
+      direction="row"
+      spacing={0.4}
+      sx={{
+        p: 0.4,
+        borderRadius: '12px',
+        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+        backgroundColor: 'var(--morius-elevated-bg)',
+        flexShrink: 0,
+      }}
+    >
+      {options.map((option) => {
+        const active = value === option.key
+        return (
+          <Button
+            key={option.key}
+            onClick={() => onChange(option.key)}
+            sx={{
+              minHeight: 32,
+              px: 1.2,
+              borderRadius: '9px',
+              textTransform: 'none',
+              fontSize: '0.82rem',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              color: active ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
+              backgroundColor: active ? 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-card-bg))' : 'transparent',
+              '&:hover': {
+                backgroundColor: active ? 'color-mix(in srgb, var(--morius-accent) 26%, var(--morius-card-bg))' : 'var(--morius-button-hover)',
+              },
+            }}
+          >
+            {option.label}
+          </Button>
+        )
+      })}
+    </Stack>
+  )
+}
 
 type ShopPageProps = {
   user: AuthUser
@@ -368,6 +448,25 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   const plans = catalog?.plans.length ? catalog.plans : DEFAULT_PLANS
   const paidFrames = useMemo(() => (catalog?.avatar_frames ?? []).map(withKnownCosmeticImageUrl), [catalog?.avatar_frames])
   const paidBanners = useMemo(() => (catalog?.profile_banners ?? []).map(withKnownCosmeticImageUrl), [catalog?.profile_banners])
+  // Cosmetic sections: 2 rows shown by default, "Показать больше" loads +2 rows, with a per-section sort.
+  const isShopSm = useMediaQuery('(min-width:600px)')
+  const isShopLg = useMediaQuery('(min-width:1200px)')
+  const framesPerRow = isShopLg ? 5 : isShopSm ? 3 : 2
+  const bannersPerRow = isShopLg ? 4 : isShopSm ? 2 : 1
+  const [framesSort, setFramesSort] = useState<CosmeticSortMode>('newest')
+  const [bannersSort, setBannersSort] = useState<CosmeticSortMode>('newest')
+  const [framesVisibleRows, setFramesVisibleRows] = useState(2)
+  const [bannersVisibleRows, setBannersVisibleRows] = useState(2)
+  const sortedFrames = useMemo(() => sortCosmetics(paidFrames, framesSort), [paidFrames, framesSort])
+  const sortedBanners = useMemo(() => sortCosmetics(paidBanners, bannersSort), [paidBanners, bannersSort])
+  const visibleFrames = useMemo(
+    () => sortedFrames.slice(0, framesPerRow * framesVisibleRows),
+    [sortedFrames, framesPerRow, framesVisibleRows],
+  )
+  const visibleBanners = useMemo(
+    () => sortedBanners.slice(0, bannersPerRow * bannersVisibleRows),
+    [sortedBanners, bannersPerRow, bannersVisibleRows],
+  )
   const ownedSelectionIds = useMemo(() => new Set(catalog?.owned_selection_ids ?? []), [catalog?.owned_selection_ids])
   const previewAvatarUser = useMemo(() => ({ ...user, avatar_frame_id: 'none', avatar_frame_image_url: null }), [user])
 
@@ -1159,27 +1258,59 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
 
           <Box>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 1.2 }}>
-              <Box>
+              <Box sx={{ minWidth: 0 }}>
                 <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.35rem', fontWeight: 900 }}>Рамки аватарок</Typography>
               <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem' }}>Только покупаемые рамки для аватарок, профиля, комментариев и карточек автора.</Typography>
               </Box>
-              {isLoadingCatalog ? <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem' }}>Загружаем...</Typography> : null}
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ flexShrink: 0 }}>
+                {isLoadingCatalog ? <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem' }}>Загружаем...</Typography> : null}
+                {sortedFrames.length > 1 ? (
+                  <CosmeticSortToggle value={framesSort} onChange={(mode) => { setFramesSort(mode); setFramesVisibleRows(2) }} />
+                ) : null}
+              </Stack>
             </Stack>
             <Box sx={{ display: 'grid', gap: 1.2, gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', lg: 'repeat(5, minmax(0, 1fr))' } }}>
-              {paidFrames.length > 0 ? paidFrames.map(renderPaidCosmeticCard) : (
+              {sortedFrames.length > 0 ? visibleFrames.map(renderPaidCosmeticCard) : (
                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem' }}>Платные рамки скоро появятся.</Typography>
               )}
             </Box>
+            {visibleFrames.length < sortedFrames.length ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1.6 }}>
+                <Button
+                  onClick={() => setFramesVisibleRows((rows) => rows + 2)}
+                  sx={SHOP_SHOW_MORE_BUTTON_SX}
+                >
+                  Показать больше
+                </Button>
+              </Box>
+            ) : null}
           </Box>
 
           <Box>
-            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.35rem', fontWeight: 900, mb: 0.4 }}>Баннеры профиля</Typography>
-            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', mb: 1.2 }}>Только покупаемые баннеры для публичного профиля.</Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 1.2 }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.35rem', fontWeight: 900 }}>Баннеры профиля</Typography>
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem' }}>Только покупаемые баннеры для публичного профиля.</Typography>
+              </Box>
+              {sortedBanners.length > 1 ? (
+                <CosmeticSortToggle value={bannersSort} onChange={(mode) => { setBannersSort(mode); setBannersVisibleRows(2) }} />
+              ) : null}
+            </Stack>
             <Box sx={{ display: 'grid', gap: 1.2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' } }}>
-              {paidBanners.length > 0 ? paidBanners.map(renderPaidCosmeticCard) : (
+              {sortedBanners.length > 0 ? visibleBanners.map(renderPaidCosmeticCard) : (
                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem' }}>Платные баннеры скоро появятся.</Typography>
               )}
             </Box>
+            {visibleBanners.length < sortedBanners.length ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1.6 }}>
+                <Button
+                  onClick={() => setBannersVisibleRows((rows) => rows + 2)}
+                  sx={SHOP_SHOW_MORE_BUTTON_SX}
+                >
+                  Показать больше
+                </Button>
+              </Box>
+            ) : null}
           </Box>
         </Stack>
       </Box>

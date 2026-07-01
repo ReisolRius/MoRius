@@ -73,9 +73,9 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(payload.display_mode, "visual_novel")
 
     def test_response_token_limit_allows_new_ceiling(self) -> None:
-        payload = StoryGameSettingsUpdateRequest(response_max_tokens=4_500)
+        payload = StoryGameSettingsUpdateRequest(response_max_tokens=3_000)
 
-        self.assertEqual(payload.response_max_tokens, 4_500)
+        self.assertEqual(payload.response_max_tokens, 3_000)
         self.assertIn("response_max_tokens", payload.model_fields_set)
 
     def test_glm51_allows_128k_and_other_models_cap_at_64k(self) -> None:
@@ -108,16 +108,16 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         effective_limit = monolith_main._effective_story_context_limit_tokens(
             128_000,
             model_name="aion-labs/aion-2.0",
-            response_max_tokens=4_500,
+            response_max_tokens=3_000,
         )
 
         self.assertEqual(effective_limit, 64_000)
-        self.assertLessEqual(effective_limit + 4_500, 131_072)
+        self.assertLessEqual(effective_limit + 3_000, 131_072)
         self.assertEqual(
             monolith_main._effective_story_context_limit_tokens(
                 128_000,
                 model_name="z-ai/glm-5.1",
-                response_max_tokens=4_500,
+                response_max_tokens=3_000,
             ),
             128_000,
         )

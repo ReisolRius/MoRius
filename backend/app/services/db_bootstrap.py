@@ -1778,6 +1778,35 @@ def _resolve_legacy_story_avatar_media_value(
     return str(resolved_value or "").strip() or normalized_value
 
 
+def _repair_story_response_token_limits() -> None:
+    """Force every game's stored response-token ceiling back to the current canonical
+    values, regardless of whatever was persisted under old limits. The switchable
+    per-game override was removed from the interface, so any stale stored value (e.g.
+    from when the hidden ceiling was 4500) must not be allowed to desync from the
+    ceiling the runtime actually enforces (STORY_RESPONSE_MAX_TOKENS_MAX for regular
+    models, SUBSCRIPTION_RESPONSE_MAX_TOKENS for subscription-only models).
+    """
+    from app.services.story_games import STORY_RESPONSE_MAX_TOKENS_MAX, STORY_SUBSCRIPTION_LLM_MODELS
+    from app.services.subscriptions import SUBSCRIPTION_RESPONSE_MAX_TOKENS
+
+    with SessionLocal() as db:
+        changed = False
+        for game in db.query(StoryGame).all():
+            target_limit = (
+                SUBSCRIPTION_RESPONSE_MAX_TOKENS
+                if getattr(game, "story_llm_model", None) in STORY_SUBSCRIPTION_LLM_MODELS
+                else STORY_RESPONSE_MAX_TOKENS_MAX
+            )
+            if int(getattr(game, "response_max_tokens", 0) or 0) != target_limit:
+                game.response_max_tokens = target_limit
+                changed = True
+            if getattr(game, "response_max_tokens_enabled", False):
+                game.response_max_tokens_enabled = False
+                changed = True
+        if changed:
+            db.commit()
+
+
 def _repair_legacy_story_avatar_media_tokens() -> None:
     with SessionLocal() as db:
         changed = False
@@ -1926,4 +1955,5 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     _ensure_story_graph_undo_columns_exist()
     _ensure_story_memory_block_schema()
     _repair_legacy_story_avatar_media_tokens()
+    _repair_story_response_token_limits()
     _ensure_performance_indexes_exist()

@@ -41,8 +41,8 @@ class _FakeStreamResponse(_FakeResponse):
 
 
 class StoryServiceModelResilienceTests(unittest.TestCase):
-    def test_story_response_limit_remains_4500_tokens(self) -> None:
-        self.assertEqual(monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX, 4_500)
+    def test_story_response_limit_remains_3000_tokens(self) -> None:
+        self.assertEqual(monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX, 3_000)
 
     def test_openrouter_turn_retry_covers_transient_gateway_and_timeout_statuses(self) -> None:
         for status_code in (408, 409, 425, 429, 499, 500, 502, 503, 504):
@@ -258,6 +258,51 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             )
 
         self.assertEqual("".join(chunks), "Начало и продолжение.")
+        self.assertEqual(post_mock.call_count, 1)
+        recover_mock.assert_called_once()
+
+    def test_stream_recovers_tail_even_when_provider_falsely_reports_stop(self) -> None:
+        # Regression guard: Polza/OpenRouter can report finish_reason "stop" (and send [DONE])
+        # even though the emitted text was cut off mid-sentence. The dangling-text heuristic
+        # must still trigger tail recovery instead of trusting that metadata at face value.
+        response = _FakeStreamResponse(
+            [
+                (
+                    'data: {"choices":[{"delta":{"content":"Начало обрыва"},'
+                    '"finish_reason":"stop"}]}'
+                ),
+                "data: [DONE]",
+            ]
+        )
+        with (
+            patch.object(
+                story_generation_provider,
+                "_build_story_provider_messages",
+                return_value=[
+                    {"role": "system", "content": "system"},
+                    {"role": "user", "content": "turn"},
+                ],
+            ),
+            patch.object(story_generation_provider.HTTP_SESSION, "post", return_value=response) as post_mock,
+            patch.object(
+                story_generation_provider,
+                "_recover_polza_story_stream_tail",
+                return_value=" и завершение.",
+            ) as recover_mock,
+        ):
+            chunks = list(
+                story_generation_provider._iter_polza_story_stream_chunks(
+                    [],
+                    [],
+                    [],
+                    [],
+                    context_limit_chars=6_000,
+                    model_name="deepseek/deepseek-v3.2",
+                    max_tokens=3_000,
+                )
+            )
+
+        self.assertEqual("".join(chunks), "Начало обрыва и завершение.")
         self.assertEqual(post_mock.call_count, 1)
         recover_mock.assert_called_once()
 

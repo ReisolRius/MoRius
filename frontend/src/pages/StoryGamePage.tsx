@@ -803,7 +803,7 @@ const STORY_KEY_MEMORY_BUDGET_SHARE = 0.1
 const STORY_KEY_MEMORY_MIN_BUDGET_TOKENS = 500
 const STORY_PLOT_CONTEXT_MAX_SHARE = 0.35
 const STORY_RESPONSE_MAX_TOKENS_MIN = 200
-const STORY_RESPONSE_MAX_TOKENS_MAX = 4500
+const STORY_RESPONSE_MAX_TOKENS_MAX = 3000
 const STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 const STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6000
 const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
@@ -1407,6 +1407,19 @@ const STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS: StorySubscriptionNarratorModelO
 const STORY_SUBSCRIPTION_NARRATOR_MODEL_IDS = new Set<StoryNarratorModelId>(
   STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS.map((option) => option.id),
 )
+// Context-memory cap per subscription plan (mirrors backend SUBSCRIPTION_PLANS memory_token_cap).
+const STORY_SUBSCRIPTION_PLAN_MEMORY_CAP: Record<string, number> = {
+  Искра: 8000,
+  Пламя: 20000,
+  Созвездие: 32000,
+}
+// Fallback cap by model (its minimum plan), used when there is no active subscription (e.g. admin test).
+const STORY_SUBSCRIPTION_MODEL_DEFAULT_CAP = new Map<StoryNarratorModelId, number>(
+  STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS.map((option) => [
+    option.id,
+    STORY_SUBSCRIPTION_PLAN_MEMORY_CAP[option.minPlanTitle] ?? 8000,
+  ]),
+)
 function isStorySubscriptionNarratorModelId(value: string | null | undefined): boolean {
   return STORY_SUBSCRIPTION_NARRATOR_MODEL_IDS.has((value ?? '') as StoryNarratorModelId)
 }
@@ -1467,7 +1480,7 @@ const STORY_SETTINGS_INFO_TEXT = {
     'Ограничение памяти истории для ИИ. GLM 5.1 и AionLabs могут держать до 128000 токенов, остальные рассказчики ограничены 64000. Чем выше лимит, тем дороже ход.',
   responseTokens: 'Максимум токенов ответа. ИИ может ответить короче и получает инструкцию завершать мысль внутри выбранного бюджета.',
   responseTokenLimit:
-    'Админ-настройка. Когда выключена, скрытый потолок 4500 токенов не отправляется в запрос рассказчика. Обычные пользователи всегда остаются под защитным лимитом.',
+    'Админ-настройка. Когда выключена, скрытый потолок 3000 токенов не отправляется в запрос рассказчика. Обычные пользователи всегда остаются под защитным лимитом.',
   showGgThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли вашего ГГ.',
   showNpcThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли NPC.',
   memoryOptimization:
@@ -4439,18 +4452,34 @@ function getStoryMemoryLayerLabel(
   return `${title} · ${legacyLabelExists ? share : share}%`
 }
 
-function getStoryContextLimitMax(modelId: StoryNarratorModelId | string | null | undefined): number {
+function getStoryContextLimitMax(
+  modelId: StoryNarratorModelId | string | null | undefined,
+  subscriptionMemoryCap?: number | null,
+): number {
+  if (isStorySubscriptionNarratorModelId(modelId)) {
+    const fallbackCap = STORY_SUBSCRIPTION_MODEL_DEFAULT_CAP.get(modelId as StoryNarratorModelId) ?? 8000
+    const rawCap =
+      typeof subscriptionMemoryCap === 'number' && subscriptionMemoryCap > 0 ? subscriptionMemoryCap : fallbackCap
+    return Math.min(STORY_CONTEXT_LIMIT_STANDARD_MAX, Math.max(STORY_CONTEXT_LIMIT_MIN, rawCap))
+  }
   return STORY_EXTENDED_CONTEXT_NARRATOR_MODELS.has(modelId as StoryNarratorModelId)
     ? STORY_CONTEXT_LIMIT_GLM51_MAX
     : STORY_CONTEXT_LIMIT_STANDARD_MAX
 }
 
-function clampStoryContextLimit(value: number, modelId?: StoryNarratorModelId | string | null): number {
+function clampStoryContextLimit(
+  value: number,
+  modelId?: StoryNarratorModelId | string | null,
+  subscriptionMemoryCap?: number | null,
+): number {
   if (!Number.isFinite(value)) {
     return STORY_DEFAULT_CONTEXT_LIMIT
   }
   const roundedValue = Math.round(value / STORY_CONTEXT_LIMIT_STEP) * STORY_CONTEXT_LIMIT_STEP
-  return Math.min(getStoryContextLimitMax(modelId), Math.max(STORY_CONTEXT_LIMIT_MIN, roundedValue))
+  return Math.min(
+    getStoryContextLimitMax(modelId, subscriptionMemoryCap),
+    Math.max(STORY_CONTEXT_LIMIT_MIN, roundedValue),
+  )
 }
 
 function clampStoryResponseMaxTokens(value: number): number {
@@ -6719,8 +6748,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [responseMaxTokens, setResponseMaxTokens] = useState(STORY_DEFAULT_RESPONSE_MAX_TOKENS)
   const [responseMaxTokensEnabled, setResponseMaxTokensEnabled] = useState(false)
   const [responseTokenLimitEnabled, setResponseTokenLimitEnabled] = useState(false)
-  const [isSavingResponseMaxTokens, setIsSavingResponseMaxTokens] = useState(false)
-  const [isSavingResponseMaxTokensEnabled, setIsSavingResponseMaxTokensEnabled] = useState(false)
+  // Switchable response-token limit control was removed from the UI; these flags stay false
+  // so the remaining save-guards keep compiling without the (now deleted) handlers.
+  const isSavingResponseMaxTokens = false
+  const isSavingResponseMaxTokensEnabled = false
   const [isSavingResponseTokenLimit, setIsSavingResponseTokenLimit] = useState(false)
   const [storyLlmModel, setStoryLlmModel] = useState<StoryNarratorModelId>(STORY_DEFAULT_NARRATOR_MODEL_ID)
   const [storyImageModel, setStoryImageModel] = useState<StoryImageModelId>(STORY_DEFAULT_IMAGE_MODEL_ID)
@@ -7322,6 +7353,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => isStorySubscriptionNarratorModelId(storyLlmModel),
     [storyLlmModel],
   )
+  // Active subscription context cap (Искра 8k / Пламя 20k / Созвездие 32k). Null when no subscription;
+  // getStoryContextLimitMax then falls back to the selected model's minimum-plan cap.
+  const subscriptionMemoryCap = user.subscription?.memory_token_cap ?? null
   const selectedNarratorSamplingDefaults = useMemo(
     () => getStoryNarratorSamplingDefaults(storyLlmModel),
     [storyLlmModel],
@@ -7332,7 +7366,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const normalizedRuntimeStoryModel = normalizeStoryNarratorModelId(runtimeGame.story_llm_model)
     const override = storySettingsOverridesRef.current[game.id]
     const effectiveContextModel = override ? normalizeStoryNarratorModelId(override.storyLlmModel) : normalizedRuntimeStoryModel
-    const normalizedContextLimit = clampStoryContextLimit(game.context_limit_chars, effectiveContextModel)
+    const normalizedContextLimit = clampStoryContextLimit(game.context_limit_chars, effectiveContextModel, subscriptionMemoryCap)
     setContextLimitChars(normalizedContextLimit)
     setContextLimitDraft(String(normalizedContextLimit))
     const runtimeSamplingDefaults = getStoryNarratorSamplingDefaults(normalizedRuntimeStoryModel)
@@ -8136,7 +8170,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const cardsContextUsagePercent =
     contextLimitChars > 0 ? Math.min(100, (cardsContextCharsUsed / contextLimitChars) * 100) : 100
   const plotContextOverflowTokens = Math.max(rawPlotContextTokensUsed - plotBudgetTokens, 0)
-  const currentStoryContextLimitMax = getStoryContextLimitMax(storyLlmModel)
+  const currentStoryContextLimitMax = getStoryContextLimitMax(storyLlmModel, subscriptionMemoryCap)
   const recommendedContextLimitForBudget = useMemo(() => {
     if (plotContextOverflowTokens <= 0) {
       return contextLimitChars
@@ -8147,6 +8181,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     return clampStoryContextLimit(
       Math.min(currentStoryContextLimitMax, Math.max(plotCapRequirement, fixedBudgetRequirement)),
       storyLlmModel,
+      subscriptionMemoryCap,
     )
   }, [
     contextLimitChars,
@@ -13907,7 +13942,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return
       }
 
-      const normalizedValue = clampStoryContextLimit(nextValue, storyLlmModel)
+      const normalizedValue = clampStoryContextLimit(nextValue, storyLlmModel, subscriptionMemoryCap)
       setContextLimitChars(normalizedValue)
       setContextLimitDraft(String(normalizedValue))
       setErrorMessage('')
@@ -13922,7 +13957,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           showNpcThoughts: showNpcThoughts,
         })
         const persistedModel = normalizeStoryNarratorModelId(updatedGame.story_llm_model)
-        const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars, persistedModel)
+        const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars, persistedModel, subscriptionMemoryCap)
         setContextLimitChars(persistedContextLimit)
         setContextLimitDraft(String(persistedContextLimit))
         applyUpdatedGameSummary({ ...updatedGame, context_limit_chars: persistedContextLimit })
@@ -13974,7 +14009,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
 
-    const roundedContextLimit = clampStoryContextLimit(rawContextLimit, storyLlmModel)
+    const roundedContextLimit = clampStoryContextLimit(rawContextLimit, storyLlmModel, subscriptionMemoryCap)
     if (roundedContextLimit === rawContextLimit) {
       autoRoundedContextLimitKeyRef.current = null
       return
@@ -14005,109 +14040,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     persistContextLimit,
     storyLlmModel,
   ])
-
-  const persistStoryResponseMaxTokens = useCallback(
-    async (nextValue: number) => {
-      const targetGameId = activeGameId
-      if (
-        !targetGameId ||
-        !responseMaxTokensEnabled ||
-        isSavingResponseMaxTokens ||
-        isSavingResponseMaxTokensEnabled ||
-        isSavingResponseTokenLimit ||
-        isSavingContextLimit ||
-        isSavingStoryLlmModel ||
-        isSavingMemoryOptimization ||
-        isSavingStorySampling ||
-        isSavingThoughtVisibility ||
-        isSavingAmbientEnabled
-      ) {
-        return
-      }
-
-      const normalizedValue = clampStoryResponseMaxTokens(nextValue)
-      const saveVersion = responseTokenSettingsSaveVersionRef.current + 1
-      responseTokenSettingsSaveVersionRef.current = saveVersion
-      const saveCount = storySettingsSaveCounterRef.current + 1
-      storySettingsSaveCounterRef.current = saveCount
-      const startedAt = performance.now()
-      setResponseMaxTokens(normalizedValue)
-      setStorySettingsOverrides((previousOverrides) => ({
-        ...previousOverrides,
-        [targetGameId]: {
-          ...previousOverrides[targetGameId],
-          storyLlmModel,
-          responseMaxTokens: normalizedValue,
-          responseMaxTokensEnabled: true,
-          responseTokenLimitEnabled,
-          memoryOptimizationEnabled,
-          memoryOptimizationMode,
-          storyRepetitionPenalty,
-          storyTemperature,
-          storyTopK,
-          storyTopR,
-          showGgThoughts,
-          showNpcThoughts,
-          ambientEnabled,
-        },
-      }))
-      setErrorMessage('')
-      setIsSavingResponseMaxTokens(true)
-      try {
-        const updatedGame = await updateStoryGameSettings({
-          token: authToken,
-          gameId: targetGameId,
-          responseMaxTokens: normalizedValue,
-          responseMaxTokensEnabled: true,
-        })
-        if (responseTokenSettingsSaveVersionRef.current !== saveVersion) {
-          return
-        }
-        setGames((previousGames) =>
-          sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
-        )
-        logStoryPerf('response-max-tokens-save', {
-          saveCount,
-          elapsedMs: Math.round((performance.now() - startedAt) * 10) / 10,
-          fields: ['response_max_tokens', 'response_max_tokens_enabled'],
-        })
-      } catch (error) {
-        if (responseTokenSettingsSaveVersionRef.current !== saveVersion) {
-          return
-        }
-        const detail = error instanceof Error ? error.message : 'Не удалось обновить лимит ответа '
-        setErrorMessage(detail)
-      } finally {
-        if (responseTokenSettingsSaveVersionRef.current === saveVersion) {
-          setIsSavingResponseMaxTokens(false)
-        }
-      }
-    },
-    [
-      activeGameId,
-      authToken,
-      isSavingAmbientEnabled,
-      isSavingContextLimit,
-      memoryOptimizationEnabled,
-      ambientEnabled,
-      isSavingMemoryOptimization,
-      isSavingResponseMaxTokens,
-      isSavingResponseMaxTokensEnabled,
-      isSavingResponseTokenLimit,
-      isSavingStoryLlmModel,
-      isSavingStorySampling,
-      isSavingThoughtVisibility,
-      responseMaxTokensEnabled,
-      responseTokenLimitEnabled,
-      storyLlmModel,
-      storyRepetitionPenalty,
-      storyTemperature,
-      storyTopK,
-      storyTopR,
-      showGgThoughts,
-      showNpcThoughts,
-    ],
-  )
 
   const persistStoryNarratorModel = useCallback(
     async (nextModelId: StoryNarratorModelId) => {
@@ -14146,7 +14078,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const previousResponseMaxTokensEnabled = responseMaxTokensEnabled
       const previousContextLimitChars = contextLimitChars
       const previousContextLimitDraft = contextLimitDraft
-      const nextContextLimitChars = clampStoryContextLimit(contextLimitChars, normalizedModel)
+      const nextContextLimitChars = clampStoryContextLimit(contextLimitChars, normalizedModel, subscriptionMemoryCap)
       setStoryLlmModel(normalizedModel)
       setContextLimitChars(nextContextLimitChars)
       setContextLimitDraft(String(nextContextLimitChars))
@@ -14193,7 +14125,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           ambientEnabled: previousAmbientEnabled,
         })
         const persistedModel = normalizeStoryNarratorModelId(updatedGame.story_llm_model)
-        const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars, persistedModel)
+        const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars, persistedModel, subscriptionMemoryCap)
         setContextLimitChars(persistedContextLimit)
         setContextLimitDraft(String(persistedContextLimit))
         const persistedTemperature =
@@ -15625,157 +15557,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     storyLlmModel,
   ])
 
-  const toggleResponseMaxTokensEnabled = useCallback(async () => {
-    const targetGameId = activeGameId
-    if (
-      !targetGameId ||
-      isSavingResponseMaxTokensEnabled ||
-      isSavingResponseMaxTokens ||
-      isSavingResponseTokenLimit ||
-      isSavingContextLimit ||
-      isSavingStoryLlmModel ||
-      isSavingMemoryOptimization ||
-      isSavingStorySampling ||
-      isSavingThoughtVisibility ||
-      isSavingAmbientEnabled ||
-      isGenerating
-    ) {
-      return
-    }
-
-    const nextValue = !responseMaxTokensEnabled
-    const normalizedResponseMaxTokens = clampStoryResponseMaxTokens(responseMaxTokens)
-    const previousValue = responseMaxTokensEnabled
-    const previousResponseMaxTokens = responseMaxTokens
-    const previousStoryLlmModel = storyLlmModel
-    const previousMemoryOptimization = memoryOptimizationEnabled
-    const previousStoryTopK = storyTopK
-    const previousStoryTopR = storyTopR
-    const previousShowGgThoughts = showGgThoughts
-    const previousShowNpcThoughts = showNpcThoughts
-    const previousAmbientEnabled = ambientEnabled
-    const saveVersion = responseTokenSettingsSaveVersionRef.current + 1
-    responseTokenSettingsSaveVersionRef.current = saveVersion
-    const saveCount = storySettingsSaveCounterRef.current + 1
-    storySettingsSaveCounterRef.current = saveCount
-    const startedAt = performance.now()
-    setResponseMaxTokensEnabled(nextValue)
-    setResponseMaxTokens(normalizedResponseMaxTokens)
-    setStorySettingsOverrides((previousOverrides) => ({
-      ...previousOverrides,
-      [targetGameId]: {
-        ...previousOverrides[targetGameId],
-        storyLlmModel: previousStoryLlmModel,
-        responseMaxTokens: normalizedResponseMaxTokens,
-        responseMaxTokensEnabled: nextValue,
-        responseTokenLimitEnabled,
-        memoryOptimizationEnabled: previousMemoryOptimization,
-        memoryOptimizationMode,
-        storyTopK: previousStoryTopK,
-        storyTopR: previousStoryTopR,
-        showGgThoughts: previousShowGgThoughts,
-        showNpcThoughts: previousShowNpcThoughts,
-        ambientEnabled: previousAmbientEnabled,
-      },
-    }))
-    setErrorMessage('')
-    setIsSavingResponseMaxTokensEnabled(true)
-    try {
-      const updatedGame = await updateStoryGameSettings({
-        token: authToken,
-        gameId: targetGameId,
-        responseMaxTokensEnabled: nextValue,
-        responseMaxTokens: normalizedResponseMaxTokens,
-      })
-      if (responseTokenSettingsSaveVersionRef.current !== saveVersion) {
-        return
-      }
-      setResponseMaxTokensEnabled(Boolean(updatedGame.response_max_tokens_enabled))
-      setResponseMaxTokens(clampStoryResponseMaxTokens(updatedGame.response_max_tokens))
-      setResponseTokenLimitEnabled(Boolean(updatedGame.response_token_limit_enabled))
-      applyUpdatedGameSummary(updatedGame)
-      logStoryPerf('response-max-tokens-enabled-save', {
-        saveCount,
-        elapsedMs: Math.round((performance.now() - startedAt) * 10) / 10,
-        fields: ['response_max_tokens_enabled', 'response_max_tokens'],
-        enabled: nextValue,
-      })
-    } catch (error) {
-      if (responseTokenSettingsSaveVersionRef.current !== saveVersion) {
-        return
-      }
-      setResponseMaxTokensEnabled(previousValue)
-      setResponseMaxTokens(previousResponseMaxTokens)
-      setStorySettingsOverrides((previousOverrides) => ({
-        ...previousOverrides,
-        [targetGameId]: {
-          ...previousOverrides[targetGameId],
-          storyLlmModel: previousStoryLlmModel,
-          responseMaxTokens: previousResponseMaxTokens,
-          responseMaxTokensEnabled: previousValue,
-          responseTokenLimitEnabled,
-          memoryOptimizationEnabled: previousMemoryOptimization,
-          memoryOptimizationMode,
-          storyTopK: previousStoryTopK,
-          storyTopR: previousStoryTopR,
-          showGgThoughts: previousShowGgThoughts,
-          showNpcThoughts: previousShowNpcThoughts,
-          ambientEnabled: previousAmbientEnabled,
-        },
-      }))
-      const detail = error instanceof Error ? error.message : 'Не удалось обновить режим лимита ответа '
-      setErrorMessage(detail)
-    } finally {
-      if (responseTokenSettingsSaveVersionRef.current === saveVersion) {
-        setIsSavingResponseMaxTokensEnabled(false)
-      }
-    }
-  }, [
-    activeGameId,
-    ambientEnabled,
-    applyUpdatedGameSummary,
-    authToken,
-    isGenerating,
-    isSavingAmbientEnabled,
-    isSavingContextLimit,
-    isSavingMemoryOptimization,
-    isSavingResponseMaxTokens,
-    isSavingResponseMaxTokensEnabled,
-    isSavingResponseTokenLimit,
-    isSavingStoryLlmModel,
-    isSavingStorySampling,
-    isSavingThoughtVisibility,
-    memoryOptimizationEnabled,
-    memoryOptimizationMode,
-    responseMaxTokens,
-    responseMaxTokensEnabled,
-    responseTokenLimitEnabled,
-    showGgThoughts,
-    showNpcThoughts,
-    storyTopK,
-    storyTopR,
-    storyLlmModel,
-  ])
-
-  const handleResponseMaxTokensSliderChange = useCallback((_event: Event, nextValue: number | number[]) => {
-    const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
-    setResponseMaxTokens(clampStoryResponseMaxTokens(rawValue))
-  }, [])
-
-  const handleResponseMaxTokensSliderCommit = useCallback(
-    async (_event: unknown, nextValue: number | number[]) => {
-      const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
-      await persistStoryResponseMaxTokens(rawValue)
-    },
-    [persistStoryResponseMaxTokens],
-  )
-
   const handleContextLimitSliderChange = useCallback((_event: Event, nextValue: number | number[]) => {
     const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
-    const normalizedValue = clampStoryContextLimit(rawValue, storyLlmModel)
+    const normalizedValue = clampStoryContextLimit(rawValue, storyLlmModel, subscriptionMemoryCap)
     setContextLimitChars(normalizedValue)
     setContextLimitDraft(String(normalizedValue))
-  }, [storyLlmModel])
+  }, [storyLlmModel, subscriptionMemoryCap])
 
   const handleContextLimitSliderCommit = useCallback(
     async (_event: unknown, nextValue: number | number[]) => {
@@ -15795,8 +15582,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (Number.isNaN(parsed)) {
       return
     }
-    setContextLimitChars(clampStoryContextLimit(parsed, storyLlmModel))
-  }, [storyLlmModel])
+    setContextLimitChars(clampStoryContextLimit(parsed, storyLlmModel, subscriptionMemoryCap))
+  }, [storyLlmModel, subscriptionMemoryCap])
 
   const handleImageStylePromptDraftChange = useCallback((value: string) => {
     setImageStylePromptDraft(sanitizeStoryImageStylePromptDraft(value))
@@ -15804,18 +15591,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
   const handleContextLimitDraftCommit = useCallback(async () => {
     if (!contextLimitDraft.trim()) {
-      const normalized = clampStoryContextLimit(contextLimitChars, storyLlmModel)
+      const normalized = clampStoryContextLimit(contextLimitChars, storyLlmModel, subscriptionMemoryCap)
       setContextLimitDraft(String(normalized))
       await persistContextLimit(normalized)
       return
     }
 
     const parsed = Number.parseInt(contextLimitDraft, 10)
-    const normalized = clampStoryContextLimit(Number.isNaN(parsed) ? contextLimitChars : parsed, storyLlmModel)
+    const normalized = clampStoryContextLimit(Number.isNaN(parsed) ? contextLimitChars : parsed, storyLlmModel, subscriptionMemoryCap)
     setContextLimitChars(normalized)
     setContextLimitDraft(String(normalized))
     await persistContextLimit(normalized)
-  }, [contextLimitChars, contextLimitDraft, persistContextLimit, storyLlmModel])
+  }, [contextLimitChars, contextLimitDraft, persistContextLimit, storyLlmModel, subscriptionMemoryCap])
 
   const persistStorySamplingSettings = useCallback(
     async (nextTemperature: number, nextRepetitionPenalty: number, nextTopK: number, nextTopR: number) => {
@@ -16565,7 +16352,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             }))
             .filter((card) => card.title.length > 0 && card.content.length > 0),
           storyLlmModel,
-          responseMaxTokens: responseMaxTokensEnabled ? responseMaxTokens : undefined,
+          // Switchable response-token limit removed from UI; backend applies the hidden ceiling.
+          responseMaxTokens: undefined,
           memoryOptimizationEnabled,
           storyTemperature,
           storyRepetitionPenalty,
@@ -21805,46 +21593,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     ) : null}
                   </Stack>
 
-                  <Stack spacing={0.8}>
-                    <RightPanelSectionHeading title="Длина ответа" />
-                    <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
-                      <RightPanelSettingRow
-                        title="Ограничивать длину"
-                        description="ИИ может отвечать короче заданного предела"
-                        checked={responseMaxTokensEnabled}
-                        onToggle={() => {
-                          void toggleResponseMaxTokensEnabled()
-                        }}
-                        disabled={isSavingResponseMaxTokensEnabled || isSavingResponseMaxTokens || isSavingResponseTokenLimit || isGenerating}
-                        tooltip={STORY_SETTINGS_INFO_TEXT.responseTokens}
-                      />
-                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.45 }}>
-                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', fontWeight: 900 }}>
-                          Максимум токенов
-                        </Typography>
-                        <Typography sx={{ color: '#AFC8FF', fontSize: '0.92rem', fontWeight: 950 }}>{responseMaxTokens}</Typography>
-                      </Stack>
-                      <Slider
-                        value={responseMaxTokens}
-                        min={STORY_RESPONSE_MAX_TOKENS_MIN}
-                        max={STORY_RESPONSE_MAX_TOKENS_MAX}
-                        step={1}
-                        onChange={handleResponseMaxTokensSliderChange}
-                        onChangeCommitted={(event, value) => {
-                          void handleResponseMaxTokensSliderCommit(event, value)
-                        }}
-                        disabled={!responseMaxTokensEnabled || isSavingStorySettings || isSavingResponseTokenLimit || isGenerating}
-                        sx={{
-                          mt: 0.5,
-                          color: 'var(--morius-accent)',
-                          '& .MuiSlider-thumb': { width: 22, height: 22, backgroundColor: 'var(--morius-accent)' },
-                          '& .MuiSlider-track': { height: 5, border: 'none' },
-                          '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
-                        }}
-                      />
-                    </Box>
-                  </Stack>
-
                   {(
                     <Stack spacing={0.8}>
                       <Button
@@ -23807,100 +23555,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 </Alert>
                               ) : null}
                             </>
-                          ) : null}
-                        </Box>
-
-                        <Box
-                          sx={{
-                            mt: 0.98,
-                            pt: 0.9,
-                            borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-                          }}
-                        >
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                            <Stack direction="row" spacing={0.45} alignItems="center">
-                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 700 }}>
-                                Максимум токенов ответа
-                              </Typography>
-                              <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.responseTokens} />
-                            </Stack>
-                            <Switch
-                              checked={responseMaxTokensEnabled}
-                              onChange={() => {
-                                void toggleResponseMaxTokensEnabled()
-                              }}
-                              disabled={
-                                isSavingResponseMaxTokensEnabled ||
-                                isSavingResponseMaxTokens ||
-                                isSavingResponseTokenLimit ||
-                                isGenerating
-                              }
-                              sx={{
-                                '& .MuiSwitch-switchBase.Mui-checked': {
-                                  color: 'var(--morius-accent)',
-                                },
-                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                  backgroundColor: switchCheckedTrackColor,
-                                  opacity: 1,
-                                },
-                                '& .MuiSwitch-track': {
-                                  backgroundColor: switchTrackColor,
-                                  opacity: 1,
-                                },
-                              }}
-                            />
-                          </Stack>
-
-                          <Box sx={{ mt: 0.86 }}>
-                            <Stack direction="row" justifyContent="space-between" alignItems="center">
-                              <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>
-                                ИИ может ответить короче
-                              </Typography>
-                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{responseMaxTokens}</Typography>
-                            </Stack>
-                            <Slider
-                              value={responseMaxTokens}
-                              min={STORY_RESPONSE_MAX_TOKENS_MIN}
-                              max={STORY_RESPONSE_MAX_TOKENS_MAX}
-                              step={1}
-                              onChange={handleResponseMaxTokensSliderChange}
-                              onChangeCommitted={(event, value) => {
-                                void handleResponseMaxTokensSliderCommit(event, value)
-                              }}
-                              disabled={
-                                !responseMaxTokensEnabled ||
-                                isSavingStorySettings ||
-                                isSavingResponseTokenLimit ||
-                                isGenerating
-                              }
-                              sx={{
-                                mt: 0.42,
-                                color: 'var(--morius-accent)',
-                                '& .MuiSlider-thumb': {
-                                  width: 14,
-                                  height: 14,
-                                  backgroundColor: sliderThumbColor,
-                                  border: `2px solid ${sliderThumbBorderColor}`,
-                                },
-                                '& .MuiSlider-rail': {
-                                  opacity: 1,
-                                  backgroundColor: sliderRailColor,
-                                },
-                              }}
-                            />
-                          </Box>
-
-                          <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.28 }}>
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
-                              {STORY_RESPONSE_MAX_TOKENS_MIN}
-                            </Typography>
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
-                              {STORY_RESPONSE_MAX_TOKENS_MAX}
-                            </Typography>
-                          </Stack>
-
-                          {isSavingResponseMaxTokens || isSavingResponseMaxTokensEnabled ? (
-                            <CircularProgress size={14} sx={{ mt: 0.45, color: 'var(--morius-accent)' }} />
                           ) : null}
                         </Box>
 
@@ -27153,6 +26807,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               const recommendedLimit = clampStoryContextLimit(
                 contextBudgetWarning?.recommendedLimit ?? contextLimitChars,
                 storyLlmModel,
+                subscriptionMemoryCap,
               )
               setContextBudgetWarning(null)
               void persistContextLimit(recommendedLimit)

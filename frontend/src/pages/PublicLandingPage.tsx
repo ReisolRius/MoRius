@@ -200,6 +200,58 @@ const tariffPlans: TariffPlan[] = [
   },
 ]
 
+type SubscriptionSet = {
+  id: string
+  title: string
+  subtitle: string
+  price: string
+  period: string
+  badge: string | null
+  perks: string[]
+}
+
+const subscriptionSets: SubscriptionSet[] = [
+  {
+    id: 'spark',
+    title: 'Искра',
+    subtitle: 'Для регулярной игры без оглядки на счётчик',
+    price: '299 ₽',
+    period: 'мес',
+    badge: null,
+    perks: [
+      '2 модели: DeepSeek V4 Flash и Gemini 2.5 Flash Lite',
+      'До 40 ходов в день без списания солов',
+      'Память сцены до 8K токенов',
+    ],
+  },
+  {
+    id: 'flame',
+    title: 'Пламя',
+    subtitle: 'Расширенный доступ для активных хронистов',
+    price: '599 ₽',
+    period: 'мес',
+    badge: 'Популярный',
+    perks: [
+      '3 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite и GLM 4.5 Air',
+      'До 60 ходов в день без списания солов',
+      'Память сцены до 20K токенов',
+    ],
+  },
+  {
+    id: 'constellation',
+    title: 'Созвездие',
+    subtitle: 'Максимум памяти и лучшие модели',
+    price: '1190 ₽',
+    period: 'мес',
+    badge: null,
+    perks: [
+      '4 модели: добавляется Gemini 3 Flash Preview',
+      'До 90 ходов в день без списания солов',
+      'Память сцены до 32K токенов',
+    ],
+  },
+]
+
 const footerSocialLinks: Array<{ label: string; href: string; external?: boolean }> = [
   { label: 'Вконтакте', href: 'https://vk.com/moriusai', external: true },
   { label: 'Telegram', href: 'https://t.me/+t2ueY4x_KvE4ZWEy', external: true },
@@ -582,6 +634,91 @@ export default function PublicLandingPage({
           </Stack>
           <Button variant="contained" onClick={() => openAuthPage('register')} sx={{ ...ctaButtonSx, width: '100%', mt: 1, borderRadius: '14px', backgroundColor: accent, color: '#101317', fontWeight: 900, '&:hover': { backgroundColor: `color-mix(in srgb, ${accent} 88%, #fff 12%)`, color: '#101317' } }}>
             {BUY_PLAN_CTA_LABEL}
+          </Button>
+        </Stack>
+      </Box>
+    )
+  }
+
+  const renderSubscriptionCard = (plan: SubscriptionSet, index: number) => {
+    const accents = ['#F0B24B', '#FF7A66', '#8C7BFF']
+    const accent = accents[index % accents.length]
+    const isFeatured = Boolean(plan.badge)
+    return (
+      <Box
+        sx={{
+          position: 'relative',
+          borderRadius: '18px',
+          overflow: 'hidden',
+          backgroundColor: CARD_BG,
+          border: isFeatured
+            ? `1px solid color-mix(in srgb, ${accent} 55%, ${CARD_BORDER})`
+            : `0.5px solid ${CARD_BORDER}`,
+          boxShadow: isFeatured ? `0 22px 50px color-mix(in srgb, ${accent} 22%, rgba(0,0,0,0.4))` : '0 18px 42px rgba(0,0,0,0.24)',
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: '100%',
+          transition: 'transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease',
+          '&:hover': { transform: 'translateY(-6px)', borderColor: 'var(--morius-hover-border)', boxShadow: 'var(--morius-neutral-shadow)' },
+        }}
+      >
+        <Box sx={{ position: 'relative', p: 2, pb: 1.6, background: `linear-gradient(135deg, ${accent}, color-mix(in srgb, ${accent} 58%, #111 42%))` }}>
+          <Typography sx={{ color: '#101317', fontSize: '1.5rem', fontWeight: 900, lineHeight: 1.1, fontFamily: '"Manrope", sans-serif' }}>
+            {plan.title}
+          </Typography>
+          <Typography sx={{ color: 'rgba(16,19,23,0.78)', fontSize: '0.82rem', fontWeight: 600, fontFamily: '"Manrope", sans-serif', mt: 0.4 }}>
+            {plan.subtitle}
+          </Typography>
+          {plan.badge ? (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 12,
+                right: 12,
+                px: 1,
+                py: 0.35,
+                borderRadius: '999px',
+                backgroundColor: '#101317',
+                color: '#fff',
+                fontFamily: '"Manrope", sans-serif',
+                fontSize: '0.68rem',
+                fontWeight: 900,
+                lineHeight: 1,
+              }}
+            >
+              {plan.badge}
+            </Box>
+          ) : null}
+        </Box>
+        <Stack spacing={1.5} sx={{ p: 2, flex: 1 }}>
+          <Stack direction="row" spacing={0.6} alignItems="baseline">
+            <Typography sx={{ color: '#ffffff', fontSize: { xs: '2rem', md: '2.15rem' }, fontWeight: 900, lineHeight: 1, fontFamily: '"Manrope", sans-serif' }}>
+              {plan.price}
+            </Typography>
+            <Typography sx={{ color: TEXT_BODY, fontSize: '0.95rem', fontWeight: 700, fontFamily: '"Manrope", sans-serif' }}>
+              / {plan.period}
+            </Typography>
+          </Stack>
+          <Stack spacing={1} sx={{ flex: 1 }}>
+            {plan.perks.map((perk, perkIndex) => (
+              <Stack key={perkIndex} direction="row" spacing={1} alignItems="flex-start">
+                <Box
+                  component="svg"
+                  viewBox="0 0 20 20"
+                  sx={{ width: 18, height: 18, flexShrink: 0, mt: '1px', color: accent }}
+                  aria-hidden="true"
+                >
+                  <circle cx="10" cy="10" r="9" fill="currentColor" opacity="0.16" />
+                  <path d="M6 10.5l2.4 2.4L14 7.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                </Box>
+                <Typography sx={{ color: TEXT_BODY, fontFamily: '"Manrope", sans-serif', fontSize: '0.88rem', lineHeight: 1.45 }}>
+                  {perk}
+                </Typography>
+              </Stack>
+            ))}
+          </Stack>
+          <Button variant="contained" onClick={() => openAuthPage('register')} sx={{ ...ctaButtonSx, width: '100%', mt: 1, borderRadius: '14px', backgroundColor: accent, color: '#101317', fontWeight: 900, '&:hover': { backgroundColor: `color-mix(in srgb, ${accent} 88%, #fff 12%)`, color: '#101317' } }}>
+            Оформить подписку
           </Button>
         </Stack>
       </Box>
@@ -1672,6 +1809,50 @@ export default function PublicLandingPage({
         </Container>
       </Box>
 
+
+      {/* ==================================================================
+          6b. ПОДПИСКИ
+      ================================================================== */}
+      <Box component="section" sx={{ backgroundColor: '#090909', pt: { xs: 2, md: 3 }, pb: { xs: 10, md: 14 } }}>
+        <Container maxWidth="lg">
+          <RevealOnView>
+            <Stack spacing={1.5} alignItems="center" textAlign="center" mb={{ xs: 5, md: 7 }}>
+              <Typography
+                component="h2"
+                sx={{ ...sectionHeadingSx, fontSize: { xs: '1.8rem', md: '2.5rem' } }}
+              >
+                Подписки
+              </Typography>
+              <Typography
+                sx={{
+                  color: TEXT_BODY,
+                  fontFamily: '"Manrope", sans-serif',
+                  fontSize: { xs: '0.9rem', md: '1rem' },
+                  maxWidth: 720,
+                }}
+              >
+                Играй на топовых моделях без списания солов — фиксированная цена и ежедневный запас ходов
+              </Typography>
+            </Stack>
+          </RevealOnView>
+
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2,1fr)', md: 'repeat(3,1fr)' },
+              gap: 2,
+              maxWidth: 1040,
+              mx: 'auto',
+            }}
+          >
+            {subscriptionSets.map((plan, i) => (
+              <RevealOnView key={`subscription-${plan.id}`} delay={i * 80 + 100} y={28}>
+                {renderSubscriptionCard(plan, i)}
+              </RevealOnView>
+            ))}
+          </Box>
+        </Container>
+      </Box>
 
       {/* ==================================================================
           7. ГОТОВ СДЕЛАТЬ ПЕРВЫЙ ХОД?

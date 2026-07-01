@@ -420,7 +420,7 @@ def _recover_polza_story_stream_tail(
             return ""
         remaining_max_tokens = max(128, remaining_max_tokens)
     elif isinstance(max_tokens, int):
-        max_story_tokens = int(globals().get("STORY_RESPONSE_MAX_TOKENS_MAX", 4_500) or 4_500)
+        max_story_tokens = int(getattr(monolith_main, "STORY_RESPONSE_MAX_TOKENS_MAX", 3_000) or 3_000)
         remaining_max_tokens = max(512, min(max(int(max_tokens), 1_200), max_story_tokens))
 
     continuation_messages = [
@@ -1121,9 +1121,9 @@ def _iter_polza_story_stream_chunks(
                         usage_payload=usage_payload,
                         max_tokens=max_tokens,
                     )
+                    partial_text = "".join(emitted_text_parts)
                     model_hit_length_limit = str(finish_reason or "").strip().casefold() == "length"
                     if model_hit_length_limit:
-                        partial_text = "".join(emitted_text_parts)
                         logger.warning(
                             "OpenRouter stream hit response token limit; recovering missing tail: "
                             "model=%s provider=%s partial_chars=%s max_tokens=%s",
@@ -1150,50 +1150,43 @@ def _iter_polza_story_stream_chunks(
                         raise RuntimeError(
                             "OpenRouter story response hit the token limit before a complete answer"
                         )
-                    if _is_polza_incomplete_stream_result(
-                        model_name=model_name,
-                        finish_reason=finish_reason,
-                        saw_done_marker=saw_done_marker,
-                    ):
-                        partial_text = "".join(emitted_text_parts)
-                        if not _story_stream_text_needs_tail_recovery(partial_text):
-                            logger.warning(
-                                "OpenRouter stream closed without terminal metadata, but emitted text looks complete; "
-                                "accepting streamed answer: model=%s provider=%s partial_chars=%s",
-                                model_name,
-                                provider_label,
-                                len(partial_text),
-                            )
-                            return
-                        logger.warning(
-                            "OpenRouter stream closed without terminal metadata; recovering only the missing tail: "
-                            "model=%s provider=%s partial_chars=%s",
-                            model_name,
-                            provider_label,
-                            len(partial_text),
-                        )
-                        recovered_tail = _recover_polza_story_stream_tail(
-                            messages_payload=messages_payload,
-                            partial_text=partial_text,
-                            model_name=model_name,
-                            temperature=temperature,
-                            top_k=top_k,
-                            top_p=top_p,
-                            max_tokens=max_tokens,
-                            read_timeout_seconds=read_timeout_seconds,
-                        )
-                        if recovered_tail:
-                            for chunk in _yield_story_stream_chunks_with_pacing(recovered_tail):
-                                yield chunk
-                            return
-                        logger.warning(
-                            "OpenRouter stream tail recovery returned no text; keeping emitted partial answer instead "
-                            "of deleting a visible generation: model=%s provider=%s partial_chars=%s",
-                            model_name,
-                            provider_label,
-                            len(partial_text),
-                        )
+                    # Polza/OpenRouter sometimes report finish_reason "stop" (or only send the
+                    # [DONE] sentinel) even when the underlying text was cut mid-sentence, so
+                    # that metadata alone is not trustworthy. Always inspect the emitted text's
+                    # own shape before accepting it as a finished reply, regardless of what
+                    # finish_reason/saw_done_marker claim.
+                    if not _story_stream_text_needs_tail_recovery(partial_text):
                         return
+                    logger.warning(
+                        "OpenRouter stream text looks cut off despite finish_reason=%s done=%s; "
+                        "recovering only the missing tail: model=%s provider=%s partial_chars=%s",
+                        finish_reason or "n/a",
+                        saw_done_marker,
+                        model_name,
+                        provider_label,
+                        len(partial_text),
+                    )
+                    recovered_tail = _recover_polza_story_stream_tail(
+                        messages_payload=messages_payload,
+                        partial_text=partial_text,
+                        model_name=model_name,
+                        temperature=temperature,
+                        top_k=top_k,
+                        top_p=top_p,
+                        max_tokens=max_tokens,
+                        read_timeout_seconds=read_timeout_seconds,
+                    )
+                    if recovered_tail:
+                        for chunk in _yield_story_stream_chunks_with_pacing(recovered_tail):
+                            yield chunk
+                        return
+                    logger.warning(
+                        "OpenRouter stream tail recovery returned no text; keeping emitted partial answer instead "
+                        "of deleting a visible generation: model=%s provider=%s partial_chars=%s",
+                        model_name,
+                        provider_label,
+                        len(partial_text),
+                    )
                     return
 
                 logger.warning(

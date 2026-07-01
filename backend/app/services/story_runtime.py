@@ -2612,13 +2612,11 @@ def _generate_story_response_locked(
     show_npc_thoughts = False if raw_show_npc_thoughts is None else bool(raw_show_npc_thoughts)
     if payload.show_npc_thoughts is not None:
         show_npc_thoughts = bool(payload.show_npc_thoughts)
-    story_response_max_tokens_enabled = normalize_story_response_max_tokens_enabled(
-        getattr(game, "response_max_tokens_enabled", None)
-    )
+    # The switchable per-game response-token limit was removed from the interface. Ignore any stored
+    # value or payload override so non-subscription turns always fall back to the hidden ceiling
+    # (STORY_RESPONSE_MAX_TOKENS_MAX); the admin bypass below is still honored.
+    story_response_max_tokens_enabled = False
     story_response_max_tokens = normalize_story_response_max_tokens(getattr(game, "response_max_tokens", None))
-    if payload.response_max_tokens is not None:
-        story_response_max_tokens = normalize_story_response_max_tokens(payload.response_max_tokens)
-        story_response_max_tokens_enabled = True
     if not story_response_max_tokens_enabled:
         response_token_limit_enabled = normalize_story_response_token_limit_enabled(
             getattr(game, "response_token_limit_enabled", None)

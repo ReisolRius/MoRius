@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -27,6 +28,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from '@mui/material'
 import {
   applyStoryGraphSuggestions,
@@ -77,7 +79,7 @@ type StoryGraphDialogProps = {
   onOpenMemoryBlock: (block: StoryMemoryBlock) => void
 }
 
-type GraphDragState =
+type GestureState =
   | {
       type: 'node'
       pointerId: number
@@ -94,9 +96,30 @@ type GraphDragState =
       pointerId: number
       startClientX: number
       startClientY: number
-      startX: number
-      startY: number
+      startPanX: number
+      startPanY: number
     }
+  | {
+      type: 'pinch'
+      startDist: number
+      startZoom: number
+      startPanX: number
+      startPanY: number
+      rectLeft: number
+      rectTop: number
+      startMidX: number
+      startMidY: number
+    }
+
+type LivePosition = { x: number; y: number; w: number; h: number }
+
+type EdgeRegistration = {
+  source: number
+  target: number
+  line: SVGLineElement | null
+  hit: SVGLineElement | null
+  label: SVGForeignObjectElement | null
+}
 
 type EdgeDraft = {
   id: number | null
@@ -112,6 +135,7 @@ type EdgeDraft = {
 }
 
 type CardTypeFilter = 'all' | 'characters' | 'world' | 'world_details' | 'rules' | 'plot' | 'memory'
+type MobilePanel = 'none' | 'cards' | 'inspector' | 'ai'
 
 const GRAPH_CANVAS_WIDTH = 5200
 const GRAPH_CANVAS_HEIGHT = 3400
@@ -119,8 +143,29 @@ const NODE_WIDTH = 260
 const NODE_HEIGHT = 136
 const ZOOM_MIN = 0.35
 const ZOOM_MAX = 1.8
+const GRID_SIZE = 32
 const GRAPH_LOAD_TIMEOUT_MS = 20_000
 const VIEWPORT_ANIMATION_MS = 420
+const COMPACT_QUERY = '(max-width: 1023.95px)'
+
+// MoRius theme tokens — keeps the graph consistent with the rest of the app.
+const T = {
+  appBg: 'var(--morius-app-bg)',
+  panel: 'var(--morius-card-bg)',
+  elevated: 'var(--morius-elevated-bg)',
+  input: 'var(--morius-input-bg)',
+  border: 'var(--morius-card-border)',
+  hoverBorder: 'var(--morius-hover-border)',
+  accent: 'var(--morius-accent)',
+  title: 'var(--morius-title-text)',
+  text: 'var(--morius-text-primary)',
+  muted: 'var(--morius-text-secondary)',
+  radius: 'var(--morius-radius)',
+  gold: 'var(--morius-gold)',
+}
+const CANVAS_BG = '#0b0b0f'
+const GRID_LINE = 'rgba(255, 255, 255, 0.045)'
+const accentSoft = (alpha: number) => `rgba(76, 141, 255, ${alpha})`
 
 const RELATION_OPTIONS: Array<{ value: StoryGraphRelationType; label: string }> = [
   { value: 'acquaintance', label: 'Знакомство' },
@@ -272,8 +317,18 @@ export default function StoryGraphDialog({
   onOpenMemoryBlock,
 }: StoryGraphDialogProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
-  const dragStateRef = useRef<GraphDragState | null>(null)
+  const worldLayerRef = useRef<HTMLDivElement | null>(null)
+  const gestureRef = useRef<GestureState | null>(null)
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map())
   const viewStateRef = useRef({ zoom: 0.78, pan: { x: 430, y: 130 } })
+  const viewRafRef = useRef<number | null>(null)
+  const commitRafRef = useRef<number | null>(null)
+  const nodeElementsRef = useRef<Map<number, HTMLElement>>(new Map())
+  const edgeRegistryRef = useRef<Map<number, EdgeRegistration>>(new Map())
+  const livePositionsRef = useRef<Map<number, LivePosition>>(new Map())
+  const adjacencyRef = useRef<Map<number, number[]>>(new Map())
+  const nodesByIdRef = useRef<Map<number, StoryGraphNode>>(new Map())
+  const canvasSizeRef = useRef({ w: GRAPH_CANVAS_WIDTH, h: GRAPH_CANVAS_HEIGHT })
   const loadRequestRef = useRef<{ id: number; controller: AbortController } | null>(null)
   const loadSequenceRef = useRef(0)
   const hasAutoFittedGraphRef = useRef(false)
@@ -294,6 +349,9 @@ export default function StoryGraphDialog({
   const [pan, setPan] = useState({ x: 430, y: 130 })
   const [isViewportAnimating, setIsViewportAnimating] = useState(false)
   const [edgeDraft, setEdgeDraft] = useState<EdgeDraft | null>(null)
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>('none')
+
+  const isCompact = useMediaQuery(COMPACT_QUERY)
 
   const canUseGraph = normalizeRole(userRole) === 'administrator' || normalizeRole(userRole) === 'moderator'
   const gameId = game?.id ?? null
@@ -432,6 +490,142 @@ export default function StoryGraphDialog({
   const plotCardsById = useMemo(() => new Map(plotCards.map((card) => [card.id, card])), [plotCards])
   const memoryBlocksById = useMemo(() => new Map(memoryBlocks.map((block) => [block.id, block])), [memoryBlocks])
 
+  // Keep refs in sync so the imperative gesture handlers stay identity-stable
+  // (and therefore don't force the memoized node/edge components to re-render).
+  useEffect(() => {
+    nodesByIdRef.current = nodesById
+  }, [nodesById])
+  useEffect(() => {
+    canvasSizeRef.current = { w: canvasWidth, h: canvasHeight }
+  }, [canvasWidth, canvasHeight])
+  useEffect(() => {
+    const positions = new Map<number, LivePosition>()
+    graphPayload.nodes.forEach((node) => {
+      positions.set(node.id, {
+        x: node.x,
+        y: node.y,
+        w: node.width || NODE_WIDTH,
+        h: node.height || NODE_HEIGHT,
+      })
+    })
+    livePositionsRef.current = positions
+  }, [graphPayload.nodes])
+  useEffect(() => {
+    const adjacency = new Map<number, number[]>()
+    graphPayload.edges.forEach((edge) => {
+      const forSource = adjacency.get(edge.source_node_id)
+      if (forSource) {
+        forSource.push(edge.id)
+      } else {
+        adjacency.set(edge.source_node_id, [edge.id])
+      }
+      const forTarget = adjacency.get(edge.target_node_id)
+      if (forTarget) {
+        forTarget.push(edge.id)
+      } else {
+        adjacency.set(edge.target_node_id, [edge.id])
+      }
+    })
+    adjacencyRef.current = adjacency
+  }, [graphPayload.edges])
+
+  const applyView = useCallback(() => {
+    const { zoom: currentZoom, pan: currentPan } = viewStateRef.current
+    const layer = worldLayerRef.current
+    if (layer) {
+      layer.style.transform = `translate3d(${currentPan.x}px, ${currentPan.y}px, 0) scale(${currentZoom})`
+    }
+    const viewport = viewportRef.current
+    if (viewport) {
+      viewport.style.backgroundSize = `${GRID_SIZE * currentZoom}px ${GRID_SIZE * currentZoom}px`
+      viewport.style.backgroundPosition = `${currentPan.x}px ${currentPan.y}px`
+    }
+  }, [])
+
+  const scheduleView = useCallback(() => {
+    if (viewRafRef.current !== null) {
+      return
+    }
+    viewRafRef.current = window.requestAnimationFrame(() => {
+      viewRafRef.current = null
+      applyView()
+    })
+  }, [applyView])
+
+  const commitView = useCallback(() => {
+    const { zoom: nextZoom, pan: nextPan } = viewStateRef.current
+    setZoom(nextZoom)
+    setPan(nextPan)
+    applyView()
+  }, [applyView])
+
+  const commitViewSoon = useCallback(() => {
+    if (commitRafRef.current !== null) {
+      return
+    }
+    commitRafRef.current = window.requestAnimationFrame(() => {
+      commitRafRef.current = null
+      const { zoom: nextZoom, pan: nextPan } = viewStateRef.current
+      setZoom(nextZoom)
+      setPan(nextPan)
+    })
+  }, [])
+
+  const updateEdgesForNode = useCallback((nodeId: number) => {
+    const edgeIds = adjacencyRef.current.get(nodeId)
+    if (!edgeIds) {
+      return
+    }
+    const positions = livePositionsRef.current
+    edgeIds.forEach((edgeId) => {
+      const registration = edgeRegistryRef.current.get(edgeId)
+      if (!registration) {
+        return
+      }
+      const source = positions.get(registration.source)
+      const target = positions.get(registration.target)
+      if (!source || !target) {
+        return
+      }
+      const sourceX = source.x + source.w / 2
+      const sourceY = source.y + source.h / 2
+      const targetX = target.x + target.w / 2
+      const targetY = target.y + target.h / 2
+      if (registration.line) {
+        registration.line.setAttribute('x1', String(sourceX))
+        registration.line.setAttribute('y1', String(sourceY))
+        registration.line.setAttribute('x2', String(targetX))
+        registration.line.setAttribute('y2', String(targetY))
+      }
+      if (registration.hit) {
+        registration.hit.setAttribute('x1', String(sourceX))
+        registration.hit.setAttribute('y1', String(sourceY))
+        registration.hit.setAttribute('x2', String(targetX))
+        registration.hit.setAttribute('y2', String(targetY))
+      }
+      if (registration.label) {
+        registration.label.setAttribute('x', String((sourceX + targetX) / 2 - 74))
+        registration.label.setAttribute('y', String((sourceY + targetY) / 2 - 18))
+      }
+    })
+  }, [])
+
+  const registerNodeEl = useCallback((nodeId: number, element: HTMLElement | null) => {
+    if (element) {
+      nodeElementsRef.current.set(nodeId, element)
+    } else {
+      nodeElementsRef.current.delete(nodeId)
+    }
+  }, [])
+
+  const registerEdge = useCallback((edgeId: number, registration: EdgeRegistration | null) => {
+    if (registration) {
+      edgeRegistryRef.current.set(edgeId, registration)
+    } else {
+      edgeRegistryRef.current.delete(edgeId)
+    }
+  }, [])
+
   const fitNodesInViewport = useCallback((nodes: StoryGraphNode[], options?: { animate?: boolean; maxZoom?: number; padding?: number }) => {
     const viewport = viewportRef.current
     if (!viewport || nodes.length === 0) {
@@ -549,6 +743,9 @@ export default function StoryGraphDialog({
       setNodeSearch('')
       setEdgeDraft(null)
       setErrorMessage('')
+      setMobilePanel('none')
+      pointersRef.current.clear()
+      gestureRef.current = null
       hasAutoFittedGraphRef.current = false
     }
   }, [open])
@@ -561,9 +758,12 @@ export default function StoryGraphDialog({
     setSelectedCardKeys((previousKeys) => previousKeys.filter((key) => availableCards.some((card) => `${card.card_type}:${card.card_id}` === key)))
   }, [availableCards])
 
+  // Keep the imperative view ref in lockstep with React state so gestures that
+  // read viewStateRef always start from the last committed transform.
   useEffect(() => {
     viewStateRef.current = { zoom, pan }
-  }, [pan, zoom])
+    applyView()
+  }, [applyView, pan, zoom])
 
   useEffect(() => {
     if (!open || !normalizedNodeSearch || matchingNodes.length === 0) {
@@ -583,6 +783,12 @@ export default function StoryGraphDialog({
     () => () => {
       if (viewportAnimationTimerRef.current !== null) {
         window.clearTimeout(viewportAnimationTimerRef.current)
+      }
+      if (viewRafRef.current !== null) {
+        window.cancelAnimationFrame(viewRafRef.current)
+      }
+      if (commitRafRef.current !== null) {
+        window.cancelAnimationFrame(commitRafRef.current)
       }
     },
     [],
@@ -638,14 +844,15 @@ export default function StoryGraphDialog({
 
   const getViewportCenterWorld = useCallback(() => {
     const rect = viewportRef.current?.getBoundingClientRect()
+    const { zoom: currentZoom, pan: currentPan } = viewStateRef.current
     if (!rect) {
       return { x: 520, y: 320 }
     }
     return {
-      x: (rect.width / 2 - pan.x) / zoom,
-      y: (rect.height / 2 - pan.y) / zoom,
+      x: (rect.width / 2 - currentPan.x) / currentZoom,
+      y: (rect.height / 2 - currentPan.y) / currentZoom,
     }
-  }, [pan.x, pan.y, zoom])
+  }, [])
 
   const addCardNode = useCallback(
     async (card: StoryGraphCardSummary, offsetIndex = 0) => {
@@ -943,9 +1150,10 @@ export default function StoryGraphDialog({
     worldCardsById,
   ])
 
+  // ----- Node drag (imperative, identity-stable handlers) -----
   const handleNodePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>, node: StoryGraphNode) => {
-      if (event.button !== 0) {
+      if (event.button !== 0 && event.pointerType === 'mouse') {
         return
       }
       event.preventDefault()
@@ -955,97 +1163,203 @@ export default function StoryGraphDialog({
       setSelectedNodeId(node.id)
       setSelectedEdgeId(null)
       event.currentTarget.setPointerCapture(event.pointerId)
-      dragStateRef.current = {
+      const position = livePositionsRef.current.get(node.id)
+      const startX = position?.x ?? node.x
+      const startY = position?.y ?? node.y
+      gestureRef.current = {
         type: 'node',
         pointerId: event.pointerId,
         nodeId: node.id,
         startClientX: event.clientX,
         startClientY: event.clientY,
-        startX: node.x,
-        startY: node.y,
-        latestX: node.x,
-        latestY: node.y,
+        startX,
+        startY,
+        latestX: startX,
+        latestY: startY,
       }
     },
     [],
   )
 
-  const handleViewportPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) {
+  const handleNodePointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const gesture = gestureRef.current
+      if (!gesture || gesture.type !== 'node' || gesture.pointerId !== event.pointerId) {
+        return
+      }
+      const { zoom: currentZoom } = viewStateRef.current
+      const { w: cw, h: ch } = canvasSizeRef.current
+      const x = clamp(gesture.startX + (event.clientX - gesture.startClientX) / currentZoom, 20, cw - NODE_WIDTH - 20)
+      const y = clamp(gesture.startY + (event.clientY - gesture.startClientY) / currentZoom, 20, ch - NODE_HEIGHT - 20)
+      gesture.latestX = x
+      gesture.latestY = y
+      const position = livePositionsRef.current.get(gesture.nodeId)
+      if (position) {
+        position.x = x
+        position.y = y
+      }
+      const element = nodeElementsRef.current.get(gesture.nodeId)
+      if (element) {
+        element.style.transform = `translate3d(${x}px, ${y}px, 0)`
+      }
+      updateEdgesForNode(gesture.nodeId)
+    },
+    [updateEdgesForNode],
+  )
+
+  const handleNodePointerEnd = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const gesture = gestureRef.current
+      if (!gesture || gesture.type !== 'node' || gesture.pointerId !== event.pointerId) {
+        return
+      }
+      gestureRef.current = null
+      const node = nodesByIdRef.current.get(gesture.nodeId)
+      if (node && (node.x !== gesture.latestX || node.y !== gesture.latestY)) {
+        const updated = { ...node, x: gesture.latestX, y: gesture.latestY }
+        setGraph((previousGraph) =>
+          previousGraph
+            ? { ...previousGraph, nodes: previousGraph.nodes.map((item) => (item.id === node.id ? updated : item)) }
+            : previousGraph,
+        )
+        persistNodeLayout(updated)
+      }
+    },
+    [persistNodeLayout],
+  )
+
+  // ----- Viewport pan / pinch (imperative) -----
+  const beginPinch = useCallback(() => {
+    const points = [...pointersRef.current.values()]
+    if (points.length < 2) {
       return
     }
+    const [a, b] = points
+    const rect = viewportRef.current?.getBoundingClientRect()
+    const { zoom: currentZoom, pan: currentPan } = viewStateRef.current
+    gestureRef.current = {
+      type: 'pinch',
+      startDist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      startZoom: currentZoom,
+      startPanX: currentPan.x,
+      startPanY: currentPan.y,
+      rectLeft: rect?.left ?? 0,
+      rectTop: rect?.top ?? 0,
+      startMidX: (a.x + b.x) / 2,
+      startMidY: (a.y + b.y) / 2,
+    }
+  }, [])
+
+  const handleViewportPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const target = event.target
     if (target instanceof Element && target.closest('[data-graph-interactive="true"]')) {
+      return
+    }
+    if (event.button !== 0 && event.pointerType === 'mouse') {
       return
     }
     event.preventDefault()
     setIsViewportAnimating(false)
     event.currentTarget.setPointerCapture(event.pointerId)
-    dragStateRef.current = {
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    const count = pointersRef.current.size
+    if (count >= 2) {
+      beginPinch()
+      return
+    }
+    const { pan: currentPan } = viewStateRef.current
+    gestureRef.current = {
       type: 'pan',
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
-      startX: pan.x,
-      startY: pan.y,
+      startPanX: currentPan.x,
+      startPanY: currentPan.y,
     }
     setSelectedNodeId(null)
     setSelectedEdgeId(null)
-  }, [pan.x, pan.y])
+  }, [beginPinch])
 
-  const handlePointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragState = dragStateRef.current
-      if (!dragState || dragState.pointerId !== event.pointerId) {
+  const handleViewportPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pointersRef.current.has(event.pointerId)) {
+      return
+    }
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    const gesture = gestureRef.current
+    if (!gesture) {
+      return
+    }
+    if (gesture.type === 'pan') {
+      if (gesture.pointerId !== event.pointerId) {
         return
       }
-      if (dragState.type === 'pan') {
-        setPan({
-          x: dragState.startX + event.clientX - dragState.startClientX,
-          y: dragState.startY + event.clientY - dragState.startClientY,
-        })
+      viewStateRef.current = {
+        zoom: viewStateRef.current.zoom,
+        pan: {
+          x: gesture.startPanX + (event.clientX - gesture.startClientX),
+          y: gesture.startPanY + (event.clientY - gesture.startClientY),
+        },
+      }
+      scheduleView()
+      return
+    }
+    if (gesture.type === 'pinch') {
+      const points = [...pointersRef.current.values()]
+      if (points.length < 2) {
         return
       }
-      const deltaX = (event.clientX - dragState.startClientX) / zoom
-      const deltaY = (event.clientY - dragState.startClientY) / zoom
-      const x = clamp(dragState.startX + deltaX, 20, canvasWidth - NODE_WIDTH - 20)
-      const y = clamp(dragState.startY + deltaY, 20, canvasHeight - NODE_HEIGHT - 20)
-      dragState.latestX = x
-      dragState.latestY = y
-      setGraph((previousGraph) => {
-        if (!previousGraph) {
-          return previousGraph
-        }
-        return {
-          ...previousGraph,
-          nodes: previousGraph.nodes.map((node) => {
-            if (node.id !== dragState.nodeId) {
-              return node
-            }
-            return { ...node, x, y }
-          }),
-        }
-      })
-    },
-    [canvasHeight, canvasWidth, zoom],
-  )
+      const [a, b] = points
+      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1
+      const midX = (a.x + b.x) / 2
+      const midY = (a.y + b.y) / 2
+      const nextZoom = clamp(gesture.startZoom * (dist / gesture.startDist), ZOOM_MIN, ZOOM_MAX)
+      const worldX = (gesture.startMidX - gesture.rectLeft - gesture.startPanX) / gesture.startZoom
+      const worldY = (gesture.startMidY - gesture.rectTop - gesture.startPanY) / gesture.startZoom
+      viewStateRef.current = {
+        zoom: nextZoom,
+        pan: {
+          x: midX - gesture.rectLeft - worldX * nextZoom,
+          y: midY - gesture.rectTop - worldY * nextZoom,
+        },
+      }
+      scheduleView()
+    }
+  }, [scheduleView])
 
-  const handlePointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const dragState = dragStateRef.current
-    if (dragState?.pointerId === event.pointerId) {
-      dragStateRef.current = null
-      if (dragState.type === 'node') {
-        const node = nodesById.get(dragState.nodeId)
-        if (node) {
-          persistNodeLayout({
-            ...node,
-            x: dragState.latestX,
-            y: dragState.latestY,
-          })
-        }
+  const handleViewportPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pointersRef.current.has(event.pointerId)) {
+      pointersRef.current.delete(event.pointerId)
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      } catch {
+        // pointer capture may already be released
       }
     }
-  }, [nodesById, persistNodeLayout])
+    const gesture = gestureRef.current
+    if (!gesture || gesture.type === 'node') {
+      return
+    }
+    const remaining = pointersRef.current.size
+    if (remaining === 0) {
+      gestureRef.current = null
+      commitView()
+      return
+    }
+    if (remaining === 1) {
+      // Fall back to a pan driven by the finger still on the canvas.
+      const [entry] = [...pointersRef.current.entries()]
+      const [pointerId, point] = entry
+      const { pan: currentPan } = viewStateRef.current
+      gestureRef.current = {
+        type: 'pan',
+        pointerId,
+        startClientX: point.x,
+        startClientY: point.y,
+        startPanX: currentPan.x,
+        startPanY: currentPan.y,
+      }
+    }
+  }, [commitView])
 
   const handleNativeWheel = useCallback(
     (event: globalThis.WheelEvent) => {
@@ -1058,9 +1372,7 @@ export default function StoryGraphDialog({
       event.stopPropagation()
       setIsViewportAnimating(false)
       const rect = viewportNode.getBoundingClientRect()
-      const currentView = viewStateRef.current
-      const currentZoom = currentView.zoom
-      const currentPan = currentView.pan
+      const { zoom: currentZoom, pan: currentPan } = viewStateRef.current
       const deltaMultiplier = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1
       const normalizedDelta = event.deltaY * deltaMultiplier
       const nextZoom = clamp(currentZoom * Math.exp(-normalizedDelta * 0.0015), ZOOM_MIN, ZOOM_MAX)
@@ -1069,15 +1381,17 @@ export default function StoryGraphDialog({
       }
       const worldX = (event.clientX - rect.left - currentPan.x) / currentZoom
       const worldY = (event.clientY - rect.top - currentPan.y) / currentZoom
-      const nextPan = {
-        x: event.clientX - rect.left - worldX * nextZoom,
-        y: event.clientY - rect.top - worldY * nextZoom,
+      viewStateRef.current = {
+        zoom: nextZoom,
+        pan: {
+          x: event.clientX - rect.left - worldX * nextZoom,
+          y: event.clientY - rect.top - worldY * nextZoom,
+        },
       }
-      viewStateRef.current = { zoom: nextZoom, pan: nextPan }
-      setZoom(nextZoom)
-      setPan(nextPan)
+      applyView()
+      commitViewSoon()
     },
-    [],
+    [applyView, commitViewSoon],
   )
 
   useEffect(() => {
@@ -1090,7 +1404,36 @@ export default function StoryGraphDialog({
     }
   }, [canUseGraph, handleNativeWheel, open])
 
-  const handleNodeClick = useCallback(
+  const handleZoomButton = useCallback(
+    (direction: 1 | -1) => {
+      const viewport = viewportRef.current
+      if (!viewport) {
+        return
+      }
+      const rect = viewport.getBoundingClientRect()
+      const { zoom: currentZoom, pan: currentPan } = viewStateRef.current
+      const nextZoom = clamp(currentZoom * (direction === 1 ? 1.2 : 1 / 1.2), ZOOM_MIN, ZOOM_MAX)
+      const centerX = rect.width / 2
+      const centerY = rect.height / 2
+      const worldX = (centerX - currentPan.x) / currentZoom
+      const worldY = (centerY - currentPan.y) / currentZoom
+      viewStateRef.current = {
+        zoom: nextZoom,
+        pan: { x: centerX - worldX * nextZoom, y: centerY - worldY * nextZoom },
+      }
+      setIsViewportAnimating(false)
+      commitView()
+    },
+    [commitView],
+  )
+
+  const handleFitView = useCallback(() => {
+    if (graphPayload.nodes.length > 0) {
+      fitNodesInViewport(graphPayload.nodes, { animate: true })
+    }
+  }, [fitNodesInViewport, graphPayload.nodes])
+
+  const handleNodeSelect = useCallback(
     (node: StoryGraphNode) => {
       if (connectSourceNodeId !== null && connectSourceNodeId !== node.id) {
         const existingEdge = graphPayload.edges.find(
@@ -1114,6 +1457,12 @@ export default function StoryGraphDialog({
     },
     [connectSourceNodeId, graphPayload.edges, openEdgeDraft],
   )
+
+  const handleEdgeSelect = useCallback((edgeId: number) => {
+    setNodeSearch('')
+    setSelectedEdgeId(edgeId)
+    setSelectedNodeId(null)
+  }, [])
 
   const handleSettingChange = useCallback(
     async (patch: {
@@ -1143,243 +1492,380 @@ export default function StoryGraphDialog({
     [game, onGameUpdated, token],
   )
 
-  const renderCardAvatar = (card: StoryGraphCardSummary) => {
-    const imageUrl = resolveApiResourceUrl(card.avatar_original_url || card.avatar_url)
-    if (imageUrl) {
-      return (
-        <Box
-          sx={{
-            width: 34,
-            height: 34,
-            borderRadius: '50%',
-            overflow: 'hidden',
-            flexShrink: 0,
-            backgroundColor: 'rgba(115, 138, 164, 0.18)',
-          }}
-        >
-          <Box
-            component="img"
-            src={imageUrl}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            sx={{
-              width: '100%',
-              height: '100%',
-              display: 'block',
-              objectFit: 'cover',
-              transform: `scale(${clamp(card.avatar_scale || 1, 1, 2.2)})`,
-              transformOrigin: 'center',
-            }}
-          />
-        </Box>
-      )
-    }
-    return (
-      <Box
-        sx={{
-          width: 34,
-          height: 34,
-          borderRadius: '50%',
-          display: 'grid',
-          placeItems: 'center',
-          flexShrink: 0,
-          color: '#F4F7FB',
-          fontSize: '0.78rem',
-          fontWeight: 900,
-          backgroundColor: card.card_type === 'instruction_card' ? '#5D728A' : card.card_type === 'plot_card' ? '#785E9A' : card.card_type === 'memory_block' ? '#527668' : '#7B6B52',
-        }}
-      >
-        {formatCardType(card.card_type).slice(0, 1)}
-      </Box>
-    )
-  }
-
-  const renderNode = (node: StoryGraphNode) => {
-    const card = node.card
-    const isSelected = selectedNodeId === node.id
-    const isConnectSource = connectSourceNodeId === node.id
-    const hasSearchFocus = normalizedNodeSearch.length > 0 && matchingNodeIds.size > 0
-    const isSearchMatch = matchingNodeIds.has(node.id)
-    const hasSelectionFocus = selectedNodeId !== null && !hasSearchFocus
-    const isConnected = connectedNodeIds.has(node.id)
-    const isDimmed = hasSearchFocus ? !isSearchMatch : hasSelectionFocus ? !isConnected : false
-    const isHighlighted = isSelected || isConnectSource || isSearchMatch || (hasSelectionFocus && isConnected)
-    return (
-      <Box
-        key={node.id}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerEnd}
-        onPointerCancel={handlePointerEnd}
-        onClick={() => handleNodeClick(node)}
-        data-graph-interactive="true"
-        sx={{
-          position: 'absolute',
-          left: node.x,
-          top: node.y,
-          width: node.width || NODE_WIDTH,
-          height: node.height || NODE_HEIGHT,
-          borderRadius: '8px',
-          border: isSelected
-            ? '2px solid #7FDBFF'
-            : isConnectSource
-              ? '2px solid #F2C56D'
-              : isSearchMatch
-                ? '2px solid rgba(127, 219, 255, 0.92)'
-                : hasSelectionFocus && isConnected
-                  ? '2px solid rgba(127, 219, 255, 0.62)'
-              : '2px solid rgba(126, 160, 194, 0.7)',
-          outline: isSelected ? '1px solid rgba(127, 219, 255, 0.28)' : '1px solid rgba(7, 10, 15, 0.9)',
-          backgroundColor: 'rgba(18, 23, 30, 0.94)',
-          boxShadow: isHighlighted
-            ? '0 0 0 4px rgba(127, 219, 255, 0.12), 0 18px 38px rgba(0, 0, 0, 0.38)'
-            : '0 12px 24px rgba(0, 0, 0, 0.28)',
-          opacity: isDimmed ? 0.16 : 1,
-          zIndex: isHighlighted ? 3 : isConnected ? 2 : 1,
-          transition: 'opacity 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
-          cursor: 'pointer',
-          overflow: 'hidden',
-          userSelect: 'none',
-          touchAction: 'none',
-        }}
-      >
-        <Box
-          onPointerDown={(event) => handleNodePointerDown(event, node)}
-          onClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-          }}
-          role="button"
-          aria-label={`Перетащить ${card?.title || `ноду ${node.id}`}`}
-          title="Перетащить ноду"
-          data-graph-interactive="true"
-          sx={{
-            position: 'absolute',
-            inset: '0 auto 0 0',
-            width: 30,
-            display: 'grid',
-            placeItems: 'center',
-            color: '#A9C8E3',
-            borderRight: '2px solid rgba(126, 160, 194, 0.58)',
-            backgroundColor: 'rgba(73, 113, 148, 0.2)',
-            cursor: 'grab',
-            touchAction: 'none',
-            '&:hover': {
-              color: '#CFF5FF',
-              backgroundColor: 'rgba(127, 219, 255, 0.2)',
-            },
-            '&:active': { cursor: 'grabbing' },
-          }}
-        >
-          <svg width="14" height="22" viewBox="0 0 14 22" fill="none" aria-hidden="true">
-            <circle cx="4" cy="4" r="1.5" fill="currentColor" />
-            <circle cx="10" cy="4" r="1.5" fill="currentColor" />
-            <circle cx="4" cy="11" r="1.5" fill="currentColor" />
-            <circle cx="10" cy="11" r="1.5" fill="currentColor" />
-            <circle cx="4" cy="18" r="1.5" fill="currentColor" />
-            <circle cx="10" cy="18" r="1.5" fill="currentColor" />
-          </svg>
-        </Box>
-        <Stack spacing={0.75} sx={{ py: 1.1, pr: 1.1, pl: 4.8, height: '100%' }}>
-          <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0 }}>
-            {card ? renderCardAvatar(card) : null}
-            <Stack spacing={0.12} sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ color: '#F5F7FB', fontSize: '0.88rem', fontWeight: 900, lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {card?.title || `Карточка #${node.card_id}`}
-              </Typography>
-              <Typography sx={{ color: 'rgba(191, 205, 224, 0.72)', fontSize: '0.72rem', fontWeight: 800 }}>
-                {formatCardType(node.card_type)}
-              </Typography>
-            </Stack>
-          </Stack>
-          <Typography sx={{ color: 'rgba(222, 230, 242, 0.72)', fontSize: '0.76rem', lineHeight: 1.28, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-            {card?.description || 'Карточка отсутствует или была удалена.'}
-          </Typography>
-        </Stack>
-      </Box>
-    )
-  }
-
-  const renderEdge = (edge: StoryGraphEdge) => {
-    const source = nodesById.get(edge.source_node_id)
-    const target = nodesById.get(edge.target_node_id)
-    if (!source || !target) {
-      return null
-    }
-    const sourceX = source.x + (source.width || NODE_WIDTH) / 2
-    const sourceY = source.y + (source.height || NODE_HEIGHT) / 2
-    const targetX = target.x + (target.width || NODE_WIDTH) / 2
-    const targetY = target.y + (target.height || NODE_HEIGHT) / 2
-    const midX = (sourceX + targetX) / 2
-    const midY = (sourceY + targetY) / 2
-    const isSelected = selectedEdgeId === edge.id
-    const hasSearchFocus = normalizedNodeSearch.length > 0 && matchingNodeIds.size > 0
-    const hasSelectionFocus = selectedNodeId !== null && !hasSearchFocus
-    const isConnectedToSelection = connectedEdgeIds.has(edge.id)
-    const isConnectedToSearch = matchingNodeIds.has(edge.source_node_id) || matchingNodeIds.has(edge.target_node_id)
-    const isHighlighted = isSelected || (hasSelectionFocus && isConnectedToSelection)
-    const edgeOpacity = hasSearchFocus
-      ? isConnectedToSearch
-        ? 0.72
-        : 0.08
-      : hasSelectionFocus
-        ? isConnectedToSelection
-          ? 1
-          : 0.08
-        : 1
-    return (
-      <g key={edge.id} opacity={edgeOpacity} style={{ transition: 'opacity 180ms ease' }} data-graph-interactive="true" onClick={() => {
-        setNodeSearch('')
-        setSelectedEdgeId(edge.id)
-        setSelectedNodeId(null)
-      }}>
-        <line
-          x1={sourceX}
-          y1={sourceY}
-          x2={targetX}
-          y2={targetY}
-          stroke="rgba(127, 219, 255, 0.02)"
-          strokeWidth={18}
-          cursor="pointer"
-        />
-        <line
-          x1={sourceX}
-          y1={sourceY}
-          x2={targetX}
-          y2={targetY}
-          stroke={edge.active ? (isHighlighted ? '#7FDBFF' : 'rgba(143, 185, 219, 0.66)') : 'rgba(130, 142, 160, 0.28)'}
-          strokeWidth={isHighlighted ? 3.2 : 2}
-          strokeLinecap="round"
-          markerEnd={edge.direction === 'directed' ? `url(#graph-arrow-${edge.active ? 'active' : 'muted'})` : undefined}
-          cursor="pointer"
-        />
-        <foreignObject x={midX - 74} y={midY - 18} width={148} height={36} pointerEvents="none">
-          <Box
-            sx={{
-              px: 0.8,
-              py: 0.35,
-              borderRadius: '7px',
-              border: '1px solid rgba(143, 185, 219, 0.28)',
-              backgroundColor: 'rgba(12, 16, 22, 0.88)',
-              color: isHighlighted ? '#CFF5FF' : 'rgba(226, 234, 246, 0.86)',
-              fontSize: '11px',
-              fontWeight: 800,
-              textAlign: 'center',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {edge.label || formatRelationType(edge.relation_type)}
-          </Box>
-        </foreignObject>
-      </g>
-    )
-  }
-
   if (!canUseGraph) {
     return null
   }
+
+  const cardsPanel = (
+    <Stack spacing={1.1} sx={{ minHeight: 0, flex: 1 }}>
+      <Typography sx={panelTitleSx}>Карточки</Typography>
+      <TextField
+        size="small"
+        value={cardSearch}
+        onChange={(event) => setCardSearch(event.target.value)}
+        placeholder="Поиск"
+        sx={darkTextFieldSx}
+      />
+      <FormControl size="small" fullWidth sx={darkSelectSx}>
+        <InputLabel>Тип карточек</InputLabel>
+        <Select
+          label="Тип карточек"
+          value={cardTypeFilter}
+          MenuProps={graphSelectMenuProps}
+          onChange={(event) => {
+            setCardTypeFilter(event.target.value as CardTypeFilter)
+            setSelectedCardKeys([])
+          }}
+        >
+          <MenuItem value="all">Все типы</MenuItem>
+          <MenuItem value="characters">Персонажи</MenuItem>
+          <MenuItem value="world">Мир</MenuItem>
+          <MenuItem value="world_details">Детали мира</MenuItem>
+          <MenuItem value="rules">Правила</MenuItem>
+          <MenuItem value="plot">Сюжет</MenuItem>
+          <MenuItem value="memory">Память</MenuItem>
+        </Select>
+      </FormControl>
+      <Stack direction="row" spacing={0.7}>
+        <Button onClick={() => void handleAddSelectedNodes()} disabled={selectedCardKeys.length === 0 || isMutating} sx={compactButtonSx}>
+          Добавить
+        </Button>
+        <Button
+          onClick={() => setSelectedCardKeys(availableCards.map((card) => `${card.card_type}:${card.card_id}`))}
+          disabled={availableCards.length === 0}
+          sx={compactButtonSx}
+        >
+          Все
+        </Button>
+      </Stack>
+      <Box className="morius-scrollbar" sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pr: 0.4 }}>
+        <Stack spacing={0.65}>
+          {availableCards.map((card) => {
+            const key = `${card.card_type}:${card.card_id}`
+            return (
+              <Box key={key} sx={cardRowSx}>
+                <Checkbox
+                  checked={selectedCardKeysSet.has(key)}
+                  onChange={(_, checked) =>
+                    setSelectedCardKeys((previousKeys) =>
+                      checked ? [...previousKeys, key] : previousKeys.filter((item) => item !== key),
+                    )
+                  }
+                  size="small"
+                  sx={{ color: T.muted, p: 0.35, '&.Mui-checked': { color: T.accent } }}
+                />
+                <CardAvatar card={card} />
+                <Stack spacing={0.1} sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={cardRowTitleSx}>{card.title || `#${card.card_id}`}</Typography>
+                  <Typography sx={cardRowMetaSx}>{formatCardSummaryType(card)}</Typography>
+                </Stack>
+                <Button onClick={() => void handleAddCardNode(card)} disabled={isMutating} sx={tinyButtonSx}>
+                  +
+                </Button>
+              </Box>
+            )
+          })}
+          {availableCards.length === 0 ? (
+            <Typography sx={{ color: T.muted, fontSize: '0.84rem', lineHeight: 1.35 }}>
+              Все доступные карточки уже на графе.
+            </Typography>
+          ) : null}
+        </Stack>
+      </Box>
+    </Stack>
+  )
+
+  const inspectorPanel = (
+    <Stack spacing={1.35}>
+      <Typography sx={panelTitleSx}>Инспектор</Typography>
+      <Stack spacing={0.45}>
+        <TextField
+          size="small"
+          value={nodeSearch}
+          onChange={(event) => setNodeSearch(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setNodeSearch('')
+            }
+          }}
+          placeholder="Поиск по нодам"
+          aria-label="Поиск по нодам"
+          sx={darkTextFieldSx}
+        />
+        {normalizedNodeSearch ? (
+          <Typography
+            sx={{
+              color: matchingNodeIds.size > 0 ? T.accent : 'rgba(240, 157, 157, 0.9)',
+              fontSize: '0.74rem',
+              fontWeight: 800,
+            }}
+          >
+            {matchingNodeIds.size > 0 ? `Совпадений: ${matchingNodeIds.size}` : 'Совпадений нет'}
+          </Typography>
+        ) : null}
+      </Stack>
+      {selectedNode ? (
+        <Stack spacing={1}>
+          <Typography sx={{ color: T.title, fontWeight: 900, lineHeight: 1.2 }}>
+            {selectedNode.card?.title || `Нода #${selectedNode.id}`}
+          </Typography>
+          <Typography sx={{ color: T.muted, fontSize: '0.84rem', lineHeight: 1.45 }}>
+            {selectedNode.card?.description || 'Связанная карточка не найдена.'}
+          </Typography>
+          <Stack direction="row" spacing={0.7} flexWrap="wrap" useFlexGap>
+            <Button onClick={handleOpenSelectedCard} sx={compactButtonSx}>Открыть</Button>
+            <Button onClick={() => setConnectSourceNodeId(selectedNode.id)} sx={compactButtonSx}>Связать</Button>
+            <Button onClick={() => void handleDeleteSelectedNode()} disabled={isMutating} sx={dangerButtonSx}>Удалить</Button>
+          </Stack>
+        </Stack>
+      ) : selectedEdge ? (
+        <Stack spacing={1}>
+          <Typography sx={{ color: T.title, fontWeight: 900, lineHeight: 1.2 }}>
+            {selectedEdge.label || formatRelationType(selectedEdge.relation_type)}
+          </Typography>
+          <Typography sx={{ color: T.muted, fontSize: '0.84rem', lineHeight: 1.45 }}>
+            {selectedEdge.description || 'Описание связи не задано.'}
+          </Typography>
+          <Stack direction="row" spacing={0.7} flexWrap="wrap" useFlexGap>
+            <Button onClick={() => openEdgeDraft(selectedEdge)} sx={compactButtonSx}>Редактировать</Button>
+            <Button onClick={() => void handleDeleteSelectedEdge()} disabled={isMutating} sx={dangerButtonSx}>Удалить</Button>
+          </Stack>
+        </Stack>
+      ) : (
+        <Typography sx={{ color: T.muted, fontSize: '0.86rem', lineHeight: 1.45 }}>
+          Выберите ноду или связь на полотне.
+        </Typography>
+      )}
+    </Stack>
+  )
+
+  const aiPanel = (
+    <Stack spacing={1.35}>
+      <Box sx={settingsBoxSx}>
+        <Typography sx={panelTitleSx}>ИИ графа</Typography>
+        <Stack spacing={1.1} sx={{ mt: 1.1 }}>
+          <SettingSwitch
+            label="Авто-ноды"
+            tooltip="После каждого завершённого хода Gemini 2.5 Flash находит важные новые сущности, создаёт недостающие карточки и добавляет их на граф."
+            checked={Boolean(game?.auto_graph_nodes_enabled)}
+            disabled={isSavingSettings || disabled}
+            onChange={(checked) => void handleSettingChange({ autoGraphNodesEnabled: checked })}
+          />
+          <SettingSwitch
+            label="Авто-связи"
+            tooltip="После каждого хода Gemini 2.5 Flash создаёт или обновляет связи между карточками по событиям сцены. Связи выше порога применяются автоматически."
+            checked={Boolean(game?.auto_graph_edges_enabled)}
+            disabled={isSavingSettings || disabled}
+            onChange={(checked) => void handleSettingChange({ autoGraphEdgesEnabled: checked })}
+          />
+          <SettingSwitch
+            label="Подтверждать низкую уверенность"
+            tooltip="Действия Gemini ниже выбранного порога не применяются сразу, а попадают в «Предложения», где их можно подтвердить или отклонить."
+            checked={game?.graph_confirm_low_confidence !== false}
+            disabled={isSavingSettings || disabled}
+            onChange={(checked) => void handleSettingChange({ graphConfirmLowConfidence: checked })}
+          />
+          <Stack spacing={0.55}>
+            <Typography sx={{ color: T.text, fontSize: '0.82rem', fontWeight: 800 }}>
+              Порог авто-применения: {Math.round(activeConfidence * 100)}%
+            </Typography>
+            <Slider
+              value={activeConfidence}
+              min={0.5}
+              max={0.95}
+              step={0.01}
+              disabled={isSavingSettings || disabled}
+              onChangeCommitted={(_, value) => {
+                const nextValue = Array.isArray(value) ? value[0] : value
+                void handleSettingChange({ graphAutoApplyConfidence: nextValue })
+              }}
+              sx={sliderSx}
+            />
+          </Stack>
+        </Stack>
+      </Box>
+
+      <Box sx={settingsBoxSx}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+          <Typography sx={panelTitleSx}>Предложения</Typography>
+          <Typography sx={{ color: T.muted, fontSize: '0.78rem', fontWeight: 800 }}>
+            {graphPayload.suggestions.length}
+          </Typography>
+        </Stack>
+        <Stack spacing={0.75} sx={{ mt: 1, maxHeight: { xs: 220, lg: 260 }, overflowY: 'auto', pr: 0.2 }} className="morius-scrollbar">
+          {graphPayload.suggestions.map((suggestion) => (
+            <Box key={suggestion.id} sx={suggestionBoxSx}>
+              <Typography sx={{ color: T.title, fontSize: '0.82rem', fontWeight: 900 }}>
+                {formatSuggestionKind(suggestion.kind)} · {Math.round((suggestion.confidence ?? 0) * 100)}%
+              </Typography>
+              <Typography sx={{ color: T.muted, fontSize: '0.76rem', lineHeight: 1.35 }}>
+                {suggestion.reason || summarizeSuggestionPayload(suggestion)}
+              </Typography>
+              <Stack direction="row" spacing={0.55} sx={{ mt: 0.5 }}>
+                <Button onClick={() => void handleApplySuggestion(suggestion.id)} disabled={isMutating} sx={tinyButtonSx}>ОК</Button>
+                <Button onClick={() => void handleDeclineSuggestion(suggestion.id)} disabled={isMutating} sx={tinyButtonSx}>Нет</Button>
+              </Stack>
+            </Box>
+          ))}
+          {graphPayload.suggestions.length === 0 ? (
+            <Typography sx={{ color: T.muted, fontSize: '0.82rem' }}>
+              Очередь пуста.
+            </Typography>
+          ) : null}
+        </Stack>
+      </Box>
+    </Stack>
+  )
+
+  const canvas = (
+    <Box
+      ref={viewportRef}
+      onPointerDown={handleViewportPointerDown}
+      onPointerMove={handleViewportPointerMove}
+      onPointerUp={handleViewportPointerEnd}
+      onPointerCancel={handleViewportPointerEnd}
+      style={{
+        backgroundSize: `${GRID_SIZE * zoom}px ${GRID_SIZE * zoom}px`,
+        backgroundPosition: `${pan.x}px ${pan.y}px`,
+      }}
+      sx={{
+        position: 'relative',
+        flex: 1,
+        minHeight: 0,
+        overflow: 'hidden',
+        touchAction: 'none',
+        cursor: gestureRef.current?.type === 'pan' ? 'grabbing' : 'grab',
+        backgroundColor: CANVAS_BG,
+        backgroundImage: `linear-gradient(${GRID_LINE} 1px, transparent 1px), linear-gradient(90deg, ${GRID_LINE} 1px, transparent 1px)`,
+      }}
+    >
+      {isLoading && graph === null ? (
+        <Stack spacing={1} alignItems="center" justifyContent="center" sx={{ position: 'absolute', inset: 0, zIndex: 4 }}>
+          <CircularProgress size={30} sx={{ color: T.accent }} />
+          <Typography sx={{ color: T.muted, fontSize: '0.9rem' }}>Загружаю граф</Typography>
+        </Stack>
+      ) : null}
+      <Box
+        ref={worldLayerRef}
+        style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}
+        sx={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          width: 0,
+          height: 0,
+          transformOrigin: '0 0',
+          willChange: 'transform',
+          transition: isViewportAnimating ? `transform ${VIEWPORT_ANIMATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)` : 'none',
+        }}
+      >
+        <Box
+          sx={{
+            position: 'relative',
+            width: canvasWidth,
+            height: canvasHeight,
+            boxSizing: 'border-box',
+            borderRadius: 'calc(var(--morius-radius) + 4px)',
+            border: `1px solid ${T.border}`,
+          }}
+        >
+          <Box component="svg" width={canvasWidth} height={canvasHeight} sx={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
+            <defs>
+              <marker id="graph-arrow-active" markerWidth="11" markerHeight="11" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill={T.accent} />
+              </marker>
+              <marker id="graph-arrow-muted" markerWidth="11" markerHeight="11" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="rgba(155, 154, 160, 0.42)" />
+              </marker>
+            </defs>
+            {graphPayload.edges.map((edge) => {
+              const source = nodesById.get(edge.source_node_id)
+              const target = nodesById.get(edge.target_node_id)
+              if (!source || !target) {
+                return null
+              }
+              const hasSearchFocus = normalizedNodeSearch.length > 0 && matchingNodeIds.size > 0
+              const hasSelectionFocus = selectedNodeId !== null && !hasSearchFocus
+              const isConnectedToSelection = connectedEdgeIds.has(edge.id)
+              const isConnectedToSearch = matchingNodeIds.has(edge.source_node_id) || matchingNodeIds.has(edge.target_node_id)
+              const isSelected = selectedEdgeId === edge.id
+              const isHighlighted = isSelected || (hasSelectionFocus && isConnectedToSelection)
+              const opacity = hasSearchFocus
+                ? isConnectedToSearch ? 0.72 : 0.08
+                : hasSelectionFocus ? (isConnectedToSelection ? 1 : 0.08) : 1
+              return (
+                <GraphEdge
+                  key={edge.id}
+                  edge={edge}
+                  source={source}
+                  target={target}
+                  isHighlighted={isHighlighted}
+                  opacity={opacity}
+                  onSelect={handleEdgeSelect}
+                  registerEdge={registerEdge}
+                />
+              )
+            })}
+          </Box>
+          {graphPayload.nodes.map((node) => {
+            const isSelected = selectedNodeId === node.id
+            const isConnectSource = connectSourceNodeId === node.id
+            const hasSearchFocus = normalizedNodeSearch.length > 0 && matchingNodeIds.size > 0
+            const isSearchMatch = matchingNodeIds.has(node.id)
+            const hasSelectionFocus = selectedNodeId !== null && !hasSearchFocus
+            const isConnected = connectedNodeIds.has(node.id)
+            const isDimmed = hasSearchFocus ? !isSearchMatch : hasSelectionFocus ? !isConnected : false
+            const isHighlighted = isSelected || isConnectSource || isSearchMatch || (hasSelectionFocus && isConnected)
+            return (
+              <GraphNode
+                key={node.id}
+                node={node}
+                isSelected={isSelected}
+                isConnectSource={isConnectSource}
+                isSearchMatch={isSearchMatch}
+                isDimmed={isDimmed}
+                isHighlighted={isHighlighted}
+                isConnected={isConnected}
+                hasSelectionFocus={hasSelectionFocus}
+                onSelect={handleNodeSelect}
+                onHandlePointerDown={handleNodePointerDown}
+                onHandlePointerMove={handleNodePointerMove}
+                onHandlePointerEnd={handleNodePointerEnd}
+                registerEl={registerNodeEl}
+              />
+            )
+          })}
+        </Box>
+      </Box>
+
+      {connectSourceNodeId !== null ? (
+        <Box sx={{ position: 'absolute', left: 14, bottom: isCompact ? 86 : 14, zIndex: 6, borderRadius: T.radius, px: 1.4, py: 0.9, backgroundColor: T.elevated, border: `1px solid ${T.gold}` }}>
+          <Typography sx={{ color: T.gold, fontSize: '0.84rem', fontWeight: 800 }}>
+            Выберите вторую ноду для связи
+          </Typography>
+        </Box>
+      ) : null}
+
+      <Stack spacing={0.75} sx={{ ...floatingControlsSx, bottom: isCompact ? 84 : 16 }}>
+        <IconButton aria-label="Приблизить" onClick={() => handleZoomButton(1)} sx={floatingButtonSx}>+</IconButton>
+        <Box sx={{ textAlign: 'center', color: T.muted, fontSize: '0.72rem', fontWeight: 800, userSelect: 'none' }}>{Math.round(zoom * 100)}%</Box>
+        <IconButton aria-label="Отдалить" onClick={() => handleZoomButton(-1)} sx={floatingButtonSx}>−</IconButton>
+        <IconButton aria-label="Показать весь граф" onClick={handleFitView} sx={floatingButtonSx}>
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M3 7V3h4M17 7V3h-4M3 13v4h4M17 13v4h-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </IconButton>
+      </Stack>
+    </Box>
+  )
+
+  const mobileTabBar = (
+    <Stack direction="row" spacing={0.75} sx={mobileTabBarSx}>
+      <MobileTabButton label="Карточки" active={mobilePanel === 'cards'} onClick={() => setMobilePanel(mobilePanel === 'cards' ? 'none' : 'cards')} />
+      <MobileTabButton label="Инспектор" active={mobilePanel === 'inspector'} badge={selectedNode || selectedEdge ? '•' : undefined} onClick={() => setMobilePanel(mobilePanel === 'inspector' ? 'none' : 'inspector')} />
+      <MobileTabButton label="ИИ" active={mobilePanel === 'ai'} badge={graphPayload.suggestions.length > 0 ? String(graphPayload.suggestions.length) : undefined} onClick={() => setMobilePanel(mobilePanel === 'ai' ? 'none' : 'ai')} />
+    </Stack>
+  )
 
   return (
     <>
@@ -1389,361 +1875,158 @@ export default function StoryGraphDialog({
         fullScreen
         PaperProps={{
           sx: {
-            background: '#080B10',
-            color: '#EAF1FA',
+            background: T.appBg,
+            color: T.text,
             overflow: 'hidden',
           },
         }}
       >
-        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100dvh', minHeight: 0 }}>
           <Stack
             direction="row"
             alignItems="center"
-            spacing={1}
+            spacing={{ xs: 0.6, md: 1 }}
             sx={{
               px: { xs: 1.2, md: 2 },
               py: 1,
-              borderBottom: '1px solid rgba(140, 159, 184, 0.2)',
-              backgroundColor: 'rgba(10, 14, 20, 0.96)',
+              borderBottom: `1px solid ${T.border}`,
+              backgroundColor: T.panel,
+              flexShrink: 0,
             }}
           >
-            <Typography sx={{ fontSize: { xs: '1.05rem', md: '1.26rem' }, fontWeight: 900, minWidth: 0, flex: 1 }}>
+            <Typography
+              sx={{
+                fontFamily: '"Spectral", "Times New Roman", serif',
+                fontSize: { xs: '1.1rem', md: '1.32rem' },
+                fontWeight: 800,
+                color: T.title,
+                minWidth: 0,
+                flex: 1,
+              }}
+            >
               Ноды
             </Typography>
-            <Tooltip title="Масштаб">
-              <Button
-                onClick={() => {
-                  const nextPan = { x: 430, y: 130 }
-                  viewStateRef.current = { zoom: 0.78, pan: nextPan }
-                  setZoom(0.78)
-                  setPan(nextPan)
-                }}
-                sx={toolbarButtonSx}
-              >
-                {Math.round(zoom * 100)}%
-              </Button>
-            </Tooltip>
-            <Button onClick={() => void loadGraph()} disabled={isLoading || isMutating} sx={toolbarButtonSx}>
-              Обновить
-            </Button>
-            <Button onClick={() => void handleAutoLayout()} disabled={isMutating || graphPayload.nodes.length === 0} sx={toolbarButtonSx}>
-              Авто-layout
-            </Button>
-            <IconButton onClick={onClose} aria-label="Закрыть ноды" sx={{ color: '#DDE7F5' }}>
-              ×
+            {isCompact ? (
+              <>
+                <Tooltip title="Обновить">
+                  <span>
+                    <IconButton onClick={() => void loadGraph()} disabled={isLoading || isMutating} sx={toolbarIconButtonSx} aria-label="Обновить">
+                      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                        <path d="M15.5 6.5A6 6 0 1 0 16 10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                        <path d="M16 4v3h-3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Авто-layout">
+                  <span>
+                    <IconButton onClick={() => void handleAutoLayout()} disabled={isMutating || graphPayload.nodes.length === 0} sx={toolbarIconButtonSx} aria-label="Авто-layout">
+                      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                        <rect x="2.5" y="2.5" width="6" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
+                        <rect x="11.5" y="2.5" width="6" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
+                        <rect x="7" y="11.5" width="6" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
+                      </svg>
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </>
+            ) : (
+              <>
+                <Button onClick={() => void loadGraph()} disabled={isLoading || isMutating} sx={toolbarButtonSx}>
+                  Обновить
+                </Button>
+                <Button onClick={() => void handleAutoLayout()} disabled={isMutating || graphPayload.nodes.length === 0} sx={toolbarButtonSx}>
+                  Авто-layout
+                </Button>
+              </>
+            )}
+            <IconButton onClick={onClose} aria-label="Закрыть ноды" sx={toolbarIconButtonSx}>
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
             </IconButton>
           </Stack>
 
           {errorMessage ? (
-            <Alert severity="error" sx={{ borderRadius: 0 }}>
+            <Alert severity="error" sx={{ borderRadius: 0, flexShrink: 0 }}>
               {errorMessage}
             </Alert>
           ) : null}
 
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', lg: '292px minmax(0, 1fr) 318px' },
-              gridTemplateRows: { xs: 'auto minmax(420px, 1fr) auto', lg: 'minmax(0, 1fr)' },
-              gap: { xs: 0, lg: 0 },
-              flex: 1,
-              minHeight: 0,
-            }}
-          >
-            <Box sx={sidePanelSx}>
-              <Stack spacing={1.1}>
-                <Typography sx={panelTitleSx}>Карточки</Typography>
-                <TextField
-                  size="small"
-                  value={cardSearch}
-                  onChange={(event) => setCardSearch(event.target.value)}
-                  placeholder="Поиск"
-                  sx={darkTextFieldSx}
-                />
-                <FormControl size="small" fullWidth sx={darkSelectSx}>
-                  <InputLabel>Тип карточек</InputLabel>
-                  <Select
-                    label="Тип карточек"
-                    value={cardTypeFilter}
-                    MenuProps={graphSelectMenuProps}
-                    onChange={(event) => {
-                      setCardTypeFilter(event.target.value as CardTypeFilter)
-                      setSelectedCardKeys([])
-                    }}
-                  >
-                    <MenuItem value="all">Все типы</MenuItem>
-                    <MenuItem value="characters">Персонажи</MenuItem>
-                    <MenuItem value="world">Мир</MenuItem>
-                    <MenuItem value="world_details">Детали мира</MenuItem>
-                    <MenuItem value="rules">Правила</MenuItem>
-                    <MenuItem value="plot">Сюжет</MenuItem>
-                    <MenuItem value="memory">Память</MenuItem>
-                  </Select>
-                </FormControl>
-                <Stack direction="row" spacing={0.7}>
-                  <Button onClick={() => void handleAddSelectedNodes()} disabled={selectedCardKeys.length === 0 || isMutating} sx={compactButtonSx}>
-                    Добавить
-                  </Button>
-                  <Button
-                    onClick={() => setSelectedCardKeys(availableCards.map((card) => `${card.card_type}:${card.card_id}`))}
-                    disabled={availableCards.length === 0}
-                    sx={compactButtonSx}
-                  >
-                    Все
-                  </Button>
-                </Stack>
-                <Box className="morius-scrollbar" sx={{ maxHeight: { xs: 168, lg: 'calc(100dvh - 225px)' }, overflowY: 'auto', pr: 0.4 }}>
-                  <Stack spacing={0.65}>
-                    {availableCards.map((card) => {
-                      const key = `${card.card_type}:${card.card_id}`
-                      return (
-                        <Box key={key} sx={cardRowSx}>
-                          <Checkbox
-                            checked={selectedCardKeysSet.has(key)}
-                            onChange={(_, checked) =>
-                              setSelectedCardKeys((previousKeys) =>
-                                checked ? [...previousKeys, key] : previousKeys.filter((item) => item !== key),
-                              )
-                            }
-                            size="small"
-                            sx={{ color: 'rgba(214, 225, 241, 0.54)', p: 0.35 }}
-                          />
-                          {renderCardAvatar(card)}
-                          <Stack spacing={0.1} sx={{ minWidth: 0, flex: 1 }}>
-                            <Typography sx={cardRowTitleSx}>{card.title || `#${card.card_id}`}</Typography>
-                            <Typography sx={cardRowMetaSx}>{formatCardSummaryType(card)}</Typography>
-                          </Stack>
-                          <Button onClick={() => void handleAddCardNode(card)} disabled={isMutating} sx={tinyButtonSx}>
-                            +
-                          </Button>
-                        </Box>
-                      )
-                    })}
-                    {availableCards.length === 0 ? (
-                      <Typography sx={{ color: 'rgba(210, 221, 237, 0.62)', fontSize: '0.84rem', lineHeight: 1.35 }}>
-                        Все доступные карточки уже на графе.
-                      </Typography>
-                    ) : null}
-                  </Stack>
-                </Box>
-              </Stack>
-            </Box>
-
-            <Box
-              ref={viewportRef}
-              onPointerDown={handleViewportPointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerEnd}
-              onPointerCancel={handlePointerEnd}
-              sx={{
-                position: 'relative',
-                minHeight: { xs: 420, lg: 'auto' },
-                overflow: 'hidden',
-                cursor: dragStateRef.current?.type === 'pan' ? 'grabbing' : 'grab',
-                backgroundColor: '#090D13',
-                backgroundImage:
-                  'linear-gradient(rgba(143, 185, 219, 0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(143, 185, 219, 0.07) 1px, transparent 1px)',
-                backgroundSize: `${32 * zoom}px ${32 * zoom}px`,
-                backgroundPosition: `${pan.x}px ${pan.y}px`,
-              }}
-            >
-              {isLoading && graph === null ? (
-                <Stack spacing={1} alignItems="center" justifyContent="center" sx={{ position: 'absolute', inset: 0, zIndex: 4 }}>
-                  <CircularProgress size={30} sx={{ color: '#7FDBFF' }} />
-                  <Typography sx={{ color: 'rgba(224, 234, 248, 0.72)', fontSize: '0.9rem' }}>Загружаю граф</Typography>
-                </Stack>
-              ) : null}
-              <Box
-                sx={{
-                  position: 'absolute',
-                  left: 0,
-                  top: 0,
-                  width: 0,
-                  height: 0,
-                  transform: `translate(${Math.round(pan.x)}px, ${Math.round(pan.y)}px)`,
-                  transition: isViewportAnimating ? `transform ${VIEWPORT_ANIMATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)` : 'none',
-                }}
-              >
-                <Box
-                  sx={{
-                    position: 'relative',
-                    width: canvasWidth,
-                    height: canvasHeight,
-                    boxSizing: 'border-box',
-                    border: '3px solid rgba(127, 219, 255, 0.34)',
-                    boxShadow: 'inset 0 0 0 1px rgba(7, 10, 15, 0.95)',
-                    zoom,
-                    transition: isViewportAnimating ? `zoom ${VIEWPORT_ANIMATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)` : 'none',
-                    textRendering: 'geometricPrecision',
-                    WebkitFontSmoothing: 'antialiased',
-                  }}
-                >
+          {isCompact ? (
+            <Box sx={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              {canvas}
+              {mobilePanel !== 'none' ? (
+                <>
                   <Box
-                    component="svg"
-                    width={canvasWidth}
-                    height={canvasHeight}
-                    sx={{ position: 'absolute', inset: 0, overflow: 'visible' }}
-                  >
-                    <defs>
-                      <marker id="graph-arrow-active" markerWidth="11" markerHeight="11" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-                        <path d="M0,0 L0,6 L9,3 z" fill="#7FDBFF" />
-                      </marker>
-                      <marker id="graph-arrow-muted" markerWidth="11" markerHeight="11" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-                        <path d="M0,0 L0,6 L9,3 z" fill="rgba(130, 142, 160, 0.38)" />
-                      </marker>
-                    </defs>
-                    {graphPayload.edges.map(renderEdge)}
-                  </Box>
-                  {graphPayload.nodes.map(renderNode)}
-                </Box>
-              </Box>
-              {connectSourceNodeId !== null ? (
-                <Box sx={{ position: 'absolute', left: 14, bottom: 14, borderRadius: '8px', px: 1.2, py: 0.8, backgroundColor: 'rgba(12, 16, 22, 0.92)', border: '1px solid rgba(242, 197, 109, 0.5)' }}>
-                  <Typography sx={{ color: '#F8D27B', fontSize: '0.84rem', fontWeight: 800 }}>
-                    Выберите вторую ноду для связи
-                  </Typography>
-                </Box>
-              ) : null}
-            </Box>
-
-            <Box sx={sidePanelSx}>
-              <Stack spacing={1.35}>
-                <Typography sx={panelTitleSx}>Инспектор</Typography>
-                <Stack spacing={0.45}>
-                  <TextField
-                    size="small"
-                    value={nodeSearch}
-                    onChange={(event) => setNodeSearch(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') {
-                        setNodeSearch('')
-                      }
-                    }}
-                    placeholder="Поиск по нодам"
-                    aria-label="Поиск по нодам"
-                    sx={darkTextFieldSx}
+                    onPointerDown={() => setMobilePanel('none')}
+                    sx={{ position: 'absolute', inset: 0, zIndex: 8, backgroundColor: 'rgba(0, 0, 0, 0.55)' }}
                   />
-                  {normalizedNodeSearch ? (
-                    <Typography
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      zIndex: 9,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      maxHeight: '82%',
+                      backgroundColor: T.panel,
+                      borderTop: `1px solid ${T.border}`,
+                      borderTopLeftRadius: '20px',
+                      borderTopRightRadius: '20px',
+                      boxShadow: '0 -22px 54px rgba(0, 0, 0, 0.55)',
+                      animation: 'morius-graph-sheet-up 220ms cubic-bezier(0.22, 1, 0.36, 1)',
+                      '@keyframes morius-graph-sheet-up': {
+                        from: { transform: 'translateY(100%)' },
+                        to: { transform: 'translateY(0)' },
+                      },
+                    }}
+                  >
+                    <Box sx={{ pt: 1.1, px: 2, flexShrink: 0 }}>
+                      <Box sx={{ width: 44, height: 5, borderRadius: 999, backgroundColor: T.hoverBorder, mx: 'auto' }} />
+                    </Box>
+                    <Box
+                      className="morius-scrollbar"
                       sx={{
-                        color: matchingNodeIds.size > 0 ? 'rgba(174, 226, 246, 0.8)' : 'rgba(240, 157, 157, 0.82)',
-                        fontSize: '0.74rem',
-                        fontWeight: 800,
+                        px: 2,
+                        pt: 1.4,
+                        pb: 'calc(18px + env(safe-area-inset-bottom))',
+                        overflowY: 'auto',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        minHeight: 0,
                       }}
                     >
-                      {matchingNodeIds.size > 0
-                        ? `Совпадений: ${matchingNodeIds.size}`
-                        : 'Совпадений нет'}
-                    </Typography>
-                  ) : null}
-                </Stack>
-                {selectedNode ? (
-                  <Stack spacing={1}>
-                    <Typography sx={{ color: '#F5F8FC', fontWeight: 900, lineHeight: 1.2 }}>
-                      {selectedNode.card?.title || `Нода #${selectedNode.id}`}
-                    </Typography>
-                    <Typography sx={{ color: 'rgba(206, 219, 237, 0.72)', fontSize: '0.84rem', lineHeight: 1.45 }}>
-                      {selectedNode.card?.description || 'Связанная карточка не найдена.'}
-                    </Typography>
-                    <Stack direction="row" spacing={0.7} flexWrap="wrap" useFlexGap>
-                      <Button onClick={handleOpenSelectedCard} sx={compactButtonSx}>Открыть</Button>
-                      <Button onClick={() => setConnectSourceNodeId(selectedNode.id)} sx={compactButtonSx}>Связать</Button>
-                      <Button onClick={() => void handleDeleteSelectedNode()} disabled={isMutating} sx={dangerButtonSx}>Удалить</Button>
-                    </Stack>
-                  </Stack>
-                ) : selectedEdge ? (
-                  <Stack spacing={1}>
-                    <Typography sx={{ color: '#F5F8FC', fontWeight: 900, lineHeight: 1.2 }}>
-                      {selectedEdge.label || formatRelationType(selectedEdge.relation_type)}
-                    </Typography>
-                    <Typography sx={{ color: 'rgba(206, 219, 237, 0.72)', fontSize: '0.84rem', lineHeight: 1.45 }}>
-                      {selectedEdge.description || 'Описание связи не задано.'}
-                    </Typography>
-                    <Stack direction="row" spacing={0.7} flexWrap="wrap" useFlexGap>
-                      <Button onClick={() => openEdgeDraft(selectedEdge)} sx={compactButtonSx}>Редактировать</Button>
-                      <Button onClick={() => void handleDeleteSelectedEdge()} disabled={isMutating} sx={dangerButtonSx}>Удалить</Button>
-                    </Stack>
-                  </Stack>
-                ) : (
-                  <Typography sx={{ color: 'rgba(206, 219, 237, 0.68)', fontSize: '0.86rem', lineHeight: 1.45 }}>
-                    Выберите ноду или связь на полотне.
-                  </Typography>
-                )}
-
-                <Box sx={settingsBoxSx}>
-                  <Typography sx={panelTitleSx}>ИИ графа</Typography>
-                  <SettingSwitch
-                    label="Авто-ноды"
-                    tooltip="После каждого завершённого хода Gemini 2.5 Flash находит важные новые сущности, создаёт недостающие карточки и добавляет их на граф."
-                    checked={Boolean(game?.auto_graph_nodes_enabled)}
-                    disabled={isSavingSettings || disabled}
-                    onChange={(checked) => void handleSettingChange({ autoGraphNodesEnabled: checked })}
-                  />
-                  <SettingSwitch
-                    label="Авто-связи"
-                    tooltip="После каждого хода Gemini 2.5 Flash создаёт или обновляет связи между карточками по событиям сцены. Связи выше порога применяются автоматически."
-                    checked={Boolean(game?.auto_graph_edges_enabled)}
-                    disabled={isSavingSettings || disabled}
-                    onChange={(checked) => void handleSettingChange({ autoGraphEdgesEnabled: checked })}
-                  />
-                  <SettingSwitch
-                    label="Подтверждать низкую уверенность"
-                    tooltip="Действия Gemini ниже выбранного порога не применяются сразу, а попадают в «Предложения», где их можно подтвердить или отклонить."
-                    checked={game?.graph_confirm_low_confidence !== false}
-                    disabled={isSavingSettings || disabled}
-                    onChange={(checked) => void handleSettingChange({ graphConfirmLowConfidence: checked })}
-                  />
-                  <Stack spacing={0.55}>
-                    <Typography sx={{ color: 'rgba(228, 237, 249, 0.8)', fontSize: '0.82rem', fontWeight: 800 }}>
-                      Порог авто-применения: {Math.round(activeConfidence * 100)}%
-                    </Typography>
-                    <Slider
-                      value={activeConfidence}
-                      min={0.5}
-                      max={0.95}
-                      step={0.01}
-                      disabled={isSavingSettings || disabled}
-                      onChangeCommitted={(_, value) => {
-                        const nextValue = Array.isArray(value) ? value[0] : value
-                        void handleSettingChange({ graphAutoApplyConfidence: nextValue })
-                      }}
-                      sx={{ color: '#7FDBFF' }}
-                    />
-                  </Stack>
-                </Box>
-
-                <Box sx={settingsBoxSx}>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-                    <Typography sx={panelTitleSx}>Предложения</Typography>
-                    <Typography sx={{ color: 'rgba(205, 219, 237, 0.66)', fontSize: '0.78rem', fontWeight: 800 }}>
-                      {graphPayload.suggestions.length}
-                    </Typography>
-                  </Stack>
-                  <Stack spacing={0.75} sx={{ maxHeight: { xs: 174, lg: 260 }, overflowY: 'auto', pr: 0.2 }} className="morius-scrollbar">
-                    {graphPayload.suggestions.map((suggestion) => (
-                      <Box key={suggestion.id} sx={suggestionBoxSx}>
-                        <Typography sx={{ color: '#F4F8FC', fontSize: '0.82rem', fontWeight: 900 }}>
-                          {formatSuggestionKind(suggestion.kind)} · {Math.round((suggestion.confidence ?? 0) * 100)}%
-                        </Typography>
-                        <Typography sx={{ color: 'rgba(211, 224, 241, 0.72)', fontSize: '0.76rem', lineHeight: 1.35 }}>
-                          {suggestion.reason || summarizeSuggestionPayload(suggestion)}
-                        </Typography>
-                        <Stack direction="row" spacing={0.55}>
-                          <Button onClick={() => void handleApplySuggestion(suggestion.id)} disabled={isMutating} sx={tinyButtonSx}>ОК</Button>
-                          <Button onClick={() => void handleDeclineSuggestion(suggestion.id)} disabled={isMutating} sx={tinyButtonSx}>Нет</Button>
-                        </Stack>
-                      </Box>
-                    ))}
-                    {graphPayload.suggestions.length === 0 ? (
-                      <Typography sx={{ color: 'rgba(206, 219, 237, 0.62)', fontSize: '0.82rem' }}>
-                        Очередь пуста.
-                      </Typography>
-                    ) : null}
-                  </Stack>
-                </Box>
-              </Stack>
+                      {mobilePanel === 'cards' ? cardsPanel : mobilePanel === 'inspector' ? inspectorPanel : aiPanel}
+                    </Box>
+                  </Box>
+                </>
+              ) : null}
+              {mobileTabBar}
             </Box>
-          </Box>
+          ) : (
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: '300px minmax(0, 1fr) 330px',
+                flex: 1,
+                minHeight: 0,
+              }}
+            >
+              <Box sx={{ ...sidePanelSx, borderRight: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column' }}>
+                {cardsPanel}
+              </Box>
+              {canvas}
+              <Box sx={{ ...sidePanelSx, borderLeft: `1px solid ${T.border}`, overflowY: 'auto' }} className="morius-scrollbar">
+                <Stack spacing={1.6}>
+                  {inspectorPanel}
+                  {aiPanel}
+                </Stack>
+              </Box>
+            </Box>
+          )}
         </Box>
       </Dialog>
 
@@ -1754,19 +2037,19 @@ export default function StoryGraphDialog({
         fullWidth
         PaperProps={{
           sx: {
-            borderRadius: '10px',
-            border: '1px solid rgba(143, 185, 219, 0.2)',
-            backgroundColor: '#080C12',
+            borderRadius: T.radius,
+            border: `1px solid ${T.border}`,
+            backgroundColor: T.panel,
             backgroundImage: 'none',
-            color: '#EEF4FC',
-            boxShadow: '0 26px 80px rgba(0, 0, 0, 0.72)',
+            color: T.text,
+            boxShadow: 'var(--morius-neutral-shadow)',
           },
         }}
       >
-        <DialogTitle sx={{ fontWeight: 900, backgroundColor: '#080C12' }}>{edgeDraft?.id === null ? 'Новая связь' : 'Редактирование связи'}</DialogTitle>
-        <DialogContent sx={{ pt: 1, backgroundColor: '#080C12' }}>
+        <DialogTitle sx={{ fontWeight: 900, color: T.title, backgroundColor: T.panel }}>{edgeDraft?.id === null ? 'Новая связь' : 'Редактирование связи'}</DialogTitle>
+        <DialogContent sx={{ pt: 1, backgroundColor: T.panel }}>
           {edgeDraft ? (
-            <Stack spacing={1.4}>
+            <Stack spacing={1.4} sx={{ pt: 1 }}>
               <FormControl size="small" fullWidth sx={darkSelectSx}>
                 <InputLabel>Тип</InputLabel>
                 <Select
@@ -1824,7 +2107,7 @@ export default function StoryGraphDialog({
                 </FormControl>
               </Stack>
               <Stack spacing={0.5}>
-                <Typography sx={{ color: 'rgba(226, 236, 249, 0.78)', fontSize: '0.84rem', fontWeight: 800 }}>
+                <Typography sx={{ color: T.text, fontSize: '0.84rem', fontWeight: 800 }}>
                   Важность: {edgeDraft.importance}
                 </Typography>
                 <Slider
@@ -1836,7 +2119,7 @@ export default function StoryGraphDialog({
                     const nextValue = Array.isArray(value) ? value[0] : value
                     setEdgeDraft((draft) => draft ? { ...draft, importance: nextValue } : draft)
                   }}
-                  sx={{ color: '#7FDBFF' }}
+                  sx={sliderSx}
                 />
               </Stack>
               <SettingSwitch
@@ -1847,14 +2130,308 @@ export default function StoryGraphDialog({
             </Stack>
           ) : null}
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2, backgroundColor: '#080C12' }}>
-          <Button onClick={() => setEdgeDraft(null)} sx={{ color: 'rgba(224, 234, 248, 0.72)' }}>Отмена</Button>
+        <DialogActions sx={{ px: 3, pb: 2.2, backgroundColor: T.panel }}>
+          <Button onClick={() => setEdgeDraft(null)} sx={{ color: T.muted, textTransform: 'none' }}>Отмена</Button>
           <Button onClick={() => void handleSaveEdgeDraft()} disabled={isMutating || edgeDraft === null} sx={primaryActionButtonSx}>
             Сохранить
           </Button>
         </DialogActions>
       </Dialog>
     </>
+  )
+}
+
+type GraphNodeProps = {
+  node: StoryGraphNode
+  isSelected: boolean
+  isConnectSource: boolean
+  isSearchMatch: boolean
+  isDimmed: boolean
+  isHighlighted: boolean
+  isConnected: boolean
+  hasSelectionFocus: boolean
+  onSelect: (node: StoryGraphNode) => void
+  onHandlePointerDown: (event: ReactPointerEvent<HTMLDivElement>, node: StoryGraphNode) => void
+  onHandlePointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onHandlePointerEnd: (event: ReactPointerEvent<HTMLDivElement>) => void
+  registerEl: (nodeId: number, element: HTMLElement | null) => void
+}
+
+const GraphNode = memo(function GraphNode({
+  node,
+  isSelected,
+  isConnectSource,
+  isSearchMatch,
+  isDimmed,
+  isHighlighted,
+  isConnected,
+  hasSelectionFocus,
+  onSelect,
+  onHandlePointerDown,
+  onHandlePointerMove,
+  onHandlePointerEnd,
+  registerEl,
+}: GraphNodeProps) {
+  const card = node.card
+  const borderColor = isSelected
+    ? T.accent
+    : isConnectSource
+      ? T.gold
+      : isSearchMatch
+        ? accentSoft(0.92)
+        : hasSelectionFocus && isConnected
+          ? accentSoft(0.6)
+          : 'rgba(255, 255, 255, 0.14)'
+  return (
+    <Box
+      ref={(element: HTMLDivElement | null) => registerEl(node.id, element)}
+      onClick={() => onSelect(node)}
+      data-graph-interactive="true"
+      style={{ transform: `translate3d(${node.x}px, ${node.y}px, 0)` }}
+      sx={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: node.width || NODE_WIDTH,
+        height: node.height || NODE_HEIGHT,
+        willChange: 'transform',
+        borderRadius: T.radius,
+        border: `2px solid ${borderColor}`,
+        backgroundColor: T.elevated,
+        boxShadow: isHighlighted
+          ? `0 0 0 4px ${accentSoft(0.14)}, 0 20px 40px rgba(0, 0, 0, 0.5)`
+          : '0 14px 28px rgba(0, 0, 0, 0.4)',
+        opacity: isDimmed ? 0.16 : 1,
+        zIndex: isHighlighted ? 3 : isConnected ? 2 : 1,
+        transition: 'opacity 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
+        cursor: 'pointer',
+        overflow: 'hidden',
+        userSelect: 'none',
+        touchAction: 'none',
+      }}
+    >
+      <Box
+        onPointerDown={(event) => onHandlePointerDown(event, node)}
+        onPointerMove={onHandlePointerMove}
+        onPointerUp={onHandlePointerEnd}
+        onPointerCancel={onHandlePointerEnd}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        }}
+        role="button"
+        aria-label={`Перетащить ${card?.title || `ноду ${node.id}`}`}
+        title="Перетащить ноду"
+        data-graph-interactive="true"
+        sx={{
+          position: 'absolute',
+          inset: '0 auto 0 0',
+          width: 30,
+          display: 'grid',
+          placeItems: 'center',
+          color: T.muted,
+          borderRight: `1px solid ${T.border}`,
+          backgroundColor: 'rgba(255, 255, 255, 0.03)',
+          cursor: 'grab',
+          touchAction: 'none',
+          '&:hover': {
+            color: T.accent,
+            backgroundColor: accentSoft(0.14),
+          },
+          '&:active': { cursor: 'grabbing' },
+        }}
+      >
+        <svg width="14" height="22" viewBox="0 0 14 22" fill="none" aria-hidden="true">
+          <circle cx="4" cy="4" r="1.5" fill="currentColor" />
+          <circle cx="10" cy="4" r="1.5" fill="currentColor" />
+          <circle cx="4" cy="11" r="1.5" fill="currentColor" />
+          <circle cx="10" cy="11" r="1.5" fill="currentColor" />
+          <circle cx="4" cy="18" r="1.5" fill="currentColor" />
+          <circle cx="10" cy="18" r="1.5" fill="currentColor" />
+        </svg>
+      </Box>
+      <Stack spacing={0.75} sx={{ py: 1.1, pr: 1.1, pl: 4.8, height: '100%' }}>
+        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0 }}>
+          {card ? <CardAvatar card={card} /> : null}
+          <Stack spacing={0.12} sx={{ minWidth: 0, flex: 1 }}>
+            <Typography sx={{ color: T.title, fontSize: '0.88rem', fontWeight: 900, lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {card?.title || `Карточка #${node.card_id}`}
+            </Typography>
+            <Typography sx={{ color: T.muted, fontSize: '0.72rem', fontWeight: 800 }}>
+              {formatCardType(node.card_type)}
+            </Typography>
+          </Stack>
+        </Stack>
+        <Typography sx={{ color: T.muted, fontSize: '0.76rem', lineHeight: 1.28, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {card?.description || 'Карточка отсутствует или была удалена.'}
+        </Typography>
+      </Stack>
+    </Box>
+  )
+})
+
+type GraphEdgeProps = {
+  edge: StoryGraphEdge
+  source: StoryGraphNode
+  target: StoryGraphNode
+  isHighlighted: boolean
+  opacity: number
+  onSelect: (edgeId: number) => void
+  registerEdge: (edgeId: number, registration: EdgeRegistration | null) => void
+}
+
+const GraphEdge = memo(function GraphEdge({ edge, source, target, isHighlighted, opacity, onSelect, registerEdge }: GraphEdgeProps) {
+  const lineRef = useRef<SVGLineElement | null>(null)
+  const hitRef = useRef<SVGLineElement | null>(null)
+  const labelRef = useRef<SVGForeignObjectElement | null>(null)
+
+  useEffect(() => {
+    registerEdge(edge.id, {
+      source: edge.source_node_id,
+      target: edge.target_node_id,
+      line: lineRef.current,
+      hit: hitRef.current,
+      label: labelRef.current,
+    })
+    return () => registerEdge(edge.id, null)
+  }, [edge.id, edge.source_node_id, edge.target_node_id, registerEdge])
+
+  const sourceX = source.x + (source.width || NODE_WIDTH) / 2
+  const sourceY = source.y + (source.height || NODE_HEIGHT) / 2
+  const targetX = target.x + (target.width || NODE_WIDTH) / 2
+  const targetY = target.y + (target.height || NODE_HEIGHT) / 2
+  const midX = (sourceX + targetX) / 2
+  const midY = (sourceY + targetY) / 2
+  const strokeColor = edge.active ? (isHighlighted ? T.accent : 'rgba(180, 196, 224, 0.5)') : 'rgba(155, 154, 160, 0.3)'
+
+  return (
+    <g opacity={opacity} style={{ transition: 'opacity 180ms ease' }} data-graph-interactive="true" onClick={() => onSelect(edge.id)}>
+      <line ref={hitRef} x1={sourceX} y1={sourceY} x2={targetX} y2={targetY} stroke="transparent" strokeWidth={18} cursor="pointer" />
+      <line
+        ref={lineRef}
+        x1={sourceX}
+        y1={sourceY}
+        x2={targetX}
+        y2={targetY}
+        stroke={strokeColor}
+        strokeWidth={isHighlighted ? 3.2 : 2}
+        strokeLinecap="round"
+        markerEnd={edge.direction === 'directed' ? `url(#graph-arrow-${edge.active ? 'active' : 'muted'})` : undefined}
+        cursor="pointer"
+      />
+      <foreignObject ref={labelRef} x={midX - 74} y={midY - 18} width={148} height={36} pointerEvents="none">
+        <Box
+          sx={{
+            px: 0.8,
+            py: 0.35,
+            borderRadius: T.radius,
+            border: `1px solid ${T.border}`,
+            backgroundColor: T.panel,
+            color: isHighlighted ? T.accent : T.text,
+            fontSize: '11px',
+            fontWeight: 800,
+            textAlign: 'center',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {edge.label || formatRelationType(edge.relation_type)}
+        </Box>
+      </foreignObject>
+    </g>
+  )
+})
+
+const CardAvatar = memo(function CardAvatar({ card }: { card: StoryGraphCardSummary }) {
+  const imageUrl = resolveApiResourceUrl(card.avatar_original_url || card.avatar_url)
+  if (imageUrl) {
+    return (
+      <Box sx={{ width: 34, height: 34, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, backgroundColor: 'rgba(255, 255, 255, 0.08)' }}>
+        <Box
+          component="img"
+          src={imageUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          sx={{
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            objectFit: 'cover',
+            transform: `scale(${clamp(card.avatar_scale || 1, 1, 2.2)})`,
+            transformOrigin: 'center',
+          }}
+        />
+      </Box>
+    )
+  }
+  return (
+    <Box
+      sx={{
+        width: 34,
+        height: 34,
+        borderRadius: '50%',
+        display: 'grid',
+        placeItems: 'center',
+        flexShrink: 0,
+        color: '#F4F7FB',
+        fontSize: '0.78rem',
+        fontWeight: 900,
+        backgroundColor:
+          card.card_type === 'instruction_card'
+            ? '#4b5f7a'
+            : card.card_type === 'plot_card'
+              ? '#5a4a7e'
+              : card.card_type === 'memory_block'
+                ? '#3f5f52'
+                : '#6a5a42',
+      }}
+    >
+      {formatCardType(card.card_type).slice(0, 1)}
+    </Box>
+  )
+})
+
+function MobileTabButton({ label, active, badge, onClick }: { label: string; active: boolean; badge?: string; onClick: () => void }) {
+  return (
+    <Button
+      onClick={onClick}
+      sx={{
+        flex: 1,
+        minHeight: 42,
+        borderRadius: '12px',
+        textTransform: 'none',
+        fontWeight: 800,
+        fontSize: '0.82rem',
+        color: active ? T.appBg : T.text,
+        backgroundColor: active ? T.accent : T.elevated,
+        border: `1px solid ${active ? T.accent : T.border}`,
+        '&:hover': { backgroundColor: active ? T.accent : 'var(--morius-button-hover)' },
+      }}
+    >
+      {label}
+      {badge ? (
+        <Box
+          component="span"
+          sx={{
+            ml: 0.6,
+            minWidth: 18,
+            height: 18,
+            px: 0.5,
+            borderRadius: 999,
+            display: 'inline-grid',
+            placeItems: 'center',
+            fontSize: '0.68rem',
+            fontWeight: 900,
+            color: active ? T.accent : T.appBg,
+            backgroundColor: active ? T.appBg : T.accent,
+          }}
+        >
+          {badge}
+        </Box>
+      ) : null}
+    </Button>
   )
 }
 
@@ -1874,7 +2451,7 @@ function SettingSwitch({
   return (
     <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
       <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
-        <Typography sx={{ color: 'rgba(228, 237, 249, 0.82)', fontSize: '0.82rem', fontWeight: 800, lineHeight: 1.25 }}>
+        <Typography sx={{ color: T.text, fontSize: '0.82rem', fontWeight: 800, lineHeight: 1.25 }}>
           {label}
         </Typography>
         {tooltip ? (
@@ -1883,7 +2460,7 @@ function SettingSwitch({
               component="span"
               tabIndex={0}
               aria-label={`Подсказка: ${label}`}
-              sx={{ display: 'inline-grid', placeItems: 'center', color: 'rgba(177, 205, 231, 0.7)', cursor: 'help' }}
+              sx={{ display: 'inline-grid', placeItems: 'center', color: T.muted, cursor: 'help' }}
             >
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <circle cx="8" cy="8" r="6.5" stroke="currentColor" />
@@ -1899,9 +2476,9 @@ function SettingSwitch({
         disabled={disabled}
         onChange={(_, nextChecked) => onChange(nextChecked)}
         sx={{
-          '& .MuiSwitch-switchBase.Mui-checked': { color: '#7FDBFF' },
-          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#7FDBFF', opacity: 0.86 },
-          '& .MuiSwitch-track': { backgroundColor: 'rgba(135, 153, 178, 0.34)', opacity: 1 },
+          '& .MuiSwitch-switchBase.Mui-checked': { color: T.accent },
+          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: T.accent, opacity: 0.86 },
+          '& .MuiSwitch-track': { backgroundColor: 'rgba(255, 255, 255, 0.18)', opacity: 1 },
         }}
       />
     </Stack>
@@ -1910,96 +2487,98 @@ function SettingSwitch({
 
 const toolbarButtonSx = {
   minHeight: 36,
-  borderRadius: '8px',
-  px: 1.25,
+  borderRadius: '12px',
+  px: 1.35,
   textTransform: 'none',
-  color: '#EAF1FA',
-  border: '1px solid rgba(143, 185, 219, 0.24)',
-  backgroundColor: 'rgba(22, 29, 39, 0.84)',
-  '&:hover': { backgroundColor: 'rgba(32, 42, 56, 0.96)' },
+  fontWeight: 700,
+  color: T.text,
+  border: `1px solid ${T.border}`,
+  backgroundColor: T.elevated,
+  '&:hover': { backgroundColor: 'var(--morius-button-hover)', borderColor: T.hoverBorder },
+}
+
+const toolbarIconButtonSx = {
+  width: 38,
+  height: 38,
+  borderRadius: '12px',
+  color: T.text,
+  border: `1px solid ${T.border}`,
+  backgroundColor: T.elevated,
+  '&:hover': { backgroundColor: 'var(--morius-button-hover)', borderColor: T.hoverBorder },
 }
 
 const primaryActionButtonSx = {
   minHeight: 36,
-  borderRadius: '8px',
-  px: 1.35,
+  borderRadius: '12px',
+  px: 1.6,
   textTransform: 'none',
-  color: '#061018',
+  color: T.appBg,
   fontWeight: 900,
-  backgroundColor: '#7FDBFF',
-  '&:hover': { backgroundColor: '#9BE8FF' },
-  '&:disabled': { color: 'rgba(6, 16, 24, 0.42)', backgroundColor: 'rgba(127, 219, 255, 0.42)' },
+  backgroundColor: T.accent,
+  '&:hover': { backgroundColor: T.accent, filter: 'brightness(1.08)' },
+  '&:disabled': { color: 'rgba(9, 9, 9, 0.42)', backgroundColor: accentSoft(0.42) },
 }
 
 const graphSelectMenuProps = {
   PaperProps: {
     sx: {
       mt: 0.5,
-      border: '1px solid rgba(143, 185, 219, 0.2)',
-      backgroundColor: '#080C12',
+      border: `1px solid ${T.border}`,
+      backgroundColor: T.elevated,
       backgroundImage: 'none',
-      color: '#EEF4FC',
-      boxShadow: '0 18px 48px rgba(0, 0, 0, 0.64)',
-      '& .MuiMenuItem-root': {
-        color: '#EAF1FA',
-      },
-      '& .MuiMenuItem-root:hover': {
-        backgroundColor: 'rgba(127, 219, 255, 0.1)',
-      },
-      '& .MuiMenuItem-root.Mui-selected': {
-        backgroundColor: 'rgba(127, 219, 255, 0.16)',
-      },
-      '& .MuiMenuItem-root.Mui-selected:hover': {
-        backgroundColor: 'rgba(127, 219, 255, 0.22)',
-      },
+      color: T.text,
+      boxShadow: 'var(--morius-neutral-shadow)',
+      '& .MuiMenuItem-root': { color: T.text },
+      '& .MuiMenuItem-root:hover': { backgroundColor: accentSoft(0.1) },
+      '& .MuiMenuItem-root.Mui-selected': { backgroundColor: accentSoft(0.16) },
+      '& .MuiMenuItem-root.Mui-selected:hover': { backgroundColor: accentSoft(0.22) },
     },
   },
 }
 
 const compactButtonSx = {
   minHeight: 32,
-  borderRadius: '7px',
-  px: 1,
+  borderRadius: '11px',
+  px: 1.1,
   textTransform: 'none',
-  color: '#EAF1FA',
-  border: '1px solid rgba(143, 185, 219, 0.22)',
-  backgroundColor: 'rgba(24, 32, 43, 0.86)',
-  '&:hover': { backgroundColor: 'rgba(35, 46, 61, 0.96)' },
+  fontWeight: 700,
+  color: T.text,
+  border: `1px solid ${T.border}`,
+  backgroundColor: T.elevated,
+  '&:hover': { backgroundColor: 'var(--morius-button-hover)', borderColor: T.hoverBorder },
 }
 
 const tinyButtonSx = {
-  minWidth: 32,
-  minHeight: 28,
-  borderRadius: '7px',
-  px: 0.8,
+  minWidth: 34,
+  minHeight: 30,
+  borderRadius: '10px',
+  px: 0.9,
   textTransform: 'none',
-  color: '#EAF1FA',
-  border: '1px solid rgba(143, 185, 219, 0.2)',
-  backgroundColor: 'rgba(28, 37, 50, 0.82)',
-  '&:hover': { backgroundColor: 'rgba(42, 55, 72, 0.94)' },
+  fontWeight: 700,
+  color: T.text,
+  border: `1px solid ${T.border}`,
+  backgroundColor: T.elevated,
+  '&:hover': { backgroundColor: 'var(--morius-button-hover)', borderColor: T.hoverBorder },
 }
 
 const dangerButtonSx = {
   ...compactButtonSx,
-  color: '#FFD2D2',
-  border: '1px solid rgba(240, 128, 128, 0.28)',
-  backgroundColor: 'rgba(96, 36, 44, 0.32)',
-  '&:hover': { backgroundColor: 'rgba(120, 44, 54, 0.44)' },
+  color: '#ffb4b4',
+  border: '1px solid rgba(240, 128, 128, 0.32)',
+  backgroundColor: 'rgba(120, 44, 54, 0.24)',
+  '&:hover': { backgroundColor: 'rgba(140, 52, 62, 0.36)', borderColor: 'rgba(240, 128, 128, 0.5)' },
 }
 
 const sidePanelSx = {
   minHeight: 0,
-  overflow: 'hidden',
-  px: { xs: 1.1, lg: 1.25 },
-  py: 1.2,
-  borderRight: { xs: 'none', lg: '1px solid rgba(140, 159, 184, 0.18)' },
-  borderTop: { xs: '1px solid rgba(140, 159, 184, 0.16)', lg: 'none' },
-  backgroundColor: 'rgba(10, 14, 20, 0.96)',
+  px: 1.4,
+  py: 1.4,
+  backgroundColor: T.panel,
 }
 
 const panelTitleSx = {
-  color: '#F4F8FC',
-  fontSize: '0.88rem',
+  color: T.title,
+  fontSize: '0.9rem',
   fontWeight: 900,
   lineHeight: 1.2,
 }
@@ -2009,19 +2588,21 @@ const cardRowSx = {
   alignItems: 'center',
   gap: 0.7,
   minWidth: 0,
-  borderRadius: '8px',
-  border: '1px solid rgba(143, 185, 219, 0.16)',
-  backgroundColor: 'rgba(20, 27, 37, 0.72)',
-  px: 0.65,
+  borderRadius: '12px',
+  border: `1px solid ${T.border}`,
+  backgroundColor: T.elevated,
+  px: 0.7,
   py: 0.6,
   contentVisibility: 'auto',
   containIntrinsicSize: '48px',
+  transition: 'border-color 140ms ease',
+  '&:hover': { borderColor: T.hoverBorder },
 }
 
 const cardRowTitleSx = {
-  color: '#EEF4FC',
+  color: T.text,
   fontSize: '0.82rem',
-  fontWeight: 900,
+  fontWeight: 800,
   lineHeight: 1.2,
   whiteSpace: 'nowrap',
   overflow: 'hidden',
@@ -2029,48 +2610,92 @@ const cardRowTitleSx = {
 }
 
 const cardRowMetaSx = {
-  color: 'rgba(191, 205, 224, 0.66)',
+  color: T.muted,
   fontSize: '0.72rem',
-  fontWeight: 800,
+  fontWeight: 700,
 }
 
 const settingsBoxSx = {
-  borderRadius: '8px',
-  border: '1px solid rgba(143, 185, 219, 0.17)',
-  backgroundColor: 'rgba(16, 22, 30, 0.74)',
-  p: 1,
+  borderRadius: T.radius,
+  border: `1px solid ${T.border}`,
+  backgroundColor: T.elevated,
+  p: 1.2,
 }
 
 const suggestionBoxSx = {
-  borderRadius: '8px',
-  border: '1px solid rgba(143, 185, 219, 0.16)',
-  backgroundColor: 'rgba(18, 25, 34, 0.82)',
-  p: 0.85,
+  borderRadius: '12px',
+  border: `1px solid ${T.border}`,
+  backgroundColor: T.panel,
+  p: 0.95,
+}
+
+const sliderSx = {
+  color: T.accent,
+  '& .MuiSlider-rail': { opacity: 0.28 },
 }
 
 const darkTextFieldSx = {
   '& .MuiInputBase-root': {
-    color: '#EEF4FC',
-    backgroundColor: 'rgba(18, 25, 34, 0.86)',
-    borderRadius: '8px',
+    color: T.text,
+    backgroundColor: T.input,
+    borderRadius: '12px',
   },
-  '& .MuiInputLabel-root': { color: 'rgba(217, 228, 243, 0.68)' },
-  '& .MuiInputLabel-root.Mui-focused': { color: '#7FDBFF' },
-  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(143, 185, 219, 0.24)' },
-  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(143, 185, 219, 0.42)' },
-  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#7FDBFF' },
+  '& .MuiInputLabel-root': { color: T.muted },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: T.border },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.hoverBorder },
+  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
 }
 
 const darkSelectSx = {
   '& .MuiInputBase-root': {
-    color: '#EEF4FC',
-    backgroundColor: 'rgba(18, 25, 34, 0.86)',
-    borderRadius: '8px',
+    color: T.text,
+    backgroundColor: T.input,
+    borderRadius: '12px',
   },
-  '& .MuiInputLabel-root': { color: 'rgba(217, 228, 243, 0.68)' },
-  '& .MuiInputLabel-root.Mui-focused': { color: '#7FDBFF' },
-  '& .MuiSelect-icon': { color: 'rgba(217, 228, 243, 0.72)' },
-  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(143, 185, 219, 0.24)' },
-  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(143, 185, 219, 0.42)' },
-  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#7FDBFF' },
+  '& .MuiInputLabel-root': { color: T.muted },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+  '& .MuiSelect-icon': { color: T.muted },
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: T.border },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.hoverBorder },
+  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+}
+
+const floatingControlsSx = {
+  position: 'absolute',
+  right: { xs: 12, md: 16 },
+  bottom: { xs: 16, md: 16 },
+  zIndex: 5,
+  alignItems: 'center',
+  p: 0.6,
+  borderRadius: '16px',
+  border: `1px solid ${T.border}`,
+  backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, transparent)',
+  backdropFilter: 'blur(6px)',
+  boxShadow: '0 12px 30px rgba(0, 0, 0, 0.4)',
+}
+
+const floatingButtonSx = {
+  width: 40,
+  height: 40,
+  borderRadius: '12px',
+  fontSize: '1.2rem',
+  fontWeight: 800,
+  color: T.text,
+  backgroundColor: T.elevated,
+  border: `1px solid ${T.border}`,
+  '&:hover': { backgroundColor: 'var(--morius-button-hover)', borderColor: T.hoverBorder },
+}
+
+const mobileTabBarSx = {
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  bottom: 0,
+  zIndex: 6,
+  px: 1.2,
+  pt: 1,
+  pb: `calc(10px + env(safe-area-inset-bottom))`,
+  backgroundColor: T.panel,
+  borderTop: `1px solid ${T.border}`,
 }

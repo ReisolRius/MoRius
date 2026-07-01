@@ -439,6 +439,21 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
       usersRequestIdRef.current = requestId
       setIsLoadingUsers(true)
       setErrorMessage('')
+      const timeoutId = window.setTimeout(() => {
+        if (requestId !== usersRequestIdRef.current) {
+          return
+        }
+        // Invalidate this request so a late response can't overwrite the error state.
+        usersRequestIdRef.current = requestId + 1
+        setIsLoadingUsers(false)
+        if (!append) {
+          setUsers([])
+          setUsersTotalCount(0)
+          setHasMoreUsers(false)
+          setSelectedUserId(null)
+        }
+        setErrorMessage('Сервер не ответил вовремя. Проверьте, запущен ли бэкенд, и нажмите «Обновить».')
+      }, 15000)
       try {
         const response = await searchUsersForAdminPanel({
           token: authToken,
@@ -484,6 +499,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
           setSelectedUserId(null)
         }
       } finally {
+        window.clearTimeout(timeoutId)
         if (requestId === usersRequestIdRef.current) {
           setIsLoadingUsers(false)
         }
@@ -1327,6 +1343,77 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
   const characterReportSheet = useMobileDialogSheet({ onClose: handleCloseTargetDialog, disabled: reportActionDisabled })
   const instructionReportSheet = useMobileDialogSheet({ onClose: handleCloseTargetDialog, disabled: reportActionDisabled })
 
+  const adminTabButtonSx = (isActive: boolean) => ({
+    minHeight: 38,
+    px: 2,
+    textTransform: 'none' as const,
+    fontWeight: 700,
+    borderRadius: '12px',
+    border: 'var(--morius-border-width) solid',
+    borderColor: isActive ? 'var(--morius-accent)' : 'var(--morius-card-border)',
+    backgroundColor: isActive ? 'var(--morius-accent)' : 'var(--morius-elevated-bg)',
+    color: isActive ? '#ffffff' : 'var(--morius-text-secondary)',
+    boxShadow: 'none',
+    '&:hover': {
+      backgroundColor: isActive ? 'var(--morius-accent)' : 'var(--morius-button-hover)',
+      borderColor: isActive ? 'var(--morius-accent)' : 'var(--morius-hover-border)',
+      filter: isActive ? 'brightness(1.06)' : 'none',
+    },
+  })
+
+  const adminNeutralButtonSx = {
+    minHeight: 40,
+    textTransform: 'none' as const,
+    fontWeight: 600,
+    borderRadius: '12px',
+    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+    color: 'var(--morius-text-primary)',
+    backgroundColor: 'var(--morius-elevated-bg)',
+    '&:hover': { backgroundColor: 'var(--morius-button-hover)', borderColor: 'var(--morius-hover-border)' },
+  }
+
+  const adminPrimaryButtonSx = {
+    minHeight: 40,
+    textTransform: 'none' as const,
+    fontWeight: 800,
+    borderRadius: '12px',
+    color: '#ffffff',
+    backgroundColor: 'var(--morius-accent)',
+    border: 'var(--morius-border-width) solid var(--morius-accent)',
+    boxShadow: 'none',
+    '&:hover': { backgroundColor: 'var(--morius-accent)', filter: 'brightness(1.08)' },
+  }
+
+  const adminDangerButtonSx = {
+    minHeight: 40,
+    textTransform: 'none' as const,
+    fontWeight: 800,
+    borderRadius: '12px',
+    color: '#ffd9d9',
+    backgroundColor: 'rgba(200, 70, 70, 0.22)',
+    border: '1px solid rgba(220, 90, 90, 0.42)',
+    boxShadow: 'none',
+    '&:hover': { backgroundColor: 'rgba(210, 80, 80, 0.34)', borderColor: 'rgba(230, 100, 100, 0.6)' },
+  }
+
+  const adminActionCardSx = {
+    borderRadius: '12px',
+    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+    backgroundColor: 'var(--morius-card-bg)',
+    p: 1.4,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 1,
+  }
+
+  const adminActionLabelSx = {
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase' as const,
+    color: 'var(--morius-text-secondary)',
+  }
+
   return (
     <>
       <Dialog
@@ -1405,67 +1492,34 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
             {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
             {successMessage ? <Alert severity="success">{successMessage}</Alert> : null}
 
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-              <Button
-                variant={activeTab === 'users' ? 'contained' : 'outlined'}
-                onClick={() => setActiveTab('users')}
-                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction || isSavingMaintenanceSettings}
-                sx={{
-                  textTransform: 'none',
-                  borderRadius: 'var(--morius-radius)',
-                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                }}
-              >
-                Пользователи
-              </Button>
-              <Button
-                variant={activeTab === 'reports' ? 'contained' : 'outlined'}
-                onClick={() => setActiveTab('reports')}
-                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction || isSavingMaintenanceSettings}
-                sx={{
-                  textTransform: 'none',
-                  borderRadius: 'var(--morius-radius)',
-                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                }}
-              >
-                Жалобы
-              </Button>
-              <Button
-                variant={activeTab === 'moderation' ? 'contained' : 'outlined'}
-                onClick={() => setActiveTab('moderation')}
-                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction || isSavingMaintenanceSettings}
-                sx={{
-                  textTransform: 'none',
-                  borderRadius: 'var(--morius-radius)',
-                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                }}
-              >
-                Модерация
-              </Button>
-              <Button
-                variant={activeTab === 'bug_reports' ? 'contained' : 'outlined'}
-                onClick={() => setActiveTab('bug_reports')}
-                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction || isSavingMaintenanceSettings}
-                sx={{
-                  textTransform: 'none',
-                  borderRadius: 'var(--morius-radius)',
-                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                }}
-              >
-                Reports
-              </Button>
-              <Button
-                variant={activeTab === 'maintenance' ? 'contained' : 'outlined'}
-                onClick={() => setActiveTab('maintenance')}
-                disabled={!canManageMaintenance || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction || isSavingMaintenanceSettings}
-                sx={{
-                  textTransform: 'none',
-                  borderRadius: 'var(--morius-radius)',
-                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                }}
-              >
-                Техработы
-              </Button>
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{
+                flexWrap: 'wrap',
+                rowGap: 1,
+                p: 0.6,
+                borderRadius: '14px',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                backgroundColor: 'var(--morius-card-bg)',
+              }}
+            >
+              {([
+                { key: 'users', label: 'Пользователи', enabled: canUseAdminPanel },
+                { key: 'reports', label: 'Жалобы', enabled: canUseAdminPanel },
+                { key: 'moderation', label: 'Модерация', enabled: canUseAdminPanel },
+                { key: 'bug_reports', label: 'Баг-репорты', enabled: canUseAdminPanel },
+                { key: 'maintenance', label: 'Техработы', enabled: canManageMaintenance },
+              ] as const).map((tab) => (
+                <Button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  disabled={!tab.enabled || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction || isSavingMaintenanceSettings}
+                  sx={adminTabButtonSx(activeTab === tab.key)}
+                >
+                  {tab.label}
+                </Button>
+              ))}
             </Stack>
 
             {activeTab === 'users' ? (
@@ -1545,13 +1599,14 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                               textTransform: 'none',
                               borderRadius: '10px',
                               border: 'var(--morius-border-width) solid',
-                              borderColor: isSelected ? 'rgba(219, 230, 245, 0.52)' : 'rgba(184, 199, 214, 0.2)',
-                              backgroundColor: isSelected ? 'rgba(37, 52, 70, 0.4)' : 'rgba(22, 30, 40, 0.34)',
+                              borderColor: isSelected ? 'var(--morius-accent)' : 'var(--morius-card-border)',
+                              backgroundColor: isSelected ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
                               color: 'var(--morius-text-primary)',
                               px: 1.2,
                               py: 1,
                               '&:hover': {
-                                backgroundColor: 'rgba(46, 62, 82, 0.42)',
+                                backgroundColor: isSelected ? 'var(--morius-button-active)' : 'var(--morius-button-hover)',
+                                borderColor: isSelected ? 'var(--morius-accent)' : 'var(--morius-hover-border)',
                               },
                             }}
                           >
@@ -1584,184 +1639,166 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                   Показано пользователей: {users.length} из {usersTotalCount}
                 </Typography>
 
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                  <TextField
-                    value={tokenAmountDraft}
-                    onChange={(event) =>
-                      setTokenAmountDraft(event.target.value.replace(/[^\d]/g, '').slice(0, ADMIN_TOKEN_AMOUNT_MAX_LENGTH))
-                    }
-                    label="Сумма валюты"
-                    size="small"
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
-                    inputProps={{ inputMode: 'numeric', maxLength: ADMIN_TOKEN_AMOUNT_MAX_LENGTH }}
-                    helperText={<TextLimitIndicator currentLength={tokenAmountDraft.length} maxLength={ADMIN_TOKEN_AMOUNT_MAX_LENGTH} />}
-                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-                    sx={{ flex: 1 }}
-                  />
-                  <Button
-                    variant="outlined"
-                    onClick={() => void handleUpdateTokens('subtract')}
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
-                    sx={{
-                      minHeight: 40,
-                      borderColor: 'rgba(188, 202, 221, 0.36)',
-                      color: 'var(--morius-text-primary)',
-                    }}
-                  >
-                    Списать
-                  </Button>
-                  <Button
-                    variant="contained"
-                    onClick={() => void handleUpdateTokens('add')}
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
-                    sx={{
-                      minHeight: 40,
-                      borderRadius: 'var(--morius-radius)',
-                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                      backgroundColor: 'var(--morius-button-active)',
-                      color: '#ffffff',
-                    }}
-                  >
-                    Выдать
-                  </Button>
-                </Stack>
+                <Box
+                  sx={{
+                    borderRadius: '14px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    p: { xs: 1.4, md: 1.8 },
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 1.4,
+                    opacity: selectedUser ? 1 : 0.72,
+                  }}
+                >
+                  <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} flexWrap="wrap" rowGap={0.5}>
+                    <Typography sx={{ fontWeight: 800, fontSize: '0.98rem', color: 'var(--morius-title-text)' }}>
+                      Действия с пользователем
+                    </Typography>
+                    <Typography sx={{ color: 'text.secondary', fontSize: '0.82rem', minWidth: 0 }} noWrap>
+                      {selectedUser ? (selectedUser.display_name || selectedUser.email) : 'Выберите пользователя из списка'}
+                    </Typography>
+                  </Stack>
 
-                <Typography sx={{ color: 'text.secondary', fontSize: '0.82rem' }}>
-                  Тег, который видит пользователь:{' '}
-                  <Typography component="span" sx={{ color: 'var(--morius-text-primary)', fontWeight: 700 }}>
-                    {selectedUser ? getDisplayedTagLabel(selectedUser.role, selectedUser.profile_tag) : '—'}
-                  </Typography>
-                  {selectedUser && !canManageModeratorRole
-                    ? ' (менять тег может только администратор)'
-                    : null}
-                </Typography>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                  <Button
-                    variant={selectedUser?.role === 'user' ? 'contained' : 'outlined'}
-                    onClick={() => void handleUpdateModeratorRole(false)}
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
-                    sx={{
-                      minHeight: 40,
-                      borderColor: 'rgba(188, 202, 221, 0.36)',
-                      color: selectedUser?.role === 'user' ? '#ffffff' : 'var(--morius-text-primary)',
-                      backgroundColor: selectedUser?.role === 'user' ? 'rgba(89, 118, 191, 0.34)' : 'transparent',
-                    }}
-                  >
-                    Тег «Игрок»
-                  </Button>
-                  <Button
-                    variant={selectedUser?.role === 'moderator' ? 'contained' : 'outlined'}
-                    onClick={() => void handleUpdateModeratorRole(true)}
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
-                    sx={{
-                      minHeight: 40,
-                      borderRadius: 'var(--morius-radius)',
-                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                      backgroundColor: selectedUser?.role === 'moderator' ? 'rgba(89, 118, 191, 0.34)' : 'transparent',
-                      color: selectedUser?.role === 'moderator' ? '#ffffff' : 'var(--morius-text-primary)',
-                      '&:hover': {
-                        backgroundColor: 'rgba(104, 135, 212, 0.44)',
-                      },
-                    }}
-                  >
-                    Тег «Модератор»
-                  </Button>
-                </Stack>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.4 }}>
+                    <Box sx={adminActionCardSx}>
+                      <Typography sx={adminActionLabelSx}>Валюта</Typography>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                        <TextField
+                          value={tokenAmountDraft}
+                          onChange={(event) =>
+                            setTokenAmountDraft(event.target.value.replace(/[^\d]/g, '').slice(0, ADMIN_TOKEN_AMOUNT_MAX_LENGTH))
+                          }
+                          label="Сумма валюты"
+                          size="small"
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
+                          inputProps={{ inputMode: 'numeric', maxLength: ADMIN_TOKEN_AMOUNT_MAX_LENGTH }}
+                          helperText={<TextLimitIndicator currentLength={tokenAmountDraft.length} maxLength={ADMIN_TOKEN_AMOUNT_MAX_LENGTH} />}
+                          FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                          sx={{ flex: 1 }}
+                        />
+                        <Button
+                          onClick={() => void handleUpdateTokens('subtract')}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
+                          sx={adminNeutralButtonSx}
+                        >
+                          Списать
+                        </Button>
+                        <Button
+                          onClick={() => void handleUpdateTokens('add')}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
+                          sx={adminPrimaryButtonSx}
+                        >
+                          Выдать
+                        </Button>
+                      </Stack>
+                    </Box>
 
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                  <TextField
-                    value={customTagDraft}
-                    onChange={(event) => setCustomTagDraft(event.target.value.slice(0, ADMIN_CUSTOM_TAG_MAX_LENGTH))}
-                    label="Свой тег (любой текст)"
-                    placeholder="Например: Создатель"
-                    size="small"
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
-                    inputProps={{ maxLength: ADMIN_CUSTOM_TAG_MAX_LENGTH }}
-                    helperText={<TextLimitIndicator currentLength={customTagDraft.length} maxLength={ADMIN_CUSTOM_TAG_MAX_LENGTH} />}
-                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-                    sx={{ flex: 1 }}
-                  />
-                  <Button
-                    variant="outlined"
-                    onClick={() => void handleUpdateProfileTag('')}
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
-                    sx={{
-                      minHeight: 40,
-                      borderColor: 'rgba(188, 202, 221, 0.36)',
-                      color: 'var(--morius-text-primary)',
-                    }}
-                  >
-                    Сбросить
-                  </Button>
-                  <Button
-                    variant="contained"
-                    onClick={() => void handleUpdateProfileTag()}
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
-                    sx={{
-                      minHeight: 40,
-                      borderRadius: 'var(--morius-radius)',
-                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                      backgroundColor: 'var(--morius-button-active)',
-                      color: '#ffffff',
-                    }}
-                  >
-                    Сохранить тег
-                  </Button>
-                </Stack>
+                    <Box sx={adminActionCardSx}>
+                      <Typography sx={adminActionLabelSx}>Роль и тег</Typography>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                        <Button
+                          onClick={() => void handleUpdateModeratorRole(false)}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                          sx={{ ...(selectedUser?.role === 'user' ? adminPrimaryButtonSx : adminNeutralButtonSx), flex: 1 }}
+                        >
+                          Тег «Игрок»
+                        </Button>
+                        <Button
+                          onClick={() => void handleUpdateModeratorRole(true)}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                          sx={{ ...(selectedUser?.role === 'moderator' ? adminPrimaryButtonSx : adminNeutralButtonSx), flex: 1 }}
+                        >
+                          Тег «Модератор»
+                        </Button>
+                      </Stack>
+                      <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem', lineHeight: 1.4 }}>
+                        Текущий тег:{' '}
+                        <Typography component="span" sx={{ color: 'var(--morius-text-primary)', fontWeight: 700 }}>
+                          {selectedUser ? getDisplayedTagLabel(selectedUser.role, selectedUser.profile_tag) : '—'}
+                        </Typography>
+                        {selectedUser && !canManageModeratorRole ? ' · менять может только администратор' : null}
+                      </Typography>
+                    </Box>
 
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                  <TextField
-                    value={banDurationDraft}
-                    onChange={(event) =>
-                      setBanDurationDraft(event.target.value.replace(/[^\d]/g, '').slice(0, ADMIN_BAN_DURATION_MAX_LENGTH))
-                    }
-                    label="Длительность"
-                    size="small"
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
-                    inputProps={{ inputMode: 'numeric', maxLength: ADMIN_BAN_DURATION_MAX_LENGTH }}
-                    helperText={<TextLimitIndicator currentLength={banDurationDraft.length} maxLength={ADMIN_BAN_DURATION_MAX_LENGTH} />}
-                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-                    sx={{ flex: 1 }}
-                  />
-                  <Select
-                    value={banDurationUnit}
-                    onChange={(event) => setBanDurationUnit(event.target.value as 'hours' | 'days')}
-                    size="small"
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
-                    sx={{ minWidth: 132 }}
-                  >
-                    <MenuItem value="hours">Часы</MenuItem>
-                    <MenuItem value="days">Дни</MenuItem>
-                  </Select>
-                  <Button
-                    variant="outlined"
-                    onClick={() => void handleUnban()}
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
-                    sx={{
-                      minHeight: 40,
-                      borderColor: 'rgba(188, 202, 221, 0.36)',
-                      color: 'var(--morius-text-primary)',
-                    }}
-                  >
-                    Разбан
-                  </Button>
-                  <Button
-                    variant="contained"
-                    onClick={() => void handleBan()}
-                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
-                    sx={{
-                      minHeight: 40,
-                      borderRadius: 'var(--morius-radius)',
-                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                      backgroundColor: 'rgba(192, 91, 91, 0.38)',
-                      '&:hover': {
-                        backgroundColor: 'rgba(199, 102, 102, 0.5)',
-                      },
-                    }}
-                  >
-                    Забанить
-                  </Button>
-                </Stack>
+                    <Box sx={adminActionCardSx}>
+                      <Typography sx={adminActionLabelSx}>Свой тег</Typography>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                        <TextField
+                          value={customTagDraft}
+                          onChange={(event) => setCustomTagDraft(event.target.value.slice(0, ADMIN_CUSTOM_TAG_MAX_LENGTH))}
+                          label="Свой тег (любой текст)"
+                          placeholder="Например: Создатель"
+                          size="small"
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                          inputProps={{ maxLength: ADMIN_CUSTOM_TAG_MAX_LENGTH }}
+                          helperText={<TextLimitIndicator currentLength={customTagDraft.length} maxLength={ADMIN_CUSTOM_TAG_MAX_LENGTH} />}
+                          FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                          sx={{ flex: 1 }}
+                        />
+                        <Button
+                          onClick={() => void handleUpdateProfileTag('')}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                          sx={adminNeutralButtonSx}
+                        >
+                          Сбросить
+                        </Button>
+                        <Button
+                          onClick={() => void handleUpdateProfileTag()}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                          sx={adminPrimaryButtonSx}
+                        >
+                          Сохранить
+                        </Button>
+                      </Stack>
+                    </Box>
+
+                    <Box sx={{ ...adminActionCardSx, borderColor: 'rgba(220, 90, 90, 0.3)' }}>
+                      <Typography sx={adminActionLabelSx}>Блокировка</Typography>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                        <TextField
+                          value={banDurationDraft}
+                          onChange={(event) =>
+                            setBanDurationDraft(event.target.value.replace(/[^\d]/g, '').slice(0, ADMIN_BAN_DURATION_MAX_LENGTH))
+                          }
+                          label="Длительность"
+                          size="small"
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
+                          inputProps={{ inputMode: 'numeric', maxLength: ADMIN_BAN_DURATION_MAX_LENGTH }}
+                          helperText={<TextLimitIndicator currentLength={banDurationDraft.length} maxLength={ADMIN_BAN_DURATION_MAX_LENGTH} />}
+                          FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                          sx={{ flex: 1 }}
+                        />
+                        <Select
+                          value={banDurationUnit}
+                          onChange={(event) => setBanDurationUnit(event.target.value as 'hours' | 'days')}
+                          size="small"
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
+                          sx={{ minWidth: 112 }}
+                        >
+                          <MenuItem value="hours">Часы</MenuItem>
+                          <MenuItem value="days">Дни</MenuItem>
+                        </Select>
+                      </Stack>
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          onClick={() => void handleUnban()}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
+                          sx={{ ...adminNeutralButtonSx, flex: 1 }}
+                        >
+                          Разбан
+                        </Button>
+                        <Button
+                          onClick={() => void handleBan()}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
+                          sx={{ ...adminDangerButtonSx, flex: 1 }}
+                        >
+                          Забанить
+                        </Button>
+                      </Stack>
+                    </Box>
+                  </Box>
+                </Box>
               </Stack>
             ) : activeTab === 'reports' ? (
               <Stack spacing={1.2} sx={{ flex: 1, minHeight: 0 }}>
@@ -1774,7 +1811,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                     sx={{
                       minHeight: 32,
                       textTransform: 'none',
-                      borderColor: 'rgba(188, 202, 221, 0.36)',
+                      borderColor: 'var(--morius-card-border)',
                       color: 'var(--morius-text-primary)',
                     }}
                   >
@@ -1813,13 +1850,14 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                               textTransform: 'none',
                               borderRadius: '10px',
                               border: 'var(--morius-border-width) solid',
-                              borderColor: isSelected ? 'rgba(219, 230, 245, 0.52)' : 'rgba(184, 199, 214, 0.2)',
-                              backgroundColor: isSelected ? 'rgba(37, 52, 70, 0.4)' : 'rgba(22, 30, 40, 0.34)',
+                              borderColor: isSelected ? 'var(--morius-accent)' : 'var(--morius-card-border)',
+                              backgroundColor: isSelected ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
                               color: 'var(--morius-text-primary)',
                               px: 1.2,
                               py: 1,
                               '&:hover': {
-                                backgroundColor: 'rgba(46, 62, 82, 0.42)',
+                                backgroundColor: isSelected ? 'var(--morius-button-active)' : 'var(--morius-button-hover)',
+                                borderColor: isSelected ? 'var(--morius-accent)' : 'var(--morius-hover-border)',
                               },
                             }}
                           >
@@ -1856,7 +1894,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                     sx={{
                       minHeight: 32,
                       textTransform: 'none',
-                      borderColor: 'rgba(188, 202, 221, 0.36)',
+                      borderColor: 'var(--morius-card-border)',
                       color: 'var(--morius-text-primary)',
                     }}
                   >
@@ -2264,7 +2302,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                             disabled={moderationActionDisabled}
                             sx={{
                               minHeight: 40,
-                              borderColor: 'rgba(188, 202, 221, 0.36)',
+                              borderColor: 'var(--morius-card-border)',
                               color: 'var(--morius-text-primary)',
                             }}
                           >
@@ -2333,7 +2371,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                       sx={{
                         minHeight: 36,
                         textTransform: 'none',
-                        borderColor: 'rgba(188, 202, 221, 0.36)',
+                        borderColor: 'var(--morius-card-border)',
                         color: 'var(--morius-text-primary)',
                       }}
                     >
@@ -2429,7 +2467,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                           minHeight: 40,
                           textTransform: 'none',
                           borderRadius: 'var(--morius-radius)',
-                          border: 'var(--morius-border-width) solid rgba(188, 202, 221, 0.36)',
+                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
                           color: 'var(--morius-text-primary)',
                         }}
                       >
@@ -2484,7 +2522,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                     sx={{
                       minHeight: 32,
                       textTransform: 'none',
-                      borderColor: 'rgba(188, 202, 221, 0.36)',
+                      borderColor: 'var(--morius-card-border)',
                       color: 'var(--morius-text-primary)',
                     }}
                   >
@@ -2522,13 +2560,14 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                               textTransform: 'none',
                               borderRadius: '10px',
                               border: 'var(--morius-border-width) solid',
-                              borderColor: isSelected ? 'rgba(219, 230, 245, 0.52)' : 'rgba(184, 199, 214, 0.2)',
-                              backgroundColor: isSelected ? 'rgba(37, 52, 70, 0.4)' : 'rgba(22, 30, 40, 0.34)',
+                              borderColor: isSelected ? 'var(--morius-accent)' : 'var(--morius-card-border)',
+                              backgroundColor: isSelected ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
                               color: 'var(--morius-text-primary)',
                               px: 1.2,
                               py: 1,
                               '&:hover': {
-                                backgroundColor: 'rgba(46, 62, 82, 0.42)',
+                                backgroundColor: isSelected ? 'var(--morius-button-active)' : 'var(--morius-button-hover)',
+                                borderColor: isSelected ? 'var(--morius-accent)' : 'var(--morius-hover-border)',
                               },
                             }}
                           >
@@ -2767,7 +2806,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
             disabled={reportActionDisabled}
             sx={{
               borderRadius: 'var(--morius-radius)',
-              border: 'var(--morius-border-width) solid rgba(188, 202, 221, 0.36)',
+              border: 'var(--morius-border-width) solid var(--morius-card-border)',
               color: 'var(--morius-text-primary)',
               backgroundColor: 'var(--morius-card-bg)',
               '&:hover': {
@@ -2873,7 +2912,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
             disabled={reportActionDisabled}
             sx={{
               borderRadius: 'var(--morius-radius)',
-              border: 'var(--morius-border-width) solid rgba(188, 202, 221, 0.36)',
+              border: 'var(--morius-border-width) solid var(--morius-card-border)',
               color: 'var(--morius-text-primary)',
               backgroundColor: 'var(--morius-card-bg)',
               '&:hover': {
