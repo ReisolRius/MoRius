@@ -25383,7 +25383,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             )
           })}
         </Stack>
-        <Box sx={{ flex: 1 }} />
         <Box sx={{ width: 28, height: '1px', my: 1.05, backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 72%, transparent)', flexShrink: 0 }} />
         <Stack spacing={0.85} alignItems="center">
           {rightPanelUtilitySections.map((section) => {
