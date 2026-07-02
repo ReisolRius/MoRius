@@ -25344,7 +25344,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           py: 1.1,
           zIndex: 4,
           borderLeft: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
-          backgroundColor: 'transparent',
+          backgroundColor: '#090A0E',
         }}
       >
         <Stack spacing={0.85} alignItems="center">
@@ -25383,16 +25383,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             )
           })}
         </Stack>
-        <Box
-          sx={{
-            width: 28,
-            flex: 1,
-            minHeight: 24,
-            my: 1.05,
-            borderRadius: '999px',
-            backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
-          }}
-        />
+        <Box sx={{ flex: 1 }} />
+        <Box sx={{ width: 28, height: '1px', my: 1.05, backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 72%, transparent)', flexShrink: 0 }} />
         <Stack spacing={0.85} alignItems="center">
           {rightPanelUtilitySections.map((section) => {
             const isActive = rightPanelSection === section
