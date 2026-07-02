@@ -4,6 +4,15 @@ export const DEFAULT_STORY_TITLE = '\u041d\u043e\u0432\u0430\u044f \u0438\u0433\
 
 export type StoryTitleMap = Record<number, string>
 
+export function sanitizeStoryTitle(title: string): string {
+  return title
+    .replace(/\r\n/g, '\n')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/(?:\s*[·•\-–—]\s*ход\s+\d+\s*)+$/giu, '')
+    .trim()
+}
+
 export function loadStoryTitleMap(): StoryTitleMap {
   try {
     const raw = localStorage.getItem(CUSTOM_STORY_TITLES_KEY)
@@ -20,7 +29,7 @@ export function loadStoryTitleMap(): StoryTitleMap {
         continue
       }
 
-      const normalized = value.trim()
+      const normalized = sanitizeStoryTitle(value)
       if (normalized) {
         next[gameId] = normalized
       }
@@ -41,11 +50,11 @@ export function getDisplayStoryTitle(gameId: number | null, map: StoryTitleMap):
     return DEFAULT_STORY_TITLE
   }
 
-  return map[gameId]?.trim() || DEFAULT_STORY_TITLE
+  return sanitizeStoryTitle(map[gameId] ?? '') || DEFAULT_STORY_TITLE
 }
 
 export function setStoryTitle(map: StoryTitleMap, gameId: number, title: string): StoryTitleMap {
-  const normalized = title.trim()
+  const normalized = sanitizeStoryTitle(title)
   const next = { ...map }
 
   if (!normalized || normalized === DEFAULT_STORY_TITLE) {
