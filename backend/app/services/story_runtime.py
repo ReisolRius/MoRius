@@ -48,6 +48,7 @@ from app.services.story_games import (
     normalize_story_top_k,
     normalize_story_top_r,
 )
+from app.services.story_messages import parse_story_message_variant_history
 from app.services.story_game_operation_lock import (
     STORY_GAME_OPERATION_BUSY_DETAIL,
     StoryGameOperationBusyError,
@@ -96,6 +97,8 @@ STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 20.0
 STORY_GENERATE_LOCK_POLL_SECONDS = 0.75
 STORY_PROVIDER_HEARTBEAT_SECONDS = 8.0
 STORY_STREAM_RELAY_HEARTBEAT_SECONDS = 1.0
+# Max discarded reroll variants kept alongside the current assistant message (oldest dropped first).
+STORY_MESSAGE_VARIANT_HISTORY_MAX = 8
 # Жёсткий потолок на ВСЕ Gemini-вызовы пост-обработки одного хода (единый общий бюджет на
 # Call A «Мир», Call B «Персонажи», сжатие памяти и граф). Логический максимум при всех
 # включённых модулях: 1 (A) + 1 (B) + 2 (память) + 1 (граф) = 5. Ретраи валидации используют
@@ -519,6 +522,54 @@ def _normalize_story_model_id(value: str | None) -> str:
 
 def _normalize_story_message_content(value: Any) -> str:
     return str(value or "").replace("\r\n", "\n").strip()
+
+
+def _story_message_variant_created_at(message: "StoryMessage") -> str:
+    created_at_value = getattr(message, "created_at", None)
+    return created_at_value.isoformat() if isinstance(created_at_value, datetime) else ""
+
+
+def _snapshot_discarded_story_message_log(message: "StoryMessage") -> list[dict[str, str]]:
+    """Chronological variant log to carry from `message` onto whatever replaces it.
+
+    If `message` was never rerolled, its log is empty, so bootstrap a single-entry log from its
+    own text. Otherwise its stored log already mirrors its active content (kept in sync by
+    _finalize_story_message_variant_log / the select-variant endpoint), so it's returned as-is
+    -- appending message.content again here would duplicate the active entry.
+    """
+    existing = parse_story_message_variant_history(getattr(message, "variant_history_json", None))
+    if existing:
+        return existing[-STORY_MESSAGE_VARIANT_HISTORY_MAX:]
+    snapshot_content = _normalize_story_message_content(getattr(message, "content", None))
+    if not snapshot_content:
+        return []
+    return [
+        {
+            "content": snapshot_content,
+            "vn_raw_response": str(getattr(message, "vn_raw_response", "") or ""),
+            "scene_emotion_payload": str(getattr(message, "scene_emotion_payload", "") or ""),
+            "created_at": _story_message_variant_created_at(message),
+        }
+    ]
+
+
+def _append_story_message_variant_log_entry(
+    message: "StoryMessage",
+    carried_log: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Append `message`'s final text as a brand-new entry onto a carried chronological log."""
+    combined = list(carried_log)
+    snapshot_content = _normalize_story_message_content(getattr(message, "content", None))
+    if snapshot_content:
+        combined.append(
+            {
+                "content": snapshot_content,
+                "vn_raw_response": str(getattr(message, "vn_raw_response", "") or ""),
+                "scene_emotion_payload": str(getattr(message, "scene_emotion_payload", "") or ""),
+                "created_at": _story_message_variant_created_at(message),
+            }
+        )
+    return combined[-STORY_MESSAGE_VARIANT_HISTORY_MAX:]
 
 
 def _sanitize_streamed_story_markup(value: Any) -> str:
@@ -1418,6 +1469,7 @@ def _stream_story_response(
     story_top_r: float,
     memory_optimization_enabled: bool,
     reroll_discarded_assistant_text: str | None,
+    reroll_carried_variant_history: list[dict[str, str]] | None = None,
     ambient_enabled: bool,
     emotion_visualization_enabled: bool,
     visual_novel_enabled: bool,
@@ -1612,6 +1664,31 @@ def _stream_story_response(
                 "Failed to purge discarded assistant step after replacement: game_id=%s assistant_ids=%s",
                 game.id,
                 discarded_assistant_ids,
+            )
+            db.rollback()
+
+    variant_log_finalized = False
+
+    def _finalize_story_message_variant_log() -> None:
+        # Append this attempt's final text onto the chronological reroll log (carried from any
+        # earlier discarded attempts of this same turn) and mark it active, so the player can
+        # browse back through every reroll variant via the message carousel.
+        nonlocal variant_log_finalized
+        if variant_log_finalized or assistant_message is None:
+            return
+        variant_log_finalized = True
+        if not reroll_carried_variant_history:
+            return
+        try:
+            full_log = _append_story_message_variant_log_entry(assistant_message, reroll_carried_variant_history)
+            assistant_message.variant_history_json = json.dumps(full_log, ensure_ascii=False)
+            assistant_message.active_variant_index = max(len(full_log) - 1, 0)
+            commit_with_retry(db)
+        except Exception:
+            logger.exception(
+                "Failed to finalize story message variant log: game_id=%s assistant_message_id=%s",
+                game.id,
+                getattr(assistant_message, "id", None),
             )
             db.rollback()
 
@@ -2344,6 +2421,7 @@ def _stream_story_response(
             return
 
         _purge_discarded_assistant_steps_after_success()
+        _finalize_story_message_variant_log()
         ai_memory_blocks_payload = _safe_dump_stream_items(
             [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
         )
@@ -2356,6 +2434,13 @@ def _stream_story_response(
                 "scene_emotion_payload": str(getattr(assistant_message, "scene_emotion_payload", "") or "").strip() or None,
                 "created_at": assistant_message.created_at.isoformat(),
                 "updated_at": assistant_message.updated_at.isoformat(),
+                "variant_history": [
+                    {"content": variant["content"], "created_at": variant.get("created_at") or None}
+                    for variant in parse_story_message_variant_history(
+                        getattr(assistant_message, "variant_history_json", None)
+                    )
+                ],
+                "active_variant_index": int(getattr(assistant_message, "active_variant_index", 0) or 0),
             },
             "user": _serialize_story_user_payload(db, user),
             "turn_cost_tokens": turn_cost_tokens,
@@ -2403,6 +2488,7 @@ def _stream_story_response(
         return
 
     _purge_discarded_assistant_steps_after_success()
+    _finalize_story_message_variant_log()
     ai_memory_blocks_payload = _safe_dump_stream_items(
         [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
     )
@@ -2415,6 +2501,13 @@ def _stream_story_response(
             "scene_emotion_payload": str(getattr(assistant_message, "scene_emotion_payload", "") or "").strip() or None,
             "created_at": assistant_message.created_at.isoformat(),
             "updated_at": assistant_message.updated_at.isoformat(),
+            "variant_history": [
+                {"content": variant["content"], "created_at": variant.get("created_at") or None}
+                for variant in parse_story_message_variant_history(
+                    getattr(assistant_message, "variant_history_json", None)
+                )
+            ],
+            "active_variant_index": int(getattr(assistant_message, "active_variant_index", 0) or 0),
         },
         "user": _serialize_story_user_payload(db, user),
         "turn_cost_tokens": turn_cost_tokens,
@@ -2694,6 +2787,11 @@ def _generate_story_response_locked(
             logger.exception("Failed to hydrate story instructions from DB: game_id=%s", game.id)
     source_user_message: StoryMessage | None = None
     discarded_assistant_message_ids: list[int] = []
+    # Text-only snapshots of every reroll variant discarded so far this turn, oldest first.
+    # Carried forward onto the replacement assistant message so the player can browse and
+    # switch back to any of them; capped to avoid unbounded growth from repeated rerolls.
+    reroll_carried_variant_history: list[dict[str, str]] = []
+    reroll_carried_variant_anchor_user_message_id: int | None = None
 
     def _seed_opening_scene_message_if_needed(current_messages: list[StoryMessage]) -> list[StoryMessage]:
         opening_scene = str(getattr(game, "opening_scene", "") or "").replace("\r\n", "\n").strip()
@@ -2785,8 +2883,16 @@ def _generate_story_response_locked(
     ) -> list[StoryMessage]:
         nonlocal reroll_discarded_assistant_text
         nonlocal discarded_assistant_message_ids
+        nonlocal reroll_carried_variant_history
+        nonlocal reroll_carried_variant_anchor_user_message_id
         if steps <= 0:
             return deps.list_story_messages(db, game.id)
+
+        if steps != 1:
+            # Variant carry-forward only makes sense for a single-step reroll of the immediate
+            # last response; multi-step rollback (editing an older turn) is a different action.
+            reroll_carried_variant_history = []
+            reroll_carried_variant_anchor_user_message_id = None
 
         for _ in range(steps):
             current_messages = deps.list_story_messages(db, game.id)
@@ -2817,6 +2923,9 @@ def _generate_story_response_locked(
                     discarded_text = _normalize_story_message_content(getattr(last_message, "content", None))
                     if discarded_text:
                         reroll_discarded_assistant_text = discarded_text
+                if steps == 1:
+                    reroll_carried_variant_history = _snapshot_discarded_story_message_log(last_message)
+                    reroll_carried_variant_anchor_user_message_id = int(source_user_message_for_step.id)
                 last_message.undone_at = datetime.now(timezone.utc)
                 discarded_assistant_message_ids.append(int(last_message.id))
                 if delete_source_user:
@@ -3030,6 +3139,20 @@ def _generate_story_response_locked(
                 delete_source_user=False,
                 action_label="rollback",
             )
+        else:
+            # A genuinely new turn (not a reroll retry): the previous response is now settled
+            # as permanent history, so its reroll variant scratch space can be cleared.
+            settled_assistant_message = messages[-1] if messages else None
+            if (
+                settled_assistant_message is not None
+                and settled_assistant_message.role == deps.story_assistant_role
+                and parse_story_message_variant_history(
+                    getattr(settled_assistant_message, "variant_history_json", None)
+                )
+            ):
+                settled_assistant_message.variant_history_json = "[]"
+                settled_assistant_message.active_variant_index = 0
+                commit_with_retry(db)
         if payload.prompt is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Prompt is required")
         prompt_text = deps.normalize_text(payload.prompt)
@@ -3053,6 +3176,13 @@ def _generate_story_response_locked(
         if game.title == deps.story_default_title:
             game.title = deps.derive_story_title(prompt_text)
         deps.touch_story_game(game)
+        if (
+            reroll_carried_variant_anchor_user_message_id is None
+            or source_user_message.id != reroll_carried_variant_anchor_user_message_id
+        ):
+            # The resolved prompt turned out not to be a same-turn reroll (e.g. an edited or
+            # brand-new prompt after an unrelated rollback) -- don't carry stale variant text.
+            reroll_carried_variant_history = []
 
     billing_instruction_cards = list(instruction_cards)
 
@@ -3222,6 +3352,7 @@ def _generate_story_response_locked(
         story_top_r=story_top_r,
         memory_optimization_enabled=memory_optimization_enabled,
         reroll_discarded_assistant_text=reroll_discarded_assistant_text,
+        reroll_carried_variant_history=reroll_carried_variant_history,
         ambient_enabled=ambient_enabled,
         emotion_visualization_enabled=emotion_visualization_enabled,
         visual_novel_enabled=visual_novel_enabled,

@@ -6049,6 +6049,31 @@ def _select_story_temperature_value(
     return round(clamped_value, 2)
 
 
+# Reroll requests reuse the exact same preceding context as the answer being replaced,
+# so sampling with the unmodified turn settings tends to land back near the same high-probability
+# continuation. Widen sampling for rerolls only, so repeated rerolls actually diverge.
+_STORY_REROLL_TEMPERATURE_BOOST = 0.25
+_STORY_REROLL_TOP_R_BOOST = 0.12
+_STORY_REROLL_TOP_K_MULTIPLIER = 1.5
+
+
+def _apply_story_reroll_sampling_boost(
+    *,
+    story_temperature: float,
+    story_top_k: int,
+    story_top_r: float,
+    is_reroll: bool,
+) -> tuple[float, int, float]:
+    if not is_reroll:
+        return (story_temperature, story_top_k, story_top_r)
+    boosted_temperature = min(2.0, float(story_temperature) + _STORY_REROLL_TEMPERATURE_BOOST)
+    boosted_top_r = min(1.0, float(story_top_r) + _STORY_REROLL_TOP_R_BOOST) if story_top_r > 0 else story_top_r
+    boosted_top_k = (
+        max(int(story_top_k), round(story_top_k * _STORY_REROLL_TOP_K_MULTIPLIER)) if story_top_k > 0 else story_top_k
+    )
+    return (boosted_temperature, boosted_top_k, boosted_top_r)
+
+
 def _extract_story_markup_tokens(text_value: str) -> list[str]:
     tokens = STORY_MARKUP_MARKER_PATTERN.findall(text_value)
     return [re.sub(r"\s+", "", token).casefold() for token in tokens if token.strip()]
@@ -6629,8 +6654,12 @@ def _build_story_reroll_system_message(
             "Narration paragraphs have no marker. Never downgrade marked dialogue/thoughts to plain Name:, quotes-only lines, markdown bullets, or unmarked text.",
             "If the discarded answer used these markers, the replacement must keep the same marker protocol even when the scene changes.",
             *thought_rules,
-            "Do not copy the discarded answer verbatim; use it only as context for what is being replaced.",
-            "DISCARDED_ASSISTANT_ANSWER:",
+            "The discarded answer was rejected by the player and must not simply be reworded.",
+            "Meaningfully vary this reroll from the discarded answer: choose a different emphasis, angle, reaction, or detail than before "
+            "(for example a different NPC response, a different beat of action, a different tone or pacing) while still answering the same "
+            "player action and staying consistent with the established scene and characters.",
+            "Do not copy the discarded answer verbatim and do not merely paraphrase it sentence-by-sentence.",
+            "DISCARDED_ASSISTANT_ANSWER (for reference only, to avoid repeating it):",
             reference_text,
         ]
     )
@@ -14431,14 +14460,20 @@ def _iter_story_provider_stream_chunks(
             story_response_max_tokens,
             model_name=selected_model_name,
         )
-        top_k_value, top_p_value = _select_story_sampling_values(
-            model_name=selected_model_name,
+        boosted_temperature, boosted_top_k, boosted_top_r = _apply_story_reroll_sampling_boost(
+            story_temperature=story_temperature,
             story_top_k=story_top_k,
             story_top_r=story_top_r,
+            is_reroll=bool(reroll_discarded_assistant_text),
+        )
+        top_k_value, top_p_value = _select_story_sampling_values(
+            model_name=selected_model_name,
+            story_top_k=boosted_top_k,
+            story_top_r=boosted_top_r,
         )
         temperature_value = _select_story_temperature_value(
             model_name=selected_model_name,
-            story_temperature=story_temperature,
+            story_temperature=boosted_temperature,
         )
         input_translation_enabled = _is_story_input_translation_enabled()
         output_translation_enabled = _is_story_output_translation_enabled()

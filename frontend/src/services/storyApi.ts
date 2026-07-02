@@ -2389,6 +2389,21 @@ export async function optimizeStoryMemory(payload: {
   })
 }
 
+export async function selectStoryMessageVariant(payload: {
+  token: string
+  gameId: number
+  messageId: number
+  variantIndex: number
+}): Promise<StoryMessage> {
+  return request<StoryMessage>(`/api/story/games/${payload.gameId}/messages/${payload.messageId}/select-variant`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({ variant_index: payload.variantIndex }),
+  })
+}
+
 export async function refreshStoryMessageSceneEmotionCue(payload: {
   token: string
   gameId: number

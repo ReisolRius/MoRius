@@ -1451,6 +1451,10 @@ class StoryMessageUpdateRequest(BaseModel):
     content: str = Field(min_length=0, max_length=20_000)
 
 
+class StoryMessageSelectVariantRequest(BaseModel):
+    variant_index: int = Field(ge=0)
+
+
 class StoryCommunityWorldRatingRequest(BaseModel):
     rating: int = Field(ge=0, le=5)
 
@@ -1473,6 +1477,11 @@ class StoryCommunityWorldCommentUpdateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=2_000)
 
 
+class StoryMessageVariantOut(BaseModel):
+    content: str
+    created_at: str | None = None
+
+
 class StoryMessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1483,6 +1492,11 @@ class StoryMessageOut(BaseModel):
     scene_emotion_payload: str | None = None
     created_at: datetime
     updated_at: datetime
+    # Chronological log of every reroll attempt for this turn, oldest first. Empty for user
+    # messages and for assistant messages that were never rerolled.
+    variant_history: list[StoryMessageVariantOut] = Field(default_factory=list)
+    # Index into variant_history that matches the currently displayed `content`.
+    active_variant_index: int = 0
 
 
 class StoryVNBeatOut(BaseModel):

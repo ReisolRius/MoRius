@@ -147,6 +147,7 @@ import {
   updateStoryWorldCardAvatar,
   updateStoryWorldCard,
   updateStoryMessage,
+  selectStoryMessageVariant,
 } from '../services/storyApi'
 import {
   DEFAULT_STORY_TITLE,
@@ -6586,6 +6587,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const [messageDraft, setMessageDraft] = useState('')
   const [isSavingMessage, setIsSavingMessage] = useState(false)
+  const [switchingVariantMessageId, setSwitchingVariantMessageId] = useState<number | null>(null)
   const inlineMessageSaveRevisionRef = useRef<Map<number, number>>(new Map())
   const [instructionCards, setInstructionCards] = useState<StoryInstructionCard[]>([])
   const [instructionDialogOpen, setInstructionDialogOpen] = useState(false)
@@ -6630,6 +6632,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [worldCards, setWorldCards] = useState<StoryWorldCard[]>([])
   const [npcPanelSearchQuery, setNpcPanelSearchQuery] = useState('')
   const [npcPanelSortMode, setNpcPanelSortMode] = useState<NpcPanelSortMode>('recent')
+  const [worldDetailPanelSearchQuery, setWorldDetailPanelSearchQuery] = useState('')
+  const [worldDetailPanelSortMode, setWorldDetailPanelSortMode] = useState<NpcPanelSortMode>('recent')
   const [pinnedNpcCardIds, setPinnedNpcCardIds] = useState<number[]>([])
   const [characters, setCharacters] = useState<StoryCharacter[]>([])
   const [hasLoadedCharacters, setHasLoadedCharacters] = useState(false)
@@ -8375,13 +8379,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (!activeGameId) {
       return
     }
+    // Skip pruning while game data is still loading: worldCards is briefly emptied
+    // by resetLoadedGameState before the real cards arrive, and pruning against that
+    // transient empty list would wipe every persisted pin (see StoryGamePage.tsx:11245/11375).
+    if (isBootstrappingGameData || isLoadingGameMessages) {
+      return
+    }
+    if (rawNpcCards.length === 0) {
+      return
+    }
     const existingNpcCardIds = new Set(rawNpcCards.map((card) => card.id))
     const nextPinnedIds = pinnedNpcCardIds.filter((id) => existingNpcCardIds.has(id))
     if (nextPinnedIds.length !== pinnedNpcCardIds.length) {
       setPinnedNpcCardIds(nextPinnedIds)
       writeNpcPanelPinnedCardIds(activeGameId, nextPinnedIds)
     }
-  }, [activeGameId, pinnedNpcCardIds, rawNpcCards])
+  }, [activeGameId, isBootstrappingGameData, isLoadingGameMessages, pinnedNpcCardIds, rawNpcCards])
   const worldProfileCard = useMemo(
     () => worldCards.find((card) => card.kind === 'world_profile') ?? null,
     [worldCards],
@@ -8433,17 +8446,43 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [npcPanelSearchQuery, npcPanelSortMode, pinnedNpcCardIdSet, rawNpcCards, worldCardContextStateById],
   )
+  const rawDetailCards = useMemo(
+    () => displayedWorldCards.filter((card) => card.kind === 'world'),
+    [displayedWorldCards],
+  )
+  const worldDetailPanelSearchIsActive = worldDetailPanelSearchQuery.trim().length > 0
   const displayedDetailCards = useMemo(
-    () =>
-      [...displayedWorldCards.filter((card) => card.kind === 'world')].sort((left, right) => {
+    () => {
+      const normalizedQuery = normalizeCharacterIdentity(worldDetailPanelSearchQuery)
+      const filteredCards = normalizedQuery
+        ? rawDetailCards.filter((card) => {
+            const searchText = normalizeCharacterIdentity(
+              [card.title, card.content, card.detail_type, ...card.triggers].join(' '),
+            )
+            return searchText.includes(normalizedQuery)
+          })
+        : rawDetailCards
+
+      return [...filteredCards].sort((left, right) => {
         const leftActive = Boolean(worldCardContextStateById.get(left.id)?.isActive)
         const rightActive = Boolean(worldCardContextStateById.get(right.id)?.isActive)
+        if (worldDetailPanelSortMode === 'active_first' && leftActive !== rightActive) {
+          return leftActive ? -1 : 1
+        }
+        if (worldDetailPanelSortMode === 'alphabetical_asc' || worldDetailPanelSortMode === 'alphabetical_desc') {
+          const nameCompare = left.title.localeCompare(right.title, 'ru', { sensitivity: 'base' })
+          if (nameCompare !== 0) {
+            return worldDetailPanelSortMode === 'alphabetical_asc' ? nameCompare : -nameCompare
+          }
+          return right.id - left.id
+        }
         if (leftActive !== rightActive) {
           return leftActive ? -1 : 1
         }
         return parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
-      }),
-    [displayedWorldCards, worldCardContextStateById],
+      })
+    },
+    [rawDetailCards, worldCardContextStateById, worldDetailPanelSearchQuery, worldDetailPanelSortMode],
   )
   const worldDetailTypeSuggestionLabels = useMemo(
     () => buildStoryWorldDetailTypeSuggestions(worldDetailTypeOptions, [worldCardDetailTypeDraft]),
@@ -12158,6 +12197,42 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setIsSavingMessage(false)
     }
   }, [activeGameId, authToken, editingMessageId, isSavingMessage, messageDraft, messages])
+
+  const handleSwitchMessageVariant = useCallback(
+    async (message: StoryMessage, direction: 'prev' | 'next') => {
+      const variantHistory = message.variant_history ?? []
+      const total = variantHistory.length
+      if (!activeGameId || total < 2 || isGenerating || switchingVariantMessageId !== null) {
+        return
+      }
+      const currentIndex = Math.min(Math.max(message.active_variant_index ?? 0, 0), total - 1)
+      const targetIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1
+      if (targetIndex < 0 || targetIndex >= total || targetIndex === currentIndex) {
+        return
+      }
+      setSwitchingVariantMessageId(message.id)
+      setErrorMessage('')
+      try {
+        const updatedMessage = await selectStoryMessageVariant({
+          token: authToken,
+          gameId: activeGameId,
+          messageId: message.id,
+          variantIndex: targetIndex,
+        })
+        setMessages((previousMessages) =>
+          previousMessages.map((existingMessage) =>
+            existingMessage.id === updatedMessage.id ? normalizeStoryMessageItem(updatedMessage) : existingMessage,
+          ),
+        )
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось переключить вариант ответа'
+        setErrorMessage(detail)
+      } finally {
+        setSwitchingVariantMessageId(null)
+      }
+    },
+    [activeGameId, authToken, isGenerating, switchingVariantMessageId],
+  )
 
   const handleSaveMessageInline = useCallback(
     async (messageId: number, nextContentRaw: string) => {
@@ -18432,7 +18507,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         </Typography>
                       </Stack>
                     </Stack>
-                    <Stack direction="row" spacing={0.75} sx={{ mt: 1.45, overflowX: 'auto', pb: 0.2 }} className="morius-scrollbar">
+                    <Stack direction="row" spacing={{ xs: 0.4, md: 0.75 }} sx={{ mt: 1.45, width: '100%' }}>
                       {environmentTimeline.slice(0, 4).map((entry, index) => {
                         const isActive = index === activeEnvironmentTimelineIndex
                         const label = resolveEnvironmentTimelineLabel(entry, index)
@@ -18441,9 +18516,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           <Box
                             key={`${label}-${index}`}
                             sx={{
-                              minWidth: 62,
+                              flex: '1 1 0',
+                              minWidth: 0,
                               borderRadius: '12px',
-                              px: 0.7,
+                              px: { xs: 0.3, md: 0.7 },
                               py: 0.72,
                               textAlign: 'center',
                               border: isActive
@@ -18453,17 +18529,26 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-elevated-bg))'
                                 : 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
                               boxShadow: isActive ? '0 14px 28px -24px rgba(0,0,0,0.78)' : 'none',
-                              flexShrink: 0,
                             }}
                           >
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.72rem', fontWeight: 900, lineHeight: 1.15 }}>
+                            <Typography
+                              sx={{
+                                color: 'var(--morius-title-text)',
+                                fontSize: { xs: '0.66rem', md: '0.72rem' },
+                                fontWeight: 900,
+                                lineHeight: 1.15,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
                               {label}
                             </Typography>
                             <Box
                               component="img"
                               src={resolveEnvironmentSummaryIcon(summary)}
                               alt=""
-                              sx={{ ...environmentPanelIconSx, width: 22, height: 22, mt: 0.55, mx: 'auto' }}
+                              sx={{ ...environmentPanelIconSx, width: { xs: 18, md: 22 }, height: { xs: 18, md: 22 }, mt: 0.55, mx: 'auto' }}
                             />
                           </Box>
                         )
@@ -18721,7 +18806,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               >
                 {[
                   { key: 'characters' as const, label: 'Персонажи', iconMarkup: cardsCharactersTabIconMarkup },
-                  { key: 'world' as const, label: 'Мир', iconMarkup: cardsWorldTabIconMarkup },
+                  { key: 'world' as const, label: 'Детали мира', iconMarkup: cardsWorldTabIconMarkup },
                   { key: 'instructions' as const, label: 'Правила', iconMarkup: cardsRulesTabIconMarkup },
                   { key: 'plot' as const, label: 'Сюжет', iconMarkup: cardsPlotTabIconMarkup },
                 ].map((tab) => {
@@ -19207,11 +19292,90 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   )}
 
                   <RightPanelSectionHeading title="Локации и лор" count={displayedDetailCards.length} />
+                  {rawDetailCards.length > 0 ? (
+                    <Stack direction="row" spacing={0.65} alignItems="center">
+                      <Box
+                        sx={{
+                          flex: 1,
+                          minWidth: 0,
+                          height: 42,
+                          borderRadius: '14px',
+                          border: 'var(--morius-border-width) solid rgba(255,255,255,0.075)',
+                          backgroundColor: 'rgba(7, 8, 13, 0.64)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.75,
+                          px: 1,
+                        }}
+                      >
+                        <Box component="img" src={icons.search} alt="" sx={{ width: 18, height: 18, opacity: 0.72, flexShrink: 0 }} />
+                        <Box
+                          component="input"
+                          value={worldDetailPanelSearchQuery}
+                          placeholder="Найти локацию или лор"
+                          onChange={(event: ChangeEvent<HTMLInputElement>) => setWorldDetailPanelSearchQuery(event.target.value)}
+                          sx={{
+                            width: '100%',
+                            minWidth: 0,
+                            border: 0,
+                            p: 0,
+                            outline: 'none',
+                            backgroundColor: 'transparent',
+                            color: 'var(--morius-title-text)',
+                            font: 'inherit',
+                            fontSize: '0.88rem',
+                            fontWeight: 750,
+                            '&::placeholder': {
+                              color: 'color-mix(in srgb, var(--morius-text-secondary) 72%, transparent)',
+                              opacity: 1,
+                            },
+                          }}
+                        />
+                        {worldDetailPanelSearchQuery ? (
+                          <IconButton
+                            aria-label="Очистить поиск"
+                            onClick={() => setWorldDetailPanelSearchQuery('')}
+                            sx={{ width: 24, height: 24, color: 'var(--morius-text-secondary)' }}
+                          >
+                            <Box component="img" src={icons.searchClose} alt="" sx={{ width: 12, height: 12, display: 'block' }} />
+                          </IconButton>
+                        ) : null}
+                      </Box>
+                      {rawDetailCards.length > 1 ? (
+                        <Select<NpcPanelSortMode>
+                          value={worldDetailPanelSortMode}
+                          onChange={(event: SelectChangeEvent<NpcPanelSortMode>) => setWorldDetailPanelSortMode(event.target.value as NpcPanelSortMode)}
+                          size="small"
+                          sx={{
+                            flex: '0 0 98px',
+                            height: 42,
+                            borderRadius: '14px',
+                            color: 'color-mix(in srgb, var(--morius-title-text) 82%, transparent)',
+                            fontSize: '0.74rem',
+                            fontWeight: 900,
+                            backgroundColor: 'rgba(24, 25, 31, 0.72)',
+                            '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.075)' },
+                            '& .MuiSvgIcon-root': { color: 'var(--morius-text-secondary)' },
+                          }}
+                        >
+                          {NPC_PANEL_SORT_OPTIONS.map((option) => (
+                            <MenuItem key={option.value} value={option.value}>
+                              {option.label}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      ) : null}
+                    </Stack>
+                  ) : null}
                   {displayedDetailCards.length === 0 ? (
                     <RightPanelEmptyState
-                      iconSrc={icons.world}
-                      title="Деталей пока нет"
-                      description="Добавляйте места, организации, предметы и законы мира без связей — только чистый список лора."
+                      iconSrc={worldDetailPanelSearchIsActive ? icons.search : icons.world}
+                      title={worldDetailPanelSearchIsActive ? 'Ничего не найдено' : 'Деталей пока нет'}
+                      description={
+                        worldDetailPanelSearchIsActive
+                          ? 'Измените поиск, чтобы вернуть детали мира в список.'
+                          : 'Добавляйте места, организации, предметы и законы мира без связей — только чистый список лора.'
+                      }
                     />
                   ) : (
                     <Stack spacing={0.75}>
@@ -19769,7 +19933,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               >
                 {[
                   { key: 'characters' as const, label: 'Персонажи', iconMarkup: cardsCharactersTabIconMarkup },
-                  { key: 'world' as const, label: 'Мир', iconMarkup: cardsWorldTabIconMarkup },
+                  { key: 'world' as const, label: 'Детали мира', iconMarkup: cardsWorldTabIconMarkup },
                   { key: 'instructions' as const, label: 'Правила', iconMarkup: cardsRulesTabIconMarkup },
                   { key: 'plot' as const, label: 'Сюжет', iconMarkup: cardsPlotTabIconMarkup },
                 ].map((tab) => {
@@ -20262,11 +20426,121 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Stack>
 
                     <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.08rem', fontWeight: 800, pt: 0.2 }}>Детали</Typography>
+                    {rawDetailCards.length > 0 ? (
+                      <Stack direction="row" spacing={0.65} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
+                        <Box
+                          sx={{
+                            flex: '1 1 154px',
+                            minWidth: 0,
+                            height: 38,
+                            borderRadius: '10px',
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 86%, #000 14%)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.65,
+                            px: 0.95,
+                          }}
+                        >
+                          <Box component="img" src={icons.search} alt="" sx={{ width: 15, height: 15, opacity: 0.66, flexShrink: 0 }} />
+                          <Box
+                            component="input"
+                            value={worldDetailPanelSearchQuery}
+                            placeholder="Найти локацию или лор"
+                            onChange={(event: ChangeEvent<HTMLInputElement>) => setWorldDetailPanelSearchQuery(event.target.value)}
+                            sx={{
+                              width: '100%',
+                              minWidth: 0,
+                              border: 0,
+                              p: 0,
+                              outline: 'none',
+                              backgroundColor: 'transparent',
+                              color: 'var(--morius-text-primary)',
+                              font: 'inherit',
+                              fontSize: '0.88rem',
+                              fontWeight: 700,
+                              '&::placeholder': {
+                                color: 'color-mix(in srgb, var(--morius-text-secondary) 74%, transparent)',
+                                opacity: 1,
+                              },
+                            }}
+                          />
+                          {worldDetailPanelSearchQuery ? (
+                            <IconButton
+                              size="small"
+                              aria-label="Очистить поиск"
+                              onClick={() => setWorldDetailPanelSearchQuery('')}
+                              sx={{
+                                width: 22,
+                                height: 22,
+                                minWidth: 22,
+                                color: 'var(--morius-text-secondary)',
+                                '&:hover': { color: 'var(--morius-title-text)', backgroundColor: 'var(--morius-button-hover)' },
+                              }}
+                            >
+                              <Box component="img" src={icons.searchClose} alt="" sx={{ width: 10, height: 10, display: 'block' }} />
+                            </IconButton>
+                          ) : null}
+                        </Box>
+                        {rawDetailCards.length > 1 ? (
+                          <Select<NpcPanelSortMode>
+                            value={worldDetailPanelSortMode}
+                            onChange={(event: SelectChangeEvent<NpcPanelSortMode>) => setWorldDetailPanelSortMode(event.target.value as NpcPanelSortMode)}
+                            size="small"
+                            displayEmpty
+                            MenuProps={{
+                              PaperProps: {
+                                sx: {
+                                  mt: 0.45,
+                                  borderRadius: '12px',
+                                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                  backgroundColor: 'var(--morius-card-bg)',
+                                  boxShadow: '0 16px 36px rgba(0, 0, 0, 0.42)',
+                                  '& .MuiMenuItem-root': {
+                                    color: 'var(--morius-text-primary)',
+                                    fontSize: '0.88rem',
+                                    fontWeight: 700,
+                                    minHeight: 36,
+                                  },
+                                },
+                              },
+                            }}
+                            sx={{
+                              flex: '0 0 126px',
+                              height: 38,
+                              borderRadius: '10px',
+                              color: 'var(--morius-text-primary)',
+                              fontSize: '0.86rem',
+                              fontWeight: 800,
+                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 86%, #000 14%)',
+                              '& .MuiSelect-select': { py: 0.65, pr: '28px !important' },
+                              '& .MuiOutlinedInput-notchedOutline': {
+                                borderColor: 'color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+                              },
+                              '&:hover .MuiOutlinedInput-notchedOutline, &.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                                borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, var(--morius-card-border))',
+                              },
+                              '& .MuiSvgIcon-root': { color: 'var(--morius-text-secondary)' },
+                            }}
+                          >
+                            {NPC_PANEL_SORT_OPTIONS.map((option) => (
+                              <MenuItem key={option.value} value={option.value}>
+                                {option.label}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        ) : null}
+                      </Stack>
+                    ) : null}
                     {displayedDetailCards.length === 0 ? (
                       <RightPanelEmptyState
-                        iconSrc={icons.world}
-                        title="Деталей пока нет"
-                        description="Добавляйте места, предметы, заклинания, мобов и другие элементы мира, чтобы рассказчик учитывал их в сценах."
+                        iconSrc={worldDetailPanelSearchIsActive ? icons.search : icons.world}
+                        title={worldDetailPanelSearchIsActive ? 'Ничего не найдено' : 'Деталей пока нет'}
+                        description={
+                          worldDetailPanelSearchIsActive
+                            ? 'Измените поиск, чтобы вернуть детали мира в список.'
+                            : 'Добавляйте места, предметы, заклинания, мобов и другие элементы мира, чтобы рассказчик учитывал их в сценах.'
+                        }
                       />
                     ) : (
                       <>
@@ -24705,7 +24979,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             shouldUseStoryIntroLayout
               ? {
                   minHeight: '100%',
-                  justifyContent: 'center',
+                  // 'safe center' falls back to flex-start once content overflows the viewport,
+                  // so long intro text stays scrollable instead of clipping above the fold
+                  // (plain 'center' clips the top overflow of a scroll container).
+                  justifyContent: 'safe center',
                   pb: { xs: 6, md: 8 },
                 }
               : null,
@@ -25220,6 +25497,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       !isCreatingGame &&
                       currentRerollAssistantMessage?.id === message.id &&
                       continueHiddenForMessageId !== message.id
+                    const messageVariantHistory = message.variant_history ?? []
+                    const messageVariantTotal = messageVariantHistory.length
+                    const shouldShowVariantCarousel =
+                      !isStreaming &&
+                      currentRerollAssistantMessage?.id === message.id &&
+                      messageVariantTotal > 1
+                    const messageVariantIndex = shouldShowVariantCarousel
+                      ? Math.min(Math.max(message.active_variant_index ?? 0, 0), messageVariantTotal - 1)
+                      : 0
+                    const isSwitchingThisVariant = switchingVariantMessageId === message.id
                     if (
                       blocks.length === 0 &&
                       assistantTurnImages.length === 0 &&
@@ -25259,8 +25546,69 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             right: 0,
                           },
                           '&:hover::before, &:hover::after': isGenerating ? {} : { opacity: 0.9 },
+                          '&:hover .morius-variant-carousel, &:focus-within .morius-variant-carousel': {
+                            opacity: 1,
+                            pointerEvents: 'auto',
+                          },
                         }}
                       >
+                        {shouldShowVariantCarousel ? (
+                          <Stack
+                            className="morius-variant-carousel"
+                            direction="row"
+                            alignItems="center"
+                            spacing={0.15}
+                            onClick={(event) => event.stopPropagation()}
+                            sx={{
+                              position: 'absolute',
+                              top: 4,
+                              right: 10,
+                              opacity: 0,
+                              pointerEvents: 'none',
+                              transition: 'opacity 170ms ease',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #000 10%)',
+                              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+                              borderRadius: '999px',
+                              px: 0.3,
+                              py: 0.15,
+                              zIndex: 2,
+                            }}
+                          >
+                            <IconButton
+                              aria-label="Предыдущий вариант"
+                              size="small"
+                              disabled={messageVariantIndex <= 0 || isSwitchingThisVariant}
+                              onClick={() => void handleSwitchMessageVariant(message, 'prev')}
+                              sx={{ width: 22, height: 22, color: 'var(--morius-text-secondary)', fontSize: '0.9rem' }}
+                            >
+                              {'‹'}
+                            </IconButton>
+                            {isSwitchingThisVariant ? (
+                              <CircularProgress size={11} sx={{ color: 'var(--morius-text-secondary)', mx: 0.5 }} />
+                            ) : (
+                              <Typography
+                                sx={{
+                                  fontSize: '0.68rem',
+                                  fontWeight: 800,
+                                  color: 'var(--morius-text-secondary)',
+                                  minWidth: 28,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                {messageVariantIndex + 1}/{messageVariantTotal}
+                              </Typography>
+                            )}
+                            <IconButton
+                              aria-label="Следующий вариант"
+                              size="small"
+                              disabled={messageVariantIndex >= messageVariantTotal - 1 || isSwitchingThisVariant}
+                              onClick={() => void handleSwitchMessageVariant(message, 'next')}
+                              sx={{ width: 22, height: 22, color: 'var(--morius-text-secondary)', fontSize: '0.9rem' }}
+                            >
+                              {'›'}
+                            </IconButton>
+                          </Stack>
+                        ) : null}
                         <Stack spacing="var(--morius-story-message-gap)">
                           {isStreaming ? (
                             <StreamingAssistantMessageContent

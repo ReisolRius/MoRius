@@ -827,6 +827,12 @@ class StoryMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     scene_emotion_payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     vn_raw_response: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    # Chronological log of every reroll attempt generated for this turn: [{content,
+    # vn_raw_response, scene_emotion_payload, created_at}, ...], oldest first. `content` (and the
+    # sibling fields above) always mirror variant_history_json[active_variant_index]. Only ever
+    # populated on the current last assistant message of a game; cleared on the next real turn.
+    variant_history_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
+    active_variant_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

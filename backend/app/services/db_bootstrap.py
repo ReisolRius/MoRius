@@ -1403,6 +1403,16 @@ def _ensure_story_soft_undo_columns_exist() -> None:
                 f"ALTER TABLE {StoryMessage.__tablename__} "
                 "ADD COLUMN vn_raw_response TEXT NOT NULL DEFAULT ''"
             )
+        if "variant_history_json" not in message_columns:
+            alter_statements.append(
+                f"ALTER TABLE {StoryMessage.__tablename__} "
+                "ADD COLUMN variant_history_json TEXT NOT NULL DEFAULT '[]'"
+            )
+        if "active_variant_index" not in message_columns:
+            alter_statements.append(
+                f"ALTER TABLE {StoryMessage.__tablename__} "
+                "ADD COLUMN active_variant_index INTEGER NOT NULL DEFAULT 0"
+            )
 
     if inspector.has_table(StoryTurnImage.__tablename__):
         image_columns = {column["name"] for column in inspector.get_columns(StoryTurnImage.__tablename__)}

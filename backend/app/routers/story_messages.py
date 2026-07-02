@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import StoryMemoryBlock, StoryMessage, StoryMessageSegment, StoryWorldCard
-from app.schemas import StoryMessageOut, StoryMessageUpdateRequest
+from app.schemas import StoryMessageOut, StoryMessageSelectVariantRequest, StoryMessageUpdateRequest
 from app.services.auth_identity import get_current_user
 from app.services.story_memory import (
     STORY_MEMORY_LAYER_COMPRESSED,
@@ -28,7 +28,7 @@ from app.services.story_game_operation_lock import (
     StoryGameOperationBusyError,
     acquire_story_game_operation_lock,
 )
-from app.services.story_messages import story_message_to_out
+from app.services.story_messages import parse_story_message_variant_history, story_message_to_out
 from app.services.story_queries import get_user_story_game_or_404, list_story_messages, list_story_world_cards, touch_story_game
 from app.services.story_text import normalize_story_text
 
@@ -350,6 +350,10 @@ def update_story_message(
         if message.role == "assistant":
             message.scene_emotion_payload = ""
             message.vn_raw_response = ""
+            # A manual edit is a deliberate override of whatever variant was showing -- drop the
+            # reroll variant log rather than leave it pointing at now-stale text.
+            message.variant_history_json = "[]"
+            message.active_variant_index = 0
             db.execute(sa_delete(StoryMessageSegment).where(StoryMessageSegment.message_id == message.id))
 
         _sync_turn_raw_memory_after_message_update(db=db, game=game, message=message)
@@ -376,6 +380,77 @@ def update_story_message(
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to update story message",
+            ) from exc
+        db.refresh(message)
+        return story_message_to_out(message)
+
+
+@router.post(
+    "/api/story/games/{game_id}/messages/{message_id}/select-variant",
+    response_model=StoryMessageOut,
+)
+def select_story_message_variant(
+    game_id: int,
+    message_id: int,
+    payload: StoryMessageSelectVariantRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryMessageOut:
+    """Switch the displayed/canonical text of the last assistant message to one of its
+    discarded reroll variants (or back to the newest one), without re-running generation."""
+    user = get_current_user(db, authorization)
+    game = get_user_story_game_or_404(db, user.id, game_id)
+
+    with _acquire_story_operation_lease_or_409(game_id=game.id, operation="story_message_select_variant"):
+        message = db.scalar(
+            select(StoryMessage).where(
+                StoryMessage.id == message_id,
+                StoryMessage.game_id == game.id,
+                StoryMessage.role == "assistant",
+                StoryMessage.undone_at.is_(None),
+            )
+        )
+        if message is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+
+        # variant_history_json is a stable, append-only chronological log of every attempt made
+        # for this turn; selecting a variant only moves the active pointer and mirrors that log
+        # entry's text onto the message -- it never reorders or removes log entries.
+        variant_log = parse_story_message_variant_history(message.variant_history_json)
+        if not variant_log or payload.variant_index >= len(variant_log):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid variant index")
+
+        selected = variant_log[payload.variant_index]
+        message.content = selected["content"]
+        message.vn_raw_response = selected.get("vn_raw_response") or ""
+        message.scene_emotion_payload = selected.get("scene_emotion_payload") or ""
+        message.active_variant_index = payload.variant_index
+        db.execute(sa_delete(StoryMessageSegment).where(StoryMessageSegment.message_id == message.id))
+
+        _sync_turn_raw_memory_after_message_update(db=db, game=game, message=message)
+        touch_story_game(game)
+        try:
+            commit_with_retry(db)
+        except Exception as exc:
+            if is_database_busy_session_error(exc):
+                logger.warning(
+                    "Story message variant switch hit database busy state: game_id=%s message_id=%s",
+                    game.id,
+                    message.id,
+                    exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=STORY_MESSAGE_BUSY_DETAIL,
+                ) from exc
+            logger.exception(
+                "Story message variant switch commit failed: game_id=%s message_id=%s",
+                game.id,
+                message.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to switch story message variant",
             ) from exc
         db.refresh(message)
         return story_message_to_out(message)

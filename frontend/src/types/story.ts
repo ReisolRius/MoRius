@@ -149,6 +149,11 @@ export type StoryGameSummary = {
   updated_at: string
 }
 
+export type StoryMessageVariant = {
+  content: string
+  created_at?: string | null
+}
+
 export type StoryMessage = {
   id: number
   game_id: number
@@ -157,6 +162,11 @@ export type StoryMessage = {
   scene_emotion_payload?: string | null
   created_at: string
   updated_at: string
+  // Chronological log of every reroll attempt for this turn, oldest first. Only ever
+  // populated on the current last assistant message of a game.
+  variant_history?: StoryMessageVariant[]
+  // Index into variant_history that matches the currently displayed `content`.
+  active_variant_index?: number
 }
 
 export type StoryVNBeat = {
