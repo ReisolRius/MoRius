@@ -22164,7 +22164,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   </Stack>
 
                   {(
-                    <Stack spacing={1.05} sx={{ display: rightPanelSection === 'narrator' || rightPanelSection === 'engine' ? 'flex' : 'none' }}>
+                    <Stack spacing={1.05} sx={{ display: rightPanelSection === 'engine' ? 'flex' : 'none' }}>
                       <Button
                         data-tour-id="story-settings-advanced-section"
                         onClick={() => setIsAdvancedSettingsExpanded((previous) => !previous)}
@@ -22472,7 +22472,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   )}
 
                   {canEditStoryAppearance ? (
-                    <Stack spacing={1.05} sx={{ display: rightPanelSection === 'narrator' || rightPanelSection === 'appearance' ? 'flex' : 'none' }}>
+                    <Stack spacing={1.05} sx={{ display: rightPanelSection === 'appearance' ? 'flex' : 'none' }}>
                       <Button
                         onClick={() => setIsAppearanceSettingsExpanded((previous) => !previous)}
                         sx={{
