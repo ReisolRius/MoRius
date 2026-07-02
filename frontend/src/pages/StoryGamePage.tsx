@@ -17955,14 +17955,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: { xs: 0.85, sm: 1.15 },
+              gap: { xs: 0.6, sm: 1.15 },
             }}
           >
             <Box
               aria-hidden
               sx={{
+                display: { xs: 'none', sm: 'block' },
                 flex: '0 1 clamp(150px, 22vw, 420px)',
-                minWidth: { xs: 52, sm: 150 },
+                minWidth: 150,
                 height: '1px',
                 maxHeight: '1px',
                 overflow: 'hidden',
@@ -17973,7 +17974,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             />
             <Box
               sx={{
-                maxWidth: { xs: 'min(54vw, 280px)', md: 'min(40vw, 520px)' },
+                maxWidth: { xs: '100%', sm: 'min(58vw, 520px)', md: 'min(52vw, 640px)' },
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -17983,7 +17984,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontWeight: 900,
                 fontSize: { xs: '0.66rem', md: '0.71rem' },
                 lineHeight: 1,
-                letterSpacing: '0.12em',
+                letterSpacing: { xs: '0.07em', sm: '0.12em' },
                 textTransform: 'uppercase',
                 textAlign: 'center',
                 pointerEvents: 'auto',
@@ -18013,9 +18014,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   textTransform: 'inherit',
                   cursor: isGenerating ? 'default' : 'text',
                   outline: 'none',
-                  whiteSpace: 'nowrap',
+                  // contenteditable elements get white-space: pre-wrap from the UA
+                  // stylesheet, which wraps the title into two lines — force nowrap
+                  whiteSpace: 'nowrap !important',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
+                  '& br': { display: 'none' },
                   '&:focus': {
                     color: 'var(--morius-title-text)',
                   },
@@ -18030,8 +18034,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             <Box
               aria-hidden
               sx={{
+                display: { xs: 'none', sm: 'block' },
                 flex: '0 1 clamp(150px, 22vw, 420px)',
-                minWidth: { xs: 52, sm: 150 },
+                minWidth: 150,
                 height: '1px',
                 maxHeight: '1px',
                 overflow: 'hidden',
