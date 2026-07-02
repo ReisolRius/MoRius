@@ -6505,7 +6505,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [ambientByAssistantMessageId, setAmbientByAssistantMessageId] = useState<Record<number, StoryAmbientProfile>>({})
   const [hasPromptText, setHasPromptText] = useState(false)
   const [isMobileComposer, setIsMobileComposer] = useState<boolean>(() => isMobileComposerViewport())
-  const [isComposerAiMenuOpen, setIsComposerAiMenuOpen] = useState(false)
   const [isVoiceInputActive, setIsVoiceInputActive] = useState(false)
   const [quickStartIntro, setQuickStartIntro] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -6862,8 +6861,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const plotCardDialogGameIdRef = useRef<number | null>(null)
   const worldCardDialogGameIdRef = useRef<number | null>(null)
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
-  const composerAiButtonRef = useRef<HTMLButtonElement | null>(null)
-  const composerAiMenuRef = useRef<HTMLDivElement | null>(null)
   const composerContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
   const composerDraftRef = useRef('')
@@ -15935,7 +15932,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (!activeGameId || isCreatingGame || isGenerating) {
       return
     }
-    setIsComposerAiMenuOpen(false)
     setBugReportDialogOpen(true)
   }, [activeGameId, isCreatingGame, isGenerating])
 
@@ -16234,7 +16230,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (!activeGameId || !currentRerollAssistantMessage || isStoryTurnBusy || isCreatingGame || isUndoingAssistantStep) {
       return
     }
-    setIsComposerAiMenuOpen(false)
     setErrorMessage('')
     void generateTurnImageAfterAssistantMessage({
       gameId: activeGameId,
@@ -16306,53 +16301,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [authToken, gallerySavingTurnImageIds, savedGalleryTurnImageIds],
   )
-
-  useEffect(() => {
-    if (isCreatingGame || isStoryTurnBusy || isUndoingAssistantStep) {
-      setIsComposerAiMenuOpen(false)
-    }
-  }, [isCreatingGame, isStoryTurnBusy, isUndoingAssistantStep])
-
-  useEffect(() => {
-    if (!isComposerAiMenuOpen) {
-      return
-    }
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsComposerAiMenuOpen(false)
-      }
-    }
-    window.addEventListener('keydown', handleEscape)
-    return () => {
-      window.removeEventListener('keydown', handleEscape)
-    }
-  }, [isComposerAiMenuOpen])
-
-  useEffect(() => {
-    if (!isComposerAiMenuOpen) {
-      return
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target
-      if (!(target instanceof Node)) {
-        return
-      }
-
-      const clickedButton = composerAiButtonRef.current?.contains(target) ?? false
-      const clickedMenu = composerAiMenuRef.current?.contains(target) ?? false
-      if (clickedButton || clickedMenu) {
-        return
-      }
-
-      setIsComposerAiMenuOpen(false)
-    }
-
-    window.addEventListener('pointerdown', handlePointerDown)
-    return () => {
-      window.removeEventListener('pointerdown', handlePointerDown)
-    }
-  }, [isComposerAiMenuOpen])
 
   useEffect(() => {
     const assistantMessageIds = new Set(
@@ -17155,7 +17103,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       },
     ])
     syncComposerDraft('')
-    setIsComposerAiMenuOpen(false)
     await runStoryGeneration({
       gameId: targetGameId,
       prompt: normalizedPrompt,
@@ -17195,7 +17142,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (isStoryTurnBusy || isCreatingGame) {
         return
       }
-      setIsComposerAiMenuOpen(false)
       setContinueHiddenForMessageId(assistantMessageId)
       const generationResult = await sendStoryPrompt(STORY_CONTINUE_PROMPT, { hideUserMessage: true })
       if (!generationResult?.streamStarted) {
@@ -17211,10 +17157,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     void handleContinueStory(currentRerollAssistantMessage.id)
   }, [currentRerollAssistantMessage, handleContinueStory])
-
-  const handleToggleComposerAiMenu = useCallback(() => {
-    setIsComposerAiMenuOpen((previousState) => !previousState)
-  }, [])
 
   const handleToggleEnvironmentEnabled = useCallback(
     async (nextEnabled: boolean) => {
@@ -27147,71 +27089,31 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </IconButton>
                   </span>
                 </Tooltip>
-                <Box
-                  ref={composerAiMenuRef}
-                  sx={{
-                    width: COMPOSER_TOP_ACTION_BUTTON_SIZE,
-                    minWidth: COMPOSER_TOP_ACTION_BUTTON_SIZE,
-                    maxWidth: COMPOSER_TOP_ACTION_BUTTON_SIZE,
-                    height: COMPOSER_TOP_ACTION_BUTTON_SIZE,
-                    flexShrink: 0,
-                    position: 'relative',
-                    overflow: 'visible',
-                    alignSelf: 'center',
-                  }}
+                <Tooltip
+                  arrow
+                  disableInteractive
+                  placement="top"
+                  title={hasLatestTurnImage ? 'Перегенерировать картинку' : 'Сгенерировать картинку'}
                 >
-                  <Tooltip arrow disableInteractive placement="top" title="ИИ-функции">
-                    <span>
-                      <IconButton
-                        ref={composerAiButtonRef}
-                        aria-label="ИИ-функции"
-                        onClick={handleToggleComposerAiMenu}
-                        sx={{
-                          ...getComposerTopActionButtonSx({ highlighted: isComposerAiMenuOpen }),
-                          position: 'relative',
-                          zIndex: 2,
-                        }}
-                      >
-                        <AssetMaskIcon src={icons.ai} size={20} sx={{ opacity: isComposerAiMenuOpen ? 1 : 0.92 }} />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip
-                    arrow
-                    disableInteractive
-                    placement="top"
-                    title={hasLatestTurnImage ? 'Перегенерировать картинку' : 'Сгенерировать картинку'}
-                  >
-                    <span>
-                      <IconButton
-                        aria-label={hasLatestTurnImage ? 'Перегенерировать картинку' : 'Сгенерировать картинку'}
-                        onClick={handleGenerateLatestTurnImage}
-                        disabled={!canGenerateLatestTurnImage}
-                        sx={{
-                          ...getComposerTopActionButtonSx({ highlighted: hasLatestTurnImage }),
-                          position: 'absolute',
-                          left: 0,
-                          bottom: `calc(100% + 8px)`,
-                          zIndex: 1,
-                          opacity: isComposerAiMenuOpen ? 1 : 0,
-                          transform: isComposerAiMenuOpen ? 'translateY(0) scale(1)' : 'translateY(8px) scale(0.9)',
-                          transition: 'opacity 180ms ease, transform 180ms ease',
-                          pointerEvents: isComposerAiMenuOpen ? 'auto' : 'none',
-                        }}
-                      >
-                        {isLatestTurnImageLoading ? (
-                          <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
-                        ) : (
-                          <AssetMaskIcon
-                            src={hasLatestTurnImage ? composerRegenerateImageIcon : composerGenerateImageIcon}
-                            size={20}
-                            sx={{ opacity: 0.96 }}
-                          />
-                        )}
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </Box>
+                  <span>
+                    <IconButton
+                      aria-label={hasLatestTurnImage ? 'Перегенерировать картинку' : 'Сгенерировать картинку'}
+                      onClick={handleGenerateLatestTurnImage}
+                      disabled={!canGenerateLatestTurnImage}
+                      sx={getComposerTopActionButtonSx()}
+                    >
+                      {isLatestTurnImageLoading ? (
+                        <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
+                      ) : (
+                        <AssetMaskIcon
+                          src={hasLatestTurnImage ? composerRegenerateImageIcon : composerGenerateImageIcon}
+                          size={19}
+                          sx={composerActionImageSx}
+                        />
+                      )}
+                    </IconButton>
+                  </span>
+                </Tooltip>
               </Stack>
               <Stack direction="row" alignItems="center" spacing={0.82} sx={{ ml: 'auto', flexShrink: 0 }}>
                 <Stack
