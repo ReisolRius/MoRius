@@ -27140,9 +27140,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           : '#78a96f',
                       flexShrink: 0,
                       boxShadow: isStoryTurnBusy ? '0 0 12px color-mix(in srgb, var(--morius-accent) 70%, transparent)' : 'none',
+                      transition: 'background-color 280ms ease, box-shadow 280ms ease',
+                      animation:
+                        composerStatusLabel !== 'Готов к ходу'
+                          ? 'morius-composer-status-dot-pulse 1.15s ease-in-out infinite'
+                          : 'none',
+                      '@keyframes morius-composer-status-dot-pulse': {
+                        '0%, 100%': { transform: 'scale(1)', opacity: 1 },
+                        '50%': { transform: 'scale(1.5)', opacity: 0.62 },
+                      },
                     }}
                   />
                   <Typography
+                    key={composerStatusLabel}
                     sx={{
                       color: 'inherit',
                       fontSize: { xs: '0.62rem', sm: '0.68rem' },
@@ -27153,6 +27163,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
+                      animation:
+                        composerStatusLabel !== 'Готов к ходу'
+                          ? 'morius-composer-status-label-enter 260ms cubic-bezier(0.22, 1, 0.36, 1), morius-composer-status-label-breathe 1.7s ease-in-out 260ms infinite'
+                          : 'morius-composer-status-label-enter 260ms cubic-bezier(0.22, 1, 0.36, 1)',
+                      '@keyframes morius-composer-status-label-enter': {
+                        from: { opacity: 0, transform: 'translateY(5px)' },
+                        to: { opacity: 1, transform: 'translateY(0)' },
+                      },
+                      '@keyframes morius-composer-status-label-breathe': {
+                        '0%, 100%': { opacity: 1 },
+                        '50%': { opacity: 0.55 },
+                      },
                     }}
                   >
                     {composerStatusLabel}
