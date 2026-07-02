@@ -464,11 +464,11 @@ function EnvironmentModuleCard({
                 },
               }}
             >
-              <SvgIcon viewBox="0 0 24 24" sx={{ width: 22, height: 22 }}>
-                <path
-                  d="M6.3 7.2A8.1 8.1 0 0 1 20 13a8 8 0 0 1-8 8 7.9 7.9 0 0 1-5.7-2.4 1 1 0 0 1 1.44-1.38A5.9 5.9 0 0 0 12 19a6 6 0 1 0-5.66-8H9a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1V7a1 1 0 0 1 2 0v1.55c.38-.49.81-.94 1.3-1.35Z"
-                  fill="currentColor"
-                />
+              <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
+                <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                </g>
               </SvgIcon>
             </IconButton>
           </Tooltip>
@@ -1642,11 +1642,12 @@ function SettingsSectionLabel({ text, tooltip }: { text: string; tooltip?: strin
 
 function RightPanelAiIcon() {
   return (
-    <SvgIcon viewBox="0 0 20 20" sx={{ width: 22, height: 22 }}>
-      <path
-        d="M7.01238 3.448C7.61038 1.698 10.0284 1.645 10.7374 3.289L10.7974 3.449L11.6044 5.809C11.7893 6.35023 12.0882 6.84551 12.4808 7.26142C12.8734 7.67734 13.3507 8.00421 13.8804 8.22L14.0974 8.301L16.4574 9.107C18.2074 9.705 18.2604 12.123 16.6174 12.832L16.4574 12.892L14.0974 13.699C13.556 13.8838 13.0605 14.1826 12.6444 14.5753C12.2283 14.9679 11.9013 15.4452 11.6854 15.975L11.6044 16.191L10.7984 18.552C10.2004 20.302 7.78238 20.355 7.07438 18.712L7.01238 18.552L6.20638 16.192C6.02156 15.6506 5.72275 15.1551 5.33012 14.739C4.93749 14.3229 4.46017 13.9959 3.93038 13.78L3.71438 13.699L1.35438 12.893C-0.396622 12.295 -0.449622 9.877 1.19438 9.169L1.35438 9.107L3.71438 8.301C4.25561 8.11606 4.75089 7.81719 5.1668 7.42457C5.58271 7.03195 5.90959 6.55469 6.12538 6.025L6.20638 5.809L7.01238 3.448ZM16.9054 1.80688e-07C17.0925 -2.35972e-07 17.2758 0.0524783 17.4345 0.151472C17.5933 0.250465 17.7211 0.392003 17.8034 0.56L17.8514 0.677L18.2014 1.703L19.2284 2.053C19.4159 2.1167 19.5802 2.23462 19.7006 2.39182C19.821 2.54902 19.892 2.73842 19.9047 2.93602C19.9173 3.13362 19.871 3.33053 19.7716 3.50179C19.6722 3.67304 19.5242 3.81094 19.3464 3.898L19.2284 3.946L18.2024 4.296L17.8524 5.323C17.7886 5.51043 17.6706 5.6747 17.5133 5.79499C17.356 5.91529 17.1666 5.98619 16.969 5.99872C16.7714 6.01125 16.5746 5.96484 16.4034 5.86538C16.2322 5.76591 16.0944 5.61787 16.0074 5.44L15.9594 5.323L15.6094 4.297L14.5824 3.947C14.3949 3.8833 14.2305 3.76538 14.1101 3.60819C13.9898 3.45099 13.9187 3.26158 13.9061 3.06398C13.8935 2.86638 13.9398 2.66947 14.0392 2.49821C14.1385 2.32696 14.2865 2.18906 14.4644 2.102L14.5824 2.054L15.6084 1.704L15.9584 0.677C16.0258 0.479426 16.1534 0.307909 16.3232 0.186499C16.493 0.065089 16.6966 -0.000125281 16.9054 1.80688e-07Z"
-        fill="currentColor"
-      />
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 21, height: 21 }}>
+      <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+        <path d="M20 3v4" />
+        <path d="M22 5h-4" />
+      </g>
     </SvgIcon>
   )
 }
@@ -1696,7 +1697,7 @@ function RightPanelSectionHeading({
           {count}
         </Box>
       ) : null}
-      <Box sx={{ height: 1, flex: 1, minWidth: 24, backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 74%, transparent)' }} />
+      <Box sx={{ height: '1px', flex: 1, minWidth: 24, alignSelf: 'center', backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 74%, transparent)' }} />
       {action}
     </Stack>
   )
@@ -1857,9 +1858,9 @@ function RightPanelSettingRow({
 
 function ComposerContinueIcon() {
   return (
-    <SvgIcon viewBox="0 0 19 20" sx={{ width: 18, height: 18 }}>
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 17, height: 17 }}>
       <path
-        d="M17.4676 8.12172C17.8037 8.30678 18.084 8.57866 18.2792 8.90899C18.4744 9.23932 18.5774 9.61598 18.5774 9.99968C18.5774 10.3834 18.4744 10.76 18.2792 11.0904C18.084 11.4207 17.8037 11.6926 17.4676 11.8776L3.17566 19.7353C2.8492 19.9146 2.48167 20.0057 2.10927 19.9997C1.73688 19.9937 1.37247 19.8908 1.05195 19.7011C0.731428 19.5114 0.465856 19.2415 0.281396 18.918C0.0969356 18.5944 -4.80416e-05 18.2284 1.78529e-08 17.8559V2.14342C6.37975e-05 1.77089 0.0972007 1.40481 0.281837 1.08126C0.466473 0.757707 0.732235 0.487852 1.05293 0.298293C1.37362 0.108733 1.73817 0.00601298 2.11066 0.000256061C2.48314 -0.00550086 2.85069 0.0859043 3.17709 0.265462L17.4676 8.12172Z"
+        d="M7.32 3.06a1.6 1.6 0 0 0-2.42 1.37v15.14a1.6 1.6 0 0 0 2.42 1.37l12.6-7.57a1.6 1.6 0 0 0 0-2.74L7.32 3.06Z"
         fill="currentColor"
       />
     </SvgIcon>
@@ -1869,10 +1870,11 @@ function ComposerContinueIcon() {
 function ComposerMicIcon() {
   return (
     <SvgIcon viewBox="0 0 24 24" sx={{ width: 'var(--morius-action-icon-size)', height: 'var(--morius-action-icon-size)' }}>
-      <path
-        d="M12 15c1.66 0 3-1.34 3-3V6a3 3 0 0 0-6 0v6c0 1.66 1.34 3 3 3zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.92V21h2a1 1 0 1 1 0 2H9a1 1 0 1 1 0-2h2v-2.08A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 1 0 10 0z"
-        fill="currentColor"
-      />
+      <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="2" width="6" height="13" rx="3" />
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+        <path d="M12 19v3" />
+      </g>
     </SvgIcon>
   )
 }
@@ -6056,10 +6058,10 @@ function writeNpcPanelPinnedCardIds(gameId: number | null, cardIds: number[]): v
 function NpcPinIcon({ size = 14 }: { size?: number }) {
   return (
     <SvgIcon viewBox="0 0 24 24" sx={{ width: size, height: size, color: 'inherit', display: 'block' }}>
-      <path
-        d="M14.7 2.8 21.2 9.3 17.7 10.7 13.4 15 13.1 20.2 11.9 21.4 8.1 17.6 4.4 21.3 2.7 19.6 6.4 15.9 2.6 12.1 3.8 10.9 9 10.6 13.3 6.3 14.7 2.8Z"
-        fill="currentColor"
-      />
+      <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 17v5" />
+        <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+      </g>
     </SvgIcon>
   )
 }
@@ -6889,8 +6891,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [emotionStageHeightPx, setEmotionStageHeightPx] = useState<number | null>(null)
 
   const activeDisplayTitle = useMemo(
-    () => getDisplayStoryTitle(activeGameId, customTitleMap),
-    [activeGameId, customTitleMap],
+    () => getDisplayStoryTitle(activeGameId, customTitleMap, activeGameSummary?.title),
+    [activeGameId, activeGameSummary?.title, customTitleMap],
   )
 
   const handleOpenCharacterAvatarPreview = useCallback((
@@ -11401,8 +11403,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           return sortGamesByActivity(nextGames)
         })
         setCustomTitleMap((previousMap) => {
-          if (previousMap[payload.game.id]?.trim()) {
-            return previousMap
+          const previousTitle = previousMap[payload.game.id] ?? ''
+          const normalizedPreviousTitle = sanitizeStoryTitle(previousTitle)
+          if (normalizedPreviousTitle) {
+            if (normalizedPreviousTitle === previousTitle) {
+              return previousMap
+            }
+            const nextMap = setStoryTitle(previousMap, payload.game.id, normalizedPreviousTitle)
+            persistStoryTitleMap(nextMap)
+            return nextMap
           }
           const nextMap = setStoryTitle(previousMap, payload.game.id, payload.game.title)
           persistStoryTitleMap(nextMap)
@@ -11495,7 +11504,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             let nextMap = previousMap
             let hasChanges = false
             sortedGames.forEach((game) => {
-              if (previousMap[game.id]?.trim()) {
+              const previousTitle = previousMap[game.id] ?? ''
+              const normalizedPreviousTitle = sanitizeStoryTitle(previousTitle)
+              if (normalizedPreviousTitle) {
+                if (normalizedPreviousTitle !== previousTitle) {
+                  nextMap = setStoryTitle(nextMap, game.id, normalizedPreviousTitle)
+                  hasChanges = true
+                }
                 return
               }
               nextMap = setStoryTitle(nextMap, game.id, game.title)
@@ -11618,7 +11633,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [applyPlotCardEvents, applyWorldCardEvents, authToken, initialGameId, loadGameById, resetLoadedGameState])
 
   useEffect(() => {
-    setCustomTitleMap(loadStoryTitleMap())
+    const storedTitleMap = loadStoryTitleMap()
+    setCustomTitleMap(storedTitleMap)
+    persistStoryTitleMap(storedTitleMap)
   }, [])
 
   useEffect(() => {
@@ -12129,7 +12146,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   )
 
   const handleInlineTitleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
-    const nextValue = truncateContentEditableText(event.currentTarget, STORY_GAME_TITLE_MAX_LENGTH)
+    const rawValue = truncateContentEditableText(event.currentTarget, STORY_GAME_TITLE_MAX_LENGTH)
+    const nextValue = sanitizeStoryTitle(rawValue).slice(0, STORY_GAME_TITLE_MAX_LENGTH) || DEFAULT_STORY_TITLE
+    if (event.currentTarget.textContent !== nextValue) {
+      event.currentTarget.textContent = nextValue
+    }
     void handleCommitInlineTitle(nextValue)
   }, [handleCommitInlineTitle])
 
@@ -17784,13 +17805,29 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (section === 'engine') {
       return (
         <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
-          <path d="M4 7h10v2H4V7Zm12-2a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM10 15h10v2H10v-2Zm-2-2a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z" fill="currentColor" />
+          <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 5H3" />
+            <path d="M21 5h-7" />
+            <path d="M14 3v4" />
+            <path d="M8 12H3" />
+            <path d="M21 12h-9" />
+            <path d="M8 10v4" />
+            <path d="M12 19H3" />
+            <path d="M21 19h-5" />
+            <path d="M16 17v4" />
+          </g>
         </SvgIcon>
       )
     }
     return (
       <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
-        <path d="M12 3C7.03 3 3 6.58 3 11c0 3.31 2.69 6 6 6h1.4c.86 0 1.55.69 1.55 1.55S12.64 20 13.5 20H15c3.31 0 6-2.69 6-6.5C21 7.7 16.97 3 12 3ZM7.5 11.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3-3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm4 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm2 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z" fill="currentColor" />
+        <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" />
+          <circle cx="13.5" cy="6.5" r="0.5" fill="currentColor" />
+          <circle cx="17.5" cy="10.5" r="0.5" fill="currentColor" />
+          <circle cx="6" cy="12" r="0.5" fill="currentColor" />
+          <circle cx="8.5" cy="7.5" r="0.5" fill="currentColor" />
+        </g>
       </SvgIcon>
     )
   }
@@ -17925,7 +17962,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     opacity: 1,
                   },
                   '& .MuiSvgIcon-root path': {
-                    fill: isRightPanelOpen ? '#fff !important' : 'currentColor',
+                    stroke: isRightPanelOpen ? '#fff !important' : 'currentColor',
                   },
                   '&:active': { transform: 'scale(0.94)' },
                 }}
@@ -17938,8 +17975,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }}
                 >
                   <path
-                    d="M15.4 5.4 8.8 12l6.6 6.6-1.8 1.8L5.2 12l8.4-8.4 1.8 1.8Z"
-                    fill="currentColor"
+                    d="m15 18-6-6 6-6"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   />
                 </SvgIcon>
               </IconButton>
@@ -18229,7 +18270,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               }}
             >
               <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 21 }}>
-                <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.42-1.41L7.83 13H20v-2Z" />
+                <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m12 19-7-7 7-7" />
+                  <path d="M19 12H5" />
+                </g>
               </SvgIcon>
             </IconButton>
           </Tooltip>
@@ -19009,7 +19053,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               }}
             >
               <SvgIcon sx={{ fontSize: 21 }}>
-                <path d="M4 13h12.17l-5.59 5.59L12 20l8-8-8-8-1.42 1.41L16.17 11H4v2Z" />
+                <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14" />
+                  <path d="m12 5 7 7-7 7" />
+                </g>
               </SvgIcon>
             </IconButton>
           </Stack>
@@ -19229,7 +19276,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               disabled={isWorldCardActionLocked}
                               sx={rightPanelOverflowButtonSx}
                             >
-                              <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                              <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 17 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                             </IconButton>
                           </Box>
                         )
@@ -19434,7 +19485,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 disabled={isWorldCardActionLocked}
                                 sx={rightPanelOverflowButtonSx}
                               >
-                                <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 17 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                               </IconButton>
                             </Box>
                           )
@@ -19511,7 +19566,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             sx={{ ...rightPanelPrimaryButtonSx, flex: 1 }}
                           >
                             <SvgIcon sx={{ fontSize: 17, mr: 0.6 }}>
-                              <path d="M3 17.46V21h3.54L17.06 10.48l-3.54-3.54L3 17.46Zm16.77-9.75a.94.94 0 0 0 0-1.33l-2.15-2.15a.94.94 0 0 0-1.33 0l-1.68 1.68 3.54 3.54 1.62-1.74Z" fill="currentColor" />
+                              <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+                                <path d="m15 5 4 4" />
+                              </g>
                             </SvgIcon>
                             Редактировать
                           </Button>
@@ -19734,7 +19792,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               disabled={isWorldCardActionLocked}
                               sx={rightPanelOverflowButtonSx}
                             >
-                              <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                              <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 17 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                             </IconButton>
                           </Box>
                         )
@@ -19784,7 +19846,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       }}
                     >
                       <SvgIcon sx={{ fontSize: 21 }}>
-                        <path d="m9 16.2-3.5-3.5L4 14.2 9 19 20.4 7.6 18.9 6.1 9 16.2Z" fill="currentColor" />
+                        <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
                       </SvgIcon>
                     </Box>
                     <Stack spacing={0.25} sx={{ minWidth: 0 }}>
@@ -19853,7 +19915,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             disabled={isInstructionCardActionLocked}
                             sx={rightPanelOverflowButtonSx}
                           >
-                            <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                            <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 17 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                           </IconButton>
                         </Box>
                       ))}
@@ -19993,7 +20059,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   disabled={isPlotCardActionLocked}
                                   sx={rightPanelOverflowButtonSx}
                                 >
-                                  <Box sx={{ fontSize: '1.08rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                  <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 17 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                                 </IconButton>
                               </Box>
                             )
@@ -20270,7 +20340,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     disabled={isWorldCardActionLocked}
                                     sx={overflowActionButtonSx}
                                   >
-                                    <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                    <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 16 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                                   </IconButton>
                                 }
                               />
@@ -20519,7 +20593,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         disabled={isWorldCardActionLocked}
                                         sx={overflowActionButtonSx}
                                       >
-                                        <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                        <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 16 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                                       </IconButton>
                                     }
                                   />
@@ -20647,7 +20725,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               disabled={isWorldCardActionLocked}
                               sx={overflowActionButtonSx}
                             >
-                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                              <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 16 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                             </IconButton>
                           }
                         />
@@ -20858,7 +20940,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         disabled={isWorldCardActionLocked}
                                         sx={overflowActionButtonSx}
                                       >
-                                        <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                        <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 16 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                                       </IconButton>
                                     }
                                   />
@@ -20983,7 +21069,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     disabled={isInstructionCardActionLocked}
                                     sx={{ ...overflowActionButtonSx, opacity: 1, pointerEvents: 'auto', flexShrink: 0 }}
                                   >
-                                    <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                    <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 16 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                                   </IconButton>
                                 </Stack>
                                 <Typography
@@ -21223,7 +21313,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     disabled={isPlotCardActionLocked}
                                     sx={{ ...overflowActionButtonSx, opacity: 1, pointerEvents: 'auto' }}
                                   >
-                                    <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                    <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 16 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                                   </IconButton>
                                 </Stack>
                                 <Typography
@@ -21835,7 +21929,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 Сменить рассказчика
                               </Typography>
                               <SvgIcon sx={{ fontSize: 20, color: 'color-mix(in srgb, var(--morius-accent) 44%, var(--morius-title-text))' }}>
-                                <path d="m9 18 6-6-6-6v12Z" fill="currentColor" />
+                                <path d="m9 18 6-6-6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                               </SvgIcon>
                             </Stack>
                           )}
@@ -21922,7 +22016,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             }}
                           >
                             <SvgIcon sx={{ fontSize: 23 }}>
-                              <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2ZM8.5 8.5A1.5 1.5 0 1 1 7 7a1.5 1.5 0 0 1 1.5 1.5ZM5 18l4.2-5.6 3 3.6 2.1-2.8L19 18H5Z" fill="currentColor" />
+                              <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" />
+                                <circle cx="9" cy="9" r="2" />
+                                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+                              </g>
                             </SvgIcon>
                           </Box>
                           <Stack spacing={0.22} sx={{ minWidth: 0, flex: 1 }}>
@@ -21934,7 +22032,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             </Typography>
                           </Stack>
                           <SvgIcon sx={{ fontSize: 21, color: 'color-mix(in srgb, var(--morius-text-secondary) 74%, transparent)' }}>
-                            <path d="m9 18 6-6-6-6v12Z" fill="currentColor" />
+                            <path d="m9 18 6-6-6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                           </SvgIcon>
                         </Stack>
                       )}
@@ -22161,7 +22259,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             }}
                           >
                             <SvgIcon sx={{ fontSize: 22 }}>
-                              <path d="M4 7h10v2H4V7Zm12-2a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM10 15h10v2H10v-2Zm-2-2a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z" fill="currentColor" />
+                              <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M10 5H3" />
+                                <path d="M21 5h-7" />
+                                <path d="M14 3v4" />
+                                <path d="M8 12H3" />
+                                <path d="M21 12h-9" />
+                                <path d="M8 10v4" />
+                                <path d="M12 19H3" />
+                                <path d="M21 19h-5" />
+                                <path d="M16 17v4" />
+                              </g>
                             </SvgIcon>
                           </Box>
                           <Stack spacing={0.18} sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
@@ -22181,7 +22289,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             transition: 'transform 180ms ease',
                           }}
                         >
-                          <path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41Z" fill="currentColor" />
+                          <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         </SvgIcon>
                       </Button>
                       <Collapse in={rightPanelSection === 'engine' || isAdvancedSettingsExpanded} timeout={220} unmountOnExit={rightPanelSection !== 'engine'}>
@@ -22457,7 +22565,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             }}
                           >
                             <SvgIcon sx={{ fontSize: 22 }}>
-                              <path d="M12 3C7.03 3 3 6.58 3 11c0 3.31 2.69 6 6 6h1.4c0.86 0 1.55 0.69 1.55 1.55S12.64 20 13.5 20H15c3.31 0 6-2.69 6-6.5C21 7.7 16.97 3 12 3ZM7.5 11.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3-3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm4 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm2 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z" fill="currentColor" />
+                              <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" />
+                                <circle cx="13.5" cy="6.5" r="0.5" fill="currentColor" />
+                                <circle cx="17.5" cy="10.5" r="0.5" fill="currentColor" />
+                                <circle cx="6" cy="12" r="0.5" fill="currentColor" />
+                                <circle cx="8.5" cy="7.5" r="0.5" fill="currentColor" />
+                              </g>
                             </SvgIcon>
                           </Box>
                           <Stack spacing={0.18} sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
@@ -22473,7 +22587,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             transition: 'transform 180ms ease',
                           }}
                         >
-                          <path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41Z" fill="currentColor" />
+                          <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         </SvgIcon>
                       </Button>
                       <Collapse in={rightPanelSection === 'appearance' || isAppearanceSettingsExpanded} timeout={220} unmountOnExit={rightPanelSection !== 'appearance'}>
@@ -22720,7 +22834,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               disabled={isInstructionCardActionLocked}
                               sx={{ ...overflowActionButtonSx, ml: 'auto' }}
                             >
-                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                              <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 16 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                             </IconButton>
                           </Stack>
                           <Typography
@@ -22872,7 +22990,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           transition: 'transform 200ms ease',
                         }}
                       >
-                        <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                        <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       </SvgIcon>
                     </Button>
                     <Collapse in={storySettingsTab === 'generation'} timeout={200} unmountOnExit>
@@ -23201,7 +23319,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           transition: 'transform 200ms ease',
                         }}
                       >
-                        <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                        <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       </SvgIcon>
                     </Button>
                     <Collapse in={storySettingsTab === 'generation'} timeout={200} unmountOnExit>
@@ -23525,7 +23643,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           transition: 'transform 200ms ease',
                         }}
                       >
-                        <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                        <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       </SvgIcon>
                     </Button>
                     <Collapse in={isAdditionalSettingsExpanded} timeout={200} unmountOnExit>
@@ -23684,7 +23802,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             transition: 'transform 200ms ease',
                           }}
                         >
-                          <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                          <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         </SvgIcon>
                       </Button>
                       <Collapse in={isAdvancedSettingsExpanded} timeout={200} unmountOnExit>
@@ -23875,7 +23993,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           transition: 'transform 200ms ease',
                         }}
                       >
-                        <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                        <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       </SvgIcon>
                     </Button>
                     <Collapse in={isFineTuneSettingsExpanded} timeout={200} unmountOnExit>
@@ -24351,7 +24469,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             transition: 'transform 200ms ease',
                           }}
                         >
-                          <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                          <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         </SvgIcon>
                       </Button>
                       <Collapse in={storySettingsTab === 'appearance'} timeout={200} unmountOnExit>
@@ -24974,7 +25092,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       disabled={isWorldCardActionLocked}
                       sx={{ ...overflowActionButtonSx, ml: 'auto', flexShrink: 0 }}
                     >
-                      <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                      <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 16 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                     </IconButton>
                   </Box>
                 )}
@@ -25141,7 +25263,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 disabled={isWorldCardActionLocked}
                                 sx={overflowActionButtonSx}
                               >
-                                <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 16 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                               </IconButton>
                             </Stack>
                             <Typography
@@ -25263,7 +25389,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             )
           })}
         </Stack>
-        <Box sx={{ width: 28, height: 1, my: 1.05, backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 72%, transparent)' }} />
+        <Box sx={{ width: 28, height: '1px', my: 1.05, backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 72%, transparent)', flexShrink: 0 }} />
         <Stack spacing={0.85} alignItems="center">
           {rightPanelUtilitySections.map((section) => {
             const isActive = rightPanelSection === section
@@ -25416,7 +25542,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <Box
                 aria-hidden
                 sx={{
-                  height: 1,
+                  height: '1px',
+                  alignSelf: 'center',
                   background:
                     'linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--morius-card-border) 72%, transparent) 100%)',
                 }}
@@ -25457,7 +25584,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <Box
                 aria-hidden
                 sx={{
-                  height: 1,
+                  height: '1px',
+                  alignSelf: 'center',
                   background:
                     'linear-gradient(90deg, color-mix(in srgb, var(--morius-card-border) 72%, transparent) 0%, transparent 100%)',
                 }}
@@ -26982,8 +27110,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 <Box
                   aria-hidden
                   sx={{
-                    width: 1,
-                    height: 24,
+                    width: '1px',
+                    height: 20,
                     alignSelf: 'center',
                     backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
                     flexShrink: 0,
@@ -29635,7 +29763,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       transition: 'transform 200ms ease',
                     }}
                   >
-                    <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                    <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   </SvgIcon>
                 </Button>
                 <Collapse in={isWorldCardAdditionalExpanded} timeout={200} unmountOnExit>
@@ -30362,7 +30490,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           {deletingCharacterId === character.id ? (
                             <CircularProgress size={14} sx={{ color: 'rgba(208, 219, 235, 0.84)' }} />
                           ) : (
-                            <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                            <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: 16 }}>
+                                <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+                                <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+                              </SvgIcon>
                           )}
                         </IconButton>
                       </Stack>
