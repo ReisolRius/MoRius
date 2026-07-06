@@ -44,6 +44,53 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
     def test_story_response_limit_remains_3000_tokens(self) -> None:
         self.assertEqual(monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX, 3_000)
 
+    def test_aion_openrouter_request_is_fitted_inside_combined_context_window(self) -> None:
+        oversized_messages = [
+            {"role": "system", "content": "system rules"},
+            {"role": "assistant", "content": "old scene " * 140_000},
+            {"role": "user", "content": "latest turn"},
+        ]
+        response = _FakeResponse(
+            200,
+            {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": "ok"},
+                    }
+                ]
+            },
+        )
+
+        with patch.object(story_generation_provider.HTTP_SESSION, "post", return_value=response) as post_mock:
+            result = story_generation_provider._request_polza_story_text(
+                oversized_messages,
+                model_name="aion-labs/aion-2.0",
+                translate_input=False,
+                max_tokens=None,
+            )
+
+        self.assertEqual(result, "ok")
+        request_payload = post_mock.call_args.kwargs["json"]
+        self.assertEqual(request_payload["max_tokens"], 3_000)
+        self.assertEqual(request_payload["max_completion_tokens"], 3_000)
+        fitted_messages = request_payload["messages"]
+        self.assertEqual(fitted_messages[-1]["role"], "user")
+        self.assertEqual(fitted_messages[-1]["content"], "latest turn")
+
+        input_budget = int(
+            (
+                monolith_main.STORY_AION_CONTEXT_WINDOW_TOKENS
+                - monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX
+                - monolith_main.STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS
+            )
+            / monolith_main.STORY_AION_INPUT_TOKENIZER_SAFETY_FACTOR
+        )
+        self.assertLessEqual(
+            story_generation_provider._estimate_polza_messages_input_tokens(fitted_messages),
+            input_budget,
+        )
+
     def test_openrouter_turn_retry_covers_transient_gateway_and_timeout_statuses(self) -> None:
         for status_code in (408, 409, 425, 429, 499, 500, 502, 503, 504):
             with self.subTest(status_code=status_code):

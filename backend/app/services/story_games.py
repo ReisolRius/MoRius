@@ -134,6 +134,7 @@ STORY_GAME_GENRE_VALUES = {
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 6_000
 STORY_CONTEXT_LIMIT_MAX_TOKENS = 64_000
 STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS = 128_000
+STORY_CONTEXT_LIMIT_AION_MAX_TOKENS = 108_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 6_000
 STORY_MEMORY_OPTIMIZATION_MODE_STANDARD = "standard"
 STORY_MEMORY_OPTIMIZATION_MODE_ENHANCED = "enhanced"
@@ -303,6 +304,10 @@ STORY_MODEL_SAMPLING_PROFILES: dict[str, dict[str, float]] = {
     STORY_LLM_MODEL_CLAUDE_SONNET_46: {"temperature": 1.00, "top_r": 0.98, "top_k": 0, "repetition_penalty": 1.00},
     STORY_LLM_MODEL_GEMINI_25_PRO: {"temperature": 0.90, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_GEMINI_31_PRO: {"temperature": 0.90, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH: {"temperature": 0.85, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
+    STORY_LLM_MODEL_SUB_GEMINI_25_FLASH_LITE: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.06},
+    STORY_LLM_MODEL_SUB_GLM_45_AIR: {"temperature": 0.82, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.06},
+    STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.06},
 }
 
 
@@ -555,6 +560,8 @@ def normalize_story_image_style_prompt(value: str | None) -> str:
 
 def get_story_context_limit_max_tokens(model_name: str | None = None) -> int:
     normalized_model_name = coerce_story_llm_model(model_name)
+    if normalized_model_name == STORY_LLM_MODEL_AION_2:
+        return STORY_CONTEXT_LIMIT_AION_MAX_TOKENS
     if normalized_model_name in STORY_EXTENDED_CONTEXT_LLM_MODELS:
         return STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS
     return STORY_CONTEXT_LIMIT_MAX_TOKENS

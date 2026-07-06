@@ -800,6 +800,7 @@ const STORY_MESSAGE_MAX_LENGTH = 20000
 const STORY_CONTEXT_LIMIT_MIN = 6000
 const STORY_CONTEXT_LIMIT_STANDARD_MAX = 64000
 const STORY_CONTEXT_LIMIT_GLM51_MAX = 128000
+const STORY_CONTEXT_LIMIT_AION_MAX = 108000
 const STORY_CONTEXT_LIMIT_STEP = 2000
 const STORY_DEFAULT_CONTEXT_LIMIT = 6000
 const STORY_KEY_MEMORY_BUDGET_SHARE = 0.1
@@ -1153,6 +1154,30 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 0,
     storyTopR: 0.95,
   },
+  'deepseek/deepseek-v4-flash': {
+    storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.9,
+  },
+  'google/gemini-2.5-flash-lite': {
+    storyTemperature: 0.95,
+    storyRepetitionPenalty: 1.06,
+    storyTopK: 0,
+    storyTopR: 0.95,
+  },
+  'z-ai/glm-4.5-air': {
+    storyTemperature: 0.82,
+    storyRepetitionPenalty: 1.06,
+    storyTopK: 50,
+    storyTopR: 0.9,
+  },
+  'google/gemini-3-flash-preview': {
+    storyTemperature: 0.95,
+    storyRepetitionPenalty: 1.06,
+    storyTopK: 0,
+    storyTopR: 0.95,
+  },
 }
 
 const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
@@ -1480,7 +1505,7 @@ const STORY_SETTINGS_INFO_TEXT = {
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
-    'Ограничение памяти истории для ИИ. GLM 5.1 и AionLabs могут держать до 128000 токенов, остальные рассказчики ограничены 64000. Чем выше лимит, тем дороже ход.',
+    'Ограничение памяти истории для ИИ. GLM 5.1 может держать до 128000 токенов, AionLabs — до 108000 безопасного лимита, остальные рассказчики ограничены 64000. Чем выше лимит, тем дороже ход.',
   responseTokens: 'Максимум токенов ответа. ИИ может ответить короче и получает инструкцию завершать мысль внутри выбранного бюджета.',
   responseTokenLimit:
     'Админ-настройка. Когда выключена, скрытый потолок 3000 токенов не отправляется в запрос рассказчика. Обычные пользователи всегда остаются под защитным лимитом.',
@@ -4458,6 +4483,9 @@ function getStoryContextLimitMax(
       typeof subscriptionMemoryCap === 'number' && subscriptionMemoryCap > 0 ? subscriptionMemoryCap : fallbackCap
     return Math.min(STORY_CONTEXT_LIMIT_STANDARD_MAX, Math.max(STORY_CONTEXT_LIMIT_MIN, rawCap))
   }
+  if (modelId === 'aion-labs/aion-2.0') {
+    return STORY_CONTEXT_LIMIT_AION_MAX
+  }
   return STORY_EXTENDED_CONTEXT_NARRATOR_MODELS.has(modelId as StoryNarratorModelId)
     ? STORY_CONTEXT_LIMIT_GLM51_MAX
     : STORY_CONTEXT_LIMIT_STANDARD_MAX
@@ -4639,7 +4667,7 @@ function getStoryTurnCostTooltipText(): string {
     '6001–16000 — 8 ед.',
     '16001–32000 — 10 ед.',
     '32001–64000 — 16 ед.',
-    '64001–128000 — 28 ед.',
+    '64001–108000 — 28 ед.',
     '',
     'Gemini 3.1 Flash Lite:',
     'до 6000 — 7 ед.',
@@ -4689,7 +4717,7 @@ function StoryTurnCostTooltipContent() {
     { title: 'Gemini 3.1 Pro', values: ['18', '24', '30', '45', '—'] },
     { title: 'Claude 4.6', values: ['22', '30', '40', '65', '—'] },
   ]
-  const columns = ['6k', '16k', '32k', '64k', '128k']
+  const columns = ['6k', '16k', '32k', '64k', '>64k']
 
   return (
     <Box sx={{ width: 500, maxWidth: 'calc(100vw - 28px)' }}>
@@ -17949,7 +17977,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         >
           <Box
             sx={{
-              width: 'min(980px, 100%)',
+              width: '100%',
+              maxWidth: '1280px',
               minWidth: 0,
               height: 18,
               display: 'flex',
@@ -17962,8 +17991,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               aria-hidden
               sx={{
                 display: { xs: 'none', sm: 'block' },
-                flex: '0 1 clamp(150px, 22vw, 420px)',
-                minWidth: 150,
+                flex: '1 1 0',
+                minWidth: 0,
+                maxWidth: 420,
                 height: '1px',
                 maxHeight: '1px',
                 overflow: 'hidden',
@@ -17974,7 +18004,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             />
             <Box
               sx={{
-                maxWidth: { xs: '100%', sm: 'min(58vw, 520px)', md: 'min(52vw, 640px)' },
+                flex: '0 1 auto',
+                maxWidth: { xs: '100%', sm: 'calc(100% - 56px)' },
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -18007,6 +18038,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 onKeyDown={handleInlineTitleKeyDown}
                 sx={{
                   minWidth: 0,
+                  flex: '0 1 auto',
+                  maxWidth: '100%',
                   color: 'inherit',
                   font: 'inherit',
                   fontWeight: 'inherit',
@@ -18035,8 +18068,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               aria-hidden
               sx={{
                 display: { xs: 'none', sm: 'block' },
-                flex: '0 1 clamp(150px, 22vw, 420px)',
-                minWidth: 150,
+                flex: '1 1 0',
+                minWidth: 0,
+                maxWidth: 420,
                 height: '1px',
                 maxHeight: '1px',
                 overflow: 'hidden',

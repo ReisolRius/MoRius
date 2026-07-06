@@ -307,7 +307,10 @@ STORY_CONTEXT_LIMIT_MIN_TOKENS = 6_000
 STORY_CONTEXT_LIMIT_MAX_TOKENS = 64_000
 STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS = 128_000
 STORY_AION_CONTEXT_WINDOW_TOKENS = 131_072
-STORY_CONTEXT_RESPONSE_RESERVE_SAFETY_TOKENS = 512
+STORY_CONTEXT_LIMIT_AION_MAX_TOKENS = 108_000
+STORY_AION_INPUT_TOKENIZER_SAFETY_FACTOR = 1.12
+STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS = 2_048
+STORY_CONTEXT_RESPONSE_RESERVE_SAFETY_TOKENS = STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 6_000
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
 STORY_RESPONSE_MAX_TOKENS_MAX = 3_000
@@ -2250,6 +2253,8 @@ def _get_story_context_limit_max_tokens(model_name: str | None = None) -> int:
     )
     if normalized_model_name in {"z-ai/glm-5.1"}:
         return STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS
+    if normalized_model_name == "aion-labs/aion-2.0":
+        return STORY_CONTEXT_LIMIT_AION_MAX_TOKENS
     return STORY_CONTEXT_LIMIT_MAX_TOKENS
 
 
@@ -6007,10 +6012,13 @@ def _effective_story_context_limit_tokens(
             if response_max_tokens is not None
             else STORY_RESPONSE_MAX_TOKENS_MAX
         )
-        safe_input_limit = (
-            STORY_AION_CONTEXT_WINDOW_TOKENS
-            - completion_reserve
-            - STORY_CONTEXT_RESPONSE_RESERVE_SAFETY_TOKENS
+        safe_input_limit = int(
+            (
+                STORY_AION_CONTEXT_WINDOW_TOKENS
+                - completion_reserve
+                - STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS
+            )
+            / STORY_AION_INPUT_TOKENIZER_SAFETY_FACTOR
         )
         return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(normalized_limit, safe_input_limit))
     return normalized_limit

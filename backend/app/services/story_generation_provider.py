@@ -102,6 +102,153 @@ def _apply_polza_story_response_limit(payload: dict[str, Any], max_tokens: int |
     payload["max_completion_tokens"] = normalized_limit
 
 
+def _polza_combined_context_window_tokens(model_name: str | None) -> int | None:
+    normalized_model_name = _normalize_story_model_id(model_name)
+    if normalized_model_name == "aion-labs/aion-2.0":
+        return int(getattr(monolith_main, "STORY_AION_CONTEXT_WINDOW_TOKENS", 131_072) or 131_072)
+    return None
+
+
+def _polza_context_output_reserve_tokens(model_name: str | None, max_tokens: int | None) -> int:
+    if max_tokens is not None:
+        return max(int(max_tokens), 1)
+    if _polza_combined_context_window_tokens(model_name) is not None:
+        return max(int(getattr(monolith_main, "STORY_RESPONSE_MAX_TOKENS_MAX", 3_000) or 3_000), 1)
+    return 0
+
+
+def _polza_message_token_cost(message: dict[str, str]) -> int:
+    content = str(message.get("content") or "").strip()
+    if not content:
+        return 0
+    return max(int(_estimate_story_tokens(content)), 1) + 4
+
+
+def _estimate_polza_messages_input_tokens(messages_payload: list[dict[str, str]]) -> int:
+    return sum(_polza_message_token_cost(message) for message in messages_payload) + 8
+
+
+def _trim_story_text_head_by_tokens(value: str, token_limit: int) -> str:
+    normalized = _normalize_story_message_content(value)
+    if not normalized or token_limit <= 0:
+        return ""
+    matches = list(STORY_TOKEN_ESTIMATE_PATTERN.finditer(normalized.lower()))
+    if not matches:
+        return normalized[: max(token_limit * 4, 1)].rstrip()
+    if len(matches) <= token_limit:
+        return normalized
+    end_char_index = matches[max(int(token_limit), 1) - 1].end()
+    return normalized[:end_char_index].rstrip()
+
+
+def _latest_user_message_index(messages_payload: list[dict[str, str]]) -> int | None:
+    for index in range(len(messages_payload) - 1, -1, -1):
+        if str(messages_payload[index].get("role") or "").strip() == STORY_USER_ROLE:
+            return index
+    return None
+
+
+def _fit_polza_messages_to_context_window(
+    messages_payload: list[dict[str, str]],
+    *,
+    model_name: str | None,
+    max_tokens: int | None,
+) -> tuple[list[dict[str, str]], int | None]:
+    context_window = _polza_combined_context_window_tokens(model_name)
+    if context_window is None:
+        return messages_payload, max_tokens
+
+    output_reserve_tokens = _polza_context_output_reserve_tokens(model_name, max_tokens)
+    effective_max_tokens = output_reserve_tokens if max_tokens is None else max_tokens
+    overhead_reserve_tokens = max(
+        int(getattr(monolith_main, "STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS", 2_048) or 2_048),
+        0,
+    )
+    tokenizer_safety_factor = max(
+        float(getattr(monolith_main, "STORY_AION_INPUT_TOKENIZER_SAFETY_FACTOR", 1.12) or 1.12),
+        1.0,
+    )
+    input_budget_tokens = int(
+        max(int(context_window) - int(output_reserve_tokens) - overhead_reserve_tokens, 1)
+        / tokenizer_safety_factor
+    )
+    input_budget_tokens = max(input_budget_tokens, 1)
+    initial_estimate = _estimate_polza_messages_input_tokens(messages_payload)
+    if initial_estimate <= input_budget_tokens:
+        return messages_payload, effective_max_tokens
+
+    fitted_messages = [
+        {
+            "role": str(message.get("role") or STORY_USER_ROLE),
+            "content": str(message.get("content") or ""),
+        }
+        for message in messages_payload
+        if str(message.get("content") or "").strip()
+    ]
+
+    def current_estimate() -> int:
+        return _estimate_polza_messages_input_tokens(fitted_messages)
+
+    # Drop older dialogue first; prompt assembly already packed cards/history, but this
+    # final guard protects against provider tokenizer drift and legacy oversized settings.
+    while current_estimate() > input_budget_tokens:
+        latest_user_index = _latest_user_message_index(fitted_messages)
+        removable_index = next(
+            (
+                index
+                for index, message in enumerate(fitted_messages)
+                if str(message.get("role") or "").strip() != "system" and index != latest_user_index
+            ),
+            None,
+        )
+        if removable_index is None:
+            break
+        del fitted_messages[removable_index]
+
+    latest_user_index = _latest_user_message_index(fitted_messages)
+    if latest_user_index is not None and current_estimate() > input_budget_tokens:
+        other_tokens = current_estimate() - _polza_message_token_cost(fitted_messages[latest_user_index])
+        content_budget = max(input_budget_tokens - other_tokens - 4, 32)
+        fitted_messages[latest_user_index]["content"] = _trim_story_text_tail_by_tokens(
+            fitted_messages[latest_user_index].get("content", ""),
+            content_budget,
+        )
+
+    while current_estimate() > input_budget_tokens:
+        system_indices = [
+            index
+            for index, message in enumerate(fitted_messages)
+            if str(message.get("role") or "").strip() == "system"
+        ]
+        if not system_indices:
+            break
+        trim_index = system_indices[-1]
+        other_tokens = current_estimate() - _polza_message_token_cost(fitted_messages[trim_index])
+        minimum_system_tokens = 256 if trim_index == 0 else 64
+        content_budget = max(input_budget_tokens - other_tokens - 4, minimum_system_tokens)
+        original_content = fitted_messages[trim_index].get("content", "")
+        trimmed_content = _trim_story_text_head_by_tokens(original_content, content_budget)
+        if trimmed_content and trimmed_content != original_content:
+            fitted_messages[trim_index]["content"] = trimmed_content
+            continue
+        if trim_index != 0:
+            del fitted_messages[trim_index]
+            continue
+        break
+
+    final_estimate = current_estimate()
+    logger.warning(
+        "OpenRouter payload trimmed to fit combined context: model=%s input_estimate=%s->%s budget=%s output_reserve=%s window=%s",
+        model_name,
+        initial_estimate,
+        final_estimate,
+        input_budget_tokens,
+        output_reserve_tokens,
+        context_window,
+    )
+    return fitted_messages, effective_max_tokens
+
+
 def _should_translate_story_input_for_model(model_name: str | None) -> bool:
     _ = model_name
     return _is_story_input_translation_enabled()
@@ -820,9 +967,14 @@ def _iter_polza_story_stream_chunks(
         for attempt_index in range(len(POLZA_RETRY_DELAYS_SECONDS) + 1):
             if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                 raise StoryGenerationCancelled("Story generation cancelled")
+            request_messages_payload, request_max_tokens = _fit_polza_messages_to_context_window(
+                messages_payload,
+                model_name=model_name,
+                max_tokens=max_tokens,
+            )
             payload = {
                 "model": model_name,
-                "messages": messages_payload,
+                "messages": request_messages_payload,
                 "stream": True,
             }
             provider_payload = _resolve_polza_story_provider_payload_for_attempt(
@@ -843,7 +995,7 @@ def _iter_polza_story_stream_chunks(
                 payload["top_k"] = top_k
             if top_p is not None:
                 payload["top_p"] = top_p
-            _apply_polza_story_response_limit(payload, max_tokens)
+            _apply_polza_story_response_limit(payload, request_max_tokens)
             _apply_polza_story_reasoning_preferences(payload, model_name=model_name)
             provider_label = _resolve_polza_provider_attempt_label(provider_payload)
             request_started_at_attempt = time.monotonic()
@@ -1054,13 +1206,13 @@ def _iter_polza_story_stream_chunks(
                             exc,
                         )
                         recovered_tail = _recover_polza_story_stream_tail(
-                            messages_payload=messages_payload,
+                            messages_payload=request_messages_payload,
                             partial_text=partial_text,
                             model_name=model_name,
                             temperature=temperature,
                             top_k=top_k,
                             top_p=top_p,
-                            max_tokens=max_tokens,
+                            max_tokens=request_max_tokens,
                             read_timeout_seconds=read_timeout_seconds,
                         )
                         if recovered_tail:
@@ -1095,13 +1247,13 @@ def _iter_polza_story_stream_chunks(
                             exc,
                         )
                         recovered_tail = _recover_polza_story_stream_tail(
-                            messages_payload=messages_payload,
+                            messages_payload=request_messages_payload,
                             partial_text=partial_text,
                             model_name=model_name,
                             temperature=temperature,
                             top_k=top_k,
                             top_p=top_p,
-                            max_tokens=max_tokens,
+                            max_tokens=request_max_tokens,
                             read_timeout_seconds=read_timeout_seconds,
                         )
                         if recovered_tail:
@@ -1119,7 +1271,7 @@ def _iter_polza_story_stream_chunks(
                         model_name=model_name,
                         finish_reason=finish_reason,
                         usage_payload=usage_payload,
-                        max_tokens=max_tokens,
+                        max_tokens=request_max_tokens,
                     )
                     partial_text = "".join(emitted_text_parts)
                     model_hit_length_limit = str(finish_reason or "").strip().casefold() == "length"
@@ -1130,16 +1282,16 @@ def _iter_polza_story_stream_chunks(
                             model_name,
                             provider_label,
                             len(partial_text),
-                            max_tokens,
+                            request_max_tokens,
                         )
                         recovered_tail = _recover_polza_story_stream_tail(
-                            messages_payload=messages_payload,
+                            messages_payload=request_messages_payload,
                             partial_text=partial_text,
                             model_name=model_name,
                             temperature=temperature,
                             top_k=top_k,
                             top_p=top_p,
-                            max_tokens=max_tokens,
+                            max_tokens=request_max_tokens,
                             read_timeout_seconds=read_timeout_seconds,
                             consume_remaining_token_budget=False,
                         )
@@ -1167,13 +1319,13 @@ def _iter_polza_story_stream_chunks(
                         len(partial_text),
                     )
                     recovered_tail = _recover_polza_story_stream_tail(
-                        messages_payload=messages_payload,
+                        messages_payload=request_messages_payload,
                         partial_text=partial_text,
                         model_name=model_name,
                         temperature=temperature,
                         top_k=top_k,
                         top_p=top_p,
-                        max_tokens=max_tokens,
+                        max_tokens=request_max_tokens,
                         read_timeout_seconds=read_timeout_seconds,
                     )
                     if recovered_tail:
@@ -1330,9 +1482,14 @@ def _request_polza_story_text(
     retry_delays = POLZA_RETRY_DELAYS_SECONDS
     for candidate_model in candidate_models:
         for attempt_index in range(len(retry_delays) + 1):
+            request_messages_payload, request_max_tokens = _fit_polza_messages_to_context_window(
+                prepared_messages_payload,
+                model_name=candidate_model,
+                max_tokens=max_tokens,
+            )
             payload = {
                 "model": candidate_model,
-                "messages": prepared_messages_payload,
+                "messages": request_messages_payload,
                 "stream": False,
             }
             provider_payload = _resolve_polza_story_provider_payload_for_attempt(
@@ -1351,7 +1508,7 @@ def _request_polza_story_text(
                 payload["top_k"] = top_k
             if top_p is not None:
                 payload["top_p"] = top_p
-            _apply_polza_story_response_limit(payload, max_tokens)
+            _apply_polza_story_response_limit(payload, request_max_tokens)
             _apply_polza_story_reasoning_preferences(payload, model_name=candidate_model)
             provider_label = _resolve_polza_provider_attempt_label(provider_payload)
             request_started_at = time.monotonic()
@@ -1470,7 +1627,7 @@ def _request_polza_story_text(
                 model_name=candidate_model,
                 finish_reason=finish_reason,
                 usage_payload=payload_value.get("usage"),
-                max_tokens=max_tokens,
+                max_tokens=request_max_tokens,
             )
             message_value = choice.get("message")
             if not isinstance(message_value, dict):

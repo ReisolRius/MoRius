@@ -78,14 +78,14 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(payload.response_max_tokens, 3_000)
         self.assertIn("response_max_tokens", payload.model_fields_set)
 
-    def test_glm51_allows_128k_and_other_models_cap_at_64k(self) -> None:
+    def test_extended_context_models_use_model_specific_caps(self) -> None:
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="z-ai/glm-5.1"),
             128_000,
         )
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="aion-labs/aion-2.0"),
-            64_000,
+            108_000,
         )
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="minimax/minimax-m2-her"),
@@ -111,7 +111,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             response_max_tokens=3_000,
         )
 
-        self.assertEqual(effective_limit, 64_000)
+        self.assertEqual(effective_limit, 108_000)
         self.assertLessEqual(effective_limit + 3_000, 131_072)
         self.assertEqual(
             monolith_main._effective_story_context_limit_tokens(
@@ -142,7 +142,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 20)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 35)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 16)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 16)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 28)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 14)
 
     def test_new_polza_models_have_planned_turn_costs(self) -> None:
@@ -176,20 +176,20 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
 
     def test_turn_cost_table_matches_product_matrix(self) -> None:
         expected_rows = {
-            "z-ai/glm-4.7-flash": (4, 4, 4, 5),
-            "deepseek/deepseek-v3.2": (4, 5, 6, 7),
-            "deepseek/deepseek-v4-pro": (5, 6, 8, 10),
-            "z-ai/glm-4.7": (6, 7, 8, 10),
-            "z-ai/glm-5": (6, 8, 10, 14),
-            "aion-labs/aion-2.0": (6, 8, 10, 16),
-            "minimax/minimax-m2-her": (6, 8, 10, 16),
-            "google/gemini-3.1-flash-lite": (7, 9, 10, 14),
-            "z-ai/glm-5.1": (8, 10, 14, 20),
-            "google/gemini-2.5-pro": (16, 18, 22, 30),
-            "google/gemini-3.1-pro-preview": (18, 24, 30, 45),
-            "anthropic/claude-sonnet-4.6": (22, 30, 40, 65),
+            "z-ai/glm-4.7-flash": (4, 4, 4, 5, 5),
+            "deepseek/deepseek-v3.2": (4, 5, 6, 7, 7),
+            "deepseek/deepseek-v4-pro": (5, 6, 8, 10, 10),
+            "z-ai/glm-4.7": (6, 7, 8, 10, 10),
+            "z-ai/glm-5": (6, 8, 10, 14, 14),
+            "aion-labs/aion-2.0": (6, 8, 10, 16, 28),
+            "minimax/minimax-m2-her": (6, 8, 10, 16, 16),
+            "google/gemini-3.1-flash-lite": (7, 9, 10, 14, 14),
+            "z-ai/glm-5.1": (8, 10, 14, 20, 35),
+            "google/gemini-2.5-pro": (16, 18, 22, 30, 30),
+            "google/gemini-3.1-pro-preview": (18, 24, 30, 45, 45),
+            "anthropic/claude-sonnet-4.6": (22, 30, 40, 65, 65),
         }
-        usage_by_tier = (6_000, 6_001, 16_001, 32_001)
+        usage_by_tier = (6_000, 6_001, 16_001, 32_001, 64_001)
         for model_name, expected_costs in expected_rows.items():
             with self.subTest(model_name=model_name):
                 self.assertEqual(
