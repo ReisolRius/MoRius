@@ -13,7 +13,7 @@ from app.models import (
     StoryInstructionTemplate,
     StoryMemoryBlock,
     StoryMessage,
-    StoryMessageSegment,
+    StoryNovelBeat,
     StoryTurnImage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
@@ -215,20 +215,20 @@ def list_story_turn_images(db: Session, game_id: int) -> list[StoryTurnImage]:
     return images
 
 
-def list_story_message_segments(
+def list_story_novel_beats(
     db: Session,
     game_id: int,
     *,
     message_ids: list[int] | None = None,
-) -> list[StoryMessageSegment]:
+) -> list[StoryNovelBeat]:
     query = (
-        select(StoryMessageSegment)
-        .join(StoryMessage, StoryMessage.id == StoryMessageSegment.message_id)
+        select(StoryNovelBeat)
+        .join(StoryMessage, StoryMessage.id == StoryNovelBeat.message_id)
         .where(
-            StoryMessageSegment.game_id == game_id,
+            StoryNovelBeat.game_id == game_id,
             StoryMessage.undone_at.is_(None),
         )
-        .order_by(StoryMessageSegment.message_id.asc(), StoryMessageSegment.order_index.asc())
+        .order_by(StoryNovelBeat.message_id.asc(), StoryNovelBeat.order_index.asc())
     )
     normalized_message_ids = [
         int(message_id)
@@ -236,7 +236,7 @@ def list_story_message_segments(
         if isinstance(message_id, int) and int(message_id) > 0
     ]
     if normalized_message_ids:
-        query = query.where(StoryMessageSegment.message_id.in_(normalized_message_ids))
+        query = query.where(StoryNovelBeat.message_id.in_(normalized_message_ids))
     return db.scalars(query).all()
 
 
@@ -332,8 +332,7 @@ def list_story_characters(
                 StoryCharacter.avatar_url,
                 StoryCharacter.avatar_original_url,
                 StoryCharacter.avatar_scale,
-                StoryCharacter.emotion_model,
-                StoryCharacter.emotion_prompt_lock,
+                StoryCharacter.novel_sprite_gender,
                 StoryCharacter.source,
                 StoryCharacter.visibility,
                 StoryCharacter.source_character_id,

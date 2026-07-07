@@ -10,7 +10,6 @@ from app.models import (
     CoinPurchase,
     StoryBugReport,
     StoryCharacter,
-    StoryCharacterEmotionGenerationJob,
     StoryCommunityCharacterAddition,
     StoryCommunityCharacterRating,
     StoryCommunityCharacterReport,
@@ -213,7 +212,6 @@ def _merge_user_into_target(db: Session, *, target_user: User, source_user: User
     _reassign_simple_reference(db, StoryGame, "user_id", source_user.id, target_user.id)
     _reassign_simple_reference(db, StoryInstructionTemplate, "user_id", source_user.id, target_user.id)
     _reassign_simple_reference(db, StoryCharacter, "user_id", source_user.id, target_user.id)
-    _reassign_simple_reference(db, StoryCharacterEmotionGenerationJob, "user_id", source_user.id, target_user.id)
     _reassign_simple_reference(db, CoinPurchase, "user_id", source_user.id, target_user.id)
     _reassign_simple_reference(db, UserNotification, "user_id", source_user.id, target_user.id)
     _reassign_simple_reference(db, UserNotification, "actor_user_id", source_user.id, target_user.id)

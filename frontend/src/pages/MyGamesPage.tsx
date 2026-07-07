@@ -1154,46 +1154,78 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                       }}
                       onClick={() => onNavigate(`/home/${game.id}`)}
                       coverBadge={
-                        <Box
-                          sx={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 0.8,
-                            minHeight: 32,
-                            px: 1.15,
-                            py: 0.7,
-                            borderRadius: '999px',
-                            border: '1px solid rgba(214, 226, 244, 0.2)',
-                            background:
-                              'linear-gradient(180deg, rgba(9, 14, 22, 0.86) 0%, rgba(12, 18, 28, 0.76) 100%)',
-                            color: 'rgba(236, 243, 252, 0.96)',
-                            backdropFilter: 'blur(12px)',
-                            boxShadow: '0 10px 28px rgba(0, 0, 0, 0.24)',
-                          }}
-                        >
+                        <Stack direction="row" spacing={0.6} alignItems="center" flexWrap="wrap">
+                          {user.role === 'administrator' && game.game_mode === 'visual_novel' ? (
+                            <Box
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                minHeight: 32,
+                                px: 1.15,
+                                py: 0.7,
+                                borderRadius: '999px',
+                                border: '1px solid rgba(232, 196, 246, 0.32)',
+                                background:
+                                  'linear-gradient(180deg, rgba(48, 20, 58, 0.86) 0%, rgba(30, 14, 40, 0.76) 100%)',
+                                color: 'rgba(244, 224, 250, 0.96)',
+                                backdropFilter: 'blur(12px)',
+                                boxShadow: '0 10px 28px rgba(0, 0, 0, 0.24)',
+                              }}
+                            >
+                              <Typography
+                                sx={{
+                                  fontSize: { xs: '0.76rem', md: '0.8rem' },
+                                  lineHeight: 1,
+                                  fontWeight: 700,
+                                  whiteSpace: 'nowrap',
+                                  letterSpacing: '0.01em',
+                                }}
+                              >
+                                Новелла
+                              </Typography>
+                            </Box>
+                          ) : null}
                           <Box
                             sx={{
-                              width: 7,
-                              height: 7,
-                              borderRadius: '50%',
-                              flexShrink: 0,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 0.8,
+                              minHeight: 32,
+                              px: 1.15,
+                              py: 0.7,
+                              borderRadius: '999px',
+                              border: '1px solid rgba(214, 226, 244, 0.2)',
                               background:
-                                'linear-gradient(180deg, rgba(214, 228, 247, 0.95) 0%, rgba(150, 184, 226, 0.88) 100%)',
-                              boxShadow: '0 0 0 4px rgba(197, 216, 241, 0.09)',
-                            }}
-                          />
-                          <Typography
-                            sx={{
-                              fontSize: { xs: '0.76rem', md: '0.8rem' },
-                              lineHeight: 1,
-                              fontWeight: 700,
-                              whiteSpace: 'nowrap',
-                              letterSpacing: '0.01em',
+                                'linear-gradient(180deg, rgba(9, 14, 22, 0.86) 0%, rgba(12, 18, 28, 0.76) 100%)',
+                              color: 'rgba(236, 243, 252, 0.96)',
+                              backdropFilter: 'blur(12px)',
+                              boxShadow: '0 10px 28px rgba(0, 0, 0, 0.24)',
                             }}
                           >
-                            {turnCountLabel}
-                          </Typography>
-                        </Box>
+                            <Box
+                              sx={{
+                                width: 7,
+                                height: 7,
+                                borderRadius: '50%',
+                                flexShrink: 0,
+                                background:
+                                  'linear-gradient(180deg, rgba(214, 228, 247, 0.95) 0%, rgba(150, 184, 226, 0.88) 100%)',
+                                boxShadow: '0 0 0 4px rgba(197, 216, 241, 0.09)',
+                              }}
+                            />
+                            <Typography
+                              sx={{
+                                fontSize: { xs: '0.76rem', md: '0.8rem' },
+                                lineHeight: 1,
+                                fontWeight: 700,
+                                whiteSpace: 'nowrap',
+                                letterSpacing: '0.01em',
+                              }}
+                            >
+                              {turnCountLabel}
+                            </Typography>
+                          </Box>
+                        </Stack>
                       }
                     />
 

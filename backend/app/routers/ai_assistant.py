@@ -288,14 +288,14 @@ def _check_rate_limit(user_id: int) -> None:
 
 
 def _assistant_chat_url() -> str:
-    base_url = settings.ai_assistant_base_url or "https://openrouter.ai/api/v1"
+    base_url = settings.ai_assistant_base_url or "https://routerai.ru/api/v1"
     normalized = base_url.rstrip("/")
     if normalized.endswith(ASSISTANT_CHAT_URL_SUFFIX):
         return normalized
     return f"{normalized}{ASSISTANT_CHAT_URL_SUFFIX}"
 
 
-def _extract_openrouter_error_detail(response: requests.Response) -> str:
+def _extract_routerai_error_detail(response: requests.Response) -> str:
     try:
         payload = response.json()
     except ValueError:
@@ -310,11 +310,11 @@ def _extract_openrouter_error_detail(response: requests.Response) -> str:
     return ""
 
 
-def _post_openrouter_chat(payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+def _post_routerai_chat(payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
     if not settings.polza_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter API key is not configured: set POLZA_API_KEY",
+            detail="RouterAI API key is not configured: set ROUTERAI_API_KEY",
         )
     headers = {
         "Authorization": f"Bearer {settings.polza_api_key}",
@@ -342,33 +342,33 @@ def _post_openrouter_chat(payload: dict[str, Any]) -> tuple[dict[str, Any], str 
                 continue
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Failed to reach OpenRouter",
+                detail="Failed to reach RouterAI",
             ) from exc
 
         if response.status_code >= 500 and attempt_index == 0:
             continue
         if response.status_code >= 400:
-            detail = _extract_openrouter_error_detail(response)
+            detail = _extract_routerai_error_detail(response)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"OpenRouter chat error ({response.status_code}){': ' + detail if detail else ''}",
+                detail=f"RouterAI chat error ({response.status_code}){': ' + detail if detail else ''}",
             )
         try:
             response_payload = response.json()
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="OpenRouter returned invalid JSON",
+                detail="RouterAI returned invalid JSON",
             ) from exc
         if not isinstance(response_payload, dict):
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="OpenRouter returned invalid payload",
+                detail="RouterAI returned invalid payload",
             )
         request_id = response.headers.get("x-request-id") or response.headers.get("X-Request-Id")
         return response_payload, request_id
 
-    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to reach OpenRouter") from last_transport_error
+    raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to reach RouterAI") from last_transport_error
 
 
 def _extract_message_content(content: Any) -> str:
@@ -399,7 +399,7 @@ def _usage_number(usage: dict[str, Any], *keys: str) -> int:
 
 def _usage_cost_rub(usage: Any) -> tuple[float, str | None]:
     if not isinstance(usage, dict):
-        return 0.0, "OpenRouter usage did not include cost; charged minimum sols."
+        return 0.0, "RouterAI usage did not include cost; charged minimum sols."
     for key in ("cost_rub", "costRub", "cost"):
         value = usage.get(key)
         if isinstance(value, (int, float)) and math.isfinite(float(value)):
@@ -412,7 +412,7 @@ def _usage_cost_rub(usage: Any) -> tuple[float, str | None]:
     nested = usage.get("billing")
     if isinstance(nested, dict):
         return _usage_cost_rub(nested)
-    return 0.0, "OpenRouter usage did not include cost; charged minimum sols."
+    return 0.0, "RouterAI usage did not include cost; charged minimum sols."
 
 
 def _calculate_charge_sols(cost_rub: float) -> int:
@@ -423,7 +423,7 @@ def _calculate_charge_sols(cost_rub: float) -> int:
 def _append_usage_totals(total: dict[str, Any], payload: dict[str, Any], request_id: str | None) -> None:
     usage = payload.get("usage")
     if not isinstance(usage, dict):
-        total["warning"] = total.get("warning") or "OpenRouter usage did not include cost; charged minimum sols."
+        total["warning"] = total.get("warning") or "RouterAI usage did not include cost; charged minimum sols."
         return
     total["prompt_tokens"] = int(total.get("prompt_tokens", 0)) + _usage_number(usage, "prompt_tokens", "promptTokens")
     total["completion_tokens"] = int(total.get("completion_tokens", 0)) + _usage_number(
@@ -1187,8 +1187,6 @@ def _create_profile_character(
         avatar_original_url=None,
         avatar_scale=1.0,
         emotion_assets="",
-        emotion_model="",
-        emotion_prompt_lock="",
         source=STORY_CHARACTER_SOURCE_AI,
         visibility=STORY_TEMPLATE_VISIBILITY_PRIVATE,
         source_character_id=None,
@@ -2608,7 +2606,7 @@ def _polza_chat_once(messages: list[dict[str, Any]]) -> tuple[dict[str, Any], di
         "max_tokens": settings.ai_assistant_max_completion_tokens,
         "stream": False,
     }
-    response_payload, request_id = _post_openrouter_chat(payload)
+    response_payload, request_id = _post_routerai_chat(payload)
     choices = response_payload.get("choices")
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         return {}, response_payload, request_id
@@ -2717,7 +2715,7 @@ def _run_ai_assistant(
             assistant_text = content or "Выполнил доступные действия. Проверьте итог ниже."
 
     if not assistant_text and not (created_refs or updated_refs or deleted_refs):
-        raise RuntimeError("OpenRouter returned an empty AI assistant response")
+        raise RuntimeError("RouterAI returned an empty AI assistant response")
     if not assistant_text:
         assistant_text = "Готово. Я обработал запрос, но модель не вернула текстовый итог."
     status_value = "success"
@@ -2757,7 +2755,10 @@ def chat_with_ai_assistant(
 ) -> AiAssistantChatResponse:
     user = _require_assistant_user(db, authorization)
     if not settings.polza_api_key:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="OpenRouter API key is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="RouterAI API key is not configured: set ROUTERAI_API_KEY",
+        )
     if int(user.coins or 0) < settings.ai_assistant_min_sols:
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Not enough sols for AI assistant")
     _check_rate_limit(int(user.id))

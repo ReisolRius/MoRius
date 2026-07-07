@@ -26,7 +26,7 @@ from app.models import (
     StoryMapImage,
     StoryMemoryBlock,
     StoryMessage,
-    StoryMessageSegment,
+    StoryNovelBeat,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
     StoryTurnImage,
@@ -83,7 +83,7 @@ from app.services.story_world_cards import (
     story_world_card_to_out,
 )
 from app.services.text_encoding import repair_likely_utf8_mojibake_deep, sanitize_likely_utf8_mojibake
-from app.services.story_display_modes import STORY_DISPLAY_MODE_TEXT, normalize_story_display_mode
+from app.services.story_novel import STORY_GAME_MODE_RPG, normalize_story_game_mode
 try:
     from app.services.story_publication_moderation import coerce_story_publication_status
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
@@ -186,6 +186,7 @@ STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
 STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
 STORY_LLM_MODEL_DEEPSEEK_V3 = "deepseek/deepseek-chat-v3-0324"
 STORY_LLM_MODEL_DEEPSEEK_V4_PRO = "deepseek/deepseek-v4-pro"
+STORY_LLM_MODEL_DEEPSEEK_R1 = "deepseek/deepseek-r1-0528"
 STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
 STORY_LLM_MODEL_AION_2 = "aion-labs/aion-2.0"
 STORY_LLM_MODEL_MINIMAX_M2_HER = "minimax/minimax-m2-her"
@@ -221,6 +222,7 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_DEEPSEEK_V3,
     STORY_LLM_MODEL_DEEPSEEK_V4_PRO,
+    STORY_LLM_MODEL_DEEPSEEK_R1,
     STORY_LLM_MODEL_MISTRAL_NEMO,
     STORY_LLM_MODEL_AION_2,
     STORY_LLM_MODEL_MINIMAX_M2_HER,
@@ -297,6 +299,7 @@ STORY_MODEL_SAMPLING_PROFILES: dict[str, dict[str, float]] = {
     STORY_LLM_MODEL_DEEPSEEK_V32: {"temperature": 0.85, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_DEEPSEEK_V3: {"temperature": 0.90, "top_r": 0.92, "top_k": 40, "repetition_penalty": 1.06},
     STORY_LLM_MODEL_DEEPSEEK_V4_PRO: {"temperature": 0.85, "top_r": 0.92, "top_k": 0, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_DEEPSEEK_R1: {"temperature": 0.85, "top_r": 0.92, "top_k": 0, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_MISTRAL_NEMO: {"temperature": 0.78, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_AION_2: {"temperature": 0.78, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_MINIMAX_M2_HER: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.05},
@@ -319,7 +322,6 @@ def _story_model_sampling_profile(model_name: str | None) -> dict[str, float]:
 
 STORY_DEFAULT_SHOW_GG_THOUGHTS = False
 STORY_DEFAULT_SHOW_NPC_THOUGHTS = False
-STORY_DEFAULT_EMOTION_VISUALIZATION_ENABLED = False
 STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 STORY_COVER_SCALE_MIN = 1.0
 STORY_COVER_SCALE_MAX = 3.0
@@ -617,7 +619,7 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
         return STORY_TURN_COST_GEMINI_31_PRO_TIERS
     if normalized_model_name in {STORY_LLM_MODEL_DEEPSEEK_V32, STORY_LLM_MODEL_DEEPSEEK_V3}:
         return STORY_TURN_COST_DEEPSEEK_TIERS
-    if normalized_model_name == STORY_LLM_MODEL_DEEPSEEK_V4_PRO:
+    if normalized_model_name in {STORY_LLM_MODEL_DEEPSEEK_V4_PRO, STORY_LLM_MODEL_DEEPSEEK_R1}:
         return STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS
     if normalized_model_name == STORY_LLM_MODEL_GLM47_FLASH:
         return STORY_TURN_COST_GLM47_FLASH_TIERS
@@ -658,7 +660,8 @@ def normalize_story_llm_model(value: str | None) -> str:
             detail=(
                 "Unsupported story model. "
                 "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7-flash, z-ai/glm-4.7, "
-                "deepseek/deepseek-v3.2, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v4-pro, mistralai/mistral-nemo, "
+                "deepseek/deepseek-v3.2, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v4-pro, "
+                "deepseek/deepseek-r1-0528, mistralai/mistral-nemo, "
                 "aion-labs/aion-2.0, minimax/minimax-m2-her, google/gemini-3.1-flash-lite, "
                 "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, google/gemini-3.1-pro-preview"
             ),
@@ -954,12 +957,6 @@ def serialize_story_character_state_cards_payload(value: list[dict[str, Any]] | 
         return "[]"
 
 
-def normalize_story_emotion_visualization_enabled(value: bool | None) -> bool:
-    if value is None:
-        return STORY_DEFAULT_EMOTION_VISUALIZATION_ENABLED
-    return bool(value)
-
-
 def serialize_story_ambient_profile(value: dict[str, Any] | None) -> str:
     if not isinstance(value, dict):
         return ""
@@ -1206,7 +1203,7 @@ def delete_story_game_with_relations(db: Session, *, game_id: int) -> StoryGame 
     db.execute(sa_delete(StoryGraphNode).where(StoryGraphNode.game_id == game_id))
     db.execute(sa_delete(StoryWorldCardChangeEvent).where(StoryWorldCardChangeEvent.game_id == game_id))
     db.execute(sa_delete(StoryPlotCardChangeEvent).where(StoryPlotCardChangeEvent.game_id == game_id))
-    db.execute(sa_delete(StoryMessageSegment).where(StoryMessageSegment.game_id == game_id))
+    db.execute(sa_delete(StoryNovelBeat).where(StoryNovelBeat.game_id == game_id))
     db.execute(sa_delete(StoryTurnImage).where(StoryTurnImage.game_id == game_id))
     db.execute(sa_delete(StoryMapImage).where(StoryMapImage.game_id == game_id))
     db.execute(sa_delete(StoryMemoryBlock).where(StoryMemoryBlock.game_id == game_id))
@@ -1320,7 +1317,7 @@ def story_game_summary_to_out(
         ),
         accelerated_service_enabled=False,
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
-        display_mode=normalize_story_display_mode(getattr(game, "display_mode", None)),
+        game_mode=normalize_story_game_mode(getattr(game, "game_mode", None)),
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)
         ),
@@ -1353,9 +1350,6 @@ def story_game_summary_to_out(
         environment_enabled=environment_time_enabled or environment_weather_enabled,
         environment_time_enabled=environment_time_enabled,
         environment_weather_enabled=environment_weather_enabled,
-        emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
-            getattr(game, "emotion_visualization_enabled", None)
-        ),
         ambient_profile=deserialize_story_ambient_profile(getattr(game, "ambient_profile", None)),
         environment_current_datetime=serialize_story_environment_datetime(
             deserialize_story_environment_datetime(getattr(game, "environment_current_datetime", None))
@@ -1389,7 +1383,7 @@ def mask_story_game_admin_only_state(
         updates["character_state_enabled"] = False
     if not include_story_map:
         updates["current_location_label"] = None
-    updates["display_mode"] = STORY_DISPLAY_MODE_TEXT
+    updates["game_mode"] = STORY_GAME_MODE_RPG
     if not updates:
         return summary
     return summary.model_copy(update=updates)
@@ -1487,7 +1481,7 @@ def story_game_summary_to_compact_out(
         ),
         accelerated_service_enabled=False,
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
-        display_mode=normalize_story_display_mode(getattr(game, "display_mode", None)),
+        game_mode=normalize_story_game_mode(getattr(game, "game_mode", None)),
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)
         ),
@@ -1520,9 +1514,6 @@ def story_game_summary_to_compact_out(
         environment_enabled=environment_time_enabled or environment_weather_enabled,
         environment_time_enabled=environment_time_enabled,
         environment_weather_enabled=environment_weather_enabled,
-        emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
-            getattr(game, "emotion_visualization_enabled", None)
-        ),
         ambient_profile=None,
         environment_current_datetime=serialize_story_environment_datetime(
             deserialize_story_environment_datetime(getattr(game, "environment_current_datetime", None))

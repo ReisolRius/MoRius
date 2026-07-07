@@ -320,11 +320,7 @@ def story_character_to_out(character: StoryCharacter, *, include_emotion_assets:
         avatar_original_url=avatar_original_url,
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
         emotion_assets=emotion_assets,
-        emotion_model=sanitize_likely_utf8_mojibake(str(getattr(character, "emotion_model", "") or "").strip()),
-        emotion_prompt_lock=sanitize_likely_utf8_mojibake(
-            str(getattr(character, "emotion_prompt_lock", "") or "").strip()
-        )
-        or None,
+        novel_sprite_gender=str(getattr(character, "novel_sprite_gender", "") or "").strip().lower(),
         source=normalize_story_character_source(character.source),
         visibility=coerce_story_character_visibility(getattr(character, "visibility", None)),
         publication=_story_character_publication_state_out(character),

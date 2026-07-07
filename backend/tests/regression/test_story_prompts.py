@@ -3,7 +3,7 @@ import inspect
 from app import main
 from app.routers import story_games as story_games_router
 from app.routers import story_generate as story_generate_router
-from app.services import story_memory_prompts, story_prompt_engine, story_visual_novel
+from app.services import story_memory_prompts, story_novel, story_prompt_engine
 from app.services import story_graph, story_map, story_smart_regeneration
 
 
@@ -137,13 +137,6 @@ def test_story_json_prompts_are_json_only_and_hide_reasoning() -> None:
                 latest_turn_memory_delta="дельта",
             )
         ),
-        "scene_emotion_analysis": _combined_message_text(
-            main._build_story_scene_emotion_analysis_messages(
-                latest_user_prompt="игрок",
-                latest_assistant_text="[[NPC:Мия]] Привет.",
-                active_cast_entries=[{"display_name": "Мия", "aliases": {"мия"}, "is_main_hero": False}],
-            )
-        ),
         "important_memory": _combined_message_text(
             story_memory_prompts.build_important_memory_messages(
                 player_turn="игрок",
@@ -177,7 +170,6 @@ def test_story_json_prompts_are_json_only_and_hide_reasoning() -> None:
                 narrator_response="ответ",
             )
         ),
-        "visual_novel_card": story_visual_novel.build_visual_novel_instruction_card()["content"],
     }
 
     source_samples = {
@@ -201,7 +193,7 @@ def test_legacy_prompt_phrases_do_not_return_to_prompt_sources() -> None:
         "story_memory_prompts": inspect.getsource(story_memory_prompts),
         "story_prompt_engine": inspect.getsource(story_prompt_engine),
         "story_smart_regeneration": inspect.getsource(story_smart_regeneration),
-        "story_visual_novel": inspect.getsource(story_visual_novel),
+        "story_novel": inspect.getsource(story_novel),
     }
     forbidden_phrases = (
         "Return strict JSON",

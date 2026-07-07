@@ -55,22 +55,16 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertIn("canonical_state_pipeline_enabled", payload.model_fields_set)
         self.assertIn("canonical_state_safe_fallback_enabled", payload.model_fields_set)
 
-    def test_display_mode_is_tracked_when_sent(self) -> None:
-        payload = StoryGameSettingsUpdateRequest(display_mode="visual_novel")
-
-        self.assertEqual(payload.display_mode, "visual_novel")
-        self.assertIn("display_mode", payload.model_fields_set)
-
     def test_accelerated_service_is_tracked_when_sent(self) -> None:
         payload = StoryGameSettingsUpdateRequest(accelerated_service_enabled=True)
 
         self.assertTrue(payload.accelerated_service_enabled)
         self.assertIn("accelerated_service_enabled", payload.model_fields_set)
 
-    def test_create_request_accepts_display_mode(self) -> None:
-        payload = StoryGameCreateRequest(title="VN", display_mode="visual_novel")
+    def test_create_request_accepts_game_mode(self) -> None:
+        payload = StoryGameCreateRequest(title="VN", game_mode="visual_novel")
 
-        self.assertEqual(payload.display_mode, "visual_novel")
+        self.assertEqual(payload.game_mode, "visual_novel")
 
     def test_response_token_limit_allows_new_ceiling(self) -> None:
         payload = StoryGameSettingsUpdateRequest(response_max_tokens=3_000)
@@ -151,6 +145,10 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "deepseek/deepseek-v4-pro",
         )
         self.assertEqual(
+            coerce_story_llm_model("deepseek/deepseek-r1-0528"),
+            "deepseek/deepseek-r1-0528",
+        )
+        self.assertEqual(
             coerce_story_llm_model("minimax/minimax-m2-her"),
             "minimax/minimax-m2-her",
         )
@@ -162,8 +160,16 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-v4-pro"), 6)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-v4-pro"), 8)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v4-pro"), 10)
+        self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-r1-0528"), 5)
+        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-r1-0528"), 6)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-r1-0528"), 8)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-r1-0528"), 10)
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="deepseek/deepseek-v4-pro"),
+            64_000,
+        )
+        self.assertEqual(
+            normalize_story_context_limit_chars(128_000, model_name="deepseek/deepseek-r1-0528"),
             64_000,
         )
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-2.5-pro"), 22)
@@ -179,6 +185,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "z-ai/glm-4.7-flash": (4, 4, 4, 5, 5),
             "deepseek/deepseek-v3.2": (4, 5, 6, 7, 7),
             "deepseek/deepseek-v4-pro": (5, 6, 8, 10, 10),
+            "deepseek/deepseek-r1-0528": (5, 6, 8, 10, 10),
             "z-ai/glm-4.7": (6, 7, 8, 10, 10),
             "z-ai/glm-5": (6, 8, 10, 14, 14),
             "aion-labs/aion-2.0": (6, 8, 10, 16, 28),
@@ -228,6 +235,13 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(normalize_story_top_k(None, model_name=model_name), 0)
         self.assertEqual(normalize_story_repetition_penalty(None, model_name=model_name), 1.05)
 
+    def test_deepseek_r1_gets_v4_pro_sampling_defaults(self) -> None:
+        model_name = "deepseek/deepseek-r1-0528"
+        self.assertEqual(normalize_story_temperature(None, model_name=model_name), 0.85)
+        self.assertEqual(normalize_story_top_r(None, model_name=model_name), 0.92)
+        self.assertEqual(normalize_story_top_k(None, model_name=model_name), 0)
+        self.assertEqual(normalize_story_repetition_penalty(None, model_name=model_name), 1.05)
+
     def test_unknown_model_falls_back_to_global_sampling_defaults(self) -> None:
         # An unprofiled / unknown model id keeps the global defaults.
         model_name = "some/unknown-model"
@@ -269,11 +283,11 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
 
     def test_qwen_service_model_is_not_a_selectable_narrator(self) -> None:
         self.assertEqual(
-            coerce_story_llm_model("qwen/qwen3-next-80b-a3b-instruct:free"),
+            coerce_story_llm_model("qwen/qwen3-next-80b-a3b-instruct"),
             STORY_DEFAULT_LLM_MODEL,
         )
         with self.assertRaises(HTTPException):
-            normalize_story_llm_model("qwen/qwen3-next-80b-a3b-instruct:free")
+            normalize_story_llm_model("qwen/qwen3-next-80b-a3b-instruct")
 
     def test_runtime_turn_cost_uses_visible_context_usage_not_selected_limit(self) -> None:
         cost = _calculate_story_turn_cost_tokens(

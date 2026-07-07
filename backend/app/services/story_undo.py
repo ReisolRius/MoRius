@@ -18,7 +18,7 @@ from app.models import (
     StoryGraphSuggestion,
     StoryMemoryBlock,
     StoryMessage,
-    StoryMessageSegment,
+    StoryNovelBeat,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
     StoryTurnImage,
@@ -935,7 +935,7 @@ def rollback_story_card_events_for_assistant_message(
             game_id=int(game.id),
             assistant_message_ids=[assistant_message_id],
         )
-        db.execute(sa_delete(StoryMessageSegment).where(StoryMessageSegment.message_id == assistant_message_id))
+        db.execute(sa_delete(StoryNovelBeat).where(StoryNovelBeat.message_id == assistant_message_id))
         for event in list_story_world_card_events(
             db,
             game.id,

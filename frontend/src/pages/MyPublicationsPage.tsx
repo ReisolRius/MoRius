@@ -774,9 +774,7 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
             triggers: character.triggers,
             avatar_url: character.avatar_url,
             avatar_scale: character.avatar_scale,
-            emotion_assets: character.emotion_assets ?? {},
-            emotion_model: character.emotion_model ?? null,
-            emotion_prompt_lock: character.emotion_prompt_lock ?? null,
+            novel_sprite_gender: character.novel_sprite_gender ?? '',
             visibility: 'private',
           },
         })
@@ -1405,4 +1403,3 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
 }
 
 export default MyPublicationsPage
-

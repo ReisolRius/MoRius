@@ -40,6 +40,7 @@ import {
   getStoryGame,
   listCommunityCharacters,
   listStoryCharacters,
+  syncStoryCharacterEmotionAssets,
   updateStoryGameMeta,
   updateStoryInstructionCard,
   updateStoryPlotCard,
@@ -53,8 +54,10 @@ import type {
   StoryCharacter,
   StoryCharacterEmotionAssets,
   StoryCommunityCharacterSummary,
+  StoryGameMode,
   StoryGamePayload,
   StoryGameVisibility,
+  StoryNovelSpriteGender,
   StoryWorldCard,
   StoryWorldCardTemplate,
 } from '../types/story'
@@ -101,8 +104,7 @@ type EditableCharacterCard = {
   avatar_original_url: string | null
   avatar_scale: number
   emotion_assets: StoryCharacterEmotionAssets
-  emotion_model: string
-  emotion_prompt_lock: string | null
+  novel_sprite_gender: StoryNovelSpriteGender
 }
 
 type EditableWorldProfileCard = {
@@ -368,8 +370,7 @@ function toEditableCharacterFromTemplate(character: StoryCharacter): EditableCha
     avatar_original_url: character.avatar_original_url ?? character.avatar_url,
     avatar_scale: clamp(character.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
     emotion_assets: character.emotion_assets ?? {},
-    emotion_model: character.emotion_model ?? '',
-    emotion_prompt_lock: character.emotion_prompt_lock ?? null,
+    novel_sprite_gender: character.novel_sprite_gender ?? '',
   }
 }
 
@@ -393,8 +394,7 @@ function toEditableCharacterFromCommunity(
     avatar_original_url: character.avatar_original_url ?? character.avatar_url,
     avatar_scale: clamp(character.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
     emotion_assets: character.emotion_assets ?? {},
-    emotion_model: character.emotion_model ?? '',
-    emotion_prompt_lock: character.emotion_prompt_lock ?? null,
+    novel_sprite_gender: character.novel_sprite_gender ?? '',
   }
 }
 
@@ -416,8 +416,7 @@ function toEditableCharacterFromWorldCard(card: StoryWorldCard): EditableCharact
     avatar_original_url: card.avatar_original_url ?? card.avatar_url,
     avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
     emotion_assets: {},
-    emotion_model: '',
-    emotion_prompt_lock: null,
+    novel_sprite_gender: '',
   }
 }
 
@@ -646,6 +645,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const [openingScene, setOpeningScene] = useState('')
   const [openingSceneNpcName, setOpeningSceneNpcName] = useState('')
   const [visibility, setVisibility] = useState<StoryGameVisibility>('private')
+  const [gameMode, setGameMode] = useState<StoryGameMode>('rpg')
+  const isAdministrator = user.role === 'administrator'
   const [activeWorldCreateSection, setActiveWorldCreateSection] = useState<WorldCreateSection>('main')
   const [isOpeningSceneExpanded, setIsOpeningSceneExpanded] = useState(false)
   const [isPublicationRulesDialogOpen, setIsPublicationRulesDialogOpen] = useState(false)
@@ -1415,7 +1416,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             maxBytes: CHARACTER_AVATAR_MAX_BYTES,
             maxDimension: 1200,
           })
-          const mirroredCharacter = await createStoryCharacter({
+          let mirroredCharacter = await createStoryCharacter({
             token: authToken,
             input: {
               name: normalizedName,
@@ -1429,12 +1430,18 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               avatar_url: preparedMirroredAvatarPayload.avatarUrl,
               avatar_original_url: preparedMirroredAvatarPayload.avatarOriginalUrl,
               avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
-              emotion_assets: card.emotion_assets ?? {},
-              emotion_model: card.emotion_model ?? null,
-              emotion_prompt_lock: card.emotion_prompt_lock ?? null,
+              novel_sprite_gender: card.novel_sprite_gender ?? '',
               visibility: 'private',
             },
           })
+          const syncedMirroredCharacter = await syncStoryCharacterEmotionAssets({
+            token: authToken,
+            characterId: mirroredCharacter.id,
+            assets: card.emotion_assets ?? {},
+          })
+          if (syncedMirroredCharacter) {
+            mirroredCharacter = syncedMirroredCharacter
+          }
           targetCharacterId = mirroredCharacter.id
           setCharacters((previous) => [...previous.filter((item) => item.id !== mirroredCharacter.id), mirroredCharacter])
           if (target === 'main_hero') {
@@ -1453,8 +1460,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                     avatar_original_url:
                       mirroredCharacter.avatar_original_url ?? preparedMirroredAvatarPayload.avatarOriginalUrl,
                     emotion_assets: mirroredCharacter.emotion_assets ?? {},
-                    emotion_model: mirroredCharacter.emotion_model ?? '',
-                    emotion_prompt_lock: mirroredCharacter.emotion_prompt_lock ?? null,
+                    novel_sprite_gender: mirroredCharacter.novel_sprite_gender ?? '',
                   }
                 : previous,
             )
@@ -1475,8 +1481,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       avatar_original_url:
                         mirroredCharacter.avatar_original_url ?? preparedMirroredAvatarPayload.avatarOriginalUrl,
                       emotion_assets: mirroredCharacter.emotion_assets ?? {},
-                      emotion_model: mirroredCharacter.emotion_model ?? '',
-                      emotion_prompt_lock: mirroredCharacter.emotion_prompt_lock ?? null,
+                      novel_sprite_gender: mirroredCharacter.novel_sprite_gender ?? '',
                     }
                   : item,
               ),
@@ -1535,8 +1540,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 avatar_original_url: linkedCharacter.avatar_original_url ?? linkedCharacter.avatar_url,
                 avatar_scale: nextAvatarScale,
                 emotion_assets: linkedCharacter.emotion_assets ?? {},
-                emotion_model: linkedCharacter.emotion_model ?? '',
-                emotion_prompt_lock: linkedCharacter.emotion_prompt_lock ?? null,
+                novel_sprite_gender: linkedCharacter.novel_sprite_gender ?? '',
               }
             })
           } else {
@@ -1559,8 +1563,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       avatar_original_url: linkedCharacter.avatar_original_url ?? linkedCharacter.avatar_url,
                       avatar_scale: nextAvatarScale,
                       emotion_assets: linkedCharacter.emotion_assets ?? {},
-                      emotion_model: linkedCharacter.emotion_model ?? '',
-                      emotion_prompt_lock: linkedCharacter.emotion_prompt_lock ?? null,
+                      novel_sprite_gender: linkedCharacter.novel_sprite_gender ?? '',
                     }
                   : item,
               ),
@@ -1800,7 +1803,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         const normalizedCharacterName = card.name.replace(/\s+/g, ' ').trim() || 'Персонаж'
         const normalizedCharacterDescription = card.description.replace(/\r\n/g, '\n').trim() || 'Описание персонажа'
         const preparedCharacterAvatarPayload = await prepareCharacterAvatarPayloadForRequest(card)
-        const createdCharacter = await createStoryCharacter({
+        let createdCharacter = await createStoryCharacter({
           token: authToken,
           input: {
             name: normalizedCharacterName,
@@ -1814,12 +1817,18 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             avatar_url: preparedCharacterAvatarPayload.avatarUrl,
             avatar_original_url: preparedCharacterAvatarPayload.avatarOriginalUrl,
             avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
-            emotion_assets: card.emotion_assets ?? {},
-            emotion_model: card.emotion_model ?? null,
-            emotion_prompt_lock: card.emotion_prompt_lock ?? null,
+            novel_sprite_gender: card.novel_sprite_gender ?? '',
             visibility: 'private',
           },
         })
+        const syncedCharacter = await syncStoryCharacterEmotionAssets({
+          token: authToken,
+          characterId: createdCharacter.id,
+          assets: card.emotion_assets ?? {},
+        })
+        if (syncedCharacter) {
+          createdCharacter = syncedCharacter
+        }
         setCharacters((previous) => [...previous.filter((item) => item.id !== createdCharacter.id), createdCharacter])
         const resolvedCard = {
           ...card,
@@ -1833,8 +1842,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           avatar_original_url: createdCharacter.avatar_original_url ?? preparedCharacterAvatarPayload.avatarOriginalUrl,
           avatar_scale: clamp(createdCharacter.avatar_scale ?? card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
           emotion_assets: createdCharacter.emotion_assets ?? card.emotion_assets,
-          emotion_model: createdCharacter.emotion_model ?? card.emotion_model,
-          emotion_prompt_lock: createdCharacter.emotion_prompt_lock ?? card.emotion_prompt_lock,
+          novel_sprite_gender: createdCharacter.novel_sprite_gender ?? card.novel_sprite_gender,
         }
         setMainHero((previous) => (previous?.localId === card.localId ? resolvedCard : previous))
         setNpcs((previous) => previous.map((item) => (item.localId === card.localId ? resolvedCard : item)))
@@ -1853,6 +1861,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           cover_scale: coverScale,
           cover_position_x: coverPositionX,
           cover_position_y: coverPositionY,
+          gameMode: isAdministrator ? gameMode : undefined,
         })
         gameId = created.id
         draftGameIdRef.current = created.id
@@ -2770,6 +2779,19 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 helperText={<TextLimitIndicator currentLength={description.length} maxLength={1000} />}
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
+              {isAdministrator && !isEditMode ? (
+                <TextField
+                  select
+                  label="Тип игры"
+                  value={gameMode}
+                  onChange={(event) => setGameMode(event.target.value as StoryGameMode)}
+                  helperText="Видно только администратору. Режим нельзя изменить после создания мира."
+                  fullWidth
+                >
+                  <MenuItem value="rpg">Текстовая РПГ</MenuItem>
+                  <MenuItem value="visual_novel">Визуальная новелла</MenuItem>
+                </TextField>
+              ) : null}
             </Stack>
               </>
             ) : null}

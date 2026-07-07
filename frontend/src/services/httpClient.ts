@@ -136,8 +136,7 @@ export async function parseApiError(response: Response, fallbackDetail = 'Reques
   }
   if (detail === fallbackDetail) {
     if (response.status === 413) {
-      detail =
-        'Слишком большой запрос (HTTP 413). Обычно это значит, что итоговое изображение после кропа и кодирования стало слишком тяжёлым для отправки, даже если исходный файл был меньше лимита.'
+      detail = 'Не удалось сохранить данные. Повторите попытку.'
     } else {
       detail = `${fallbackDetail} (HTTP ${response.status})`
     }

@@ -2,7 +2,7 @@ import type { AuthUser } from './auth'
 
 export type StoryRole = 'user' | 'assistant'
 export type StoryGameVisibility = 'private' | 'public'
-export type StoryDisplayMode = 'text' | 'visual_novel'
+export type StoryGameMode = 'rpg' | 'visual_novel'
 export type StoryPublicationStatus = 'none' | 'pending' | 'approved' | 'rejected'
 export type SmartRegenerationOption =
   | 'fix_language'
@@ -31,6 +31,7 @@ export type StoryNarratorModelId =
   | 'deepseek/deepseek-v3.2'
   | 'deepseek/deepseek-chat-v3-0324'
   | 'deepseek/deepseek-v4-pro'
+  | 'deepseek/deepseek-r1-0528'
   | 'mistralai/mistral-nemo'
   | 'aion-labs/aion-2.0'
   | 'minimax/minimax-m2-her'
@@ -53,32 +54,39 @@ export type StoryImageModelId =
   | 'bytedance-seed/seedream-4.5'
   | 'google/gemini-2.5-flash-image'
   | 'google/gemini-3.1-flash-image-preview'
+// Visual Novel preset emotions: manual sprite-upload slots on a character, and the tag the
+// narrator attaches to each dialogue/thought beat. Must match backend STORY_CHARACTER_EMOTION_IDS.
 export type StoryCharacterEmotionId =
-  | 'calm'
-  | 'angry'
-  | 'irritated'
-  | 'stern'
-  | 'cheerful'
-  | 'smiling'
-  | 'sly'
-  | 'alert'
-  | 'scared'
+  | 'neutral'
   | 'happy'
-  | 'embarrassed'
-  | 'confused'
-  | 'thoughtful'
+  | 'sad'
+  | 'angry'
+  | 'surprised'
+  | 'shy'
+  | 'scared'
+  | 'smug'
+export const STORY_CHARACTER_EMOTION_IDS: StoryCharacterEmotionId[] = [
+  'neutral',
+  'happy',
+  'sad',
+  'angry',
+  'surprised',
+  'shy',
+  'scared',
+  'smug',
+]
+export const STORY_CHARACTER_EMOTION_LABELS: Record<StoryCharacterEmotionId, string> = {
+  neutral: 'Нейтральная',
+  happy: 'Радость',
+  sad: 'Грусть',
+  angry: 'Злость',
+  surprised: 'Удивление',
+  shy: 'Смущение',
+  scared: 'Страх',
+  smug: 'Ухмылка',
+}
 export type StoryCharacterEmotionAssets = Partial<Record<StoryCharacterEmotionId, string>>
-export type StoryCharacterEmotionGenerationJobStatus = 'queued' | 'running' | 'completed' | 'failed'
-export type StorySceneEmotionCueParticipant = {
-  name: string
-  emotion: StoryCharacterEmotionId
-  importance: 'primary' | 'secondary'
-}
-export type StorySceneEmotionCue = {
-  show_visualization: boolean
-  reason: string
-  participants: StorySceneEmotionCueParticipant[]
-}
+export type StoryNovelSpriteGender = '' | 'male' | 'female'
 
 export type StoryGameSummary = {
   id: number
@@ -123,7 +131,7 @@ export type StoryGameSummary = {
   graph_auto_apply_confidence?: number
   accelerated_service_enabled?: boolean
   ambient_enabled: boolean
-  display_mode: StoryDisplayMode
+  game_mode: StoryGameMode
   character_state_enabled: boolean
   appearance_background_mode: StoryAppearanceBackgroundMode
   appearance_gradient_enabled: boolean
@@ -143,7 +151,6 @@ export type StoryGameSummary = {
   environment_tomorrow_weather?: Record<string, unknown> | null
   current_location_label?: string | null
   current_location_manual_override_label?: string | null
-  emotion_visualization_enabled?: boolean
   last_activity_at: string
   created_at: string
   updated_at: string
@@ -159,7 +166,6 @@ export type StoryMessage = {
   game_id: number
   role: StoryRole
   content: string
-  scene_emotion_payload?: string | null
   created_at: string
   updated_at: string
   // Chronological log of every reroll attempt for this turn, oldest first. Only ever
@@ -169,19 +175,36 @@ export type StoryMessage = {
   active_variant_index?: number
 }
 
-export type StoryVNBeat = {
+export type StoryNovelBeatKind = 'narration' | 'dialogue' | 'thought'
+
+// One Visual Novel "page" the player advances through with the "Далее" button.
+export type StoryNovelBeat = {
   id: number
   game_id: number
   message_id: number
   order_index: number
-  beat_type: 'narration' | 'dialogue' | 'thought' | 'system'
-  speaker_character_id?: number | null
-  speaker_name?: string | null
-  emotion?: StoryCharacterEmotionId | null
+  kind: StoryNovelBeatKind
+  speaker_name: string | null
+  speaker_character_id: number | null
+  emotion: StoryCharacterEmotionId | null
   text: string
-  sprite_asset_id?: number | null
-  background_image_url?: string | null
-  metadata: Record<string, unknown>
+  // Resolved server-side: sprite for the speaker's emotion, or a gender incognito silhouette
+  // fallback when no matching sprite has been manually uploaded.
+  sprite_url: string | null
+  sprite_incognito: boolean
+  sprite_gender: StoryNovelSpriteGender | null
+  created_at: string
+  updated_at: string
+}
+
+// A saved Visual Novel scene background (admin-only), with trigger-based memory.
+export type StorySceneBackground = {
+  id: number
+  game_id: number
+  title: string
+  image_url: string | null
+  triggers: string[]
+  is_current: boolean
   created_at: string
   updated_at: string
 }
@@ -369,8 +392,7 @@ export type StoryCharacter = {
   avatar_original_url?: string | null
   avatar_scale: number
   emotion_assets?: StoryCharacterEmotionAssets
-  emotion_model?: string
-  emotion_prompt_lock?: string | null
+  novel_sprite_gender?: StoryNovelSpriteGender
   source: StoryCharacterSource
   visibility: StoryGameVisibility
   publication: StoryPublicationState
@@ -400,8 +422,7 @@ export type StoryCommunityCharacterSummary = {
   avatar_original_url?: string | null
   avatar_scale: number
   emotion_assets?: StoryCharacterEmotionAssets
-  emotion_model?: string
-  emotion_prompt_lock?: string | null
+  novel_sprite_gender?: StoryNovelSpriteGender
   visibility: StoryGameVisibility
   author_id: number
   author_name: string
@@ -474,7 +495,8 @@ export type StoryGamePayload = {
   game: StoryGameSummary
   messages: StoryMessage[]
   has_older_messages?: boolean
-  vn_beats?: StoryVNBeat[]
+  novel_beats?: StoryNovelBeat[]
+  current_scene_background?: StorySceneBackground | null
   turn_images: StoryTurnImage[]
   instruction_cards: StoryInstructionCard[]
   plot_cards: StoryPlotCard[]
@@ -711,7 +733,8 @@ export type StoryAmbientProfile = {
 export type StoryStreamDonePayload = {
   message: StoryMessage
   game?: StoryGameSummary
-  vn_beats?: StoryVNBeat[]
+  novel_beats?: StoryNovelBeat[]
+  current_scene_background?: StorySceneBackground | null
   user?: AuthUser
   turn_cost_tokens?: number
   world_card_events?: StoryWorldCardEvent[]
@@ -757,32 +780,6 @@ export type StoryCharacterAvatarGenerationPayload = {
   image_url: string | null
   image_data_url: string | null
   user?: AuthUser
-}
-
-export type StoryCharacterEmotionGenerationPayload = {
-  model: string
-  avatar_prompt: string
-  emotion_prompt_lock?: string | null
-  reference_image_url: string | null
-  reference_image_data_url: string | null
-  emotion_assets: StoryCharacterEmotionAssets
-  user?: AuthUser
-}
-
-export type StoryCharacterEmotionGenerationJobPayload = {
-  id: number
-  status: StoryCharacterEmotionGenerationJobStatus
-  image_model: string
-  completed_variants: number
-  total_variants: number
-  current_emotion_id?: StoryCharacterEmotionId | null
-  error_detail?: string | null
-  result?: StoryCharacterEmotionGenerationPayload | null
-  user?: AuthUser
-  created_at: string
-  updated_at: string
-  started_at?: string | null
-  completed_at?: string | null
 }
 
 export type StorySummaryJobStatus = 'queued' | 'running' | 'completed' | 'failed'

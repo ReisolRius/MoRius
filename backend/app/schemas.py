@@ -840,8 +840,6 @@ class StoryGameCreateRequest(BaseModel):
     show_gg_thoughts: bool | None = None
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
-    emotion_visualization_enabled: bool | None = None
-    display_mode: Literal["text", "visual_novel"] | None = None
     appearance_background_mode: str | None = Field(default=None, max_length=32)
     appearance_gradient_enabled: bool | None = None
     appearance_gradient_from: str | None = Field(default=None, max_length=16)
@@ -854,6 +852,7 @@ class StoryGameCreateRequest(BaseModel):
     environment_enabled: bool | None = None
     environment_time_enabled: bool | None = None
     environment_weather_enabled: bool | None = None
+    game_mode: Literal["rpg", "visual_novel"] | None = None
 
 
 class StoryQuickStartRequest(BaseModel):
@@ -895,8 +894,6 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     graph_auto_apply_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     accelerated_service_enabled: bool | None = None
     ambient_enabled: bool | None = None
-    emotion_visualization_enabled: bool | None = None
-    display_mode: Literal["text", "visual_novel"] | None = None
     appearance_background_mode: str | None = Field(default=None, max_length=32)
     appearance_gradient_enabled: bool | None = None
     appearance_gradient_from: str | None = Field(default=None, max_length=16)
@@ -961,7 +958,6 @@ class StoryGenerateRequest(BaseModel):
     environment_enabled: bool | None = None
     environment_time_enabled: bool | None = None
     environment_weather_enabled: bool | None = None
-    emotion_visualization_enabled: bool | None = None
 
 
 class StoryTurnImageGenerateRequest(BaseModel):
@@ -1195,53 +1191,6 @@ class StoryCharacterAvatarGenerateOut(BaseModel):
     user: UserOut | None = None
 
 
-class StoryCharacterEmotionGenerateRequest(BaseModel):
-    name: str | None = Field(default=None, max_length=120)
-    description: str | None = Field(default=None, max_length=6_000)
-    style_prompt: str | None = Field(default=None, max_length=320)
-    triggers: list[str] = Field(default_factory=list, max_length=40)
-    image_model: str | None = Field(default=None, max_length=120)
-    reference_avatar_url: str | None = Field(default=None, max_length=3_000_000)
-    emotion_ids: list[str] = Field(default_factory=list, max_length=20)
-
-
-class StoryCharacterEmotionGenerateOut(BaseModel):
-    model: str
-    avatar_prompt: str
-    emotion_prompt_lock: str | None
-    reference_image_url: str | None
-    reference_image_data_url: str | None
-    emotion_assets: dict[str, str] = Field(default_factory=dict)
-    user: UserOut | None = None
-
-
-class StorySpriteCutoutRequest(BaseModel):
-    sources: list[str] = Field(default_factory=list, max_length=8)
-
-
-class StorySpriteCutoutOut(BaseModel):
-    assets: list[str] = Field(default_factory=list)
-
-
-StoryCharacterEmotionJobStatus = Literal["queued", "running", "completed", "failed"]
-
-
-class StoryCharacterEmotionGenerateJobOut(BaseModel):
-    id: int
-    status: StoryCharacterEmotionJobStatus
-    image_model: str
-    completed_variants: int
-    total_variants: int
-    current_emotion_id: str | None
-    error_detail: str | None
-    result: StoryCharacterEmotionGenerateOut | None = None
-    user: UserOut | None = None
-    created_at: datetime
-    updated_at: datetime
-    started_at: datetime | None
-    completed_at: datetime | None
-
-
 StorySummaryJobStatus = Literal["queued", "running", "completed", "failed"]
 
 
@@ -1381,10 +1330,7 @@ class StoryCharacterCreateRequest(BaseModel):
     avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     emotion_assets: dict[str, str] = Field(default_factory=dict)
-    emotion_model: str | None = Field(default=None, max_length=120)
-    emotion_prompt_lock: str | None = Field(default=None, max_length=8_000)
-    emotion_generation_job_id: int | None = Field(default=None, ge=1)
-    preserve_existing_emotions: bool | None = None
+    novel_sprite_gender: str | None = Field(default=None, max_length=8)
     visibility: str | None = Field(default=None, max_length=16)
 
 
@@ -1405,11 +1351,15 @@ class StoryCharacterUpdateRequest(BaseModel):
     avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     emotion_assets: dict[str, str] = Field(default_factory=dict)
-    emotion_model: str | None = Field(default=None, max_length=120)
-    emotion_prompt_lock: str | None = Field(default=None, max_length=8_000)
-    emotion_generation_job_id: int | None = Field(default=None, ge=1)
-    preserve_existing_emotions: bool | None = None
+    novel_sprite_gender: str | None = Field(default=None, max_length=8)
     visibility: str | None = Field(default=None, max_length=16)
+
+
+class StoryCharacterEmotionAssetChunkRequest(BaseModel):
+    upload_id: str = Field(min_length=1, max_length=80)
+    chunk_index: int = Field(ge=0, le=10_000)
+    total_chunks: int = Field(ge=1, le=10_000)
+    chunk: str = Field(default="", max_length=400_000)
 
 
 class StoryCharacterAssignRequest(BaseModel):
@@ -1489,7 +1439,6 @@ class StoryMessageOut(BaseModel):
     game_id: int
     role: str
     content: str
-    scene_emotion_payload: str | None = None
     created_at: datetime
     updated_at: datetime
     # Chronological log of every reroll attempt for this turn, oldest first. Empty for user
@@ -1499,23 +1448,51 @@ class StoryMessageOut(BaseModel):
     active_variant_index: int = 0
 
 
-class StoryVNBeatOut(BaseModel):
+class StoryNovelBeatOut(BaseModel):
+    """One Visual Novel "page" the player advances through with the "Далее" button."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     game_id: int
     message_id: int
     order_index: int
-    beat_type: Literal["narration", "dialogue", "thought", "system"]
-    speaker_character_id: int | None = None
+    kind: Literal["narration", "dialogue", "thought"]
     speaker_name: str | None = None
+    speaker_character_id: int | None = None
     emotion: str | None = None
     text: str
-    sprite_asset_id: int | None = None
-    background_image_url: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    # Resolved at read time (not persisted): the sprite to show for the speaker's emotion.
+    # When no manually-uploaded sprite exists, sprite_incognito=True and the UI shows a black
+    # gender silhouette instead.
+    sprite_url: str | None = None
+    sprite_incognito: bool = False
+    sprite_gender: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class StorySceneBackgroundOut(BaseModel):
+    """A saved Visual Novel scene background (admin-only), with trigger-based memory."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    game_id: int
+    title: str
+    image_url: str | None = None
+    triggers: list[str] = Field(default_factory=list)
+    is_current: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryNovelBackgroundGenerateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=160)
+
+
+class StoryNovelBackgroundSelectRequest(BaseModel):
+    background_id: int = Field(ge=1)
 
 
 class StoryTurnImageOut(BaseModel):
@@ -1682,8 +1659,7 @@ class StoryCharacterOut(BaseModel):
     avatar_original_url: str | None = None
     avatar_scale: float
     emotion_assets: dict[str, str] = Field(default_factory=dict)
-    emotion_model: str = ""
-    emotion_prompt_lock: str | None = None
+    novel_sprite_gender: str = ""
     source: str
     visibility: str
     publication: StoryPublicationStateOut
@@ -1839,7 +1815,7 @@ class StoryGameSummaryOut(BaseModel):
     graph_auto_apply_confidence: float = 0.78
     accelerated_service_enabled: bool = False
     ambient_enabled: bool
-    display_mode: Literal["text", "visual_novel"] = "text"
+    game_mode: Literal["rpg", "visual_novel"] = "rpg"
     character_state_enabled: bool = False
     appearance_background_mode: str = "custom"
     appearance_gradient_enabled: bool = True
@@ -1853,7 +1829,6 @@ class StoryGameSummaryOut(BaseModel):
     environment_enabled: bool = False
     environment_time_enabled: bool = False
     environment_weather_enabled: bool = False
-    emotion_visualization_enabled: bool
     ambient_profile: dict[str, Any] | None
     environment_current_datetime: str | None = None
     environment_current_weather: dict[str, Any] | None = None
@@ -1932,8 +1907,7 @@ class StoryCommunityCharacterSummaryOut(BaseModel):
     avatar_original_url: str | None = None
     avatar_scale: float
     emotion_assets: dict[str, str] = Field(default_factory=dict)
-    emotion_model: str = ""
-    emotion_prompt_lock: str | None = None
+    novel_sprite_gender: str = ""
     visibility: str
     author_id: int
     author_name: str
@@ -1974,7 +1948,8 @@ class StoryGameOut(BaseModel):
     game: StoryGameSummaryOut
     messages: list[StoryMessageOut]
     has_older_messages: bool = False
-    vn_beats: list[StoryVNBeatOut] = Field(default_factory=list)
+    novel_beats: list[StoryNovelBeatOut] = Field(default_factory=list)
+    current_scene_background: StorySceneBackgroundOut | None = None
     turn_images: list[StoryTurnImageOut]
     instruction_cards: list[StoryInstructionCardOut]
     plot_cards: list[StoryPlotCardOut]

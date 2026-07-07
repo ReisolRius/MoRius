@@ -24,8 +24,6 @@ def parse_story_message_variant_history(raw_json: object) -> list[dict[str, str]
         variants.append(
             {
                 "content": content,
-                "vn_raw_response": str(entry.get("vn_raw_response") or ""),
-                "scene_emotion_payload": str(entry.get("scene_emotion_payload") or ""),
                 "created_at": str(entry.get("created_at") or ""),
             }
         )
@@ -44,10 +42,6 @@ def story_message_to_out(message: StoryMessage) -> StoryMessageOut:
         game_id=message.game_id,
         role=message.role,
         content=sanitize_likely_utf8_mojibake(message.content),
-        scene_emotion_payload=sanitize_likely_utf8_mojibake(
-            str(getattr(message, "scene_emotion_payload", "") or "").strip()
-        )
-        or None,
         created_at=message.created_at,
         updated_at=message.updated_at,
         variant_history=[

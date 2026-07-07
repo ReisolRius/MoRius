@@ -46,8 +46,8 @@ from app.models import (
     StoryInstructionTemplate,
     StoryMemoryBlock,
     StoryMessage,
-    StoryMessageSegment,
-    StoryCharacterSpriteAsset,
+    StoryNovelBeat,
+    StorySceneBackground,
     StoryTurnImage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
@@ -135,7 +135,6 @@ POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
     (StoryGame.__tablename__, "accelerated_service_enabled"): False,
     (StoryGame.__tablename__, "ambient_enabled"): False,
     (StoryGame.__tablename__, "appearance_gradient_enabled"): True,
-    (StoryGame.__tablename__, "emotion_visualization_enabled"): False,
     (StoryGame.__tablename__, "environment_time_enabled"): False,
     (StoryGame.__tablename__, "environment_weather_enabled"): False,
     (StoryGame.__tablename__, "canonical_state_pipeline_enabled"): True,
@@ -558,15 +557,10 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN ambient_enabled INTEGER NOT NULL DEFAULT 0"
         )
-    if "emotion_visualization_enabled" not in existing_columns:
+    if "game_mode" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN emotion_visualization_enabled INTEGER NOT NULL DEFAULT 0"
-        )
-    if "display_mode" not in existing_columns:
-        alter_statements.append(
-            f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN display_mode VARCHAR(24) NOT NULL DEFAULT 'text'"
+            "ADD COLUMN game_mode VARCHAR(24) NOT NULL DEFAULT 'rpg'"
         )
     if "environment_time_enabled" not in existing_columns:
         alter_statements.append(
@@ -1066,15 +1060,10 @@ def _ensure_story_character_community_columns_exist(private_visibility: str) -> 
             f"ALTER TABLE {StoryCharacter.__tablename__} "
             "ADD COLUMN emotion_assets TEXT NOT NULL DEFAULT ''"
         )
-    if "emotion_model" not in existing_columns:
+    if "novel_sprite_gender" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryCharacter.__tablename__} "
-            "ADD COLUMN emotion_model VARCHAR(120) NOT NULL DEFAULT ''"
-        )
-    if "emotion_prompt_lock" not in existing_columns:
-        alter_statements.append(
-            f"ALTER TABLE {StoryCharacter.__tablename__} "
-            "ADD COLUMN emotion_prompt_lock TEXT NOT NULL DEFAULT ''"
+            "ADD COLUMN novel_sprite_gender VARCHAR(8) NOT NULL DEFAULT ''"
         )
     if "publication_status" not in existing_columns:
         alter_statements.append(
@@ -1382,6 +1371,21 @@ def _ensure_story_turn_image_history_schema() -> None:
             )
 
 
+def _ensure_story_visual_novel_legacy_tables_dropped() -> None:
+    """Drop tables from the old AI scene-emotion/sprite-generation feature (fully removed).
+
+    Replaced by story_novel_beats / story_scene_backgrounds (manual uploads, no generation jobs).
+    """
+    legacy_table_names = (
+        "story_message_segments",
+        "story_character_sprite_assets",
+        "story_character_emotion_generation_jobs",
+    )
+    with engine.begin() as connection:
+        for legacy_table_name in legacy_table_names:
+            _execute_schema_statement(connection, f"DROP TABLE IF EXISTS {legacy_table_name}")
+
+
 def _ensure_story_soft_undo_columns_exist() -> None:
     inspector = inspect(engine)
     alter_statements: list[str] = []
@@ -1392,16 +1396,6 @@ def _ensure_story_soft_undo_columns_exist() -> None:
             alter_statements.append(
                 f"ALTER TABLE {StoryMessage.__tablename__} "
                 "ADD COLUMN undone_at TIMESTAMP WITH TIME ZONE"
-            )
-        if "scene_emotion_payload" not in message_columns:
-            alter_statements.append(
-                f"ALTER TABLE {StoryMessage.__tablename__} "
-                "ADD COLUMN scene_emotion_payload TEXT NOT NULL DEFAULT ''"
-            )
-        if "vn_raw_response" not in message_columns:
-            alter_statements.append(
-                f"ALTER TABLE {StoryMessage.__tablename__} "
-                "ADD COLUMN vn_raw_response TEXT NOT NULL DEFAULT ''"
             )
         if "variant_history_json" not in message_columns:
             alter_statements.append(
@@ -1553,14 +1547,12 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryMessage.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_messages_game_undone_id "
         f"ON {StoryMessage.__tablename__} (game_id, undone_at, id)",
-        "CREATE INDEX IF NOT EXISTS ix_story_message_segments_game_message_order "
-        f"ON {StoryMessageSegment.__tablename__} (game_id, message_id, order_index)",
-        "CREATE INDEX IF NOT EXISTS ix_story_message_segments_message_order "
-        f"ON {StoryMessageSegment.__tablename__} (message_id, order_index)",
-        "CREATE INDEX IF NOT EXISTS ix_story_character_sprite_assets_character_emotion "
-        f"ON {StoryCharacterSpriteAsset.__tablename__} (character_id, emotion, id)",
-        "CREATE INDEX IF NOT EXISTS ix_story_character_sprite_assets_user_status "
-        f"ON {StoryCharacterSpriteAsset.__tablename__} (user_id, processing_status, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_novel_beats_game_message_order "
+        f"ON {StoryNovelBeat.__tablename__} (game_id, message_id, order_index)",
+        "CREATE INDEX IF NOT EXISTS ix_story_novel_beats_message_order "
+        f"ON {StoryNovelBeat.__tablename__} (message_id, order_index)",
+        "CREATE INDEX IF NOT EXISTS ix_story_scene_backgrounds_game_current "
+        f"ON {StorySceneBackground.__tablename__} (game_id, is_current, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_turn_images_game_assistant_id "
         f"ON {StoryTurnImage.__tablename__} (game_id, assistant_message_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_turn_images_game_undone_id "
@@ -1957,6 +1949,7 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     _ensure_story_instruction_template_community_columns_exist(defaults.private_visibility)
     _ensure_community_rating_timestamp_columns_exist()
     _ensure_story_turn_image_history_schema()
+    _ensure_story_visual_novel_legacy_tables_dropped()
     _ensure_dashboard_news_schema()
     _ensure_shop_schema_columns_exist()
     _ensure_subscription_schema()

@@ -711,7 +711,7 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
       return 'AI-помощник выключен на backend. Добавьте AI_ASSISTANT_ENABLED=true в backend/.env и перезапустите backend.'
     }
     if (!assistantSettings.configured) {
-      return 'AI-помощнику нужен OpenRouter API key в POLZA_API_KEY в backend/.env.'
+      return 'AI-помощнику нужен RouterAI API key в ROUTERAI_API_KEY в backend/.env.'
     }
     if (!assistantSettings.visible) {
       return 'Показ AI-помощника выключен в настройках профиля.'

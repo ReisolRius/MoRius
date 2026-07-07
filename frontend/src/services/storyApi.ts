@@ -1,11 +1,10 @@
-﻿import type {
+import type {
   StoryCharacter,
   StoryCharacterRace,
   StoryCharacterAvatarGenerationPayload,
   StoryCharacterEmotionAssets,
   StoryCharacterEmotionId,
-  StoryCharacterEmotionGenerationPayload,
-  StoryCharacterEmotionGenerationJobPayload,
+  StoryNovelSpriteGender,
   SmartRegenerationMode,
   SmartRegenerationOption,
   StoryCommunityCharacterSummary,
@@ -29,7 +28,7 @@
   StoryGraphRelationType,
   StoryGraphScope,
   StoryGraphSuggestion,
-  StoryDisplayMode,
+  StoryGameMode,
   StoryImageModelId,
   StoryMemoryOptimizationMode,
   StoryNarratorModelId,
@@ -47,15 +46,18 @@
   StoryStreamStartPayload,
   StorySummaryJobPayload,
   StoryTurnImageGenerationPayload,
-  StoryVNBeat,
+  StoryNovelBeat,
+  StorySceneBackground,
   StoryWorldCard,
   StoryWorldCardTemplate,
   StoryWorldDetailType,
 } from '../types/story'
+import { STORY_CHARACTER_EMOTION_IDS } from '../types/story'
 import { buildApiUrl, normalizeApiMediaPayload, parseApiError, requestNoContent } from './httpClient'
 import { dispatchServiceUnavailable } from '../utils/serviceAvailability'
 
 const GATEWAY_ERROR_STATUSES_STORY = new Set([502, 503, 504])
+const STORY_CHARACTER_EMOTION_ASSET_CHUNK_CHARS = 180_000
 
 type RequestOptions = RequestInit & {
   skipJsonContentType?: boolean
@@ -69,13 +71,11 @@ type StreamEvent = {
 const RETRYABLE_METHODS = new Set(['GET', 'HEAD'])
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504])
 const REQUEST_RETRY_DELAYS_MS = [250, 700] as const
-const STORY_CHARACTER_EMOTION_GENERATION_TIMEOUT_MS = 600_000
-const STORY_CHARACTER_EMOTION_GENERATION_POLL_INTERVAL_MS = 1_500
 const STORY_GENERATION_CANCEL_BEST_EFFORT_TIMEOUT_MS = 4_000
 const STORY_GENERATION_INTERRUPTED_MESSAGE =
   'Генерация прервалась. Зависший запрос остановлен, можно повторить ход или продолжить сцену.'
 const STORY_ROUTERAI_TEMPORARY_ERROR_MESSAGE =
-  'OpenRouter сейчас возвращает ошибку провайдера. Ход не был сгенерирован; повторите попытку позже.'
+  'RouterAI сейчас возвращает ошибку провайдера. Ход не был сгенерирован; повторите попытку позже.'
 const STORY_GENERATION_BUSY_RETRY_DELAYS_MS = [800, 1600, 2600, 4200, 7000] as const
 const STORY_GENERATION_TRANSPORT_ERROR_MARKERS = [
   'network error',
@@ -83,16 +83,16 @@ const STORY_GENERATION_TRANSPORT_ERROR_MARKERS = [
   'failed to connect to api',
   'generation stream connection was interrupted',
   'generation stream ended unexpectedly before terminal event',
-  'failed while reading openrouter chat stream',
+  'failed while reading routerai chat stream',
   'failed while reading routerai chat stream',
   'load failed',
   'terminated',
 ] as const
 const STORY_ROUTERAI_TEMPORARY_ERROR_MARKERS = [
-  'openrouter chat error (500)',
-  'openrouter chat error (502)',
-  'openrouter chat error (503)',
-  'openrouter chat error (504)',
+  'routerai chat error (500)',
+  'routerai chat error (502)',
+  'routerai chat error (503)',
+  'routerai chat error (504)',
   'routerai chat error (500)',
   'routerai chat error (502)',
   'routerai chat error (503)',
@@ -153,8 +153,8 @@ function normalizeStoryAppearanceTextStyle(value: unknown): StoryAppearanceTextS
   return 'default'
 }
 
-function normalizeStoryDisplayMode(value: unknown): StoryDisplayMode {
-  return value === 'visual_novel' ? 'visual_novel' : 'text'
+function normalizeStoryGameMode(value: unknown): StoryGameMode {
+  return value === 'visual_novel' ? 'visual_novel' : 'rpg'
 }
 
 function normalizeStoryAppearanceColor(value: unknown, fallback: string): string {
@@ -229,7 +229,7 @@ function normalizeStoryProviderErrorMessage(detail: string): string {
   if (
     (loweredDetail.startsWith('polza chat error') ||
       loweredDetail.startsWith('routerai chat error') ||
-      loweredDetail.startsWith('openrouter chat error')) &&
+      loweredDetail.startsWith('routerai chat error')) &&
     structuredPayloadStart >= 0
   ) {
     cleanedDetail = normalizedDetail.slice(0, structuredPayloadStart).replace(/[.:,\s]+$/, '').trim()
@@ -265,7 +265,6 @@ export type StoryGenerationStreamOptions = {
   environmentEnabled?: boolean
   environmentTimeEnabled?: boolean
   environmentWeatherEnabled?: boolean
-  emotionVisualizationEnabled?: boolean
   onStart?: (payload: StoryStreamStartPayload) => void
   onChunk?: (payload: StoryStreamChunkPayload) => void
   onRetry?: (payload: StoryStreamRetryPayload) => void
@@ -314,28 +313,9 @@ export type StoryCharacterInput = {
   avatar_original_url?: string | null
   avatar_scale?: number
   emotion_assets?: StoryCharacterEmotionAssets
-  emotion_model?: string | null
-  emotion_prompt_lock?: string | null
-  emotion_generation_job_id?: number | null
-  preserve_existing_emotions?: boolean
+  novel_sprite_gender?: StoryNovelSpriteGender
   visibility?: StoryGameVisibility
 }
-
-const STORY_CHARACTER_EMOTION_IDS = [
-  'calm',
-  'angry',
-  'irritated',
-  'stern',
-  'cheerful',
-  'smiling',
-  'sly',
-  'alert',
-  'scared',
-  'happy',
-  'embarrassed',
-  'confused',
-  'thoughtful',
-] as const
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers ?? {})
@@ -430,6 +410,21 @@ function countStoryCharacterEmotionAssets(value: StoryCharacterEmotionAssets | u
   return STORY_CHARACTER_EMOTION_IDS.reduce((count, emotionId) => {
     return count + ((value?.[emotionId] ?? '').trim().length > 0 ? 1 : 0)
   }, 0)
+}
+
+function createStoryCharacterEmotionAssetUploadId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function splitStoryCharacterEmotionAssetChunks(value: string): string[] {
+  const chunks: string[] = []
+  for (let cursor = 0; cursor < value.length; cursor += STORY_CHARACTER_EMOTION_ASSET_CHUNK_CHARS) {
+    chunks.push(value.slice(cursor, cursor + STORY_CHARACTER_EMOTION_ASSET_CHUNK_CHARS))
+  }
+  return chunks.length > 0 ? chunks : ['']
 }
 
 function normalizeStoryCharacterLinkName(value: unknown): string {
@@ -578,7 +573,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
         : 0.78,
     accelerated_service_enabled: Boolean(game.accelerated_service_enabled),
     ambient_enabled: Boolean(game.ambient_enabled),
-    display_mode: normalizeStoryDisplayMode(game.display_mode),
+    game_mode: normalizeStoryGameMode(game.game_mode),
     character_state_enabled: Boolean(game.character_state_enabled),
     appearance_background_mode: normalizeStoryAppearanceBackgroundMode(game.appearance_background_mode),
     appearance_gradient_enabled: Boolean(game.appearance_gradient_enabled),
@@ -611,20 +606,18 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
       typeof game.current_location_manual_override_label === 'string'
         ? game.current_location_manual_override_label
         : null,
-    emotion_visualization_enabled: Boolean(game.emotion_visualization_enabled),
     last_activity_at: typeof game.last_activity_at === 'string' ? game.last_activity_at : new Date(0).toISOString(),
     created_at: typeof game.created_at === 'string' ? game.created_at : new Date(0).toISOString(),
     updated_at: typeof game.updated_at === 'string' ? game.updated_at : new Date(0).toISOString(),
   }
 }
 
-function normalizeStoryVNBeatPayload(rawBeat: StoryVNBeat): StoryVNBeat {
-  const beat = rawBeat as Partial<StoryVNBeat>
-  const normalizedBeatType =
-    beat.beat_type === 'dialogue' || beat.beat_type === 'thought' || beat.beat_type === 'system'
-      ? beat.beat_type
-      : 'narration'
+function normalizeStoryNovelBeatPayload(rawBeat: StoryNovelBeat): StoryNovelBeat {
+  const beat = rawBeat as Partial<StoryNovelBeat>
+  const normalizedKind =
+    beat.kind === 'dialogue' || beat.kind === 'thought' ? beat.kind : 'narration'
   const rawEmotion = typeof beat.emotion === 'string' ? beat.emotion : null
+  const rawSpriteGender = typeof beat.sprite_gender === 'string' ? beat.sprite_gender : ''
   return {
     ...rawBeat,
     id: typeof beat.id === 'number' && Number.isFinite(beat.id) ? Math.trunc(beat.id) : 0,
@@ -634,7 +627,7 @@ function normalizeStoryVNBeatPayload(rawBeat: StoryVNBeat): StoryVNBeat {
       typeof beat.order_index === 'number' && Number.isFinite(beat.order_index)
         ? Math.max(0, Math.trunc(beat.order_index))
         : 0,
-    beat_type: normalizedBeatType,
+    kind: normalizedKind,
     speaker_character_id:
       typeof beat.speaker_character_id === 'number' && Number.isFinite(beat.speaker_character_id)
         ? Math.trunc(beat.speaker_character_id)
@@ -645,14 +638,29 @@ function normalizeStoryVNBeatPayload(rawBeat: StoryVNBeat): StoryVNBeat {
         ? (rawEmotion as StoryCharacterEmotionId)
         : null,
     text: typeof beat.text === 'string' ? beat.text : '',
-    sprite_asset_id:
-      typeof beat.sprite_asset_id === 'number' && Number.isFinite(beat.sprite_asset_id)
-        ? Math.trunc(beat.sprite_asset_id)
-        : null,
-    background_image_url: typeof beat.background_image_url === 'string' ? beat.background_image_url : null,
-    metadata: beat.metadata && typeof beat.metadata === 'object' ? (beat.metadata as Record<string, unknown>) : {},
+    sprite_url: typeof beat.sprite_url === 'string' ? beat.sprite_url : null,
+    sprite_incognito: Boolean(beat.sprite_incognito),
+    sprite_gender: rawSpriteGender === 'male' || rawSpriteGender === 'female' ? rawSpriteGender : null,
     created_at: typeof beat.created_at === 'string' ? beat.created_at : new Date(0).toISOString(),
     updated_at: typeof beat.updated_at === 'string' ? beat.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStorySceneBackgroundPayload(rawBackground: StorySceneBackground): StorySceneBackground {
+  const background = rawBackground as Partial<StorySceneBackground>
+  return {
+    ...rawBackground,
+    id: typeof background.id === 'number' && Number.isFinite(background.id) ? Math.trunc(background.id) : 0,
+    game_id:
+      typeof background.game_id === 'number' && Number.isFinite(background.game_id)
+        ? Math.trunc(background.game_id)
+        : 0,
+    title: typeof background.title === 'string' ? background.title : '',
+    image_url: typeof background.image_url === 'string' ? background.image_url : null,
+    triggers: normalizeStoryStringArray(background.triggers),
+    is_current: Boolean(background.is_current),
+    created_at: typeof background.created_at === 'string' ? background.created_at : new Date(0).toISOString(),
+    updated_at: typeof background.updated_at === 'string' ? background.updated_at : new Date(0).toISOString(),
   }
 }
 
@@ -768,12 +776,15 @@ function normalizeStoryGamePayload(rawPayload: StoryGamePayload): StoryGamePaylo
     game: normalizeStoryGameSummaryPayload((payload.game ?? {}) as StoryGameSummary),
     messages: Array.isArray(payload.messages) ? payload.messages.filter((item) => Boolean(item) && typeof item === 'object') : [],
     has_older_messages: Boolean(payload.has_older_messages),
-    vn_beats: Array.isArray(payload.vn_beats)
-      ? payload.vn_beats
-          .filter((item): item is StoryVNBeat => Boolean(item) && typeof item === 'object')
-          .map((item) => normalizeStoryVNBeatPayload(item))
+    novel_beats: Array.isArray(payload.novel_beats)
+      ? payload.novel_beats
+          .filter((item): item is StoryNovelBeat => Boolean(item) && typeof item === 'object')
+          .map((item) => normalizeStoryNovelBeatPayload(item))
           .filter((item) => item.id > 0 && item.message_id > 0 && item.text.trim().length > 0)
       : [],
+    current_scene_background: payload.current_scene_background
+      ? normalizeStorySceneBackgroundPayload(payload.current_scene_background)
+      : null,
     turn_images: Array.isArray(payload.turn_images) ? payload.turn_images.filter((item) => Boolean(item) && typeof item === 'object') : [],
     instruction_cards: Array.isArray(payload.instruction_cards)
       ? payload.instruction_cards
@@ -805,13 +816,20 @@ function normalizeStoryStreamDonePayload(rawPayload: StoryStreamDonePayload): St
   return {
     ...rawPayload,
     game: payload.game ? normalizeStoryGameSummaryPayload(payload.game) : undefined,
-    vn_beats: Array.isArray(payload.vn_beats)
-      ? payload.vn_beats
-          .filter((item): item is StoryVNBeat => Boolean(item) && typeof item === 'object')
-          .map((item) => normalizeStoryVNBeatPayload(item))
+    novel_beats: Array.isArray(payload.novel_beats)
+      ? payload.novel_beats
+          .filter((item): item is StoryNovelBeat => Boolean(item) && typeof item === 'object')
+          .map((item) => normalizeStoryNovelBeatPayload(item))
           .filter((item) => item.id > 0 && item.message_id > 0 && item.text.trim().length > 0)
       : [],
+    current_scene_background: payload.current_scene_background
+      ? normalizeStorySceneBackgroundPayload(payload.current_scene_background)
+      : null,
   }
+}
+
+function normalizeStoryNovelSpriteGender(value: unknown): StoryNovelSpriteGender {
+  return value === 'male' || value === 'female' ? value : ''
 }
 
 function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryCharacter {
@@ -843,8 +861,7 @@ function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryChar
         ? Math.max(1, Math.min(3, character.avatar_scale))
         : 1,
     emotion_assets: normalizeStoryCharacterEmotionAssets(character.emotion_assets),
-    emotion_model: typeof character.emotion_model === 'string' ? character.emotion_model : '',
-    emotion_prompt_lock: typeof character.emotion_prompt_lock === 'string' ? character.emotion_prompt_lock : null,
+    novel_sprite_gender: normalizeStoryNovelSpriteGender(character.novel_sprite_gender),
     source: character.source === 'ai' ? 'ai' : 'user',
     visibility: character.visibility === 'public' ? 'public' : 'private',
     publication: normalizeStoryPublicationState(character.publication ?? DEFAULT_PUBLICATION_STATE),
@@ -932,8 +949,7 @@ function normalizeStoryCharacterListPayload(rawCharacters: StoryCharacter[]): St
     return {
       ...character,
       emotion_assets: donor.emotion_assets,
-      emotion_model: character.emotion_model || donor.emotion_model,
-      emotion_prompt_lock: character.emotion_prompt_lock ?? donor.emotion_prompt_lock,
+      novel_sprite_gender: character.novel_sprite_gender || donor.novel_sprite_gender,
     }
   })
 }
@@ -968,8 +984,7 @@ function normalizeStoryCommunityCharacterSummaryPayload(
         ? Math.max(1, Math.min(3, character.avatar_scale))
         : 1,
     emotion_assets: normalizeStoryCharacterEmotionAssets(character.emotion_assets),
-    emotion_model: typeof character.emotion_model === 'string' ? character.emotion_model : '',
-    emotion_prompt_lock: typeof character.emotion_prompt_lock === 'string' ? character.emotion_prompt_lock : null,
+    novel_sprite_gender: normalizeStoryNovelSpriteGender(character.novel_sprite_gender),
     visibility: character.visibility === 'public' ? 'public' : 'private',
     author_id: typeof character.author_id === 'number' && Number.isFinite(character.author_id) ? Math.trunc(character.author_id) : 0,
     author_name: typeof character.author_name === 'string' ? character.author_name : '',
@@ -1706,6 +1721,94 @@ export async function updateStoryCharacter(payload: {
   return normalizeStoryCharacterPayload(response)
 }
 
+export async function uploadStoryCharacterEmotionAsset(payload: {
+  token: string
+  characterId: number
+  emotionId: StoryCharacterEmotionId
+  assetUrl: string
+}): Promise<StoryCharacter> {
+  const normalizedAssetUrl = payload.assetUrl.trim()
+  const chunks = splitStoryCharacterEmotionAssetChunks(normalizedAssetUrl)
+  const uploadId = createStoryCharacterEmotionAssetUploadId()
+  let latestCharacter: StoryCharacter | null = null
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const response = await request<StoryCharacter>(
+      `/api/story/characters/${payload.characterId}/emotion-assets/${payload.emotionId}/chunk`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${payload.token}`,
+        },
+        body: JSON.stringify({
+          upload_id: uploadId,
+          chunk_index: index,
+          total_chunks: chunks.length,
+          chunk: chunks[index],
+        }),
+      },
+    )
+    latestCharacter = normalizeStoryCharacterPayload(response)
+  }
+
+  if (!latestCharacter) {
+    throw new Error('Не удалось загрузить спрайт эмоции')
+  }
+  return latestCharacter
+}
+
+export async function deleteStoryCharacterEmotionAsset(payload: {
+  token: string
+  characterId: number
+  emotionId: StoryCharacterEmotionId
+}): Promise<StoryCharacter> {
+  const response = await request<StoryCharacter>(
+    `/api/story/characters/${payload.characterId}/emotion-assets/${payload.emotionId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+  )
+  return normalizeStoryCharacterPayload(response)
+}
+
+export async function syncStoryCharacterEmotionAssets(payload: {
+  token: string
+  characterId: number
+  assets?: StoryCharacterEmotionAssets
+  previousAssets?: StoryCharacterEmotionAssets
+}): Promise<StoryCharacter | null> {
+  let latestCharacter: StoryCharacter | null = null
+
+  for (const emotionId of STORY_CHARACTER_EMOTION_IDS) {
+    const nextAsset = (payload.assets?.[emotionId] ?? '').trim()
+    const previousAsset = (payload.previousAssets?.[emotionId] ?? '').trim()
+    if (nextAsset) {
+      if (nextAsset !== previousAsset) {
+        latestCharacter = await uploadStoryCharacterEmotionAsset({
+          token: payload.token,
+          characterId: payload.characterId,
+          emotionId,
+          assetUrl: nextAsset,
+        })
+      }
+      continue
+    }
+
+    if (previousAsset) {
+      latestCharacter = await deleteStoryCharacterEmotionAsset({
+        token: payload.token,
+        characterId: payload.characterId,
+        emotionId,
+      })
+    }
+  }
+
+  return latestCharacter
+}
+
 export async function deleteStoryCharacter(payload: {
   token: string
   characterId: number
@@ -1729,58 +1832,6 @@ function normalizeStoryCharacterAvatarGenerationPayload(
     image_url: typeof payload.image_url === 'string' ? payload.image_url : null,
     image_data_url: typeof payload.image_data_url === 'string' ? payload.image_data_url : null,
     user: payload.user,
-  }
-}
-
-function normalizeStoryCharacterEmotionGenerationPayload(
-  rawPayload: StoryCharacterEmotionGenerationPayload,
-): StoryCharacterEmotionGenerationPayload {
-  const payload = rawPayload as Partial<StoryCharacterEmotionGenerationPayload>
-  return {
-    model: typeof payload.model === 'string' ? payload.model : '',
-    avatar_prompt: typeof payload.avatar_prompt === 'string' ? payload.avatar_prompt : '',
-    emotion_prompt_lock: typeof payload.emotion_prompt_lock === 'string' ? payload.emotion_prompt_lock : null,
-    reference_image_url: typeof payload.reference_image_url === 'string' ? payload.reference_image_url : null,
-    reference_image_data_url: typeof payload.reference_image_data_url === 'string' ? payload.reference_image_data_url : null,
-    emotion_assets: normalizeStoryCharacterEmotionAssets(payload.emotion_assets),
-    user: payload.user,
-  }
-}
-
-function normalizeStoryCharacterEmotionGenerationJobPayload(
-  rawPayload: StoryCharacterEmotionGenerationJobPayload,
-): StoryCharacterEmotionGenerationJobPayload {
-  const payload = rawPayload as Partial<StoryCharacterEmotionGenerationJobPayload>
-  const status =
-    payload.status === 'queued' || payload.status === 'running' || payload.status === 'completed' || payload.status === 'failed'
-      ? payload.status
-      : 'failed'
-  const currentEmotionId =
-    typeof payload.current_emotion_id === 'string' &&
-    STORY_CHARACTER_EMOTION_IDS.includes(payload.current_emotion_id as (typeof STORY_CHARACTER_EMOTION_IDS)[number])
-      ? payload.current_emotion_id
-      : null
-
-  return {
-    id: typeof payload.id === 'number' && Number.isFinite(payload.id) ? Math.trunc(payload.id) : 0,
-    status,
-    image_model: typeof payload.image_model === 'string' ? payload.image_model : '',
-    completed_variants:
-      typeof payload.completed_variants === 'number' && Number.isFinite(payload.completed_variants)
-        ? Math.max(0, Math.trunc(payload.completed_variants))
-        : 0,
-    total_variants:
-      typeof payload.total_variants === 'number' && Number.isFinite(payload.total_variants)
-        ? Math.max(0, Math.trunc(payload.total_variants))
-        : 0,
-    current_emotion_id: currentEmotionId,
-    error_detail: typeof payload.error_detail === 'string' ? payload.error_detail : null,
-    result: payload.result ? normalizeStoryCharacterEmotionGenerationPayload(payload.result) : null,
-    user: payload.user,
-    created_at: typeof payload.created_at === 'string' ? payload.created_at : new Date(0).toISOString(),
-    updated_at: typeof payload.updated_at === 'string' ? payload.updated_at : new Date(0).toISOString(),
-    started_at: typeof payload.started_at === 'string' ? payload.started_at : null,
-    completed_at: typeof payload.completed_at === 'string' ? payload.completed_at : null,
   }
 }
 
@@ -1808,83 +1859,6 @@ export async function generateStoryCharacterAvatar(payload: {
     }),
   })
   return normalizeStoryCharacterAvatarGenerationPayload(response)
-}
-
-export async function generateStoryCharacterEmotionPack(payload: {
-  token: string
-  imageModel?: StoryImageModelId
-  name?: string
-  description?: string
-  triggers?: string[]
-  stylePrompt?: string
-  referenceAvatarUrl?: string | null
-  emotionIds?: StoryCharacterEmotionId[]
-  pollTimeoutMs?: number
-  pollIntervalMs?: number
-  onProgress?: (job: StoryCharacterEmotionGenerationJobPayload) => void
-}): Promise<StoryCharacterEmotionGenerationPayload> {
-  const initialJobResponse = await request<StoryCharacterEmotionGenerationJobPayload>('/api/story/characters/emotions/generate', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${payload.token}`,
-    },
-    body: JSON.stringify({
-      image_model: payload.imageModel ?? null,
-      name: payload.name ?? null,
-      description: payload.description ?? null,
-      style_prompt: payload.stylePrompt ?? null,
-      triggers: Array.isArray(payload.triggers)
-        ? payload.triggers.filter((value): value is string => typeof value === 'string')
-        : [],
-      reference_avatar_url: payload.referenceAvatarUrl ?? null,
-      emotion_ids: Array.isArray(payload.emotionIds)
-        ? payload.emotionIds.filter((value): value is StoryCharacterEmotionId => STORY_CHARACTER_EMOTION_IDS.includes(value))
-        : [],
-    }),
-  })
-  let job = normalizeStoryCharacterEmotionGenerationJobPayload(initialJobResponse)
-  payload.onProgress?.(job)
-
-  const timeoutMs =
-    typeof payload.pollTimeoutMs === 'number' && Number.isFinite(payload.pollTimeoutMs)
-      ? Math.max(5_000, Math.trunc(payload.pollTimeoutMs))
-      : STORY_CHARACTER_EMOTION_GENERATION_TIMEOUT_MS
-  const pollIntervalMs =
-    typeof payload.pollIntervalMs === 'number' && Number.isFinite(payload.pollIntervalMs)
-      ? Math.max(500, Math.trunc(payload.pollIntervalMs))
-      : STORY_CHARACTER_EMOTION_GENERATION_POLL_INTERVAL_MS
-  const startedAt = Date.now()
-
-  while (true) {
-    if (job.status === 'completed') {
-      if (job.result) {
-        return job.result
-      }
-      throw new Error('Emotion generation finished without a result payload')
-    }
-
-    if (job.status === 'failed') {
-      throw new Error(job.error_detail?.trim() || 'Не удалось сгенерировать эмоции персонажа')
-    }
-
-    if (Date.now() - startedAt >= timeoutMs) {
-      throw new Error('Превышено ожидание генерации эмоций (10 минут)')
-    }
-
-    await delay(pollIntervalMs)
-    const nextJobResponse = await request<StoryCharacterEmotionGenerationJobPayload>(
-      `/api/story/characters/emotions/generate/${job.id}`,
-      {
-        method: 'GET',
-        cache: 'no-store',
-        headers: {
-          Authorization: `Bearer ${payload.token}`,
-        },
-      },
-    )
-    job = normalizeStoryCharacterEmotionGenerationJobPayload(nextJobResponse)
-    payload.onProgress?.(job)
-  }
 }
 
 export async function listStoryInstructionTemplates(
@@ -1980,7 +1954,7 @@ export async function createStoryGame(payload: {
   show_gg_thoughts?: boolean
   show_npc_thoughts?: boolean
   ambient_enabled?: boolean
-  displayMode?: StoryDisplayMode
+  gameMode?: StoryGameMode
 }): Promise<StoryGameSummary> {
   return request<StoryGameSummary>('/api/story/games', {
     method: 'POST',
@@ -2001,7 +1975,7 @@ export async function createStoryGame(payload: {
       show_gg_thoughts: payload.show_gg_thoughts ?? null,
       show_npc_thoughts: payload.show_npc_thoughts ?? null,
       ambient_enabled: payload.ambient_enabled ?? null,
-      display_mode: payload.displayMode ?? null,
+      game_mode: payload.gameMode ?? null,
     }),
   })
 }
@@ -2119,7 +2093,6 @@ export async function updateStoryGameSettings(payload: {
   graphConfirmLowConfidence?: boolean
   graphAutoApplyConfidence?: number
   ambientEnabled?: boolean
-  displayMode?: StoryDisplayMode
   characterStateEnabled?: boolean
   appearanceBackgroundMode?: StoryAppearanceBackgroundMode
   appearanceGradientEnabled?: boolean
@@ -2128,7 +2101,6 @@ export async function updateStoryGameSettings(payload: {
   appearanceSolidColor?: string
   appearanceUiStyle?: StoryAppearanceUiStyle
   appearanceTextStyle?: StoryAppearanceTextStyle
-  emotionVisualizationEnabled?: boolean
   canonicalStatePipelineEnabled?: boolean
   canonicalStateSafeFallbackEnabled?: boolean
   environmentEnabled?: boolean
@@ -2206,9 +2178,6 @@ export async function updateStoryGameSettings(payload: {
   if (typeof payload.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = payload.ambientEnabled
   }
-  if (typeof payload.displayMode === 'string') {
-    requestPayload.display_mode = normalizeStoryDisplayMode(payload.displayMode)
-  }
   if (typeof payload.characterStateEnabled === 'boolean') {
     requestPayload.character_state_enabled = payload.characterStateEnabled
   }
@@ -2232,9 +2201,6 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.appearanceTextStyle === 'string') {
     requestPayload.appearance_text_style = payload.appearanceTextStyle
-  }
-  if (typeof payload.emotionVisualizationEnabled === 'boolean') {
-    requestPayload.emotion_visualization_enabled = payload.emotionVisualizationEnabled
   }
   if (typeof payload.canonicalStatePipelineEnabled === 'boolean') {
     requestPayload.canonical_state_pipeline_enabled = payload.canonicalStatePipelineEnabled
@@ -2537,9 +2503,6 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   if (typeof options.environmentWeatherEnabled === 'boolean') {
     requestPayload.environment_weather_enabled = options.environmentWeatherEnabled
   }
-  if (typeof options.emotionVisualizationEnabled === 'boolean') {
-    requestPayload.emotion_visualization_enabled = options.emotionVisualizationEnabled
-  }
   logStoryPerf('story-generate-api-request', {
     gameId: options.gameId,
     fields: Object.keys(requestPayload).sort(),
@@ -2821,6 +2784,52 @@ export async function generateStoryTurnImage(payload: {
     },
     body: JSON.stringify(requestPayload),
   })
+}
+
+export async function generateStoryNovelBackground(payload: {
+  token: string
+  gameId: number
+  title?: string
+  signal?: AbortSignal
+}): Promise<StorySceneBackground> {
+  const response = await request<StorySceneBackground>(`/api/story/games/${payload.gameId}/novel/background/generate`, {
+    method: 'POST',
+    signal: payload.signal,
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({ title: payload.title ?? null }),
+  })
+  return normalizeStorySceneBackgroundPayload(response)
+}
+
+export async function listStoryNovelBackgrounds(payload: {
+  token: string
+  gameId: number
+}): Promise<StorySceneBackground[]> {
+  const response = await request<StorySceneBackground[]>(`/api/story/games/${payload.gameId}/novel/backgrounds`, {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+  return Array.isArray(response) ? response.map((item) => normalizeStorySceneBackgroundPayload(item)) : []
+}
+
+export async function selectStoryNovelBackground(payload: {
+  token: string
+  gameId: number
+  backgroundId: number
+}): Promise<StorySceneBackground> {
+  const response = await request<StorySceneBackground>(`/api/story/games/${payload.gameId}/novel/background/select`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({ background_id: payload.backgroundId }),
+  })
+  return normalizeStorySceneBackgroundPayload(response)
 }
 
 export async function queueStorySummaryJob(payload: {

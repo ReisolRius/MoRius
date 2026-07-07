@@ -45,7 +45,7 @@ from app.services.story_games import (
     serialize_story_game_genres,
     story_game_summary_to_out,
 )
-from app.services.story_display_modes import STORY_DISPLAY_MODE_TEXT
+from app.services.story_novel import STORY_GAME_MODE_RPG
 from app.services.story_publication_moderation import mark_story_publication_approved
 
 
@@ -104,8 +104,7 @@ def upsert_story_character_publication_copy_from_source(
             ),
             avatar_scale=normalize_story_avatar_scale(source_character.avatar_scale),
             emotion_assets=serialize_story_character_emotion_assets(getattr(source_character, "emotion_assets", "")),
-            emotion_model=str(getattr(source_character, "emotion_model", "") or "").strip(),
-            emotion_prompt_lock=str(getattr(source_character, "emotion_prompt_lock", "") or "").strip(),
+            novel_sprite_gender=str(getattr(source_character, "novel_sprite_gender", "") or "").strip().lower(),
             source=normalize_story_character_source(source_character.source),
             visibility=STORY_CHARACTER_VISIBILITY_PUBLIC,
             source_character_id=source_character.id,
@@ -150,8 +149,7 @@ def upsert_story_character_publication_copy_from_source(
     )
     publication.avatar_scale = normalize_story_avatar_scale(source_character.avatar_scale)
     publication.emotion_assets = serialize_story_character_emotion_assets(getattr(source_character, "emotion_assets", ""))
-    publication.emotion_model = str(getattr(source_character, "emotion_model", "") or "").strip()
-    publication.emotion_prompt_lock = str(getattr(source_character, "emotion_prompt_lock", "") or "").strip()
+    publication.novel_sprite_gender = str(getattr(source_character, "novel_sprite_gender", "") or "").strip().lower()
     publication.source = normalize_story_character_source(source_character.source)
     publication.visibility = STORY_CHARACTER_VISIBILITY_PUBLIC
     publication.source_character_id = source_character.id
@@ -289,8 +287,7 @@ def upsert_story_game_publication_copy_from_source(
             environment_tomorrow_weather=serialize_story_environment_weather(
                 normalized_source.environment_tomorrow_weather
             ),
-            emotion_visualization_enabled=normalized_source.emotion_visualization_enabled,
-            display_mode=STORY_DISPLAY_MODE_TEXT,
+            game_mode=STORY_GAME_MODE_RPG,
             ambient_profile=serialize_story_ambient_profile(normalized_source.ambient_profile),
             last_activity_at=normalized_source.last_activity_at,
         )
@@ -365,8 +362,7 @@ def upsert_story_game_publication_copy_from_source(
     publication.environment_tomorrow_weather = serialize_story_environment_weather(
         normalized_source.environment_tomorrow_weather
     )
-    publication.emotion_visualization_enabled = normalized_source.emotion_visualization_enabled
-    publication.display_mode = STORY_DISPLAY_MODE_TEXT
+    publication.game_mode = STORY_GAME_MODE_RPG
     publication.ambient_profile = serialize_story_ambient_profile(normalized_source.ambient_profile)
     publication.last_activity_at = normalized_source.last_activity_at
     mark_story_publication_approved(publication, reviewer_user_id=reviewer_user_id)

@@ -1555,20 +1555,14 @@ def _extract_story_postprocess_memory_payload(
     character_state_enabled: bool = False,
     important_event_enabled: bool = False,
     ambient_enabled: bool = False,
-    scene_emotion_enabled: bool = False,
     auto_npc_cards_enabled: bool = False,
     world_cards: list[dict[str, Any]] | None = None,
-    scene_emotion_active_cast_entries: list[dict[str, Any]] | None = None,
-    scene_emotion_allowed_emotions: list[str] | None = None,
     max_attempts: int = 1,
 ) -> dict[str, Any] | None:
     _ = (
         raw_memory_enabled,
         environment_enabled,
         ambient_enabled,
-        scene_emotion_enabled,
-        scene_emotion_active_cast_entries,
-        scene_emotion_allowed_emotions,
     )
     requested_modules: list[str] = []
     if location_enabled:
@@ -1703,16 +1697,13 @@ def _extract_story_world_analysis_payload(
     environment_weather_enabled: bool = False,
     important_event_enabled: bool = False,
     ambient_enabled: bool = False,
-    scene_emotion_enabled: bool = False,
     world_cards: list[Any] | None = None,
-    scene_emotion_active_characters: str = "",
-    scene_emotion_supported_emotions: str = "",
     max_attempts: int = 1,
 ) -> dict[str, Any] | None:
     """Call A — один Gemini-вызов на все «мировые» модули хода.
 
     Возвращает только секции включённых модулей в формате, который ждут существующие
-    потребители (location.content, important_event как кортеж, ambient/scene_emotion/
+    потребители (location.content, important_event как кортеж, ambient/
     environment как сырые dict для override). Отключённые модули ни в промпт, ни в схему
     не попадают и в результат не кладутся.
     """
@@ -1726,8 +1717,6 @@ def _extract_story_world_analysis_payload(
         requested_modules.append("important_memory")
     if ambient_enabled:
         requested_modules.append("ambient")
-    if scene_emotion_enabled:
-        requested_modules.append("scene_emotion")
     if not requested_modules:
         return None
 
@@ -1782,8 +1771,6 @@ def _extract_story_world_analysis_payload(
         environment_weather_enabled=environment_weather_enabled,
         environment_time_facts=environment_time_facts,
         environment_weather_facts=environment_weather_facts,
-        scene_emotion_active_characters=scene_emotion_active_characters,
-        scene_emotion_supported_emotions=scene_emotion_supported_emotions,
     )
     payload, _meta = _llm_service(gemini_only=True).call_json(
         messages=messages,
@@ -1824,8 +1811,6 @@ def _extract_story_world_analysis_payload(
             result["important_event"] = None
     if ambient_enabled and payload.ambient is not None:
         result["ambient"] = payload.ambient.model_dump(mode="json")
-    if scene_emotion_enabled and payload.scene_emotion is not None:
-        result["scene_emotion"] = payload.scene_emotion.model_dump(mode="json")
     return result
 
 
@@ -1881,7 +1866,6 @@ def _story_environment_any_enabled_for_game(game: StoryGame) -> bool:
             "environment_time_enabled",
             "environment_weather_enabled",
             "environment_ambient_enabled",
-            "environment_scene_emotion_enabled",
         )
     )
 
@@ -1931,7 +1915,6 @@ def _story_environment_any_enabled_for_game(game: StoryGame) -> bool:
             _story_environment_time_enabled_for_game(game),
             _story_environment_weather_enabled_for_game(game),
             bool(getattr(game, "environment_ambient_enabled", False)),
-            bool(getattr(game, "environment_scene_emotion_enabled", False)),
         )
     )
 

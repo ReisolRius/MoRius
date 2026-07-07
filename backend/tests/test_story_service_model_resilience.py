@@ -44,7 +44,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
     def test_story_response_limit_remains_3000_tokens(self) -> None:
         self.assertEqual(monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX, 3_000)
 
-    def test_aion_openrouter_request_is_fitted_inside_combined_context_window(self) -> None:
+    def test_aion_routerai_request_is_fitted_inside_combined_context_window(self) -> None:
         oversized_messages = [
             {"role": "system", "content": "system rules"},
             {"role": "assistant", "content": "old scene " * 140_000},
@@ -91,7 +91,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             input_budget,
         )
 
-    def test_openrouter_turn_retry_covers_transient_gateway_and_timeout_statuses(self) -> None:
+    def test_routerai_turn_retry_covers_transient_gateway_and_timeout_statuses(self) -> None:
         for status_code in (408, 409, 425, 429, 499, 500, 502, 503, 504):
             with self.subTest(status_code=status_code):
                 self.assertTrue(
@@ -309,7 +309,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         recover_mock.assert_called_once()
 
     def test_stream_recovers_tail_even_when_provider_falsely_reports_stop(self) -> None:
-        # Regression guard: Polza/OpenRouter can report finish_reason "stop" (and send [DONE])
+        # Regression guard: Polza/RouterAI can report finish_reason "stop" (and send [DONE])
         # even though the emitted text was cut off mid-sentence. The dangling-text heuristic
         # must still trigger tail recovery instead of trusting that metadata at face value.
         response = _FakeStreamResponse(
@@ -355,16 +355,16 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
 
     def test_candidate_models_keep_explicit_fallback_when_service_fallback_is_disabled(self) -> None:
         candidates = story_generation_provider._build_polza_story_candidate_models(
-            "google/gemma-4-31b-it:free",
+            "google/gemma-4-31b-it",
             allow_service_fallback=False,
-            fallback_model_names=["nex-agi/nex-n2-pro:free"],
+            fallback_model_names=["nex-agi/nex-n2-pro"],
         )
 
         self.assertEqual(
             candidates,
             [
-                "google/gemma-4-31b-it:free",
-                "nex-agi/nex-n2-pro:free",
+                "google/gemma-4-31b-it",
+                "nex-agi/nex-n2-pro",
             ],
         )
 
@@ -409,7 +409,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         )
         self.assertEqual(
             request_mock.call_args.kwargs["fallback_model_names"],
-            ["nex-agi/nex-n2-pro:free"],
+            ["nex-agi/nex-n2-pro"],
         )
 
     def test_standard_game_uses_gemini_flash_service_model_pair(self) -> None:
@@ -418,7 +418,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         )
 
         self.assertEqual(primary_model, "google/gemini-2.5-flash")
-        self.assertEqual(fallback_models, ["nex-agi/nex-n2-pro:free"])
+        self.assertEqual(fallback_models, ["nex-agi/nex-n2-pro"])
 
     def test_gpt_oss_fallback_keeps_required_reasoning_but_excludes_it_from_output(self) -> None:
         payload: dict = {}
@@ -456,7 +456,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(story_generation_provider._story_stream_first_token_timeout_seconds(300), 120.0)
         self.assertEqual(story_generation_provider._story_stream_first_token_timeout_seconds(90), 120.0)
 
-    def test_openrouter_service_request_falls_back_after_primary_model_rate_limit(self) -> None:
+    def test_routerai_service_request_falls_back_after_primary_model_rate_limit(self) -> None:
         rate_limited = _FakeResponse(
             429,
             {
@@ -480,8 +480,8 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         with patch.object(monolith_main.HTTP_SESSION, "post", side_effect=[rate_limited, success]) as post_mock:
             result = monolith_main._request_polza_story_text(
                 [{"role": "user", "content": "test"}],
-                model_name="google/gemma-4-31b-it:free",
-                fallback_model_names=["nex-agi/nex-n2-pro:free"],
+                model_name="google/gemma-4-31b-it",
+                fallback_model_names=["nex-agi/nex-n2-pro"],
                 allow_service_fallback=False,
                 retry_on_rate_limit=False,
             )
@@ -491,8 +491,8 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(
             requested_models,
             [
-                "google/gemma-4-31b-it:free",
-                "nex-agi/nex-n2-pro:free",
+                "google/gemma-4-31b-it",
+                "nex-agi/nex-n2-pro",
             ],
         )
 
@@ -507,7 +507,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             result = monolith_main._request_polza_story_text(
                 [{"role": "user", "content": "test"}],
                 model_name="google/gemini-2.5-flash",
-                fallback_model_names=["nex-agi/nex-n2-pro:free"],
+                fallback_model_names=["nex-agi/nex-n2-pro"],
                 allow_service_fallback=False,
                 retry_on_rate_limit=False,
             )
@@ -516,7 +516,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(post_mock.call_count, 2)
         self.assertEqual(
             [call.kwargs["json"]["model"] for call in post_mock.call_args_list],
-            ["google/gemini-2.5-flash", "nex-agi/nex-n2-pro:free"],
+            ["google/gemini-2.5-flash", "nex-agi/nex-n2-pro"],
         )
 
     def test_turn_service_http_budget_blocks_fourth_request(self) -> None:
@@ -533,14 +533,14 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             for _ in range(3):
                 monolith_main._request_polza_story_text(
                     [{"role": "user", "content": "test"}],
-                    model_name="google/gemma-4-31b-it:free",
+                    model_name="google/gemma-4-31b-it",
                     fallback_model_names=[],
                     retry_on_rate_limit=False,
                 )
             with self.assertRaisesRegex(RuntimeError, "budget exhausted"):
                 monolith_main._request_polza_story_text(
                     [{"role": "user", "content": "blocked"}],
-                    model_name="google/gemma-4-31b-it:free",
+                    model_name="google/gemma-4-31b-it",
                     fallback_model_names=[],
                     retry_on_rate_limit=False,
                 )
@@ -636,7 +636,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         ):
             _, content = story_memory_pipeline._compress_story_memory_block_with_model(
                 raw_content="PLAYER_TURN:\nAlex enters.\n\nNARRATOR_RESPONSE:\nAlex вошел в зал.",
-                model_name="google/gemma-4-31b-it:free",
+                model_name="google/gemma-4-31b-it",
                 fallback_model_names=[],
                 super_mode=False,
                 player_name="Alex",

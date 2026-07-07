@@ -328,22 +328,6 @@ class AmbientPayload(BaseModel):
     vignette_strength: float | None = None
 
 
-class SceneEmotionParticipantPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    name: str = ""
-    emotion: str = ""
-    importance: str = "primary"
-
-
-class SceneEmotionPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    show_visualization: bool = False
-    reason: str = ""
-    participants: list[SceneEmotionParticipantPayload] = Field(default_factory=list)
-
-
 class EnvironmentWeatherPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -401,7 +385,20 @@ class WorldAnalysisPayload(BaseModel):
     environment: EnvironmentPayload = Field(default_factory=EnvironmentPayload)
     important_memory: ImportantMemoryPayload = Field(default_factory=ImportantMemoryPayload)
     ambient: AmbientPayload | None = None
-    scene_emotion: SceneEmotionPayload | None = None
+
+
+class SceneBackgroundPromptPayload(BaseModel):
+    """Visual Novel scene background prompt (admin-triggered, Gemini 2.5 flash).
+
+    An empty scene (just the location) unless the last turn implies a crowd/people present,
+    in which case generic (unnamed) figures may be described -- never specific named characters.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    prompt: str = ""
+    location_title: str = ""
+    has_people: bool = False
 
 
 def _strip_json_markdown_fence(value: str) -> str:

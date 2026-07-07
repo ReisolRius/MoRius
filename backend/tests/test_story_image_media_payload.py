@@ -38,7 +38,7 @@ class StoryImageMediaPayloadTests(unittest.TestCase):
 
             self.assertNotIn("provider", payload)
 
-    def test_text_model_provider_pinning_is_disabled_for_openrouter(self) -> None:
+    def test_text_model_provider_pinning_is_disabled_for_routerai(self) -> None:
         payload = monolith_main._build_polza_provider_payload("anthropic/claude-sonnet-4.6")
 
         self.assertIsNone(payload)

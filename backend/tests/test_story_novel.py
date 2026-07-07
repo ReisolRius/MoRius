@@ -1,0 +1,148 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+import sys
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.services.story_novel import (  # noqa: E402
+    STORY_GAME_MODE_RPG,
+    STORY_GAME_MODE_VISUAL_NOVEL,
+    STORY_NOVEL_BEAT_DIALOGUE,
+    STORY_NOVEL_BEAT_NARRATION,
+    STORY_NOVEL_BEAT_THOUGHT,
+    _resolve_story_novel_sprite,
+    build_story_novel_instruction_card,
+    can_user_use_story_visual_novel,
+    is_story_visual_novel_enabled,
+    is_story_visual_novel_game,
+    normalize_story_game_mode,
+    parse_story_novel_beats,
+)
+
+
+class NormalizeStoryGameModeTests(unittest.TestCase):
+    def test_defaults_to_rpg_for_unknown_values(self) -> None:
+        self.assertEqual(normalize_story_game_mode(None), STORY_GAME_MODE_RPG)
+        self.assertEqual(normalize_story_game_mode(""), STORY_GAME_MODE_RPG)
+        self.assertEqual(normalize_story_game_mode("something_else"), STORY_GAME_MODE_RPG)
+
+    def test_accepts_visual_novel_and_aliases(self) -> None:
+        self.assertEqual(normalize_story_game_mode("visual_novel"), STORY_GAME_MODE_VISUAL_NOVEL)
+        self.assertEqual(normalize_story_game_mode("novel"), STORY_GAME_MODE_VISUAL_NOVEL)
+        self.assertEqual(normalize_story_game_mode("VN"), STORY_GAME_MODE_VISUAL_NOVEL)
+
+
+class AdminGatingTests(unittest.TestCase):
+    def test_only_administrator_role_can_use_visual_novel(self) -> None:
+        admin = SimpleNamespace(role="administrator")
+        player = SimpleNamespace(role="user")
+        moderator = SimpleNamespace(role="moderator")
+
+        self.assertTrue(can_user_use_story_visual_novel(admin))
+        self.assertFalse(can_user_use_story_visual_novel(player))
+        self.assertFalse(can_user_use_story_visual_novel(moderator))
+
+    def test_is_story_visual_novel_enabled_requires_both_admin_and_game_mode(self) -> None:
+        admin = SimpleNamespace(role="administrator")
+        player = SimpleNamespace(role="user")
+        vn_game = SimpleNamespace(game_mode="visual_novel")
+        rpg_game = SimpleNamespace(game_mode="rpg")
+
+        self.assertTrue(is_story_visual_novel_game(vn_game))
+        self.assertFalse(is_story_visual_novel_game(rpg_game))
+        self.assertTrue(is_story_visual_novel_enabled(vn_game, admin))
+        self.assertFalse(is_story_visual_novel_enabled(vn_game, player))
+        self.assertFalse(is_story_visual_novel_enabled(rpg_game, admin))
+
+
+class ParseStoryNovelBeatsTests(unittest.TestCase):
+    def test_splits_narration_dialogue_and_thought_lines(self) -> None:
+        raw = (
+            "Таверна встречает тебя запахом эля и дымом очага.\n"
+            "Мия [радость]: Наконец-то! Я думала, ты не придёшь.\n"
+            "Мия [страх]: (Только бы он не заметил, как я нервничаю.)\n"
+            "Дверь скрипит, впуская сквозняк с улицы."
+        )
+        beats = parse_story_novel_beats(raw)
+
+        kinds = [beat.kind for beat in beats]
+        self.assertIn(STORY_NOVEL_BEAT_NARRATION, kinds)
+        self.assertIn(STORY_NOVEL_BEAT_DIALOGUE, kinds)
+        self.assertIn(STORY_NOVEL_BEAT_THOUGHT, kinds)
+
+        dialogue_beat = next(beat for beat in beats if beat.kind == STORY_NOVEL_BEAT_DIALOGUE)
+        self.assertEqual(dialogue_beat.speaker_name, "Мия")
+        self.assertEqual(dialogue_beat.emotion, "happy")
+        self.assertIn("Наконец-то", dialogue_beat.text)
+
+        thought_beat = next(beat for beat in beats if beat.kind == STORY_NOVEL_BEAT_THOUGHT)
+        self.assertEqual(thought_beat.speaker_name, "Мия")
+        self.assertEqual(thought_beat.emotion, "scared")
+        self.assertNotIn("(", thought_beat.text)
+        self.assertNotIn(")", thought_beat.text)
+
+    def test_defaults_emotion_to_neutral_when_missing(self) -> None:
+        beats = parse_story_novel_beats("Мия: Здравствуй, путник.")
+        dialogue_beat = next(beat for beat in beats if beat.kind == STORY_NOVEL_BEAT_DIALOGUE)
+        self.assertEqual(dialogue_beat.emotion, "neutral")
+
+    def test_falls_back_to_single_narration_beat_for_unparsable_text(self) -> None:
+        beats = parse_story_novel_beats("   ")
+        self.assertEqual(beats, [])
+
+        beats = parse_story_novel_beats("Просто голый текст без разметки.")
+        self.assertEqual(len(beats), 1)
+        self.assertEqual(beats[0].kind, STORY_NOVEL_BEAT_NARRATION)
+
+
+class ResolveStoryNovelSpriteTests(unittest.TestCase):
+    def test_no_character_returns_incognito_with_no_gender(self) -> None:
+        sprite_url, incognito, gender = _resolve_story_novel_sprite(None, "happy")
+        self.assertIsNone(sprite_url)
+        self.assertTrue(incognito)
+        self.assertIsNone(gender)
+
+    def test_character_without_uploaded_sprites_is_incognito_by_gender(self) -> None:
+        character = SimpleNamespace(id=1, updated_at=None, novel_sprite_gender="female", emotion_assets="")
+        sprite_url, incognito, gender = _resolve_story_novel_sprite(character, "happy")
+        self.assertIsNone(sprite_url)
+        self.assertTrue(incognito)
+        self.assertEqual(gender, "female")
+
+    def test_character_with_matching_emotion_sprite_resolves_url(self) -> None:
+        character = SimpleNamespace(
+            id=2,
+            updated_at=None,
+            novel_sprite_gender="male",
+            emotion_assets='{"happy": "https://cdn.example.com/happy.png"}',
+        )
+        sprite_url, incognito, gender = _resolve_story_novel_sprite(character, "happy")
+        self.assertIsNotNone(sprite_url)
+        self.assertFalse(incognito)
+        self.assertEqual(gender, "male")
+
+    def test_character_falls_back_to_any_uploaded_sprite_when_emotion_missing(self) -> None:
+        character = SimpleNamespace(
+            id=3,
+            updated_at=None,
+            novel_sprite_gender="",
+            emotion_assets='{"sad": "https://cdn.example.com/sad.png"}',
+        )
+        sprite_url, incognito, gender = _resolve_story_novel_sprite(character, "happy")
+        self.assertIsNotNone(sprite_url)
+        self.assertFalse(incognito)
+
+
+class BuildStoryNovelInstructionCardTests(unittest.TestCase):
+    def test_card_lists_all_eight_emotions(self) -> None:
+        card = build_story_novel_instruction_card()
+        self.assertEqual(card["source_kind"], "visual_novel")
+        for label in ("Нейтральная", "Радость", "Грусть", "Злость", "Удивление", "Смущение", "Страх", "Ухмылка"):
+            self.assertIn(label, card["content"])
+
+
+if __name__ == "__main__":
+    unittest.main()

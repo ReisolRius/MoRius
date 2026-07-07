@@ -459,17 +459,11 @@ class StoryGame(Base):
         default=False,
         server_default="0",
     )
-    emotion_visualization_enabled: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=False,
-        server_default="0",
-    )
-    display_mode: Mapped[str] = mapped_column(
+    game_mode: Mapped[str] = mapped_column(
         String(24),
         nullable=False,
-        default="text",
-        server_default="text",
+        default="rpg",
+        server_default="rpg",
     )
     environment_enabled: Mapped[bool] = mapped_column(
         Boolean,
@@ -825,12 +819,10 @@ class StoryMessage(Base):
     game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    scene_emotion_payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
-    vn_raw_response: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     # Chronological log of every reroll attempt generated for this turn: [{content,
-    # vn_raw_response, scene_emotion_payload, created_at}, ...], oldest first. `content` (and the
-    # sibling fields above) always mirror variant_history_json[active_variant_index]. Only ever
-    # populated on the current last assistant message of a game; cleared on the next real turn.
+    # created_at}, ...], oldest first. `content` always mirrors
+    # variant_history_json[active_variant_index]. Only ever populated on the current last
+    # assistant message of a game; cleared on the next real turn.
     variant_history_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
     active_variant_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -842,24 +834,30 @@ class StoryMessage(Base):
     )
 
 
-class StoryMessageSegment(Base):
-    __tablename__ = "story_message_segments"
+class StoryNovelBeat(Base):
+    """One ordered "page" of a Visual Novel turn (admin-only game_mode='visual_novel').
+
+    An assistant turn is parsed into ordered beats the player advances through with a
+    "Далее" button: narration paragraphs, character dialogue lines, and inner thoughts.
+    Dialogue/thought beats carry a speaker and one of the 8 preset emotions so the UI can
+    show the matching manually-uploaded sprite (or a gender incognito silhouette when none
+    exists).
+    """
+
+    __tablename__ = "story_novel_beats"
     __table_args__ = (
-        UniqueConstraint("message_id", "order_index", name="uq_story_message_segments_message_order"),
+        UniqueConstraint("message_id", "order_index", name="uq_story_novel_beats_message_order"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
     message_id: Mapped[int] = mapped_column(ForeignKey("story_messages.id"), nullable=False, index=True)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    beat_type: Mapped[str] = mapped_column(String(16), nullable=False, default="narration", server_default="narration")
-    speaker_character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="narration", server_default="narration")
     speaker_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
-    emotion: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    speaker_character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    emotion: Mapped[str | None] = mapped_column(String(24), nullable=True)
     text: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
-    sprite_asset_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    background_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    metadata_json: Mapped[str] = mapped_column("metadata", Text, nullable=False, default="{}", server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -868,35 +866,27 @@ class StoryMessageSegment(Base):
     )
 
 
-class StoryCharacterSpriteAsset(Base):
-    __tablename__ = "story_character_sprite_assets"
-    __table_args__ = (
-        UniqueConstraint("character_id", "emotion", "processed_image_url", name="uq_story_character_sprite_asset"),
-    )
+class StorySceneBackground(Base):
+    """A saved Visual Novel scene background (admin-only) with trigger-based memory.
+
+    Generated on demand via Gemini 2.5 flash (prompt) + the image pipeline. Once created it
+    is remembered with trigger keywords, so re-entering the same location swaps to the saved
+    background with a smooth cross-fade instead of regenerating (free, instant).
+    """
+
+    __tablename__ = "story_scene_backgrounds"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    character_id: Mapped[int | None] = mapped_column(ForeignKey("story_characters.id"), nullable=True, index=True)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
-    npc_archetype: Mapped[str] = mapped_column(String(80), nullable=False, default="", server_default="")
-    emotion: Mapped[str] = mapped_column(String(32), nullable=False, default="calm", server_default="calm")
-    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="emotion_asset", server_default="emotion_asset")
-    original_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    processed_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    thumbnail_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    mobile_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    desktop_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    mime_type: Mapped[str] = mapped_column(String(80), nullable=False, default="", server_default="")
-    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    has_alpha: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
-    processing_status: Mapped[str] = mapped_column(String(32), nullable=False, default="ready", server_default="ready")
-    error_detail: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
-    prompt_used: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
-    reference_asset_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    model_used: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
-    request_metadata_json: Mapped[str] = mapped_column("request_metadata", Text, nullable=False, default="{}", server_default="{}")
-    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
+    prompt: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
+    theme: Mapped[str] = mapped_column(String(40), nullable=False, default="", server_default="")
+    style: Mapped[str] = mapped_column(String(40), nullable=False, default="", server_default="")
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -1019,9 +1009,10 @@ class StoryCharacter(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_original_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
+    # Visual-Novel manual emotion sprites: JSON map {emotion_id: media_url} filled by hand
+    # (no AI generation). Optional; empty slots fall back to a gender incognito silhouette.
     emotion_assets: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
-    emotion_model: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
-    emotion_prompt_lock: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    novel_sprite_gender: Mapped[str] = mapped_column(String(8), nullable=False, default="", server_default="")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private")
     source_character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
@@ -1096,30 +1087,6 @@ class StoryWorldCardTemplate(Base):
     avatar_original_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     memory_turns: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
-
-
-class StoryCharacterEmotionGenerationJob(Base):
-    __tablename__ = "story_character_emotion_jobs"
-
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued", server_default="queued", index=True)
-    image_model: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
-    request_payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
-    result_payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
-    error_detail: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
-    current_emotion_id: Mapped[str] = mapped_column(String(32), nullable=False, default="", server_default="")
-    completed_variants: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    total_variants: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    reserved_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

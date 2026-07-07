@@ -9,7 +9,15 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import StoryGame, StoryMessage
 from app.schemas import StoryGameOut, StoryGameSummaryOut, StoryInstructionCardOut, StoryMemoryBlockOut, StoryTurnImageOut
-from app.services.story_display_modes import STORY_DISPLAY_MODE_TEXT, STORY_DISPLAY_MODE_VISUAL_NOVEL
+from app.services.story_novel import (
+    STORY_GAME_MODE_RPG,
+    is_story_visual_novel_game,
+    resolve_story_novel_beats_for_read,
+)
+from app.services.story_novel_backgrounds import (
+    get_current_story_scene_background,
+    story_scene_background_to_out,
+)
 from app.services.auth_identity import get_current_user
 from app.services.story_cards import story_plot_card_to_out
 from app.services.story_games import count_story_completed_turns, story_game_summary_to_compact_out, story_game_summary_to_out
@@ -21,12 +29,11 @@ from app.services.story_queries import (
     list_story_instruction_cards,
     list_story_memory_blocks,
     list_story_messages,
-    list_story_message_segments,
+    list_story_novel_beats,
     list_story_plot_cards,
     list_story_turn_images,
     list_story_world_cards,
 )
-from app.services.story_visual_novel import story_vn_beat_to_out
 from app.services.story_world_cards import story_world_card_to_out
 
 games_router = APIRouter()
@@ -356,13 +363,18 @@ def get_story_game_fallback_router(
     game_summary = story_game_summary_to_out(game, turn_count=count_story_completed_turns(messages))
     is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
     if not is_administrator:
-        game_summary = game_summary.model_copy(update={"display_mode": STORY_DISPLAY_MODE_TEXT})
+        game_summary = game_summary.model_copy(update={"game_mode": STORY_GAME_MODE_RPG})
     resolved_current_location_label = resolve_story_current_location_label(
         getattr(game_summary, "current_location_label", None),
         memory_blocks,
     )
     if resolved_current_location_label != getattr(game_summary, "current_location_label", None):
         game_summary = game_summary.model_copy(update={"current_location_label": resolved_current_location_label})
+    current_scene_background = None
+    if is_administrator and is_story_visual_novel_game(game_summary):
+        current_background = get_current_story_scene_background(db, game.id)
+        if current_background is not None:
+            current_scene_background = story_scene_background_to_out(current_background)
     logger.info(
         "Story read route response: route=fallback requested_game_id=%s returned_game_id=%s messages=%s memory_blocks=%s",
         game_id,
@@ -373,11 +385,12 @@ def get_story_game_fallback_router(
     return StoryGameOut(
         game=game_summary,
         messages=[story_message_to_out(message) for message in messages],
-        vn_beats=(
-            [story_vn_beat_to_out(segment) for segment in list_story_message_segments(db, game.id)]
-            if is_administrator and getattr(game_summary, "display_mode", STORY_DISPLAY_MODE_TEXT) == STORY_DISPLAY_MODE_VISUAL_NOVEL
+        novel_beats=(
+            resolve_story_novel_beats_for_read(db, list_story_novel_beats(db, game.id))
+            if is_administrator and is_story_visual_novel_game(game_summary)
             else []
         ),
+        current_scene_background=current_scene_background,
         turn_images=[StoryTurnImageOut.model_validate(item) for item in turn_images],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[story_plot_card_to_out(card) for card in plot_cards],

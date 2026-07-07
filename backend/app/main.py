@@ -36,7 +36,6 @@ from app.config import (
 from app.database import SessionLocal
 from app.models import (
     StoryGame,
-    StoryCharacterEmotionGenerationJob,
     StoryMemoryBlock,
     StoryMessage,
     StoryPlotCard,
@@ -71,6 +70,7 @@ from app.routers.story_graph import router as story_graph_router
 from app.routers.story_instruction_templates import router as story_instruction_templates_router
 from app.routers.story_messages import router as story_messages_router
 from app.routers.story_memory import router as story_memory_router
+from app.routers.story_novel import router as story_novel_router
 from app.routers.story_read import router as story_read_router
 from app.routers.story_summary import router as story_summary_router
 from app.routers.story_turn_image import router as story_turn_image_router
@@ -89,9 +89,6 @@ from app.services.sqlite_write_guard import commit_with_retry
 from app.schemas import (
     StoryCharacterAvatarGenerateOut,
     StoryCharacterAvatarGenerateRequest,
-    StoryCharacterEmotionGenerateJobOut,
-    StoryCharacterEmotionGenerateOut,
-    StoryCharacterEmotionGenerateRequest,
     StoryGenerateRequest,
     StoryInstructionCardInput,
     StoryPlotCardChangeEventOut,
@@ -147,8 +144,6 @@ from app.services.story_characters import (
 from app.services.story_emotions import (
     STORY_CHARACTER_EMOTION_IDS as _STORY_CHARACTER_EMOTION_IDS,
     normalize_story_character_emotion_id as _normalize_story_character_emotion_id,
-    normalize_story_scene_emotion_payload as _normalize_story_scene_emotion_payload,
-    serialize_story_scene_emotion_payload as _serialize_story_scene_emotion_payload,
 )
 from app.services.story_cards import (
     STORY_PLOT_CARD_MAX_CONTENT_LENGTH,
@@ -549,21 +544,6 @@ STORY_AITUNNEL_IMAGE_EDIT_MODELS: set[str] = set()
 STORY_AITUNNEL_BLANK_EDIT_CANVAS_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
 )
-STORY_CHARACTER_EMOTION_REFERENCE_MAX_CHARS = 1_600
-STORY_CHARACTER_EMOTION_EDIT_STYLE_MAX_CHARS = 320
-STORY_CHARACTER_EMOTION_GENERATED_VARIANTS = tuple(
-    emotion_id for emotion_id in _STORY_CHARACTER_EMOTION_IDS if emotion_id != "calm"
-)
-STORY_CHARACTER_EMOTION_JOB_STATUS_QUEUED = "queued"
-STORY_CHARACTER_EMOTION_JOB_STATUS_RUNNING = "running"
-STORY_CHARACTER_EMOTION_JOB_STATUS_COMPLETED = "completed"
-STORY_CHARACTER_EMOTION_JOB_STATUS_FAILED = "failed"
-STORY_CHARACTER_EMOTION_JOB_TERMINAL_STATUSES = {
-    STORY_CHARACTER_EMOTION_JOB_STATUS_COMPLETED,
-    STORY_CHARACTER_EMOTION_JOB_STATUS_FAILED,
-}
-STORY_CHARACTER_EMOTION_JOB_ERROR_MAX_LENGTH = 1_000
-
 # --- Story summary ("Подвести итоги") configuration ---------------------------------
 STORY_SUMMARY_NARRATIVE_MODEL = POLZA_GEMINI_25_FLASH_MODEL
 STORY_SUMMARY_IMAGE_MODEL = STORY_TURN_IMAGE_MODEL_NANO_BANANO_2
@@ -590,36 +570,6 @@ STORY_SUMMARY_JOB_TERMINAL_STATUSES = {
 }
 STORY_SUMMARY_JOB_ERROR_MAX_LENGTH = 1_000
 
-STORY_SCENE_EMOTION_ANALYSIS_MODEL = STORY_SERVICE_TEXT_MODEL
-STORY_SCENE_EMOTION_ANALYSIS_REQUEST_MAX_TOKENS = 180
-STORY_SCENE_EMOTION_MAIN_HERO_ALIASES = (
-    "гг",
-    "главный герой",
-    "герой",
-    "ты",
-    "тебя",
-    "тебе",
-    "тобой",
-    "вы",
-    "вас",
-    "вам",
-    "вами",
-    "я",
-    "меня",
-    "мне",
-    "мной",
-    "мы",
-    "нас",
-    "нам",
-    "нами",
-    "you",
-    "your",
-    "yours",
-    "player",
-    "protagonist",
-    "hero",
-    "mc",
-)
 STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS = 8
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT = 600
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
@@ -1257,8 +1207,6 @@ STORY_PROVIDER_FAILURE_DETAIL_MARKERS = (
 STORY_PRE_STREAM_CONFLICT_DETAIL = (
     "Story state could not be prepared before generation. Refresh the game and try again."
 )
-STORY_SPRITE_REMOVAL_SESSION_LOCK = Lock()
-STORY_SPRITE_REMOVAL_SESSION: Any = None
 HTTP_SESSION = requests.Session()
 HTTP_ADAPTER = HTTPAdapter(
     pool_connections=max(settings.http_pool_connections, 1),
@@ -1291,6 +1239,7 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "deepseek/deepseek-v3.2": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-chat-v3-0324": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-v4-pro": STORY_SERVICE_TEXT_MODEL,
+    "deepseek/deepseek-r1-0528": STORY_SERVICE_TEXT_MODEL,
     "mistralai/mistral-nemo": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
     "minimax/minimax-m2-her": STORY_SERVICE_TEXT_MODEL,
@@ -1303,6 +1252,7 @@ STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
     "deepseek/deepseek-v3.2",
     "deepseek/deepseek-chat-v3-0324",
     "deepseek/deepseek-v4-pro",
+    "deepseek/deepseek-r1-0528",
 }
 STORY_POLZA_PROVIDER_NEBIUS = "Nebius"
 STORY_POLZA_PROVIDER_IONSTREAM = "Ionstream"
@@ -1311,7 +1261,7 @@ STORY_POLZA_PROVIDER_ATLAS_CLOUD = "AtlasCloud"
 STORY_POLZA_PROVIDER_AZURE = "Azure"
 STORY_POLZA_PROVIDER_AION_LABS = "AionLabs"
 STORY_POLZA_PROVIDER_MINIMAX = "MiniMax"
-STORY_POLZA_PROVIDER_OPENROUTER = "OpenRouter"
+STORY_POLZA_PROVIDER_ROUTERAI = "RouterAI"
 STORY_POLZA_PROVIDER_MIE = "mie"
 STORY_POLZA_PROVIDER_ALIBABA = "Alibaba"
 STORY_POLZA_PROVIDER_VENICE = "Venice"
@@ -1328,7 +1278,7 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "mistralai/mistral-nemo": STORY_POLZA_PROVIDER_AZURE,
     "aion-labs/aion-2.0": STORY_POLZA_PROVIDER_AION_LABS,
     "minimax/minimax-m2-her": STORY_POLZA_PROVIDER_MINIMAX,
-    "google/gemini-3.1-flash-lite": STORY_POLZA_PROVIDER_OPENROUTER,
+    "google/gemini-3.1-flash-lite": STORY_POLZA_PROVIDER_ROUTERAI,
     "anthropic/claude-sonnet-4.6": STORY_POLZA_PROVIDER_MIE,
     "google/gemini-2.5-pro": STORY_POLZA_PROVIDER_MIE,
 }
@@ -1341,6 +1291,7 @@ STORY_PAID_MODEL_HINTS = {
     "deepseek/deepseek-v3.2",
     "deepseek/deepseek-chat-v3-0324",
     "deepseek/deepseek-v4-pro",
+    "deepseek/deepseek-r1-0528",
     "mistralai/mistral-nemo",
     "aion-labs/aion-2.0",
     "minimax/minimax-m2-her",
@@ -1360,10 +1311,11 @@ STORY_DISABLE_THINKING_MODEL_IDS: set[str] = {
     "google/gemini-3.1-flash-lite",
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
-    # DeepSeek V4 Pro can leak its reasoning trace (and markdown) straight into the
+    # DeepSeek reasoning models can leak their trace (and markdown) straight into the
     # rendered scene, which breaks the [[NPC:...]] markup. Keep the reasoning internal
     # and exclude it from the visible output without lowering its writing quality.
     "deepseek/deepseek-v4-pro",
+    "deepseek/deepseek-r1-0528",
 }
 
 
@@ -1641,12 +1593,6 @@ STORY_STRICT_ENGLISH_OUTPUT_RULES = (
     "All narrative, dialogue, and thought text outside [[...]] markers must be English.",
     "Keep marker labels and fixed card names unchanged; rewrite accidental non-English prose into English.",
 )
-STORY_SPRITE_IMAGE_BASE_RULES = (
-    "Single character only.",
-    "Clean cutout-friendly background; no extra people, text, logos, watermark, frame, or scenery unless requested.",
-    "Readable face, consistent costume, anatomy, proportions, and silhouette.",
-)
-
 def _build_story_narrator_guardrail_rules(protagonist_label: str) -> tuple[str, ...]:
     protagonist = " ".join(str(protagonist_label or "").split()).strip() or "главный герой игрока"
     return (
@@ -1722,6 +1668,7 @@ app.include_router(story_characters_router)
 app.include_router(story_generate_router)
 app.include_router(story_graph_router)
 app.include_router(story_turn_image_router)
+app.include_router(story_novel_router)
 app.include_router(story_messages_router)
 app.include_router(story_read_router)
 app.include_router(story_summary_router)
@@ -1756,39 +1703,6 @@ if ai_assistant_router is not None:
 app.include_router(shop_router)
 
 
-def _fail_abandoned_story_character_emotion_jobs() -> None:
-    db = SessionLocal()
-    try:
-        active_jobs = db.scalars(
-            select(StoryCharacterEmotionGenerationJob).where(
-                StoryCharacterEmotionGenerationJob.status.in_(
-                    (
-                        STORY_CHARACTER_EMOTION_JOB_STATUS_QUEUED,
-                        STORY_CHARACTER_EMOTION_JOB_STATUS_RUNNING,
-                    )
-                )
-            )
-        ).all()
-        if not active_jobs:
-            return
-
-        completed_at = datetime.now(timezone.utc)
-        for job in active_jobs:
-            if int(getattr(job, "reserved_tokens", 0) or 0) > 0:
-                _add_user_tokens(db, int(job.user_id), int(job.reserved_tokens))
-                job.reserved_tokens = 0
-            job.status = STORY_CHARACTER_EMOTION_JOB_STATUS_FAILED
-            job.current_emotion_id = ""
-            job.error_detail = "Emotion generation was interrupted while the service restarted"
-            job.completed_at = completed_at
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.exception("Failed to reconcile abandoned story emotion jobs on startup")
-    finally:
-        db.close()
-
-
 @app.on_event("startup")
 def on_startup() -> None:
     if not settings.db_bootstrap_on_startup:
@@ -1816,8 +1730,6 @@ def on_startup() -> None:
         )
     except Exception:
         logger.exception("Database bootstrap failed during startup; continuing without blocking API process")
-    else:
-        _fail_abandoned_story_character_emotion_jobs()
 
 
 @app.on_event("shutdown")
@@ -5753,7 +5665,7 @@ def _validate_story_provider_config() -> None:
     if provider == "mock":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Story provider is not configured: set STORY_LLM_PROVIDER=openrouter and POLZA_API_KEY",
+            detail="Story provider is not configured: set STORY_LLM_PROVIDER=routerai and ROUTERAI_API_KEY",
         )
 
     if provider == "gigachat":
@@ -5768,12 +5680,12 @@ def _validate_story_provider_config() -> None:
         if not settings.polza_api_key:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenRouter provider is not configured: set POLZA_API_KEY",
+                detail="RouterAI provider is not configured: set ROUTERAI_API_KEY",
             )
         if not settings.polza_chat_url:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenRouter provider is not configured: set POLZA_CHAT_URL",
+                detail="RouterAI provider is not configured: set ROUTERAI_CHAT_URL",
             )
         return
 
@@ -7185,7 +7097,6 @@ def _resolve_story_turn_postprocess_payload(
     character_state_enabled: bool = False,
     important_event_enabled: bool = False,
     ambient_enabled: bool = False,
-    emotion_visualization_enabled: bool = False,
     auto_npc_cards_enabled: bool = False,
 ) -> dict[str, Any] | None:
     if assistant_message.game_id != game.id or assistant_message.role != STORY_ASSISTANT_ROLE:
@@ -7247,16 +7158,6 @@ def _resolve_story_turn_postprocess_payload(
                 assistant_message.id,
                 exc,
             )
-    scene_emotion_active_cast_entries = (
-        _build_story_scene_emotion_active_cast_entries(
-            latest_user_prompt=latest_user_prompt,
-            latest_assistant_text=latest_assistant_text,
-            world_cards=active_scene_world_cards,
-        )
-        if emotion_visualization_enabled
-        else []
-    )
-
     current_location_content = (
         story_memory_pipeline._get_story_effective_location_memory_content(db=db, game=game)
         if hasattr(story_memory_pipeline, "_get_story_effective_location_memory_content")
@@ -7306,9 +7207,7 @@ def _resolve_story_turn_postprocess_payload(
                     environment_enabled=False,
                     character_state_enabled=False,
                     important_event_enabled=True,
-                    ambient_enabled=False,
-                    scene_emotion_enabled=False,
-                    auto_npc_cards_enabled=False,
+                    ambient_enabled=False,                    auto_npc_cards_enabled=False,
                     world_cards=active_scene_world_cards,
                     max_attempts=1,
                 )
@@ -7340,9 +7239,7 @@ def _resolve_story_turn_postprocess_payload(
                     environment_time_enabled=False,
                     environment_weather_enabled=False,
                     important_event_enabled=False,
-                    ambient_enabled=False,
-                    scene_emotion_enabled=False,
-                    world_cards=active_scene_world_cards,
+                    ambient_enabled=False,                    world_cards=active_scene_world_cards,
                     max_attempts=1,
                 )
         except Exception as exc:
@@ -7390,9 +7287,7 @@ def _resolve_story_turn_postprocess_payload(
                     environment_time_enabled=True,
                     environment_weather_enabled=False,
                     important_event_enabled=False,
-                    ambient_enabled=False,
-                    scene_emotion_enabled=False,
-                    world_cards=active_scene_world_cards,
+                    ambient_enabled=False,                    world_cards=active_scene_world_cards,
                     max_attempts=1,
                 )
         except Exception as exc:
@@ -7409,13 +7304,7 @@ def _resolve_story_turn_postprocess_payload(
             else:
                 failed_modules.append("environment_time")
 
-    if ambient_enabled or emotion_visualization_enabled:
-        scene_emotion_active_characters = ""
-        scene_emotion_supported_emotions = ""
-        if emotion_visualization_enabled:
-            scene_emotion_active_characters, scene_emotion_supported_emotions = (
-                _render_story_scene_emotion_prompt_fragments(scene_emotion_active_cast_entries)
-            )
+    if ambient_enabled:
         try:
             with use_story_service_http_request_budget(StoryServiceHttpRequestBudget(max_requests=1)):
                 visual_payload = story_memory_pipeline._extract_story_world_analysis_payload(
@@ -7430,15 +7319,12 @@ def _resolve_story_turn_postprocess_payload(
                     environment_weather_enabled=False,
                     important_event_enabled=False,
                     ambient_enabled=ambient_enabled,
-                    scene_emotion_enabled=emotion_visualization_enabled,
                     world_cards=active_scene_world_cards,
-                    scene_emotion_active_characters=scene_emotion_active_characters,
-                    scene_emotion_supported_emotions=scene_emotion_supported_emotions,
                     max_attempts=1,
                 )
         except Exception as exc:
             logger.warning(
-                "Story visual ambience/emotion analysis failed: game_id=%s assistant_message_id=%s error=%s",
+                "Story visual ambience analysis failed: game_id=%s assistant_message_id=%s error=%s",
                 game.id,
                 assistant_message.id,
                 exc,
@@ -7475,9 +7361,7 @@ def _resolve_story_turn_postprocess_payload(
                     environment_enabled=False,
                     character_state_enabled=character_state_enabled,
                     important_event_enabled=False,
-                    ambient_enabled=False,
-                    scene_emotion_enabled=False,
-                    auto_npc_cards_enabled=auto_npc_cards_enabled,
+                    ambient_enabled=False,                    auto_npc_cards_enabled=auto_npc_cards_enabled,
                     world_cards=active_scene_world_cards,
                     max_attempts=1,
                 )
@@ -8126,229 +8010,6 @@ def _request_polza_world_card_candidates(messages_payload: list[dict[str, str]])
         raise last_error
 
     return []
-
-
-def _request_story_scene_emotion_payload(
-    *,
-    latest_user_prompt: str,
-    latest_assistant_text: str,
-    world_cards: list[dict[str, Any]],
-    resolved_payload_override: dict[str, Any] | None = None,
-    allow_model_request: bool = True,
-) -> str | None:
-    if isinstance(resolved_payload_override, dict):
-        normalized_override = _normalize_story_scene_emotion_payload(resolved_payload_override)
-        normalized_override = _canonicalize_story_scene_emotion_payload(
-            normalized_override,
-            world_cards=world_cards,
-        )
-        if isinstance(normalized_override, dict):
-            return _serialize_story_scene_emotion_payload(normalized_override)
-
-    fallback_payload = _build_story_scene_emotion_keyword_fallback_payload(
-        latest_user_prompt=latest_user_prompt,
-        latest_assistant_text=latest_assistant_text,
-        world_cards=world_cards,
-    )
-    if not allow_model_request:
-        if fallback_payload:
-            return fallback_payload
-        return _serialize_story_scene_emotion_payload(
-            {
-                "show_visualization": False,
-                "reason": "postprocess_only",
-                "participants": [],
-            }
-        )
-
-    if not settings.polza_api_key or not settings.polza_chat_url:
-        if fallback_payload:
-            return fallback_payload
-        return _serialize_story_scene_emotion_payload(
-            {
-                "show_visualization": False,
-                "reason": "model_not_configured",
-                "participants": [],
-            }
-        )
-
-    normalized_user_prompt = _normalize_story_message_content(latest_user_prompt)
-    normalized_assistant_text = _normalize_story_message_content(latest_assistant_text)
-    if not normalized_assistant_text:
-        if fallback_payload:
-            return fallback_payload
-        return _serialize_story_scene_emotion_payload(
-            {
-                "show_visualization": False,
-                "reason": "empty_assistant_text",
-                "participants": [],
-            }
-        )
-
-    active_cast_entries = _build_story_scene_emotion_active_cast_entries(
-        latest_user_prompt=normalized_user_prompt,
-        latest_assistant_text=normalized_assistant_text,
-        world_cards=world_cards,
-    )
-    messages_payload = _build_story_scene_emotion_analysis_messages(
-        latest_user_prompt=normalized_user_prompt,
-        latest_assistant_text=normalized_assistant_text,
-        active_cast_entries=active_cast_entries,
-    )
-    headers = {
-        "Authorization": f"Bearer {settings.polza_api_key}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    if settings.polza_site_url:
-        headers["HTTP-Referer"] = settings.polza_site_url
-    if settings.polza_app_name:
-        headers["X-Title"] = settings.polza_app_name
-
-    payload: dict[str, Any] = {
-        "model": STORY_SCENE_EMOTION_ANALYSIS_MODEL,
-        "messages": _prepare_story_messages_for_model(messages_payload),
-        "stream": False,
-        "temperature": 0,
-        "max_tokens": STORY_SCENE_EMOTION_ANALYSIS_REQUEST_MAX_TOKENS,
-        "plugins": [{"id": "response-healing"}],
-    }
-
-    try:
-        response = _post_story_ai_with_retries(
-            url=settings.polza_chat_url,
-            headers=headers,
-            payload=payload,
-            timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
-            operation="Story scene-emotion analysis",
-        )
-    except Exception:
-        return _serialize_story_scene_emotion_payload(
-            {
-                "show_visualization": False,
-                "reason": "model_request_failed",
-                "participants": [],
-            }
-        )
-
-    if response.status_code >= 400:
-        detail = ""
-        try:
-            error_payload = response.json()
-        except ValueError:
-            error_payload = {}
-
-        if isinstance(error_payload, dict):
-            error_value = error_payload.get("error")
-            if isinstance(error_value, dict):
-                detail = str(error_value.get("message") or error_value.get("code") or "").strip()
-            elif isinstance(error_value, str):
-                detail = error_value.strip()
-            if not detail:
-                detail = str(error_payload.get("message") or error_payload.get("detail") or "").strip()
-
-        reason = "model_http_error"
-        if detail:
-            normalized_detail = re.sub(r"[^0-9a-z_]+", "_", detail.lower()).strip("_")
-            if normalized_detail:
-                reason = f"model_http_error_{normalized_detail[:40]}"
-        return _serialize_story_scene_emotion_payload(
-            {
-                "show_visualization": False,
-                "reason": reason,
-                "participants": [],
-            }
-        )
-
-    try:
-        payload_value = response.json()
-    except ValueError:
-        return _serialize_story_scene_emotion_payload(
-            {
-                "show_visualization": False,
-                "reason": "model_invalid_payload",
-                "participants": [],
-            }
-        )
-
-    if not isinstance(payload_value, dict):
-        return _serialize_story_scene_emotion_payload(
-            {
-                "show_visualization": False,
-                "reason": "model_invalid_json_root",
-                "participants": [],
-            }
-        )
-    choices = payload_value.get("choices")
-    if not isinstance(choices, list) or not choices:
-        return _serialize_story_scene_emotion_payload(
-            {
-                "show_visualization": False,
-                "reason": "model_empty_choices",
-                "participants": [],
-            }
-        )
-    choice = choices[0] if isinstance(choices[0], dict) else {}
-    message_value = choice.get("message")
-    if not isinstance(message_value, dict):
-        return _serialize_story_scene_emotion_payload(
-            {
-                "show_visualization": False,
-                "reason": "model_missing_message",
-                "participants": [],
-            }
-        )
-
-    parsed_payload: Any = None
-    raw_tool_calls = message_value.get("tool_calls")
-    if isinstance(raw_tool_calls, list):
-        for raw_tool_call in raw_tool_calls:
-            if not isinstance(raw_tool_call, dict):
-                continue
-            function_value = raw_tool_call.get("function")
-            if not isinstance(function_value, dict):
-                continue
-            if str(function_value.get("name") or "").strip() != "report_scene_emotions":
-                continue
-            raw_arguments = function_value.get("arguments")
-            if isinstance(raw_arguments, dict):
-                parsed_payload = raw_arguments
-                break
-            if isinstance(raw_arguments, str):
-                try:
-                    parsed_payload = json.loads(raw_arguments)
-                except (TypeError, ValueError):
-                    parsed_payload = _extract_json_object_from_text(raw_arguments)
-                break
-
-    if parsed_payload is None:
-        raw_content = _extract_text_from_model_content(message_value.get("content"))
-        if raw_content:
-            parsed_payload = _extract_json_object_from_text(raw_content)
-        else:
-            return _serialize_story_scene_emotion_payload(
-                {
-                    "show_visualization": False,
-                    "reason": "model_missing_tool_call",
-                    "participants": [],
-                }
-            )
-
-    normalized_payload = _normalize_story_scene_emotion_payload(parsed_payload)
-    normalized_payload = _canonicalize_story_scene_emotion_payload(
-        normalized_payload,
-        world_cards=world_cards,
-    )
-    if isinstance(normalized_payload, dict):
-        return _serialize_story_scene_emotion_payload(normalized_payload)
-
-    return _serialize_story_scene_emotion_payload(
-        {
-            "show_visualization": False,
-            "reason": "model_empty_payload",
-            "participants": [],
-        }
-    )
 
 
 def _request_gigachat_world_card_candidates(messages_payload: list[dict[str, str]]) -> Any:
@@ -10306,7 +9967,6 @@ def _upsert_story_plot_memory_card(
                     character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
                     important_event_enabled=should_extract_important_payload,
                     ambient_enabled=False,
-                    emotion_visualization_enabled=False,
                     auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
                 )
             except Exception as exc:
@@ -11121,7 +10781,7 @@ def _request_polza_story_text(
             consume_story_service_http_request()
             request_started_at = time.monotonic()
             logger.info(
-                "OpenRouter service request started: model=%s attempt=%s candidates=%s",
+                "RouterAI service request started: model=%s attempt=%s candidates=%s",
                 candidate_model,
                 attempt_index + 1,
                 ",".join(candidate_models),
@@ -11134,10 +10794,10 @@ def _request_polza_story_text(
                     timeout=timeout_value,
                 )
             except requests.RequestException as exc:
-                last_error = RuntimeError("Failed to reach OpenRouter chat endpoint")
+                last_error = RuntimeError("Failed to reach RouterAI chat endpoint")
                 if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
                     logger.warning(
-                        "OpenRouter service transport failed; retrying same model: model=%s attempt=%s error=%s",
+                        "RouterAI service transport failed; retrying same model: model=%s attempt=%s error=%s",
                         candidate_model,
                         attempt_index + 1,
                         exc,
@@ -11149,7 +10809,7 @@ def _request_polza_story_text(
                 raise last_error from exc
 
             logger.info(
-                "OpenRouter service response received: model=%s status=%s latency=%.3fs",
+                "RouterAI service response received: model=%s status=%s latency=%.3fs",
                 candidate_model,
                 response.status_code,
                 time.monotonic() - request_started_at,
@@ -11173,7 +10833,7 @@ def _request_polza_story_text(
                     retryable = False
                 if retryable and attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
                     logger.warning(
-                        "OpenRouter service temporary failure; retrying same model: model=%s status=%s attempt=%s detail=%s",
+                        "RouterAI service temporary failure; retrying same model: model=%s status=%s attempt=%s detail=%s",
                         candidate_model,
                         response.status_code,
                         attempt_index + 1,
@@ -11188,7 +10848,7 @@ def _request_polza_story_text(
                     and candidate_model != candidate_models[-1]
                 ):
                     logger.warning(
-                        "OpenRouter service model failed; trying fallback model: model=%s status=%s detail=%s",
+                        "RouterAI service model failed; trying fallback model: model=%s status=%s detail=%s",
                         candidate_model,
                         response.status_code,
                         detail or "n/a",
@@ -11208,7 +10868,7 @@ def _request_polza_story_text(
                 raise last_error from exc
 
             if not isinstance(payload_value, dict):
-                last_error = RuntimeError("OpenRouter chat returned an invalid payload")
+                last_error = RuntimeError("RouterAI chat returned an invalid payload")
                 if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
                     time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
                     continue
@@ -11217,7 +10877,7 @@ def _request_polza_story_text(
                 raise last_error
             choices = payload_value.get("choices")
             if not isinstance(choices, list) or not choices:
-                last_error = RuntimeError("OpenRouter chat returned no choices")
+                last_error = RuntimeError("RouterAI chat returned no choices")
                 if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
                     time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
                     continue
@@ -11227,7 +10887,7 @@ def _request_polza_story_text(
             choice = choices[0] if isinstance(choices[0], dict) else {}
             message_value = choice.get("message")
             if not isinstance(message_value, dict):
-                last_error = RuntimeError("OpenRouter chat returned no message")
+                last_error = RuntimeError("RouterAI chat returned no message")
                 if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
                     time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
                     continue
@@ -11237,7 +10897,7 @@ def _request_polza_story_text(
             response_text = _extract_text_from_model_content(message_value.get("content"))
             if response_text:
                 return response_text
-            last_error = RuntimeError("OpenRouter chat returned empty text")
+            last_error = RuntimeError("RouterAI chat returned empty text")
             if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
                 time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
                 continue
@@ -11247,7 +10907,7 @@ def _request_polza_story_text(
 
     if last_error is not None:
         raise last_error
-    raise RuntimeError("OpenRouter chat request failed")
+    raise RuntimeError("RouterAI chat request failed")
 
 
 def _validate_story_turn_image_provider_config(model_name: str | None = None) -> None:
@@ -11255,18 +10915,32 @@ def _validate_story_turn_image_provider_config(model_name: str | None = None) ->
     if not settings.polza_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter provider is not configured: set POLZA_API_KEY",
+            detail="RouterAI provider is not configured: set ROUTERAI_API_KEY",
         )
-    endpoint_url = str(settings.polza_image_url or settings.polza_chat_url or "").strip()
+    use_chat_completions = _is_story_turn_image_chat_model(normalized_model)
+    if use_chat_completions:
+        endpoint_url = str(settings.polza_chat_url or "").strip()
+    else:
+        endpoint_url = str(settings.polza_image_url or "").strip() or _derive_story_turn_image_images_endpoint(
+            str(settings.polza_chat_url or "")
+        )
     if not endpoint_url:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter image endpoint is not configured: set POLZA_IMAGE_URL or POLZA_CHAT_URL",
+            detail="RouterAI image endpoint is not configured: set ROUTERAI_IMAGE_URL or ROUTERAI_CHAT_URL",
         )
-    if not _is_story_turn_image_chat_endpoint(endpoint_url):
+    if use_chat_completions and not _is_story_turn_image_chat_endpoint(endpoint_url):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter image endpoint must be /chat/completions",
+            detail="RouterAI image chat endpoint must be /chat/completions",
+        )
+    if not use_chat_completions and not (
+        _is_story_turn_image_images_endpoint(endpoint_url)
+        or _is_story_turn_image_media_endpoint(endpoint_url)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="RouterAI image endpoint must be /images",
         )
 
 
@@ -12729,9 +12403,30 @@ def _is_story_turn_image_chat_endpoint(endpoint_url: str) -> bool:
     return normalized_url.endswith("/chat/completions")
 
 
+def _is_story_turn_image_images_endpoint(endpoint_url: str) -> bool:
+    normalized_url = str(endpoint_url or "").strip().lower().rstrip("/")
+    return normalized_url.endswith("/images")
+
+
 def _is_story_turn_image_media_endpoint(endpoint_url: str) -> bool:
     normalized_url = str(endpoint_url or "").strip().lower().rstrip("/")
     return normalized_url.endswith("/media")
+
+
+def _is_story_turn_image_chat_model(model_name: str | None) -> bool:
+    return _normalize_story_model_id(model_name) in {
+        STORY_TURN_IMAGE_MODEL_NANO_BANANO,
+        STORY_TURN_IMAGE_MODEL_NANO_BANANO_2,
+    }
+
+
+def _derive_story_turn_image_images_endpoint(chat_url: str) -> str:
+    normalized_url = str(chat_url or "").strip().rstrip("/")
+    lowered_url = normalized_url.lower()
+    suffix = "/chat/completions"
+    if lowered_url.endswith(suffix):
+        return f"{normalized_url[: -len(suffix)]}/images"
+    return ""
 
 
 def _build_story_turn_image_media_references(reference_image_input: str | None) -> list[dict[str, str]]:
@@ -12818,6 +12513,16 @@ def _build_story_turn_image_polza_payload(
     image_size = str(settings.polza_image_size or "").strip()
     if image_size:
         payload["size"] = image_size
+    aspect_ratio = _resolve_story_turn_image_aspect_ratio(settings.polza_image_size)
+    if aspect_ratio:
+        payload["aspect_ratio"] = aspect_ratio
+    if reference_image_input:
+        payload["input_references"] = [
+            {
+                "type": "image_url",
+                "image_url": {"url": reference_image_input},
+            }
+        ]
     provider_payload = _build_polza_image_provider_payload(selected_model)
     if provider_payload:
         payload["provider"] = provider_payload
@@ -13310,16 +13015,25 @@ def _request_polza_story_turn_image(
         if normalized_reference_image_url.startswith(("https://", "http://"))
         else normalized_reference_image_data_url
     )
-    endpoint_url = image_url or chat_url
-    if not endpoint_url or not _is_story_turn_image_chat_endpoint(endpoint_url):
-        raise RuntimeError("OpenRouter image endpoint must be /chat/completions")
+    use_chat_completions = _is_story_turn_image_chat_model(selected_model)
+    endpoint_kind = "chat" if use_chat_completions else "images"
+    if use_chat_completions:
+        endpoint_url = chat_url
+        if not endpoint_url or not _is_story_turn_image_chat_endpoint(endpoint_url):
+            raise RuntimeError("RouterAI image chat endpoint must be /chat/completions")
+    else:
+        endpoint_url = image_url or _derive_story_turn_image_images_endpoint(chat_url)
+        if _is_story_turn_image_media_endpoint(endpoint_url):
+            endpoint_kind = "media"
+        elif not _is_story_turn_image_images_endpoint(endpoint_url):
+            raise RuntimeError("RouterAI image endpoint must be /images")
 
     read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
     request_payload = _build_story_turn_image_polza_payload(
         prompt=prompt,
         selected_model=selected_model,
-        endpoint_kind="chat",
-        use_chat_completions=True,
+        endpoint_kind=endpoint_kind,
+        use_chat_completions=use_chat_completions,
         reference_image_input=normalized_reference_image_input,
     )
     last_error: Exception | None = None
@@ -13335,11 +13049,11 @@ def _request_polza_story_turn_image(
                 ),
             )
         except requests.RequestException as exc:
-            last_error = RuntimeError("Failed to reach OpenRouter image endpoint")
+            last_error = RuntimeError("Failed to reach RouterAI image endpoint")
             if attempt_index < len(STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS):
                 retry_delay = STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS[attempt_index]
                 logger.warning(
-                    "OpenRouter image transport failed; retrying same generation: model=%s attempt=%s "
+                    "RouterAI image transport failed; retrying same generation: model=%s attempt=%s "
                     "next_attempt=%s delay=%.1fs error=%s",
                     selected_model,
                     attempt_index + 1,
@@ -13353,7 +13067,7 @@ def _request_polza_story_turn_image(
 
         if response.status_code >= 400:
             detail = _extract_polza_error_detail(response)
-            error_text = f"OpenRouter image error ({response.status_code})"
+            error_text = f"RouterAI image error ({response.status_code})"
             if detail:
                 error_text = f"{error_text}: {detail}"
             last_error = RuntimeError(error_text)
@@ -13364,7 +13078,7 @@ def _request_polza_story_turn_image(
             ):
                 retry_delay = STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS[attempt_index]
                 logger.warning(
-                    "OpenRouter image temporary failure; retrying same generation: model=%s status=%s "
+                    "RouterAI image temporary failure; retrying same generation: model=%s status=%s "
                     "attempt=%s next_attempt=%s delay=%.1fs detail=%s",
                     selected_model,
                     response.status_code,
@@ -13385,7 +13099,7 @@ def _request_polza_story_turn_image(
             )
         except (ValueError, RuntimeError) as exc:
             last_error = (
-                RuntimeError("OpenRouter image endpoint returned invalid payload")
+                RuntimeError("RouterAI image endpoint returned invalid payload")
                 if isinstance(exc, ValueError)
                 else exc
             )
@@ -13395,7 +13109,7 @@ def _request_polza_story_turn_image(
             ):
                 retry_delay = STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS[attempt_index]
                 logger.warning(
-                    "OpenRouter image returned no usable result; retrying same generation: "
+                    "RouterAI image returned no usable result; retrying same generation: "
                     "model=%s attempt=%s next_attempt=%s delay=%.1fs error=%s",
                     selected_model,
                     attempt_index + 1,
@@ -13409,9 +13123,9 @@ def _request_polza_story_turn_image(
 
         if _story_turn_image_payload_has_image(parsed_payload):
             return parsed_payload
-        last_error = RuntimeError("OpenRouter image provider returned empty image")
+        last_error = RuntimeError("RouterAI image provider returned empty image")
 
-    raise last_error or RuntimeError("OpenRouter image request failed")
+    raise last_error or RuntimeError("RouterAI image request failed")
 
 
 def _story_turn_image_payload_has_image(payload: dict[str, str | None]) -> bool:
@@ -13446,7 +13160,7 @@ def _request_proxyapi_story_turn_image_fallback(
     if not _story_turn_image_payload_has_image(payload):
         raise RuntimeError("ProxyAPI image fallback returned empty image")
     logger.warning(
-        "ProxyAPI/OpenRouter image fallback produced image: requested_model=%s upstream_model=%s",
+        "ProxyAPI/RouterAI image fallback produced image: requested_model=%s upstream_model=%s",
         selected_model,
         payload.get("model"),
     )
@@ -13469,7 +13183,7 @@ def _request_story_turn_image(
     )
     if _story_turn_image_payload_has_image(payload):
         return payload
-    raise RuntimeError("OpenRouter image provider returned empty image")
+    raise RuntimeError("RouterAI image provider returned empty image")
 
 
 def _compact_story_character_avatar_prompt_text(value: str | None, *, max_chars: int) -> str:
@@ -13514,7 +13228,9 @@ def _build_story_character_avatar_prompt(
 
     prompt_lines = [
         "Create a character reference illustration.",
-        *STORY_SPRITE_IMAGE_BASE_RULES,
+        "Single character only.",
+        "Clean cutout-friendly background; no extra people, text, logos, watermark, frame, or scenery unless requested.",
+        "Readable face, consistent costume, anatomy, proportions, and silhouette.",
         "Full-body framing: show the character from head to toe in a standing pose.",
         "Keep the character centered with clean margins around the silhouette.",
         "Use only the player's character appearance description below as the source of visual details.",
@@ -13529,590 +13245,6 @@ def _build_story_character_avatar_prompt(
     prompt_lines.append(f"Character appearance description: {normalized_description}.")
 
     return "\n".join(prompt_lines).strip()
-
-
-def _build_story_character_emotion_reference_prompt(
-    *,
-    description: str | None,
-    style_prompt: str | None,
-) -> str:
-    normalized_description = _compact_story_character_avatar_prompt_text(
-        description,
-        max_chars=STORY_CHARACTER_EMOTION_REFERENCE_MAX_CHARS,
-    )
-    normalized_style_prompt = _compact_story_character_avatar_prompt_text(
-        style_prompt,
-        max_chars=STORY_CHARACTER_EMOTION_EDIT_STYLE_MAX_CHARS,
-    )
-    if not normalized_description:
-        return ""
-
-    prompt_lines = [
-        "Create a character reference sprite for an RPG dialogue overlay.",
-        *STORY_SPRITE_IMAGE_BASE_RULES,
-        "Belt-line sprite framing: show the character from head down to the hips or belt line, so the legs are outside the frame but the torso is mostly visible.",
-        "Keep the character centered with clean margins around the silhouette.",
-        "No props or weapons unless explicitly described.",
-        f"Character appearance description: {normalized_description}.",
-    ]
-    if normalized_style_prompt:
-        prompt_lines.append(
-            f"MANDATORY USER STYLE DIRECTIVE (HIGHEST PRIORITY): {normalized_style_prompt}. "
-            "Follow it exactly for style, medium, rendering, and prohibitions."
-        )
-    return "\n".join(prompt_lines).strip()
-
-
-def _build_story_character_emotion_prompt_lock(
-    *,
-    description: str | None,
-    style_prompt: str | None,
-) -> str:
-    normalized_description = _compact_story_character_avatar_prompt_text(
-        description,
-        max_chars=STORY_CHARACTER_EMOTION_REFERENCE_MAX_CHARS,
-    )
-    normalized_style_prompt = _compact_story_character_avatar_prompt_text(
-        style_prompt,
-        max_chars=STORY_CHARACTER_EMOTION_EDIT_STYLE_MAX_CHARS,
-    )
-    prompt_lines = [
-        "Keep the exact same character identity as in the reference image.",
-        "Preserve face shape, eye shape, hair color, hairstyle, skin tone, body proportions, clothing, accessories, and art style.",
-        "Do not change the outfit, age, body type, gender presentation, or core silhouette.",
-        "Keep the camera framing in the dialogue sprite range: head to upper hips or belt buckle, readable face, readable chest, visible waist, and most of the torso visible.",
-        "Hide the legs below the hips; the frame should stop around the belt line.",
-        "Emotion variants may change arm pose, hand placement, shoulder angle, torso angle, and body language when needed.",
-        "Do not freeze every emotion into the same pose template.",
-    ]
-    if normalized_description:
-        prompt_lines.append(f"Identity brief: {normalized_description}.")
-    if normalized_style_prompt:
-        prompt_lines.append(
-            f"MANDATORY USER STYLE LOCK: {normalized_style_prompt}. "
-            "Preserve and obey this style exactly in every emotion variant."
-        )
-    return "\n".join(prompt_lines).strip()
-
-
-def _resolve_story_character_emotion_descriptor(emotion_id: str) -> str:
-    descriptor_by_emotion = {
-        "calm": "calm and composed",
-        "angry": "angry and tense",
-        "irritated": "irritated and impatient",
-        "stern": "stern, strict, and authoritative",
-        "cheerful": "cheerful and lively",
-        "smiling": "warm and smiling",
-        "sly": "sly and cunning",
-        "alert": "alert and wary",
-        "scared": "scared and shaken",
-        "happy": "happy and openly joyful",
-        "embarrassed": "embarrassed, bashful, and visibly flustered",
-        "confused": "confused, hesitant, and somewhat disoriented",
-        "thoughtful": "thoughtful, pensive, and visibly lost in thought",
-    }
-    return descriptor_by_emotion.get(emotion_id, "calm and composed")
-
-
-def _build_story_character_emotion_edit_prompt(
-    *,
-    emotion_id: str,
-    emotion_prompt_lock: str,
-) -> str:
-    descriptor = _resolve_story_character_emotion_descriptor(emotion_id)
-    prompt_lines = [
-        "Edit the provided character reference image into a character expression sprite.",
-        *STORY_SPRITE_IMAGE_BASE_RULES,
-        emotion_prompt_lock,
-        f"Change the facial expression, hands, shoulders, torso angle, and pose so the character clearly reads as {descriptor}.",
-        "Use emotion-appropriate upper-body posing, for example crossed arms for anger or strictness, recoiling posture for fear, open posture for joy, wary tension for alertness, bashful hand-to-face gestures for embarrassment, or reflective hand/chin posing for thoughtful scenes when suitable.",
-        "Allow strong emotion-appropriate body language and a genuinely different upper-body pose when it helps readability.",
-        "Keep the same character identity, outfit, and art style, but do not freeze the sprite into the exact same pose.",
-        "Frame the sprite from the head down to the upper hips or belt buckle area, with the full face, chest, waist, and hands visible when possible.",
-        "Legs below the belt line should stay out of frame.",
-        "No props unless explicitly present in the reference or description.",
-    ]
-    return "\n".join(line for line in prompt_lines if line).strip()
-
-
-
-def _normalize_story_scene_emotion_lookup_value(value: Any) -> str:
-    normalized = str(value or "").strip().lower().replace("ё", "е")
-    normalized = re.sub(r"[^0-9a-zа-я\s-]+", " ", normalized)
-    return re.sub(r"\s+", " ", normalized).strip()
-
-
-def _build_story_scene_emotion_cast_entries(world_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    seen_display_names: set[str] = set()
-
-    for card in world_cards[:24]:
-        if not isinstance(card, dict):
-            continue
-        kind = str(card.get("kind") or "").strip().lower()
-        if kind not in {"npc", "main_hero"}:
-            continue
-
-        display_name = " ".join(str(card.get("title") or "").split()).strip()
-        if not display_name:
-            continue
-
-        display_name_key = display_name.casefold()
-        if display_name_key in seen_display_names:
-            continue
-        seen_display_names.add(display_name_key)
-
-        aliases: set[str] = set()
-
-        def _append_alias(raw_alias: Any) -> None:
-            normalized_alias = _normalize_story_scene_emotion_lookup_value(raw_alias)
-            if not normalized_alias:
-                return
-            aliases.add(normalized_alias)
-            for token in normalized_alias.split():
-                if len(token) >= 2:
-                    aliases.add(token)
-
-        _append_alias(display_name)
-        raw_triggers = card.get("triggers")
-        trigger_values = raw_triggers if isinstance(raw_triggers, list) else []
-        for trigger_value in trigger_values:
-            _append_alias(trigger_value)
-
-        if kind == "main_hero":
-            for alias in STORY_SCENE_EMOTION_MAIN_HERO_ALIASES:
-                _append_alias(alias)
-
-        if not aliases:
-            continue
-        entries.append(
-            {
-                "display_name": display_name,
-                "aliases": aliases,
-                "is_main_hero": kind == "main_hero",
-            }
-        )
-
-    return entries
-
-
-def _story_scene_text_contains_alias(normalized_text: str, alias: str) -> bool:
-    if not normalized_text or not alias:
-        return False
-    haystack = f" {normalized_text} "
-    needle = f" {alias} "
-    return needle in haystack
-
-
-def _match_story_scene_emotion_cast_entry(
-    raw_name: str,
-    cast_entries: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    normalized_name = _normalize_story_scene_emotion_lookup_value(raw_name)
-    if not normalized_name:
-        return None
-
-    for entry in cast_entries:
-        aliases = entry.get("aliases")
-        if isinstance(aliases, set) and normalized_name in aliases:
-            return entry
-
-    for entry in cast_entries:
-        aliases = entry.get("aliases")
-        if not isinstance(aliases, set):
-            continue
-        if any(
-            normalized_name.startswith(alias)
-            or alias.startswith(normalized_name)
-            or _story_scene_text_contains_alias(normalized_name, alias)
-            or _story_scene_text_contains_alias(alias, normalized_name)
-            for alias in aliases
-            if alias
-        ):
-            return entry
-
-    return None
-
-
-def _canonicalize_story_scene_emotion_payload(
-    payload: dict[str, Any] | None,
-    *,
-    world_cards: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    if not isinstance(payload, dict):
-        return None
-
-    cast_entries = _build_story_scene_emotion_cast_entries(world_cards)
-    if not cast_entries:
-        return payload
-
-    raw_participants = payload.get("participants")
-    participants = raw_participants if isinstance(raw_participants, list) else []
-    resolved_participants: list[dict[str, str]] = []
-    seen_names: set[str] = set()
-
-    for index, participant in enumerate(participants):
-        if not isinstance(participant, dict):
-            continue
-        raw_name = str(participant.get("name") or "").strip()
-        if not raw_name:
-            continue
-        matched_entry = _match_story_scene_emotion_cast_entry(raw_name, cast_entries)
-        resolved_name = str(matched_entry.get("display_name") or "").strip() if matched_entry else raw_name
-        if not resolved_name:
-            continue
-        resolved_name_key = resolved_name.casefold()
-        if resolved_name_key in seen_names:
-            continue
-        seen_names.add(resolved_name_key)
-        resolved_participants.append(
-            {
-                "name": resolved_name,
-                "emotion": str(participant.get("emotion") or "").strip(),
-                "importance": "primary"
-                if index == 0
-                else ("secondary" if str(participant.get("importance") or "").strip().lower() == "secondary" else "primary"),
-            }
-        )
-
-    normalized_payload = {
-        "show_visualization": bool(payload.get("show_visualization")) and len(resolved_participants) > 0,
-        "reason": str(payload.get("reason") or "").strip() or "interaction",
-        "participants": resolved_participants,
-    }
-    return _normalize_story_scene_emotion_payload(normalized_payload)
-
-
-def _build_story_scene_emotion_active_cast_entries(
-    *,
-    latest_user_prompt: str,
-    latest_assistant_text: str,
-    world_cards: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    cast_entries = _build_story_scene_emotion_cast_entries(world_cards)
-    if not cast_entries:
-        return []
-
-    normalized_combined_text = _normalize_story_scene_emotion_lookup_value(
-        "\n".join(part for part in (latest_user_prompt, latest_assistant_text) if part)
-    )
-    main_hero_entry = next((entry for entry in cast_entries if entry.get("is_main_hero")), None)
-    active_entries: list[dict[str, Any]] = []
-    seen_names: set[str] = set()
-
-    def _append_entry(entry: dict[str, Any]) -> None:
-        display_name = str(entry.get("display_name") or "").strip()
-        if not display_name:
-            return
-        display_name_key = display_name.casefold()
-        if display_name_key in seen_names:
-            return
-        seen_names.add(display_name_key)
-        active_entries.append(entry)
-
-    if main_hero_entry is not None:
-        _append_entry(main_hero_entry)
-
-    scored_entries: list[tuple[int, dict[str, Any]]] = []
-    for entry in cast_entries:
-        if entry.get("is_main_hero"):
-            continue
-        aliases = entry.get("aliases")
-        if not isinstance(aliases, set):
-            continue
-        alias_scores = [len(alias) for alias in aliases if _story_scene_text_contains_alias(normalized_combined_text, alias)]
-        if alias_scores:
-            scored_entries.append((max(alias_scores), entry))
-
-    scored_entries.sort(key=lambda item: item[0], reverse=True)
-    for _, entry in scored_entries:
-        _append_entry(entry)
-        if len(active_entries) >= 4:
-            break
-
-    if not active_entries:
-        for entry in cast_entries[:4]:
-            _append_entry(entry)
-
-    return active_entries[:4]
-
-
-def _build_story_scene_emotion_tool_definition(active_cast_entries: list[dict[str, Any]]) -> dict[str, Any]:
-    active_names = [
-        str(entry.get("display_name") or "").strip()
-        for entry in active_cast_entries
-        if str(entry.get("display_name") or "").strip()
-    ]
-    if not active_names:
-        active_names = ["Main Hero"]
-
-    return {
-        "type": "function",
-        "function": {
-            "name": "report_scene_emotions",
-            "description": (
-                "Decide whether the current scene should show visual-novel emotion sprites and "
-                "report exact emotion ids for the active characters only."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "show_visualization": {
-                        "type": "boolean",
-                    },
-                    "reason": {
-                        "type": "string",
-                        "maxLength": 64,
-                    },
-                    "participants": {
-                        "type": "array",
-                        "maxItems": 4,
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {
-                                    "type": "string",
-                                    "enum": active_names,
-                                },
-                                "emotion": {
-                                    "type": "string",
-                                    "enum": list(_STORY_CHARACTER_EMOTION_IDS),
-                                },
-                                "importance": {
-                                    "type": "string",
-                                    "enum": ["primary", "secondary"],
-                                },
-                            },
-                            "required": ["name", "emotion", "importance"],
-                            "additionalProperties": False,
-                        },
-                    },
-                },
-                "required": ["show_visualization", "reason", "participants"],
-                "additionalProperties": False,
-            },
-        },
-    }
-
-
-def _detect_story_scene_emotion_keyword(normalized_text: str) -> str | None:
-    if not normalized_text:
-        return None
-
-    keyword_map: tuple[tuple[str, tuple[str, ...]], ...] = (
-        ("embarrassed", ("смущ", "неловк", "румян", "засмущ", "fluster", "blush", "awkward", "bashful")),
-        ("confused", ("растерян", "замешатель", "не понима", "сбит с толку", "confus", "disorient", "hesitan")),
-        ("scared", ("испуган", "напуган", "страх", "боит", "ужас", "дрож", "terrified", "afraid", "scared")),
-        ("angry", ("зл", "гнев", "ярост", "в бешен", "furious", "angry", "rage")),
-        ("irritated", ("раздраж", "недоволь", "ворчит", "annoy", "irritat", "impatient")),
-        ("alert", ("насторож", "подозр", "напряг", "угроз", "опасн", "враг", "бандит", "alert", "wary", "danger")),
-        ("happy", ("счастлив", "счастье", "радост", "доволен", "happy", "joyful", "delighted")),
-        ("cheerful", ("весел", "оживлен", "бодр", "cheerful", "lively", "playful")),
-        ("smiling", ("улыба", "улыб", "smiling", "smile", "grin")),
-        ("sly", ("хитр", "лукав", "усмеш", "sly", "cunning", "smirk")),
-        ("calm", ("споко", "ровно", "calm", "composed", "steady")),
-    )
-    keyword_map += (
-        ("stern", ("strict", "authoritative", "severe")),
-        ("thoughtful", ("thoughtful", "pensive", "lost in thought")),
-    )
-
-    for emotion_id, keywords in keyword_map:
-        if any(keyword in normalized_text for keyword in keywords):
-            return emotion_id
-    return None
-
-
-def _build_story_scene_emotion_keyword_fallback_payload(
-    *,
-    latest_user_prompt: str,
-    latest_assistant_text: str,
-    world_cards: list[dict[str, Any]],
-) -> str | None:
-    normalized_user_prompt = _normalize_story_scene_emotion_lookup_value(latest_user_prompt)
-    normalized_assistant_text = _normalize_story_scene_emotion_lookup_value(latest_assistant_text)
-    combined_text = " ".join(part for part in (normalized_user_prompt, normalized_assistant_text) if part).strip()
-    if not combined_text:
-        return None
-
-    emotion_id = _detect_story_scene_emotion_keyword(combined_text)
-    if emotion_id is None:
-        return None
-
-    cast_entries = _build_story_scene_emotion_cast_entries(world_cards)
-    if not cast_entries:
-        return None
-
-    main_hero_entry = next((entry for entry in cast_entries if entry.get("is_main_hero")), None)
-    hero_is_involved = (
-        main_hero_entry is not None
-        and any(_story_scene_text_contains_alias(combined_text, alias) for alias in STORY_SCENE_EMOTION_MAIN_HERO_ALIASES)
-    )
-    mentioned_entries = [
-        entry
-        for entry in cast_entries
-        if any(_story_scene_text_contains_alias(combined_text, alias) for alias in entry.get("aliases", set()))
-    ]
-    non_hero_entries = [entry for entry in mentioned_entries if not entry.get("is_main_hero")]
-
-
-    original_assistant_text = latest_assistant_text or ""
-    has_dialogue = any(token in original_assistant_text for token in ("—", "«", "»", '"'))
-    interaction_markers = (
-    " рядом с ",
-    " вместе ",
-    " говорит ",
-    " сказал ",
-    " сказала ",
-    " отвечает ",
-    " ответил ",
-    " ответила ",
-    " встрет",
-    " смотрит на ",
-    " идет с ",
-    " идешь с ",
-    " пошел с ",
-    " пошла с ",
-    " мы оба ",
-    " оба ",
-    )
-    has_interaction = has_dialogue or any(marker in f" {combined_text} " for marker in interaction_markers)
-    if not has_interaction and len(non_hero_entries) >= 2:
-        has_interaction = True
-    if not has_interaction and hero_is_involved and non_hero_entries:
-        has_interaction = True
-    if not has_interaction:
-        return None
-
-    selected_entries: list[dict[str, Any]] = []
-    if hero_is_involved and main_hero_entry is not None:
-        selected_entries.append(main_hero_entry)
-    for entry in non_hero_entries:
-        if any(existing.get("display_name") == entry.get("display_name") for existing in selected_entries):
-            continue
-        selected_entries.append(entry)
-        if len(selected_entries) >= 2:
-            break
-
-    if not selected_entries and mentioned_entries:
-        selected_entries.append(mentioned_entries[0])
-    if len(selected_entries) == 1 and main_hero_entry is not None and non_hero_entries and not selected_entries[0].get("is_main_hero"):
-        selected_entries = [main_hero_entry, selected_entries[0]]
-    if not selected_entries:
-        return None
-
-    fallback_payload = {
-        "show_visualization": True,
-        "reason": "keyword_fallback",
-        "participants": [
-            {
-                "name": str(entry.get("display_name") or "").strip(),
-                "emotion": emotion_id,
-                "importance": "primary" if index == 0 else "secondary",
-            }
-            for index, entry in enumerate(selected_entries[:2])
-            if str(entry.get("display_name") or "").strip()
-        ],
-    }
-    normalized_payload = _normalize_story_scene_emotion_payload(fallback_payload)
-    if not isinstance(normalized_payload, dict) or not normalized_payload.get("show_visualization"):
-        return None
-    return _serialize_story_scene_emotion_payload(normalized_payload)
-
-
-def _render_story_scene_emotion_prompt_fragments(
-    active_cast_entries: list[dict[str, Any]],
-) -> tuple[str, str]:
-    """Готовые текстовые блоки активного состава и допустимых эмоций для Call A.
-
-    Повторяет рендер из ``_build_story_scene_emotion_analysis_messages``, чтобы единый
-    «мировой» промпт давал модели тот же список персонажей и тот же словарь эмоций.
-    """
-    character_lines: list[str] = []
-    for index, entry in enumerate((active_cast_entries or [])[:6], start=1):
-        title = " ".join(str(entry.get("display_name") or "").split()).strip()
-        if not title:
-            continue
-        kind = "main_hero" if entry.get("is_main_hero") else "npc"
-        aliases = entry.get("aliases")
-        alias_values = aliases if isinstance(aliases, set) else set()
-        trigger_line = ", ".join(
-            alias
-            for alias in sorted(alias_values, key=len, reverse=True)[:6]
-            if isinstance(alias, str) and alias.strip()
-        )
-        character_lines.append(
-            f"{index}. {title} [{kind}]" + (f" aliases: {trigger_line}" if trigger_line else "")
-        )
-    emotion_lines = [
-        f"- {emotion_id}: {_resolve_story_character_emotion_descriptor(emotion_id)}"
-        for emotion_id in _STORY_CHARACTER_EMOTION_IDS
-    ]
-    characters_text = "\n".join(character_lines)
-    emotions_text = "\n".join(emotion_lines)
-    return characters_text, emotions_text
-
-
-def _build_story_scene_emotion_analysis_messages(
-    *,
-    latest_user_prompt: str,
-    latest_assistant_text: str,
-    active_cast_entries: list[dict[str, Any]],
-) -> list[dict[str, str]]:
-    character_lines: list[str] = []
-    emotion_lines = [
-        f"- {emotion_id}: {_resolve_story_character_emotion_descriptor(emotion_id)}"
-        for emotion_id in _STORY_CHARACTER_EMOTION_IDS
-    ]
-    for index, entry in enumerate(active_cast_entries[:6], start=1):
-        title = " ".join(str(entry.get("display_name") or "").split()).strip()
-        if not title:
-            continue
-        kind = "main_hero" if entry.get("is_main_hero") else "npc"
-        aliases = entry.get("aliases")
-        alias_values = aliases if isinstance(aliases, set) else set()
-        trigger_line = ", ".join(
-            alias
-            for alias in sorted(alias_values, key=len, reverse=True)[:6]
-            if isinstance(alias, str) and alias.strip()
-        )
-        character_lines.append(
-            f"{index}. {title} [{kind}]"
-            + (f" aliases: {trigger_line}" if trigger_line else "")
-        )
-
-    system_prompt = "\n".join(
-        [
-            "You decide whether a scene should show visual-novel emotion sprites.",
-            "Return JSON only: one minified object. No reasoning, comments, or markdown.",
-            'Use this schema: {"show_visualization":boolean,"reason":string,"participants":[{"name":string,"emotion":string,"importance":"primary"|"secondary"}]}.',
-            "Use only active character names. show_visualization=true only for dialogue, direct interaction, coordinated movement, encounter, or threat.",
-            "Use false for solo travel, scenery, routine narration, generic atmosphere, or no meaningful character hook.",
-            "- Use only these emotion ids: calm, angry, irritated, stern, cheerful, smiling, sly, alert, scared, happy, embarrassed, confused, thoughtful.",
-            "- Main hero first when active and visible; then involved NPCs; max four participants.",
-            "- Never use pronouns or invented names. Danger -> alert/scared; mild interaction -> calm/smiling.",
-            "- embarrassed=shy/blush/awkward; confused=uncertain; stern=authority/cold severity; thoughtful=pensive pause.",
-        ]
-    )
-    user_prompt = "\n".join(
-        [
-            "Supported emotion ids:",
-            "\n".join(emotion_lines),
-            "",
-            "Active characters for this turn:",
-            "\n".join(character_lines) if character_lines else "No active characters detected.",
-            "",
-            "Latest player action:",
-            latest_user_prompt or "None.",
-            "",
-            "Latest narrator response:",
-            latest_assistant_text or "None.",
-        ]
-    )
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
 
 
 def _try_fetch_story_character_avatar_data_url(image_url: str | None) -> str | None:
@@ -14184,165 +13316,6 @@ def _encode_story_image_data_url(payload: bytes, *, mime_type: str) -> str | Non
     return f"data:{normalized_mime_type};base64,{encoded_payload}"
 
 
-def _trim_story_sprite_transparent_bounds(image: Image.Image, *, padding: int = 18) -> Image.Image:
-    rgba_image = image.convert("RGBA")
-    alpha_channel = rgba_image.getchannel("A")
-    bounding_box = alpha_channel.getbbox()
-    if bounding_box is None:
-        return rgba_image
-
-    left, top, right, bottom = bounding_box
-    left = max(0, left - padding)
-    top = max(0, top - padding)
-    right = min(rgba_image.width, right + padding)
-    bottom = min(rgba_image.height, bottom + padding)
-    return rgba_image.crop((left, top, right, bottom))
-
-
-def _clean_story_sprite_edge_halo(image: Image.Image) -> Image.Image:
-    from PIL import ImageFilter
-
-    rgba_image = image.convert("RGBA")
-    softened_alpha = rgba_image.getchannel("A").filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(radius=0.7))
-    rgba_image.putalpha(softened_alpha)
-
-    pixel_access = rgba_image.load()
-    width, height = rgba_image.size
-    for y in range(height):
-        for x in range(width):
-            red, green, blue, alpha = pixel_access[x, y]
-            if alpha == 0:
-                pixel_access[x, y] = (0, 0, 0, 0)
-                continue
-            if alpha >= 250:
-                continue
-            channel_min = min(red, green, blue)
-            channel_max = max(red, green, blue)
-            if channel_max - channel_min > 48 or channel_max < 170:
-                continue
-            edge_factor = 1.0 - (alpha / 255.0)
-            darken_factor = max(0.62, 1.0 - edge_factor * 0.46)
-            pixel_access[x, y] = (
-                int(red * darken_factor),
-                int(green * darken_factor),
-                int(blue * darken_factor),
-                alpha,
-            )
-    return rgba_image
-
-
-def _serialize_story_sprite_image(image: Image.Image) -> str | None:
-    from PIL import Image as PilImage
-
-    image_resampling_lanczos = getattr(getattr(PilImage, "Resampling", PilImage), "LANCZOS")
-    prepared_image = image.convert("RGBA")
-    max_dimension = 1024
-    if prepared_image.width > max_dimension or prepared_image.height > max_dimension:
-        resized_image = prepared_image.copy()
-        resized_image.thumbnail((max_dimension, max_dimension), image_resampling_lanczos)
-        prepared_image = resized_image
-
-    target_max_bytes = 420 * 1024
-    scale_candidates = (1.0, 0.92, 0.84, 0.76)
-    quality_candidates = (92, 88, 84, 80, 76, 72)
-    best_payload: bytes | None = None
-    best_mime_type = "image/webp"
-
-    for scale in scale_candidates:
-        if scale >= 0.999:
-            scaled_image = prepared_image
-        else:
-            scaled_width = max(1, int(round(prepared_image.width * scale)))
-            scaled_height = max(1, int(round(prepared_image.height * scale)))
-            scaled_image = prepared_image.resize((scaled_width, scaled_height), image_resampling_lanczos)
-
-        for quality in quality_candidates:
-            output_buffer = io.BytesIO()
-            scaled_image.save(
-                output_buffer,
-                format="WEBP",
-                quality=quality,
-                alpha_quality=95,
-                method=6,
-            )
-            candidate_payload = output_buffer.getvalue()
-            if best_payload is None or len(candidate_payload) < len(best_payload):
-                best_payload = candidate_payload
-            if len(candidate_payload) <= target_max_bytes:
-                return _encode_story_image_data_url(candidate_payload, mime_type="image/webp")
-
-    if best_payload:
-        return _encode_story_image_data_url(best_payload, mime_type=best_mime_type)
-
-    output_buffer = io.BytesIO()
-    prepared_image.save(output_buffer, format="PNG")
-    return _encode_story_image_data_url(output_buffer.getvalue(), mime_type="image/png")
-
-
-def _get_story_sprite_removal_session() -> Any:
-    global STORY_SPRITE_REMOVAL_SESSION
-
-    if STORY_SPRITE_REMOVAL_SESSION is not None:
-        return STORY_SPRITE_REMOVAL_SESSION
-
-    with STORY_SPRITE_REMOVAL_SESSION_LOCK:
-        if STORY_SPRITE_REMOVAL_SESSION is not None:
-            return STORY_SPRITE_REMOVAL_SESSION
-        try:
-            from rembg import new_session as rembg_new_session
-        except Exception:
-            return None
-        for model_name in ("isnet-anime", "u2net"):
-            try:
-                STORY_SPRITE_REMOVAL_SESSION = rembg_new_session(model_name)
-                return STORY_SPRITE_REMOVAL_SESSION
-            except Exception:
-                logger.warning("Story sprite removal session init failed for model=%s", model_name, exc_info=True)
-        return None
-
-
-def _remove_story_sprite_background_data_url(data_url: str | None) -> str | None:
-    decoded_payload = _decode_story_image_data_url_payload(data_url)
-    if decoded_payload is None:
-        return data_url
-
-    payload_bytes, _mime_type = decoded_payload
-    session = _get_story_sprite_removal_session()
-    if session is None:
-        return data_url
-
-    try:
-        from rembg import remove as rembg_remove
-        from PIL import Image
-    except Exception:
-        return data_url
-
-    try:
-        cleaned_payload = rembg_remove(
-            payload_bytes,
-            session=session,
-            alpha_matting=True,
-            alpha_matting_foreground_threshold=240,
-            alpha_matting_background_threshold=8,
-            alpha_matting_erode_size=8,
-            post_process_mask=True,
-        )
-    except Exception:
-        logger.warning("Story sprite background removal failed; returning original asset", exc_info=True)
-        return data_url
-
-    try:
-        with Image.open(io.BytesIO(cleaned_payload)) as cleaned_image:
-            processed_image = _clean_story_sprite_edge_halo(_trim_story_sprite_transparent_bounds(cleaned_image))
-            output_buffer = io.BytesIO()
-            processed_image.save(output_buffer, format="PNG")
-    except Exception:
-        logger.warning("Story sprite post-processing failed; returning original asset", exc_info=True)
-        return data_url
-
-    return _serialize_story_sprite_image(processed_image) or data_url
-
-
 def _iter_polza_story_stream_chunks_single_model(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
@@ -14388,7 +13361,7 @@ def _iter_polza_story_stream_chunks_single_model(
     else:
         if emitted_text:
             return
-        raise RuntimeError("OpenRouter story stream completed without textual content")
+        raise RuntimeError("RouterAI story stream completed without textual content")
 
 
 def _iter_story_provider_stream_chunks(
@@ -14568,7 +13541,6 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         plot_card_to_out=_story_plot_card_to_out,
         world_card_to_out=_story_world_card_to_out,
         resolve_story_ambient_profile=_resolve_story_ambient_profile,
-        resolve_story_scene_emotion_payload=_request_story_scene_emotion_payload,
         resolve_story_turn_postprocess_payload=_resolve_story_turn_postprocess_payload,
         serialize_story_ambient_profile=_serialize_story_ambient_profile,
         story_game_summary_to_out=_story_game_summary_to_out,
@@ -14704,503 +13676,6 @@ def generate_story_character_avatar_impl(
         image_url=resolved_image_url,
         image_data_url=resolved_image_data_url,
         user=UserOut.model_validate(user),
-    )
-
-
-def _resolve_story_character_reference_image_data_url(reference_avatar_url: str | None) -> tuple[str | None, str | None]:
-    normalized_reference_avatar_url = str(reference_avatar_url or "").strip()
-    if not normalized_reference_avatar_url:
-        return None, None
-    if normalized_reference_avatar_url.lower().startswith("data:image/"):
-        return None, normalized_reference_avatar_url
-    return normalized_reference_avatar_url, _try_fetch_story_character_avatar_data_url(normalized_reference_avatar_url)
-
-
-def _finalize_story_character_emotion_asset(
-    *,
-    image_url: str | None = None,
-    image_data_url: str | None = None,
-) -> str | None:
-    resolved_image_data_url = str(image_data_url or "").strip() or None
-    resolved_image_url = str(image_url or "").strip() or None
-    if resolved_image_data_url is None and resolved_image_url is not None:
-        resolved_image_data_url = _try_fetch_story_character_avatar_data_url(resolved_image_url)
-    if resolved_image_data_url:
-        cleaned_image_data_url = _remove_story_sprite_background_data_url(resolved_image_data_url)
-        return str(cleaned_image_data_url or resolved_image_data_url).strip() or None
-    return resolved_image_url
-
-
-def _serialize_story_character_emotion_job_request_payload(
-    payload: StoryCharacterEmotionGenerateRequest,
-) -> str:
-    return json.dumps(payload.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":"))
-
-
-def _deserialize_story_character_emotion_job_request_payload(
-    raw_value: str | None,
-) -> StoryCharacterEmotionGenerateRequest | None:
-    normalized_raw_value = str(raw_value or "").strip()
-    if not normalized_raw_value:
-        return None
-    try:
-        parsed_payload = json.loads(normalized_raw_value)
-    except (TypeError, ValueError):
-        return None
-    try:
-        return StoryCharacterEmotionGenerateRequest.model_validate(parsed_payload)
-    except Exception:
-        return None
-
-
-def _serialize_story_character_emotion_job_result_payload(
-    payload: StoryCharacterEmotionGenerateOut,
-) -> str:
-    return json.dumps(payload.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":"))
-
-
-def _deserialize_story_character_emotion_job_result_payload(
-    raw_value: str | None,
-) -> StoryCharacterEmotionGenerateOut | None:
-    normalized_raw_value = str(raw_value or "").strip()
-    if not normalized_raw_value:
-        return None
-    try:
-        parsed_payload = json.loads(normalized_raw_value)
-    except (TypeError, ValueError):
-        return None
-    try:
-        return StoryCharacterEmotionGenerateOut.model_validate(parsed_payload)
-    except Exception:
-        return None
-
-
-def _normalize_story_character_emotion_job_error_detail(value: str | None) -> str:
-    normalized = " ".join(str(value or "").split()).strip()
-    if not normalized:
-        return ""
-    return normalized[:STORY_CHARACTER_EMOTION_JOB_ERROR_MAX_LENGTH].rstrip()
-
-
-def _resolve_story_character_emotion_selection(raw_values: Any) -> tuple[str, ...]:
-    if not isinstance(raw_values, list):
-        return tuple(_STORY_CHARACTER_EMOTION_IDS)
-
-    normalized_values: list[str] = []
-    seen: set[str] = set()
-    for raw_value in raw_values:
-        emotion_id = _normalize_story_character_emotion_id(raw_value)
-        if emotion_id is None or emotion_id in seen:
-            continue
-        seen.add(emotion_id)
-        normalized_values.append(emotion_id)
-
-    if not normalized_values:
-        return tuple(_STORY_CHARACTER_EMOTION_IDS)
-    return tuple(normalized_values)
-
-
-def _build_story_character_emotion_generation_plan(
-    payload: StoryCharacterEmotionGenerateRequest,
-) -> dict[str, Any]:
-    selected_image_model = _coerce_story_image_model(getattr(payload, "image_model", None))
-    _validate_story_turn_image_provider_config(selected_image_model)
-    selected_emotion_ids = _resolve_story_character_emotion_selection(getattr(payload, "emotion_ids", None))
-    reference_image_url, reference_image_data_url = _resolve_story_character_reference_image_data_url(
-        getattr(payload, "reference_avatar_url", None)
-    )
-    reference_prompt = _build_story_character_emotion_reference_prompt(
-        description=getattr(payload, "description", None),
-        style_prompt=getattr(payload, "style_prompt", None),
-    )
-    emotion_prompt_lock = _build_story_character_emotion_prompt_lock(
-        description=getattr(payload, "description", None),
-        style_prompt=getattr(payload, "style_prompt", None),
-    )
-    if reference_image_data_url is None and not reference_prompt:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Character description or a reference avatar is required for emotion generation",
-        )
-
-    reference_image_available = bool(reference_image_data_url or reference_image_url)
-    generated_image_count = len(selected_emotion_ids)
-    if not reference_image_available:
-        generated_image_count += 1
-    image_generation_cost = _get_story_turn_image_cost_tokens(selected_image_model) * generated_image_count
-    return {
-        "selected_image_model": selected_image_model,
-        "selected_emotion_ids": list(selected_emotion_ids),
-        "reference_image_url": reference_image_url,
-        "reference_image_data_url": reference_image_data_url,
-        "reference_prompt": reference_prompt,
-        "emotion_prompt_lock": emotion_prompt_lock,
-        "image_generation_cost": image_generation_cost,
-        "total_variants": max(len(selected_emotion_ids), 1),
-    }
-
-
-def _run_story_character_emotion_pack_generation(
-    *,
-    plan: dict[str, Any],
-    user: User,
-    db: Session,
-    charge_tokens: bool,
-    progress_callback: Any = None,
-) -> StoryCharacterEmotionGenerateOut:
-    selected_image_model = str(plan.get("selected_image_model") or "").strip() or STORY_TURN_IMAGE_MODEL_FLUX
-    selected_emotion_ids = _resolve_story_character_emotion_selection(plan.get("selected_emotion_ids"))
-    reference_image_url = str(plan.get("reference_image_url") or "").strip() or None
-    reference_image_data_url = str(plan.get("reference_image_data_url") or "").strip() or None
-    reference_prompt = str(plan.get("reference_prompt") or "").strip()
-    emotion_prompt_lock = str(plan.get("emotion_prompt_lock") or "").strip()
-    image_generation_cost = max(int(plan.get("image_generation_cost") or 0), 0)
-    total_variants = max(int(plan.get("total_variants") or len(selected_emotion_ids)), 1)
-
-    if charge_tokens and int(getattr(user, "coins", 0) or 0) < image_generation_cost:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Not enough sols to generate image",
-        )
-
-    try:
-        if reference_image_data_url is None:
-            limited_reference_prompt = _limit_story_turn_image_request_prompt(
-                reference_prompt,
-                model_name=selected_image_model,
-            )
-            reference_generation_payload = _request_story_turn_image(
-                prompt=limited_reference_prompt,
-                model_name=selected_image_model,
-            )
-            reference_image_url = str(reference_generation_payload.get("image_url") or "").strip() or None
-            reference_image_data_url = str(reference_generation_payload.get("image_data_url") or "").strip() or None
-            if reference_image_data_url is None and reference_image_url is not None:
-                reference_image_data_url = _try_fetch_story_character_avatar_data_url(reference_image_url)
-            if reference_image_url is None and reference_image_data_url is None:
-                raise RuntimeError("Reference sprite generation returned no image payload")
-
-        emotion_assets: dict[str, str] = {}
-        completed_variants = 0
-        generated_variants = list(selected_emotion_ids)
-        for emotion_index, emotion_id in enumerate(generated_variants):
-            if callable(progress_callback):
-                progress_callback(emotion_id, completed_variants, total_variants)
-            emotion_prompt = _build_story_character_emotion_edit_prompt(
-                emotion_id=emotion_id,
-                emotion_prompt_lock=emotion_prompt_lock,
-            )
-            emotion_prompt = _limit_story_turn_image_request_prompt(
-                emotion_prompt,
-                model_name=selected_image_model,
-            )
-            generated_emotion_payload = _request_story_turn_image(
-                prompt=emotion_prompt,
-                model_name=selected_image_model,
-                reference_image_url=reference_image_url,
-                reference_image_data_url=reference_image_data_url,
-            )
-            generated_emotion_image_url = str(generated_emotion_payload.get("image_url") or "").strip() or None
-            generated_emotion_image_data_url = str(generated_emotion_payload.get("image_data_url") or "").strip() or None
-            generated_emotion_asset = _finalize_story_character_emotion_asset(
-                image_url=generated_emotion_image_url,
-                image_data_url=generated_emotion_image_data_url,
-            )
-            if generated_emotion_asset is None:
-                raise RuntimeError(f"Emotion generation returned no image for {emotion_id}")
-            emotion_assets[emotion_id] = generated_emotion_asset
-            completed_variants += 1
-            if callable(progress_callback):
-                next_emotion_id = generated_variants[emotion_index + 1] if emotion_index + 1 < len(generated_variants) else None
-                progress_callback(next_emotion_id, completed_variants, total_variants)
-    except Exception as exc:
-        if charge_tokens:
-            detail = str(exc).strip() or "Emotion generation failed"
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail[:500]) from exc
-        raise
-
-    if charge_tokens and not _spend_user_tokens_if_sufficient(db, int(user.id), image_generation_cost):
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Not enough sols to generate image",
-        )
-    if charge_tokens:
-        db.commit()
-        db.refresh(user)
-
-    return StoryCharacterEmotionGenerateOut(
-        model=selected_image_model,
-        avatar_prompt=reference_prompt,
-        emotion_prompt_lock=emotion_prompt_lock or None,
-        reference_image_url=reference_image_url,
-        reference_image_data_url=reference_image_data_url,
-        emotion_assets=emotion_assets,
-        user=UserOut.model_validate(user),
-    )
-
-
-def _story_character_emotion_generation_job_to_out(
-    job: StoryCharacterEmotionGenerationJob,
-    *,
-    user: User | None = None,
-) -> StoryCharacterEmotionGenerateJobOut:
-    result_payload = _deserialize_story_character_emotion_job_result_payload(getattr(job, "result_payload", ""))
-    current_emotion_id = _normalize_story_character_emotion_id(getattr(job, "current_emotion_id", "")) or None
-    status_value = str(getattr(job, "status", "") or "").strip().lower()
-    if status_value not in {
-        STORY_CHARACTER_EMOTION_JOB_STATUS_QUEUED,
-        STORY_CHARACTER_EMOTION_JOB_STATUS_RUNNING,
-        STORY_CHARACTER_EMOTION_JOB_STATUS_COMPLETED,
-        STORY_CHARACTER_EMOTION_JOB_STATUS_FAILED,
-    }:
-        status_value = STORY_CHARACTER_EMOTION_JOB_STATUS_FAILED
-    user_payload = UserOut.model_validate(user) if user is not None else (result_payload.user if result_payload is not None else None)
-    return StoryCharacterEmotionGenerateJobOut(
-        id=int(job.id),
-        status=status_value,
-        image_model=str(getattr(job, "image_model", "") or "").strip(),
-        completed_variants=max(int(getattr(job, "completed_variants", 0) or 0), 0),
-        total_variants=max(int(getattr(job, "total_variants", 0) or 0), 0),
-        current_emotion_id=current_emotion_id,
-        error_detail=_normalize_story_character_emotion_job_error_detail(getattr(job, "error_detail", "")) or None,
-        result=result_payload,
-        user=user_payload,
-        created_at=job.created_at,
-        updated_at=job.updated_at,
-        started_at=getattr(job, "started_at", None),
-        completed_at=getattr(job, "completed_at", None),
-    )
-
-
-def _set_story_character_emotion_job_progress(
-    db: Session,
-    job: StoryCharacterEmotionGenerationJob,
-    *,
-    current_emotion_id: str | None,
-    completed_variants: int,
-    total_variants: int,
-) -> None:
-    job.status = STORY_CHARACTER_EMOTION_JOB_STATUS_RUNNING
-    job.current_emotion_id = _normalize_story_character_emotion_id(current_emotion_id) or ""
-    job.completed_variants = max(0, min(int(completed_variants), max(int(total_variants), 0)))
-    job.total_variants = max(int(total_variants), 0)
-    db.commit()
-
-
-def _process_story_character_emotion_generation_job(job_id: int) -> None:
-    db = SessionLocal()
-    try:
-        job = db.scalar(
-            select(StoryCharacterEmotionGenerationJob).where(StoryCharacterEmotionGenerationJob.id == job_id)
-        )
-        if job is None or str(job.status or "").strip().lower() in STORY_CHARACTER_EMOTION_JOB_TERMINAL_STATUSES:
-            return
-
-        user = db.scalar(select(User).where(User.id == job.user_id))
-        if user is None:
-            job.status = STORY_CHARACTER_EMOTION_JOB_STATUS_FAILED
-            job.error_detail = "Emotion generation owner was not found"
-            job.current_emotion_id = ""
-            job.completed_at = datetime.now(timezone.utc)
-            job.reserved_tokens = 0
-            db.commit()
-            return
-
-        job.status = STORY_CHARACTER_EMOTION_JOB_STATUS_RUNNING
-        job.error_detail = ""
-        job.current_emotion_id = ""
-        if job.started_at is None:
-            job.started_at = datetime.now(timezone.utc)
-        db.commit()
-
-        payload = _deserialize_story_character_emotion_job_request_payload(job.request_payload)
-        if payload is None:
-            raise RuntimeError("Emotion generation job payload is invalid")
-
-        plan = _build_story_character_emotion_generation_plan(payload)
-        job.image_model = str(plan.get("selected_image_model") or "").strip()
-        job.total_variants = max(int(plan.get("total_variants") or 0), 0)
-        db.commit()
-
-        result_payload = _run_story_character_emotion_pack_generation(
-            plan=plan,
-            user=user,
-            db=db,
-            charge_tokens=True,
-            progress_callback=lambda current_emotion_id, completed_variants, total_variants: _set_story_character_emotion_job_progress(
-                db,
-                job,
-                current_emotion_id=current_emotion_id,
-                completed_variants=completed_variants,
-                total_variants=total_variants,
-            ),
-        )
-
-        job.status = STORY_CHARACTER_EMOTION_JOB_STATUS_COMPLETED
-        job.current_emotion_id = ""
-        job.completed_variants = max(int(job.total_variants or len(_resolve_story_character_emotion_selection(plan.get("selected_emotion_ids")))), 0)
-        job.result_payload = _serialize_story_character_emotion_job_result_payload(result_payload)
-        job.error_detail = ""
-        job.completed_at = datetime.now(timezone.utc)
-        job.reserved_tokens = 0
-        db.commit()
-    except Exception as exc:
-        db.rollback()
-        job = db.scalar(
-            select(StoryCharacterEmotionGenerationJob).where(StoryCharacterEmotionGenerationJob.id == job_id)
-        )
-        if job is None:
-            logger.exception("Story character emotion job failed before persistence: job_id=%s", job_id)
-            return
-
-        detail = _normalize_story_character_emotion_job_error_detail(str(exc).strip() or "Emotion generation failed")
-        try:
-            if int(getattr(job, "reserved_tokens", 0) or 0) > 0:
-                _add_user_tokens(db, int(job.user_id), int(job.reserved_tokens))
-                job.reserved_tokens = 0
-            job.status = STORY_CHARACTER_EMOTION_JOB_STATUS_FAILED
-            job.current_emotion_id = ""
-            job.error_detail = detail or "Emotion generation failed"
-            job.completed_at = datetime.now(timezone.utc)
-            db.commit()
-        except Exception:
-            db.rollback()
-            logger.exception("Story character emotion job refund failed: job_id=%s", job_id)
-            try:
-                job = db.scalar(
-                    select(StoryCharacterEmotionGenerationJob).where(StoryCharacterEmotionGenerationJob.id == job_id)
-                )
-                if job is not None:
-                    job.status = STORY_CHARACTER_EMOTION_JOB_STATUS_FAILED
-                    job.current_emotion_id = ""
-                    job.error_detail = detail or "Emotion generation failed"
-                    job.completed_at = datetime.now(timezone.utc)
-                    db.commit()
-            except Exception:
-                db.rollback()
-                logger.exception("Story character emotion job failure state persistence failed: job_id=%s", job_id)
-    finally:
-        db.close()
-
-
-def _start_story_character_emotion_generation_job(job_id: int) -> None:
-    worker = Thread(
-        target=_process_story_character_emotion_generation_job,
-        args=(int(job_id),),
-        name=f"story-emotion-job-{int(job_id)}",
-        daemon=True,
-    )
-    worker.start()
-
-
-def _fail_story_character_emotion_job_after_spawn_error(job_id: int, error_text: str) -> None:
-    db = SessionLocal()
-    try:
-        job = db.scalar(
-            select(StoryCharacterEmotionGenerationJob).where(StoryCharacterEmotionGenerationJob.id == int(job_id))
-        )
-        if job is None:
-            return
-        detail = _normalize_story_character_emotion_job_error_detail(error_text) or "Emotion generation failed to start"
-        if int(getattr(job, "reserved_tokens", 0) or 0) > 0:
-            _add_user_tokens(db, int(job.user_id), int(job.reserved_tokens))
-            job.reserved_tokens = 0
-        job.status = STORY_CHARACTER_EMOTION_JOB_STATUS_FAILED
-        job.current_emotion_id = ""
-        job.error_detail = detail
-        job.completed_at = datetime.now(timezone.utc)
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.exception("Story character emotion spawn recovery failed: job_id=%s", job_id)
-    finally:
-        db.close()
-
-
-def queue_story_character_emotion_generation_job_impl(
-    payload: StoryCharacterEmotionGenerateRequest,
-    authorization: str | None,
-    db: Session,
-) -> StoryCharacterEmotionGenerateJobOut:
-    user = _get_current_user(db, authorization)
-    if str(getattr(user, "role", "") or "").strip().lower() != "administrator":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    plan = _build_story_character_emotion_generation_plan(payload)
-    image_generation_cost = max(int(plan.get("image_generation_cost") or 0), 0)
-    if int(getattr(user, "coins", 0) or 0) < image_generation_cost:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Not enough sols to generate image",
-        )
-
-    job = StoryCharacterEmotionGenerationJob(
-        user_id=int(user.id),
-        status=STORY_CHARACTER_EMOTION_JOB_STATUS_QUEUED,
-        image_model=str(plan.get("selected_image_model") or "").strip(),
-        request_payload=_serialize_story_character_emotion_job_request_payload(payload),
-        result_payload="",
-        error_detail="",
-        current_emotion_id="",
-        completed_variants=0,
-        total_variants=max(int(plan.get("total_variants") or 0), 0),
-        reserved_tokens=0,
-        started_at=None,
-        completed_at=None,
-    )
-    db.add(job)
-    db.commit()
-    db.refresh(user)
-    db.refresh(job)
-
-    try:
-        _start_story_character_emotion_generation_job(job.id)
-    except Exception as exc:
-        logger.exception("Failed to start story character emotion job thread: job_id=%s", job.id)
-        _fail_story_character_emotion_job_after_spawn_error(job.id, str(exc).strip() or "Emotion generation failed to start")
-        db.refresh(user)
-        db.refresh(job)
-
-    return _story_character_emotion_generation_job_to_out(job, user=user)
-
-
-def get_story_character_emotion_generation_job_impl(
-    job_id: int,
-    authorization: str | None,
-    db: Session,
-) -> StoryCharacterEmotionGenerateJobOut:
-    user = _get_current_user(db, authorization)
-    if str(getattr(user, "role", "") or "").strip().lower() != "administrator":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    job = db.scalar(
-        select(StoryCharacterEmotionGenerationJob).where(
-            StoryCharacterEmotionGenerationJob.id == int(job_id),
-            StoryCharacterEmotionGenerationJob.user_id == int(user.id),
-        )
-    )
-    if job is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emotion generation job not found")
-    db.refresh(user)
-    return _story_character_emotion_generation_job_to_out(job, user=user)
-
-
-def generate_story_character_emotion_pack_impl(
-    payload: StoryCharacterEmotionGenerateRequest,
-    authorization: str | None,
-    db: Session,
-) -> StoryCharacterEmotionGenerateOut:
-    user = _get_current_user(db, authorization)
-    if str(getattr(user, "role", "") or "").strip().lower() != "administrator":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    plan = _build_story_character_emotion_generation_plan(payload)
-    return _run_story_character_emotion_pack_generation(
-        plan=plan,
-        user=user,
-        db=db,
-        charge_tokens=True,
     )
 
 

@@ -9,8 +9,8 @@ import textwrap
 import unittest
 
 
-class StoryDisplayModeBootstrapTests(unittest.TestCase):
-    def test_bootstrap_adds_display_mode_column_to_sqlite_story_games(self) -> None:
+class StoryNovelBootstrapMigrationTests(unittest.TestCase):
+    def test_bootstrap_adds_game_mode_and_novel_sprite_gender_and_drops_legacy_tables(self) -> None:
         backend_root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "morius.db"
@@ -37,6 +37,21 @@ class StoryDisplayModeBootstrapTests(unittest.TestCase):
                     STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS,
                 )
 
+                # Simulate a pre-refactor database that still has the old, now-removed
+                # sprite-generation-job table lying around, to prove bootstrap drops it.
+                raw_path = settings.database_url.replace("sqlite:///", "")
+                seed_connection = sqlite3.connect(raw_path)
+                try:
+                    seed_connection.execute(
+                        "CREATE TABLE story_character_emotion_generation_jobs (id INTEGER PRIMARY KEY)"
+                    )
+                    seed_connection.execute(
+                        "CREATE TABLE story_message_segments (id INTEGER PRIMARY KEY)"
+                    )
+                    seed_connection.commit()
+                finally:
+                    seed_connection.close()
+
                 bootstrap_database(
                     database_url=settings.database_url,
                     defaults=StoryBootstrapDefaults(
@@ -52,17 +67,30 @@ class StoryDisplayModeBootstrapTests(unittest.TestCase):
                     ),
                 )
 
-                raw_path = settings.database_url.replace("sqlite:///", "")
                 connection = sqlite3.connect(raw_path)
                 try:
-                    columns = {row[1] for row in connection.execute("PRAGMA table_info(story_games)")}
-                    assert "display_mode" in columns, columns
-                    assert "story_message_segments" in {
+                    game_columns = {row[1] for row in connection.execute("PRAGMA table_info(story_games)")}
+                    assert "game_mode" in game_columns, game_columns
+                    assert "display_mode" not in game_columns, game_columns
+                    assert "emotion_visualization_enabled" not in game_columns, game_columns
+
+                    character_columns = {
+                        row[1] for row in connection.execute("PRAGMA table_info(story_characters)")
+                    }
+                    assert "novel_sprite_gender" in character_columns, character_columns
+                    assert "emotion_model" not in character_columns, character_columns
+                    assert "emotion_prompt_lock" not in character_columns, character_columns
+
+                    table_names = {
                         row[0]
                         for row in connection.execute(
                             "SELECT name FROM sqlite_master WHERE type = 'table'"
                         )
                     }
+                    assert "story_novel_beats" in table_names, table_names
+                    assert "story_scene_backgrounds" in table_names, table_names
+                    assert "story_character_emotion_generation_jobs" not in table_names, table_names
+                    assert "story_message_segments" not in table_names, table_names
                 finally:
                     connection.close()
                 """

@@ -26,7 +26,7 @@ from app.models import (
     StoryInstructionCard,
     StoryMemoryBlock,
     StoryMessage,
-    StoryMessageSegment,
+    StoryNovelBeat,
     StoryPlotCardChangeEvent,
     StoryTurnImage,
     StoryWorldCard,
@@ -79,11 +79,15 @@ from app.services.story_generation_cancel import (
     mark_story_generation_finished,
     mark_story_generation_started,
 )
-from app.services.story_visual_novel import (
-    build_visual_novel_instruction_card,
-    is_story_visual_novel_enabled_for_user,
-    persist_visual_novel_beats_for_message,
-    serialize_story_vn_beats_for_stream,
+from app.services.story_novel import (
+    build_story_novel_instruction_card,
+    is_story_visual_novel_enabled,
+    persist_story_novel_beats_for_message,
+    serialize_story_novel_beats_for_stream,
+)
+from app.services.story_novel_backgrounds import (
+    apply_story_scene_background_memory_for_turn,
+    story_scene_background_to_out,
 )
 
 logger = logging.getLogger(__name__)
@@ -191,7 +195,6 @@ class StoryRuntimeDeps:
     plot_card_to_out: Callable[[Any], Any]
     world_card_to_out: Callable[[Any], Any]
     resolve_story_ambient_profile: Callable[..., dict[str, Any] | None]
-    resolve_story_scene_emotion_payload: Callable[..., str | None]
     resolve_story_turn_postprocess_payload: Callable[..., dict[str, Any] | None]
     serialize_story_ambient_profile: Callable[[dict[str, Any] | None], str]
     story_game_summary_to_out: Callable[[StoryGame], Any]
@@ -346,7 +349,7 @@ def _public_story_error_detail(exc: Exception) -> str:
         return STORY_SQLITE_BUSY_DETAIL
     lowered_detail = detail.casefold()
     if (
-        lowered_detail.startswith("openrouter chat error")
+        lowered_detail.startswith("routerai chat error")
         or lowered_detail.startswith("polza chat error")
     ) and "{" in detail:
         detail = detail.split("{", 1)[0].rstrip(" .:,")
@@ -546,8 +549,6 @@ def _snapshot_discarded_story_message_log(message: "StoryMessage") -> list[dict[
     return [
         {
             "content": snapshot_content,
-            "vn_raw_response": str(getattr(message, "vn_raw_response", "") or ""),
-            "scene_emotion_payload": str(getattr(message, "scene_emotion_payload", "") or ""),
             "created_at": _story_message_variant_created_at(message),
         }
     ]
@@ -564,8 +565,6 @@ def _append_story_message_variant_log_entry(
         combined.append(
             {
                 "content": snapshot_content,
-                "vn_raw_response": str(getattr(message, "vn_raw_response", "") or ""),
-                "scene_emotion_payload": str(getattr(message, "scene_emotion_payload", "") or ""),
                 "created_at": _story_message_variant_created_at(message),
             }
         )
@@ -1471,7 +1470,6 @@ def _stream_story_response(
     reroll_discarded_assistant_text: str | None,
     reroll_carried_variant_history: list[dict[str, str]] | None = None,
     ambient_enabled: bool,
-    emotion_visualization_enabled: bool,
     visual_novel_enabled: bool,
     show_gg_thoughts: bool,
     show_npc_thoughts: bool,
@@ -1632,7 +1630,7 @@ def _stream_story_response(
                 game_id=int(game.id),
                 assistant_message_ids=discarded_assistant_ids,
             )
-            db.execute(sa_delete(StoryMessageSegment).where(StoryMessageSegment.message_id.in_(discarded_assistant_ids)))
+            db.execute(sa_delete(StoryNovelBeat).where(StoryNovelBeat.message_id.in_(discarded_assistant_ids)))
             db.execute(sa_delete(StoryTurnImage).where(StoryTurnImage.assistant_message_id.in_(discarded_assistant_ids)))
             db.execute(
                 sa_delete(StoryWorldCardChangeEvent).where(
@@ -1898,16 +1896,16 @@ def _stream_story_response(
             )
             db.rollback()
         _restore_discarded_assistant_steps("empty_response")
-        yield _sse_event("error", {"detail": "OpenRouter returned an empty story response"})
+        yield _sse_event("error", {"detail": "RouterAI returned an empty story response"})
         return
 
-    vn_beats_payload: list[dict[str, Any]] = []
+    novel_beats_payload: list[dict[str, Any]] = []
     if visual_novel_enabled and not aborted and response_has_content:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "visual_novel"})
         if _stop_requested("visual_novel"):
             return
         try:
-            vn_segments = persist_visual_novel_beats_for_message(
+            novel_beats = persist_story_novel_beats_for_message(
                 db=db,
                 game=game,
                 assistant_message=assistant_message,
@@ -1919,12 +1917,12 @@ def _stream_story_response(
             deps.touch_story_game(game)
             commit_with_retry(db)
             db.refresh(assistant_message)
-            for segment in vn_segments:
+            for beat in novel_beats:
                 try:
-                    db.refresh(segment)
+                    db.refresh(beat)
                 except Exception:
                     pass
-            vn_beats_payload = serialize_story_vn_beats_for_stream(vn_segments)
+            novel_beats_payload = serialize_story_novel_beats_for_stream(db, novel_beats)
             normalized_output = str(getattr(assistant_message, "content", "") or "").replace("\r\n", "\n").strip()
         except Exception:
             logger.exception(
@@ -2076,7 +2074,6 @@ def _stream_story_response(
                     character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
                     important_event_enabled=True,
                     ambient_enabled=ambient_enabled,
-                    emotion_visualization_enabled=emotion_visualization_enabled,
                     auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
                 )
             if _stop_requested("postprocess_resolved", rollback=True):
@@ -2093,7 +2090,6 @@ def _stream_story_response(
         return
 
     ambient_payload: dict[str, Any] | None = None
-    scene_emotion_payload: str | None = None
     if ambient_enabled and not aborted and response_has_content:
         try:
             ambient_payload = deps.resolve_story_ambient_profile(
@@ -2127,43 +2123,6 @@ def _stream_story_response(
                 )
                 db.rollback()
                 ambient_payload = None
-
-    if emotion_visualization_enabled and not aborted and response_has_content:
-        try:
-            scene_emotion_payload = deps.resolve_story_scene_emotion_payload(
-                latest_user_prompt=prompt,
-                latest_assistant_text=assistant_text_for_postprocess,
-                world_cards=world_cards,
-                resolved_payload_override=(
-                    unified_postprocess_payload.get("scene_emotion")
-                    if isinstance(unified_postprocess_payload, dict)
-                    and isinstance(unified_postprocess_payload.get("scene_emotion"), dict)
-                    else None
-                ),
-                allow_model_request=False,
-            )
-        except Exception:
-            logger.exception(
-                "Failed to resolve scene emotion payload: game_id=%s assistant_message_id=%s",
-                game.id,
-                assistant_message.id,
-            )
-            scene_emotion_payload = None
-
-        if scene_emotion_payload:
-            try:
-                assistant_message.scene_emotion_payload = scene_emotion_payload
-                deps.touch_story_game(game)
-                db.commit()
-                db.refresh(assistant_message)
-            except Exception:
-                logger.exception(
-                    "Failed to persist scene emotion payload: game_id=%s assistant_message_id=%s",
-                    game.id,
-                    assistant_message.id,
-                )
-                db.rollback()
-                scene_emotion_payload = None
 
     if not aborted and response_has_content:
         logger.info(
@@ -2431,7 +2390,6 @@ def _stream_story_response(
                 "game_id": assistant_message.game_id,
                 "role": assistant_message.role,
                 "content": assistant_message.content,
-                "scene_emotion_payload": str(getattr(assistant_message, "scene_emotion_payload", "") or "").strip() or None,
                 "created_at": assistant_message.created_at.isoformat(),
                 "updated_at": assistant_message.updated_at.isoformat(),
                 "variant_history": [
@@ -2468,7 +2426,7 @@ def _stream_story_response(
         if graph_analysis_result is not None:
             done_payload["graph_analysis"] = graph_analysis_result
         if visual_novel_enabled:
-            done_payload["vn_beats"] = vn_beats_payload
+            done_payload["novel_beats"] = novel_beats_payload
         game_payload = _safe_dump_stream_item(deps.story_game_summary_to_out(game))
         if game_payload is not None:
             resolved_current_location_label = resolve_story_current_location_label(
@@ -2477,6 +2435,25 @@ def _stream_story_response(
             )
             if resolved_current_location_label:
                 game_payload["current_location_label"] = resolved_current_location_label
+            if visual_novel_enabled:
+                try:
+                    current_background = apply_story_scene_background_memory_for_turn(
+                        db,
+                        game=game,
+                        location_label=resolved_current_location_label,
+                    )
+                    commit_with_retry(db)
+                    if current_background is not None:
+                        done_payload["current_scene_background"] = _safe_dump_stream_item(
+                            story_scene_background_to_out(current_background)
+                        )
+                except Exception:
+                    logger.exception(
+                        "Story scene background memory match failed: game_id=%s assistant_message_id=%s",
+                        game.id,
+                        assistant_message.id,
+                    )
+                    db.rollback()
             done_payload["game"] = game_payload
         if isinstance(ambient_payload, dict):
             done_payload["ambient"] = ambient_payload
@@ -2498,7 +2475,6 @@ def _stream_story_response(
             "game_id": assistant_message.game_id,
             "role": assistant_message.role,
             "content": assistant_message.content,
-            "scene_emotion_payload": str(getattr(assistant_message, "scene_emotion_payload", "") or "").strip() or None,
             "created_at": assistant_message.created_at.isoformat(),
             "updated_at": assistant_message.updated_at.isoformat(),
             "variant_history": [
@@ -2529,7 +2505,7 @@ def _stream_story_response(
         ],
     }
     if visual_novel_enabled:
-        done_payload["vn_beats"] = vn_beats_payload
+        done_payload["novel_beats"] = novel_beats_payload
     game_payload = _safe_dump_stream_item(deps.story_game_summary_to_out(game))
     if game_payload is not None:
         resolved_current_location_label = resolve_story_current_location_label(
@@ -2538,6 +2514,25 @@ def _stream_story_response(
         )
         if resolved_current_location_label:
             game_payload["current_location_label"] = resolved_current_location_label
+        if visual_novel_enabled:
+            try:
+                current_background = apply_story_scene_background_memory_for_turn(
+                    db,
+                    game=game,
+                    location_label=resolved_current_location_label,
+                )
+                commit_with_retry(db)
+                if current_background is not None:
+                    done_payload["current_scene_background"] = _safe_dump_stream_item(
+                        story_scene_background_to_out(current_background)
+                    )
+            except Exception:
+                logger.exception(
+                    "Story scene background memory match failed: game_id=%s assistant_message_id=%s",
+                    game.id,
+                    assistant_message.id,
+                )
+                db.rollback()
         done_payload["game"] = game_payload
     try:
         yield _sse_event("done", done_payload)
@@ -2648,16 +2643,11 @@ def _generate_story_response_locked(
     ambient_enabled = bool(raw_ambient_enabled)
     if payload.ambient_enabled is not None:
         ambient_enabled = bool(payload.ambient_enabled)
-    raw_emotion_visualization_enabled = getattr(game, "emotion_visualization_enabled", None)
-    emotion_visualization_enabled = bool(raw_emotion_visualization_enabled)
-    if payload.emotion_visualization_enabled is not None:
-        emotion_visualization_enabled = bool(payload.emotion_visualization_enabled)
     if not is_administrator:
         ambient_enabled = False
-        emotion_visualization_enabled = False
-    visual_novel_enabled = is_story_visual_novel_enabled_for_user(game, user)
+    visual_novel_enabled = is_story_visual_novel_enabled(game, user)
     logger.info(
-        "Story generate settings: game_id=%s memory_optimization_enabled=%s payload_override=%s game_value=%s environment_enabled=%s environment_time_enabled=%s environment_weather_enabled=%s environment_payload_override=%s environment_time_payload_override=%s environment_weather_payload_override=%s environment_game_value=%s environment_time_game_value=%s environment_weather_game_value=%s ambient_enabled=%s ambient_payload_override=%s ambient_game_value=%s emotion_visualization_enabled=%s emotion_payload_override=%s emotion_game_value=%s",
+        "Story generate settings: game_id=%s memory_optimization_enabled=%s payload_override=%s game_value=%s environment_enabled=%s environment_time_enabled=%s environment_weather_enabled=%s environment_payload_override=%s environment_time_payload_override=%s environment_weather_payload_override=%s environment_game_value=%s environment_time_game_value=%s environment_weather_game_value=%s ambient_enabled=%s ambient_payload_override=%s ambient_game_value=%s visual_novel_enabled=%s",
         game.id,
         memory_optimization_enabled,
         payload.memory_optimization_enabled,
@@ -2674,9 +2664,7 @@ def _generate_story_response_locked(
         ambient_enabled,
         payload.ambient_enabled,
         raw_ambient_enabled,
-        emotion_visualization_enabled,
-        payload.emotion_visualization_enabled,
-        raw_emotion_visualization_enabled,
+        visual_novel_enabled,
     )
     story_top_k = normalize_story_top_k(getattr(game, "story_top_k", None), model_name=story_model_name)
     if payload.story_top_k is not None:
@@ -2730,7 +2718,6 @@ def _generate_story_response_locked(
         memory_optimization_enabled = False
         visual_novel_enabled = False
         ambient_enabled = False
-        emotion_visualization_enabled = False
         from app.services.subscriptions import SUBSCRIPTION_RESPONSE_MAX_TOKENS
 
         story_response_max_tokens = SUBSCRIPTION_RESPONSE_MAX_TOKENS
@@ -2980,8 +2967,8 @@ def _generate_story_response_locked(
                     assistant_message_ids=undone_message_ids,
                 )
                 db.execute(
-                    sa_delete(StoryMessageSegment).where(
-                        StoryMessageSegment.message_id.in_(undone_message_ids),
+                    sa_delete(StoryNovelBeat).where(
+                        StoryNovelBeat.message_id.in_(undone_message_ids),
                     )
                 )
                 db.execute(
@@ -3266,7 +3253,7 @@ def _generate_story_response_locked(
         except Exception:
             logger.exception("Canonical state prompt card failed; continuing with legacy instruction cards")
     if visual_novel_enabled:
-        visual_novel_instruction_card = build_visual_novel_instruction_card()
+        visual_novel_instruction_card = build_story_novel_instruction_card()
         effective_instruction_cards = [*effective_instruction_cards, visual_novel_instruction_card]
     try:
         from app.services.story_graph import build_story_graph_context_instruction
@@ -3354,7 +3341,6 @@ def _generate_story_response_locked(
         reroll_discarded_assistant_text=reroll_discarded_assistant_text,
         reroll_carried_variant_history=reroll_carried_variant_history,
         ambient_enabled=ambient_enabled,
-        emotion_visualization_enabled=emotion_visualization_enabled,
         visual_novel_enabled=visual_novel_enabled,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,

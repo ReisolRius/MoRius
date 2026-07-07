@@ -13,7 +13,7 @@ LLM_WORLD_ANALYSIS_PROMPT_NAME = "LLM_WORLD_ANALYSIS_PROMPT"
 
 # Все «мировые» модули одного хода, которые умеет вернуть Call A. Порядок фиксирует
 # порядок секций в промпте и в JSON-шаблоне.
-WORLD_ANALYSIS_MODULES = ("location", "environment", "important_memory", "ambient", "scene_emotion")
+WORLD_ANALYSIS_MODULES = ("location", "environment", "important_memory", "ambient")
 
 
 def _dump_json(value: Any) -> str:
@@ -488,14 +488,6 @@ _WORLD_ANALYSIS_SYSTEM_BLOCKS: dict[str, str] = {
         "vignette_strength — числа 0..1. Избегай дежурного синего, если сцена не холодная/синяя. "
         "scene и lighting — короткие пометки на английском."
     ),
-    "scene_emotion": (
-        "SCENE_EMOTION. Реши, показывать ли спрайты эмоций визуальной новеллы. show_visualization=true "
-        "только для диалога, прямого взаимодействия, согласованного движения, встречи или угрозы; "
-        "false для одиночного перемещения, пейзажа, рутинного повествования, общей атмосферы. "
-        "Используй ТОЛЬКО активных персонажей из ACTIVE_CHARACTERS и ТОЛЬКО допустимые id эмоций из "
-        "SUPPORTED_EMOTIONS. Главный герой первым, если активен; затем вовлечённые NPC; максимум "
-        "четыре участника. Никаких местоимений и выдуманных имён."
-    ),
 }
 
 _WORLD_ANALYSIS_JSON_FRAGMENTS: dict[str, str] = {
@@ -518,11 +510,6 @@ _WORLD_ANALYSIS_JSON_FRAGMENTS: dict[str, str] = {
         '"#RRGGBB", "highlight_color": "#RRGGBB", "glow_strength": 0.5, "background_mix": 0.5, '
         '"vignette_strength": 0.5}'
     ),
-    "scene_emotion": (
-        '  "scene_emotion": {"show_visualization": false, "reason": "", "participants": [{"name": '
-        '"Имя из ACTIVE_CHARACTERS", "emotion": "id из SUPPORTED_EMOTIONS", "importance": '
-        '"primary|secondary"}]}'
-    ),
 }
 
 
@@ -539,8 +526,6 @@ def build_world_analysis_messages(
     environment_weather_enabled: bool = False,
     environment_time_facts: str = "",
     environment_weather_facts: str = "",
-    scene_emotion_active_characters: str = "",
-    scene_emotion_supported_emotions: str = "",
 ) -> list[dict[str, str]]:
     """Один объединённый промпт Call A.
 
@@ -582,13 +567,6 @@ def build_world_analysis_messages(
             context_lines.append(f"\nCURRENT_WEATHER:\n{environment_weather_facts or 'неизвестно'}")
         else:
             context_lines.append("\nWEATHER_DISABLED: верни weather как null.")
-    if "scene_emotion" in active_modules:
-        context_lines.append(
-            f"\nSUPPORTED_EMOTIONS:\n{scene_emotion_supported_emotions or 'нет'}"
-        )
-        context_lines.append(
-            f"\nACTIVE_CHARACTERS:\n{scene_emotion_active_characters or 'нет активных персонажей'}"
-        )
     context_lines.extend(
         [
             f"\nPLAYER_TURN:\n{player_turn or 'нет'}",

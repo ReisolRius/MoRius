@@ -7,15 +7,16 @@ from pathlib import Path
 from dotenv import dotenv_values, load_dotenv
 
 VALID_APP_MODES = {"monolith", "gateway", "auth", "story", "payments"}
-OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1"
-OPENROUTER_CHAT_COMPLETIONS_URL = f"{OPENROUTER_API_BASE_URL}/chat/completions"
-POLZA_CHAT_COMPLETIONS_URL = OPENROUTER_CHAT_COMPLETIONS_URL
-POLZA_MEDIA_URL = OPENROUTER_CHAT_COMPLETIONS_URL
-POLZA_API_BASE_URL = OPENROUTER_API_BASE_URL
-PROXYAPI_OPENROUTER_BASE_URL = OPENROUTER_API_BASE_URL
+ROUTERAI_API_BASE_URL = "https://routerai.ru/api/v1"
+ROUTERAI_CHAT_COMPLETIONS_URL = f"{ROUTERAI_API_BASE_URL}/chat/completions"
+ROUTERAI_IMAGES_URL = f"{ROUTERAI_API_BASE_URL}/images"
+POLZA_CHAT_COMPLETIONS_URL = ROUTERAI_CHAT_COMPLETIONS_URL
+POLZA_MEDIA_URL = ROUTERAI_IMAGES_URL
+POLZA_API_BASE_URL = ROUTERAI_API_BASE_URL
+PROXYAPI_ROUTERAI_BASE_URL = ROUTERAI_API_BASE_URL
 AITUNNEL_API_BASE_URL = ""
-POLZA_SERVICE_TEXT_MODEL = "google/gemma-4-31b-it:free"
-POLZA_SERVICE_FALLBACK_MODEL = "nex-agi/nex-n2-pro:free"
+POLZA_SERVICE_TEXT_MODEL = "google/gemma-4-31b-it"
+POLZA_SERVICE_FALLBACK_MODEL = "nex-agi/nex-n2-pro"
 POLZA_GEMINI_25_FLASH_MODEL = "google/gemini-2.5-flash"
 POLZA_GEMINI_25_FLASH_LITE_MODEL = "google/gemini-2.5-flash-lite"
 POLZA_DEFAULT_STORY_MODEL = "z-ai/glm-5"
@@ -60,6 +61,10 @@ def _env(name: str, default: str = "") -> str:
     return default
 
 
+def _env_alias(primary_name: str, legacy_name: str, default: str = "") -> str:
+    return _env(primary_name, _env(legacy_name, default))
+
+
 def _normalize_env_regex(value: str) -> str:
     return value.strip().replace("\\\\", "\\")
 
@@ -85,10 +90,12 @@ def _to_float(value: str | None, default: float, *, minimum: float = 0.0) -> flo
 
 
 def _normalize_story_llm_provider(value: str | None) -> str:
-    normalized = str(value or "openrouter").strip().lower()
+    normalized = str(value or "routerai").strip().lower()
     if not normalized:
         return "polza"
     if normalized == "open" + "router":
+        return "polza"
+    if normalized in {"routerai", "router-ai", "router ai"}:
         return "polza"
     return normalized
 
@@ -287,7 +294,7 @@ class Settings:
     polza_site_url: str
     polza_app_name: str
     proxyapi_key: str
-    proxyapi_base_openrouter: str
+    proxyapi_base_routerai: str
     aitunnel_api_key: str
     aitunnel_base_url: str
     aitunnel_image_generation_url: str
@@ -410,39 +417,43 @@ settings = Settings(
         "SUBSCRIPTION_MODEL_GEMINI_3_FLASH_PREVIEW",
         SUBSCRIPTION_DEFAULT_MODEL_GEMINI_3_FLASH_PREVIEW,
     ).strip(),
-    story_llm_provider=_normalize_story_llm_provider(_env("STORY_LLM_PROVIDER", "openrouter")),
+    story_llm_provider=_normalize_story_llm_provider(_env("STORY_LLM_PROVIDER", "routerai")),
     gigachat_authorization_key=os.getenv("GIGACHAT_AUTHORIZATION_KEY", "").strip(),
     gigachat_scope=os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS").strip(),
     gigachat_oauth_url=os.getenv("GIGACHAT_OAUTH_URL", "https://ngw.devices.sberbank.ru:9443/api/v2/oauth").strip(),
     gigachat_chat_url=os.getenv("GIGACHAT_CHAT_URL", "https://gigachat.devices.sberbank.ru/api/v1/chat/completions").strip(),
     gigachat_model=os.getenv("GIGACHAT_MODEL", "GigaChat-2-Lite").strip(),
     gigachat_verify_ssl=_to_bool(os.getenv("GIGACHAT_VERIFY_SSL"), default=True),
-    polza_api_key=_env("POLZA_API_KEY", "").strip(),
-    polza_chat_url=_env("POLZA_CHAT_URL", POLZA_CHAT_COMPLETIONS_URL).strip(),
-    polza_model=_env("POLZA_MODEL", POLZA_DEFAULT_STORY_MODEL).strip(),
-    polza_world_card_model=_env(
+    polza_api_key=_env_alias("ROUTERAI_API_KEY", "POLZA_API_KEY", "").strip(),
+    polza_chat_url=_env_alias("ROUTERAI_CHAT_URL", "POLZA_CHAT_URL", POLZA_CHAT_COMPLETIONS_URL).strip(),
+    polza_model=_env_alias("ROUTERAI_MODEL", "POLZA_MODEL", POLZA_DEFAULT_STORY_MODEL).strip(),
+    polza_world_card_model=_env_alias(
+        "ROUTERAI_WORLD_CARD_MODEL",
         "POLZA_WORLD_CARD_MODEL",
         POLZA_GEMINI_25_FLASH_MODEL,
     ).strip(),
-    polza_translation_model=_env(
+    polza_translation_model=_env_alias(
+        "ROUTERAI_TRANSLATION_MODEL",
         "POLZA_TRANSLATION_MODEL",
         POLZA_GEMINI_25_FLASH_MODEL,
     ).strip(),
-    polza_plot_card_model=_env(
+    polza_plot_card_model=_env_alias(
+        "ROUTERAI_PLOT_CARD_MODEL",
         "POLZA_PLOT_CARD_MODEL",
         POLZA_GEMINI_25_FLASH_MODEL,
     ).strip(),
-    polza_service_fallback_model=_env(
+    polza_service_fallback_model=_env_alias(
+        "ROUTERAI_SERVICE_FALLBACK_MODEL",
         "POLZA_SERVICE_FALLBACK_MODEL",
         POLZA_SERVICE_FALLBACK_MODEL,
     ).strip(),
-    polza_image_url=_env("POLZA_IMAGE_URL", POLZA_MEDIA_URL).strip(),
-    polza_image_model=_env("POLZA_IMAGE_MODEL", POLZA_DEFAULT_IMAGE_MODEL).strip(),
-    polza_image_size=_env("POLZA_IMAGE_SIZE", "1024x1024").strip(),
-    polza_site_url=_env("POLZA_SITE_URL", "").strip(),
-    polza_app_name=_env("POLZA_APP_NAME", "MoRius").strip(),
+    polza_image_url=_env_alias("ROUTERAI_IMAGE_URL", "POLZA_IMAGE_URL", POLZA_MEDIA_URL).strip(),
+    polza_image_model=_env_alias("ROUTERAI_IMAGE_MODEL", "POLZA_IMAGE_MODEL", POLZA_DEFAULT_IMAGE_MODEL).strip(),
+    polza_image_size=_env_alias("ROUTERAI_IMAGE_SIZE", "POLZA_IMAGE_SIZE", "1024x1024").strip(),
+    polza_site_url=_env_alias("ROUTERAI_SITE_URL", "POLZA_SITE_URL", "").strip(),
+    polza_app_name=_env_alias("ROUTERAI_APP_NAME", "POLZA_APP_NAME", "MoRius").strip(),
     proxyapi_key=_env("PROXYAPI_KEY", "").strip(),
-    proxyapi_base_openrouter=_env("PROXYAPI_BASE_OPENROUTER", PROXYAPI_OPENROUTER_BASE_URL).strip().rstrip("/"),
+    proxyapi_base_routerai=_env("PROXYAPI_BASE_ROUTERAI", PROXYAPI_ROUTERAI_BASE_URL).strip().rstrip("/"),
     aitunnel_api_key=_env("AITUNNEL_API_KEY", "").strip(),
     aitunnel_base_url=_env("AITUNNEL_BASE_URL", AITUNNEL_API_BASE_URL).strip().rstrip("/"),
     aitunnel_image_generation_url=_env(
@@ -460,7 +471,7 @@ settings = Settings(
     canonical_state_safe_fallback=_to_bool(os.getenv("CANONICAL_STATE_SAFE_FALLBACK"), default=False),
     ai_assistant_enabled=_to_bool(_env("AI_ASSISTANT_ENABLED", "false"), default=False),
     ai_assistant_model=_env("AI_ASSISTANT_MODEL", "deepseek/deepseek-v4-flash").strip(),
-    ai_assistant_base_url=_env("AI_ASSISTANT_BASE_URL", OPENROUTER_API_BASE_URL).strip().rstrip("/"),
+    ai_assistant_base_url=_env("AI_ASSISTANT_BASE_URL", ROUTERAI_API_BASE_URL).strip().rstrip("/"),
     ai_assistant_min_sols=_to_int(_env("AI_ASSISTANT_MIN_SOLS", "1"), 1, minimum=1),
     ai_assistant_markup=_to_float(_env("AI_ASSISTANT_MARKUP", "5"), 5.0, minimum=0.1),
     ai_assistant_rub_per_sol_cost_basis=_to_float(

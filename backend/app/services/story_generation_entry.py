@@ -23,10 +23,10 @@ STORY_PROVIDER_FAILURE_DETAIL_MARKERS = (
     "internal server error",
     "server_error",
     "upstream",
-    "openrouter chat error (500)",
-    "openrouter chat error (502)",
-    "openrouter chat error (503)",
-    "openrouter chat error (504)",
+    "routerai chat error (500)",
+    "routerai chat error (502)",
+    "routerai chat error (503)",
+    "routerai chat error (504)",
     "polza chat error (500)",
     "polza chat error (502)",
     "polza chat error (503)",
@@ -50,7 +50,7 @@ def _public_story_provider_failure_detail(detail: str | None) -> str:
     normalized_detail = " ".join(normalized_detail.split())
     lowered_detail = normalized_detail.casefold()
     if (
-        lowered_detail.startswith("openrouter chat error")
+        lowered_detail.startswith("routerai chat error")
         or lowered_detail.startswith("polza chat error")
     ) and "{" in normalized_detail:
         normalized_detail = normalized_detail.split("{", 1)[0].rstrip(" .:,")

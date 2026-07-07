@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session, load_only
 from app.database import get_db
 from app.models import (
     StoryCharacter,
-    StoryCharacterEmotionGenerationJob,
     StoryCharacterRace,
     StoryCommunityCharacterAddition,
     StoryCommunityCharacterReport,
@@ -21,13 +20,11 @@ from app.schemas import (
     MessageResponse,
     StoryCharacterAvatarGenerateOut,
     StoryCharacterAvatarGenerateRequest,
-    StoryCharacterEmotionGenerateJobOut,
-    StoryCharacterEmotionGenerateOut,
-    StoryCharacterEmotionGenerateRequest,
     StoryCommunityCharacterSummaryOut,
     StoryCommunityWorldReportCreateRequest,
     StoryCommunityWorldRatingRequest,
     StoryCharacterCreateRequest,
+    StoryCharacterEmotionAssetChunkRequest,
     StoryCharacterRaceCreateRequest,
     StoryCharacterRaceOut,
     StoryCharacterOut,
@@ -72,7 +69,9 @@ from app.services.story_games import (
 )
 from app.services.story_emotions import (
     deserialize_story_character_emotion_assets,
+    normalize_story_character_emotion_id,
     normalize_story_character_emotion_assets,
+    normalize_story_novel_sprite_gender,
     serialize_story_character_emotion_assets,
 )
 try:
@@ -209,72 +208,80 @@ def _is_story_emotion_admin(user: User) -> bool:
     return str(getattr(user, "role", "") or "").strip().lower() == "administrator"
 
 
-def _normalize_optional_emotion_prompt_lock(value: str | None) -> str:
-    normalized = str(value or "").replace("\r\n", "\n").strip()
-    if not normalized:
-        return ""
-    return normalized[:8_000].rstrip()
-
-
-def _normalize_optional_emotion_model(value: str | None) -> str:
-    normalized = str(value or "").strip()
-    if not normalized:
-        return ""
-    return normalized[:120].rstrip()
-
-
 def _resolve_story_character_emotion_payload_for_write(
-    db: Session,
     *,
     user: User,
     payload: StoryCharacterCreateRequest | StoryCharacterUpdateRequest,
-    avatar_url: str | None,
     current_character: StoryCharacter | None = None,
-) -> tuple[dict[str, str], str, str]:
-    if not _is_story_emotion_admin(user) or not avatar_url:
-        return {}, "", ""
+) -> tuple[dict[str, str], str]:
+    """Visual Novel emotion sprites are uploaded manually and gated to administrators.
 
-    emotion_generation_job_id = getattr(payload, "emotion_generation_job_id", None)
-    if emotion_generation_job_id is not None:
-        job = db.scalar(
-            select(StoryCharacterEmotionGenerationJob).where(
-                StoryCharacterEmotionGenerationJob.id == int(emotion_generation_job_id),
-                StoryCharacterEmotionGenerationJob.user_id == int(user.id),
+    Returns (emotion_assets, novel_sprite_gender). Non-admins can never change these, so any
+    existing values on the character are preserved untouched.
+    """
+    if not _is_story_emotion_admin(user):
+        if current_character is not None:
+            return (
+                normalize_story_character_emotion_assets(
+                    deserialize_story_character_emotion_assets(getattr(current_character, "emotion_assets", ""))
+                ),
+                normalize_story_novel_sprite_gender(getattr(current_character, "novel_sprite_gender", "")),
             )
+        return {}, ""
+
+    payload_fields_set = getattr(payload, "model_fields_set", getattr(payload, "__fields_set__", set()))
+    if current_character is not None and "emotion_assets" not in payload_fields_set:
+        emotion_assets = normalize_story_character_emotion_assets(
+            deserialize_story_character_emotion_assets(getattr(current_character, "emotion_assets", ""))
         )
-        if job is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emotion generation job not found")
-        if str(getattr(job, "status", "") or "").strip().lower() != "completed":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Emotion generation job is not completed yet")
-
-        try:
-            raw_result_payload = json.loads(str(getattr(job, "result_payload", "") or "").strip() or "{}")
-            result_payload = StoryCharacterEmotionGenerateOut.model_validate(raw_result_payload)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Emotion generation job payload is invalid",
-            ) from exc
-
-        emotion_assets = normalize_story_character_emotion_assets(result_payload.emotion_assets)
-        emotion_model = _normalize_optional_emotion_model(result_payload.model) if emotion_assets else ""
-        emotion_prompt_lock = _normalize_optional_emotion_prompt_lock(result_payload.emotion_prompt_lock) if emotion_assets else ""
-        return emotion_assets, emotion_model, emotion_prompt_lock
-
-    if bool(getattr(payload, "preserve_existing_emotions", False)) and current_character is not None:
-        emotion_assets = normalize_story_character_emotion_assets(getattr(current_character, "emotion_assets", ""))
-        emotion_model = _normalize_optional_emotion_model(getattr(current_character, "emotion_model", "")) if emotion_assets else ""
-        emotion_prompt_lock = (
-            _normalize_optional_emotion_prompt_lock(getattr(current_character, "emotion_prompt_lock", ""))
-            if emotion_assets
-            else ""
+    else:
+        emotion_assets = normalize_story_character_emotion_assets(payload.emotion_assets)
+    novel_sprite_gender = normalize_story_novel_sprite_gender(getattr(payload, "novel_sprite_gender", None))
+    if current_character is not None and "novel_sprite_gender" not in payload_fields_set:
+        novel_sprite_gender = normalize_story_novel_sprite_gender(
+            getattr(current_character, "novel_sprite_gender", "")
         )
-        return emotion_assets, emotion_model, emotion_prompt_lock
+    return emotion_assets, novel_sprite_gender
 
-    emotion_assets = normalize_story_character_emotion_assets(payload.emotion_assets)
-    emotion_model = _normalize_optional_emotion_model(payload.emotion_model) if emotion_assets else ""
-    emotion_prompt_lock = _normalize_optional_emotion_prompt_lock(payload.emotion_prompt_lock) if emotion_assets else ""
-    return emotion_assets, emotion_model, emotion_prompt_lock
+
+STORY_CHARACTER_EMOTION_ASSET_UPLOAD_KEY_PREFIX = "_upload_"
+STORY_CHARACTER_EMOTION_ASSET_UPLOAD_MAX_TOTAL_CHARS = 64 * 1024 * 1024
+
+
+def _load_raw_story_character_emotion_assets(character: StoryCharacter) -> dict[str, object]:
+    try:
+        parsed = json.loads(str(getattr(character, "emotion_assets", "") or "").strip() or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _visible_story_character_emotion_assets_from_raw(raw_value: dict[str, object]) -> dict[str, str]:
+    return normalize_story_character_emotion_assets(
+        {
+            key: value
+            for key, value in raw_value.items()
+            if isinstance(key, str) and not key.startswith(STORY_CHARACTER_EMOTION_ASSET_UPLOAD_KEY_PREFIX)
+        }
+    )
+
+
+def _require_story_emotion_admin(user: User) -> None:
+    if not _is_story_emotion_admin(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can edit Visual Novel emotion sprites",
+        )
+
+
+def _coerce_story_emotion_asset_id(emotion_id: str) -> str:
+    normalized = normalize_story_character_emotion_id(emotion_id)
+    if normalized is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unknown emotion sprite slot",
+        )
+    return normalized
 
 
 def _build_story_community_character_summary(
@@ -339,8 +346,7 @@ def _build_story_community_character_summary(
         avatar_original_url=character_out.avatar_original_url,
         avatar_scale=character_out.avatar_scale,
         emotion_assets=character_out.emotion_assets,
-        emotion_model=character_out.emotion_model,
-        emotion_prompt_lock=character_out.emotion_prompt_lock,
+        novel_sprite_gender=character_out.novel_sprite_gender,
         visibility=character_out.visibility,
         author_id=character.user_id,
         author_name=story_author_name(author),
@@ -388,8 +394,7 @@ def _create_story_character_publication_copy_from_source(
         ),
         avatar_scale=normalize_story_avatar_scale(source_character.avatar_scale),
         emotion_assets=serialize_story_character_emotion_assets(getattr(source_character, "emotion_assets", "")),
-        emotion_model=_normalize_optional_emotion_model(getattr(source_character, "emotion_model", "")),
-        emotion_prompt_lock=_normalize_optional_emotion_prompt_lock(getattr(source_character, "emotion_prompt_lock", "")),
+        novel_sprite_gender=normalize_story_novel_sprite_gender(getattr(source_character, "novel_sprite_gender", "")),
         source=normalize_story_character_source(source_character.source),
         visibility=STORY_CHARACTER_VISIBILITY_PUBLIC,
         source_character_id=source_character.id,
@@ -547,8 +552,7 @@ def list_story_community_characters(
                 StoryCharacter.avatar_url,
                 StoryCharacter.avatar_original_url,
                 StoryCharacter.avatar_scale,
-                StoryCharacter.emotion_model,
-                StoryCharacter.emotion_prompt_lock,
+                StoryCharacter.novel_sprite_gender,
                 StoryCharacter.visibility,
                 StoryCharacter.community_rating_sum,
                 StoryCharacter.community_rating_count,
@@ -665,8 +669,7 @@ def list_story_community_characters(
                 avatar_original_url=character_out.avatar_original_url,
                 avatar_scale=character_out.avatar_scale,
                 emotion_assets=character_out.emotion_assets,
-                emotion_model=character_out.emotion_model,
-                emotion_prompt_lock=character_out.emotion_prompt_lock,
+                novel_sprite_gender=character_out.novel_sprite_gender,
                 visibility=character_out.visibility,
                 author_id=character.user_id,
                 author_name=author_name_by_id.get(character.user_id, "Unknown"),
@@ -893,10 +896,7 @@ def add_story_community_character_to_account(
                 ),
                 avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
                 emotion_assets=serialize_story_character_emotion_assets(getattr(character, "emotion_assets", "")),
-                emotion_model=_normalize_optional_emotion_model(getattr(character, "emotion_model", "")),
-                emotion_prompt_lock=_normalize_optional_emotion_prompt_lock(
-                    getattr(character, "emotion_prompt_lock", "")
-                ),
+                novel_sprite_gender=normalize_story_novel_sprite_gender(getattr(character, "novel_sprite_gender", "")),
                 source=normalize_story_character_source(character.source),
                 visibility=STORY_CHARACTER_VISIBILITY_PRIVATE,
                 source_character_id=character.id,
@@ -932,51 +932,6 @@ def generate_story_character_avatar(
     )
 
 
-@router.post(
-    "/api/story/characters/emotions/generate",
-    response_model=StoryCharacterEmotionGenerateJobOut,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-def generate_story_character_emotions(
-    payload: StoryCharacterEmotionGenerateRequest,
-    authorization: str | None = Header(default=None),
-    db: Session = Depends(get_db),
-) -> StoryCharacterEmotionGenerateJobOut:
-    user = get_current_user(db, authorization)
-    if not _is_story_emotion_admin(user):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    from app import main as monolith_main
-
-    return monolith_main.queue_story_character_emotion_generation_job_impl(
-        payload=payload,
-        authorization=authorization,
-        db=db,
-    )
-
-
-@router.get(
-    "/api/story/characters/emotions/generate/{job_id}",
-    response_model=StoryCharacterEmotionGenerateJobOut,
-)
-def get_story_character_emotion_generation_job(
-    job_id: int,
-    authorization: str | None = Header(default=None),
-    db: Session = Depends(get_db),
-) -> StoryCharacterEmotionGenerateJobOut:
-    user = get_current_user(db, authorization)
-    if not _is_story_emotion_admin(user):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    from app import main as monolith_main
-
-    return monolith_main.get_story_character_emotion_generation_job_impl(
-        job_id=job_id,
-        authorization=authorization,
-        db=db,
-    )
-
-
 @router.post("/api/story/characters", response_model=StoryCharacterOut)
 def create_story_character(
     payload: StoryCharacterCreateRequest,
@@ -1001,11 +956,9 @@ def create_story_character(
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
     if avatar_url and not avatar_original_url:
         avatar_original_url = avatar_url
-    emotion_assets, emotion_model, emotion_prompt_lock = _resolve_story_character_emotion_payload_for_write(
-        db,
+    emotion_assets, novel_sprite_gender = _resolve_story_character_emotion_payload_for_write(
         user=user,
         payload=payload,
-        avatar_url=avatar_url,
     )
     requested_visibility = normalize_story_character_visibility(payload.visibility)
     character = StoryCharacter(
@@ -1026,8 +979,7 @@ def create_story_character(
         avatar_original_url=avatar_original_url if avatar_url else None,
         avatar_scale=avatar_scale,
         emotion_assets=serialize_story_character_emotion_assets(emotion_assets),
-        emotion_model=emotion_model,
-        emotion_prompt_lock=emotion_prompt_lock,
+        novel_sprite_gender=novel_sprite_gender,
         source="user",
         visibility=STORY_CHARACTER_VISIBILITY_PRIVATE,
         source_character_id=None,
@@ -1083,11 +1035,9 @@ def update_story_character(
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
     if avatar_url and not avatar_original_url:
         avatar_original_url = avatar_url
-    emotion_assets, emotion_model, emotion_prompt_lock = _resolve_story_character_emotion_payload_for_write(
-        db,
+    emotion_assets, novel_sprite_gender = _resolve_story_character_emotion_payload_for_write(
         user=user,
         payload=payload,
-        avatar_url=avatar_url,
         current_character=character,
     )
     character.name = normalized_name
@@ -1106,8 +1056,7 @@ def update_story_character(
     character.avatar_original_url = avatar_original_url if avatar_url else None
     character.avatar_scale = avatar_scale
     character.emotion_assets = serialize_story_character_emotion_assets(emotion_assets)
-    character.emotion_model = emotion_model
-    character.emotion_prompt_lock = emotion_prompt_lock
+    character.novel_sprite_gender = novel_sprite_gender
     character.source = normalize_story_character_source(character.source)
     requested_visibility: str | None = None
     should_notify_publication_queue = False
@@ -1139,6 +1088,113 @@ def update_story_character(
             action_url="/profile",
             actor_user_id=int(user.id),
         )
+    return story_character_to_out(character)
+
+
+@router.post(
+    "/api/story/characters/{character_id}/emotion-assets/{emotion_id}/chunk",
+    response_model=StoryCharacterOut,
+)
+def upload_story_character_emotion_asset_chunk(
+    character_id: int,
+    emotion_id: str,
+    payload: StoryCharacterEmotionAssetChunkRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCharacterOut:
+    user = get_current_user(db, authorization)
+    _require_story_emotion_admin(user)
+    character = get_story_character_for_user_or_404(db, user.id, character_id)
+    normalized_emotion_id = _coerce_story_emotion_asset_id(emotion_id)
+
+    if payload.chunk_index >= payload.total_chunks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Emotion sprite chunk index is out of range",
+        )
+    if payload.total_chunks * 400_000 > STORY_CHARACTER_EMOTION_ASSET_UPLOAD_MAX_TOTAL_CHARS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Emotion sprite upload is too large",
+        )
+
+    raw_assets = _load_raw_story_character_emotion_assets(character)
+    upload_key = f"{STORY_CHARACTER_EMOTION_ASSET_UPLOAD_KEY_PREFIX}{normalized_emotion_id}"
+    upload_state = raw_assets.get(upload_key)
+
+    if payload.chunk_index == 0 or not isinstance(upload_state, dict):
+        chunks: list[str | None] = [None] * payload.total_chunks
+        upload_state = {
+            "upload_id": payload.upload_id,
+            "total_chunks": payload.total_chunks,
+            "chunks": chunks,
+        }
+    else:
+        if str(upload_state.get("upload_id") or "") != payload.upload_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Emotion sprite upload id changed before completion",
+            )
+        if int(upload_state.get("total_chunks") or 0) != payload.total_chunks:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Emotion sprite upload chunk count changed before completion",
+            )
+        chunks_value = upload_state.get("chunks")
+        chunks = list(chunks_value) if isinstance(chunks_value, list) else []
+        if len(chunks) != payload.total_chunks:
+            chunks = (chunks + [None] * payload.total_chunks)[: payload.total_chunks]
+
+    chunks[payload.chunk_index] = payload.chunk
+    upload_state["chunks"] = chunks
+    raw_assets[upload_key] = upload_state
+
+    if any(not isinstance(chunk, str) for chunk in chunks):
+        character.emotion_assets = json.dumps(raw_assets, ensure_ascii=False, separators=(",", ":"))
+        db.commit()
+        db.refresh(character)
+        return story_character_to_out(character)
+
+    assembled_asset = "".join(chunk for chunk in chunks if isinstance(chunk, str)).strip()
+    visible_assets = _visible_story_character_emotion_assets_from_raw(raw_assets)
+    if assembled_asset:
+        normalized_assets = normalize_story_character_emotion_assets({normalized_emotion_id: assembled_asset})
+        if normalized_emotion_id not in normalized_assets:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Emotion sprite image is invalid",
+            )
+        visible_assets[normalized_emotion_id] = normalized_assets[normalized_emotion_id]
+    else:
+        visible_assets.pop(normalized_emotion_id, None)
+
+    character.emotion_assets = serialize_story_character_emotion_assets(visible_assets)
+    db.commit()
+    db.refresh(character)
+    return story_character_to_out(character)
+
+
+@router.delete(
+    "/api/story/characters/{character_id}/emotion-assets/{emotion_id}",
+    response_model=StoryCharacterOut,
+)
+def delete_story_character_emotion_asset(
+    character_id: int,
+    emotion_id: str,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCharacterOut:
+    user = get_current_user(db, authorization)
+    _require_story_emotion_admin(user)
+    character = get_story_character_for_user_or_404(db, user.id, character_id)
+    normalized_emotion_id = _coerce_story_emotion_asset_id(emotion_id)
+
+    raw_assets = _load_raw_story_character_emotion_assets(character)
+    visible_assets = _visible_story_character_emotion_assets_from_raw(raw_assets)
+    visible_assets.pop(normalized_emotion_id, None)
+    character.emotion_assets = serialize_story_character_emotion_assets(visible_assets)
+    db.commit()
+    db.refresh(character)
     return story_character_to_out(character)
 
 

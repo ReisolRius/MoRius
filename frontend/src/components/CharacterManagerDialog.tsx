@@ -38,9 +38,9 @@ import {
   createStoryCharacter,
   deleteStoryCharacter,
   generateStoryCharacterAvatar,
-  generateStoryCharacterEmotionPack,
   listStoryCharacterRaces,
   listStoryCharacters,
+  syncStoryCharacterEmotionAssets,
   updateStoryCharacter,
 } from '../services/storyApi'
 import type { AiAssistantChatResponse } from '../services/aiAssistantApi'
@@ -50,10 +50,13 @@ import type {
   StoryCharacterEmotionId,
   StoryCharacterRace,
   StoryImageModelId,
+  StoryNovelSpriteGender,
 } from '../types/story'
+import { STORY_CHARACTER_EMOTION_IDS, STORY_CHARACTER_EMOTION_LABELS } from '../types/story'
 import TextLimitIndicator from './TextLimitIndicator'
 import {
   compressImageDataUrl,
+  getJsonDataUrlRequestSafeMaxBytes,
   prepareAvatarPayloadForRequest,
   resolveImageSourceToDataUrl,
 } from '../utils/avatar'
@@ -73,9 +76,11 @@ type CharacterManagerDialogProps = {
 type CharacterDraftMode = 'create' | 'edit'
 
 const CHARACTER_AVATAR_MAX_BYTES = 2 * 1024 * 1024
-const CHARACTER_AVATAR_SOURCE_MAX_BYTES = 2 * 1024 * 1024
-const CHARACTER_EMOTION_REFERENCE_MAX_BYTES = 900 * 1024
-const CHARACTER_EMOTION_REFERENCE_MAX_DIMENSION = 1536
+const CHARACTER_IMAGE_SOURCE_MAX_BYTES = 20 * 1024 * 1024
+const CHARACTER_AVATAR_REQUEST_MAX_BYTES = getJsonDataUrlRequestSafeMaxBytes(CHARACTER_AVATAR_MAX_BYTES)
+const CHARACTER_EMOTION_IMAGE_SOURCE_MAX_BYTES = 50 * 1024 * 1024
+const CHARACTER_EMOTION_ASSET_MAX_BYTES = 12 * 1024 * 1024
+const CHARACTER_EMOTION_ASSET_MAX_DIMENSION = 2048
 const CHARACTER_DESCRIPTION_MAX_LENGTH = 6000
 const CHARACTER_RACE_MAX_LENGTH = 120
 const CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH = 1000
@@ -108,7 +113,7 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
     title: 'Flux.2 Klein 4B',
-    description: 'OpenRouter. Fast economical image generation.',
+    description: 'RouterAI. Fast economical image generation.',
     cost: 6,
   },
   {
@@ -136,42 +141,13 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
     cost: 20,
   },
 ]
-const CHARACTER_EMOTION_IDS: StoryCharacterEmotionId[] = [
-  'calm',
-  'angry',
-  'irritated',
-  'stern',
-  'cheerful',
-  'smiling',
-  'sly',
-  'alert',
-  'scared',
-  'happy',
-  'embarrassed',
-  'confused',
-  'thoughtful',
+const CHARACTER_EMOTION_IDS: StoryCharacterEmotionId[] = STORY_CHARACTER_EMOTION_IDS
+const NOVEL_SPRITE_GENDER_OPTIONS: Array<{ value: StoryNovelSpriteGender; label: string }> = [
+  { value: '', label: 'Не указан' },
+  { value: 'male', label: 'Мужской' },
+  { value: 'female', label: 'Женский' },
 ]
-const CHARACTER_EMOTION_GENERATION_WITH_REFERENCE_COUNT = CHARACTER_EMOTION_IDS.length
-const CHARACTER_EMOTION_GENERATION_WITHOUT_REFERENCE_COUNT = CHARACTER_EMOTION_IDS.length + 1
-const CHARACTER_EMOTION_LABELS = {
-  calm: 'Спокойствие',
-  angry: 'Злость',
-  irritated: 'Раздражение',
-  cheerful: 'Веселье',
-  smiling: 'Улыбка',
-  sly: 'Хитрость',
-  alert: 'Настороженность',
-  scared: 'Страх',
-  happy: 'Счастье',
-} as Record<StoryCharacterEmotionId, string>
-
-Object.assign(CHARACTER_EMOTION_LABELS, {
-  embarrassed: 'Смущение',
-  confused: 'Растерянность',
-})
-
-CHARACTER_EMOTION_LABELS.stern = '\u0421\u0442\u0440\u043e\u0433\u043e\u0441\u0442\u044c'
-CHARACTER_EMOTION_LABELS.thoughtful = '\u0417\u0430\u0434\u0443\u043c\u0447\u0438\u0432\u043e\u0441\u0442\u044c'
+const CHARACTER_EMOTION_LABELS: Record<StoryCharacterEmotionId, string> = STORY_CHARACTER_EMOTION_LABELS
 
 type CharacterRaceOption = {
   label: string
@@ -180,33 +156,6 @@ type CharacterRaceOption = {
 }
 
 const filterCharacterRaceOptions = createFilterOptions<CharacterRaceOption>()
-
-function normalizeEmotionSelection(value: StoryCharacterEmotionId[] | null | undefined): StoryCharacterEmotionId[] {
-  const seen = new Set<StoryCharacterEmotionId>()
-  const normalized: StoryCharacterEmotionId[] = []
-  for (const emotionId of value ?? []) {
-    if (!CHARACTER_EMOTION_IDS.includes(emotionId) || seen.has(emotionId)) {
-      continue
-    }
-    seen.add(emotionId)
-    normalized.push(emotionId)
-  }
-  return normalized
-}
-
-function formatEmotionGenerationProgressLabel(
-  completedVariants: number,
-  totalVariants: number,
-  currentEmotionId: StoryCharacterEmotionId | null | undefined,
-): string {
-  const normalizedCompletedVariants = Math.max(0, Math.trunc(completedVariants))
-  const normalizedTotalVariants = Math.max(1, Math.trunc(totalVariants))
-  if (currentEmotionId) {
-    const emotionLabel = CHARACTER_EMOTION_LABELS[currentEmotionId] ?? currentEmotionId
-    return `Генерируем эмоции: ${normalizedCompletedVariants}/${normalizedTotalVariants} • ${emotionLabel}`
-  }
-  return `Подготавливаем результат: ${normalizedCompletedVariants}/${normalizedTotalVariants}`
-}
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -221,16 +170,6 @@ function readFileAsDataUrl(file: File): Promise<string> {
     }
     reader.readAsDataURL(file)
   })
-}
-
-function estimateDataUrlBytes(dataUrl: string): number {
-  const commaIndex = dataUrl.indexOf(',')
-  if (commaIndex < 0) {
-    return dataUrl.length
-  }
-  const payload = dataUrl.slice(commaIndex + 1)
-  const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0
-  return Math.max(0, (payload.length * 3) / 4 - padding)
 }
 
 function normalizeCharacterTriggersDraft(value: string, fallbackName: string): string[] {
@@ -610,14 +549,6 @@ function CropFreeIcon() {
   )
 }
 
-function EmotionsIcon() {
-  return (
-    <SvgIcon sx={{ fontSize: '1.06rem' }} viewBox="0 0 24 24">
-      <path d="M7.5 10.5a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm9 0a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5ZM12 20c4.97 0 9-4.03 9-9S16.97 2 12 2 3 6.03 3 11s4.03 9 9 9Zm0-2c-2.38 0-4.52-1.05-5.99-2.71a7.45 7.45 0 0 0 3.96-1.86c.55-.49 1.5-.49 2.05 0a7.45 7.45 0 0 0 3.96 1.86A6.97 6.97 0 0 1 12 18Zm5.24-4.32c-1.47-.14-2.86-.75-3.93-1.7-1.31-1.17-3.31-1.17-4.62 0-1.07.95-2.46 1.56-3.93 1.7A6.95 6.95 0 0 1 5 11c0-3.87 3.13-7 7-7s7 3.13 7 7c0 .95-.19 1.85-.53 2.68Z" />
-    </SvgIcon>
-  )
-}
-
 function CharacterManagerDialog({
   open,
   authToken,
@@ -654,21 +585,13 @@ function CharacterManagerDialog({
   const [avatarScaleDraft, setAvatarScaleDraft] = useState(1)
   const [visibilityDraft, setVisibilityDraft] = useState<'private' | 'public'>('private')
   const [emotionAssetsDraft, setEmotionAssetsDraft] = useState<StoryCharacterEmotionAssets>({})
-  const [emotionModelDraft, setEmotionModelDraft] = useState('')
-  const [emotionPromptLockDraft, setEmotionPromptLockDraft] = useState<string | null>(null)
-  const [emotionGenerationJobIdDraft, setEmotionGenerationJobIdDraft] = useState<number | null>(null)
-  const [preserveExistingEmotionsDraft, setPreserveExistingEmotionsDraft] = useState(false)
+  const [novelSpriteGenderDraft, setNovelSpriteGenderDraft] = useState<StoryNovelSpriteGender>('')
+  const [uploadingEmotionId, setUploadingEmotionId] = useState<StoryCharacterEmotionId | null>(null)
   const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
   const [isAiAvatarDialogOpen, setIsAiAvatarDialogOpen] = useState(false)
   const [aiAvatarModelDraft, setAiAvatarModelDraft] = useState<StoryImageModelId>(CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID)
   const [aiAvatarStylePromptDraft, setAiAvatarStylePromptDraft] = useState('')
   const [isGeneratingAiAvatar, setIsGeneratingAiAvatar] = useState(false)
-  const [isEmotionDialogOpen, setIsEmotionDialogOpen] = useState(false)
-  const [emotionModelSelectionDraft, setEmotionModelSelectionDraft] = useState<StoryImageModelId>(CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID)
-  const [emotionStylePromptDraft, setEmotionStylePromptDraft] = useState('')
-  const [selectedEmotionIdsDraft, setSelectedEmotionIdsDraft] = useState<StoryCharacterEmotionId[]>([...CHARACTER_EMOTION_IDS])
-  const [isGeneratingEmotionPack, setIsGeneratingEmotionPack] = useState(false)
-  const [emotionGenerationProgressLabel, setEmotionGenerationProgressLabel] = useState('')
   const [isEditorOpen, setIsEditorOpen] = useState(false)
   const [isAdditionalFieldsExpanded, setIsAdditionalFieldsExpanded] = useState(false)
   const [characterRaceOptions, setCharacterRaceOptions] = useState<StoryCharacterRace[]>([])
@@ -715,10 +638,9 @@ function CharacterManagerDialog({
     [characterMenuCharacterId, sortedCharacters],
   )
   const hasAvatarDraft = Boolean((avatarDraft ?? '').trim())
-  const hasEmotionReferenceSource = Boolean((avatarSourceDraft ?? avatarDraft ?? '').trim())
-  const isAvatarActionsLocked = isSavingCharacter || isGeneratingAiAvatar || isGeneratingEmotionPack
+  const isAvatarActionsLocked = isSavingCharacter || isGeneratingAiAvatar || uploadingEmotionId !== null
   const isCharacterDialogBusy =
-    isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar || isGeneratingEmotionPack
+    isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar || uploadingEmotionId !== null
   const normalizedDescriptionDraft = useMemo(() => descriptionDraft.replace(/\r\n/g, '\n').trim(), [descriptionDraft])
   const normalizedRaceDraft = useMemo(() => normalizeCharacterRaceDraft(raceDraft), [raceDraft])
   const normalizedRaceInputDraft = useMemo(() => normalizeCharacterRaceDraft(raceInputDraft), [raceInputDraft])
@@ -764,46 +686,15 @@ function CharacterManagerDialog({
         .slice(0, CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH),
     [aiAvatarStylePromptDraft],
   )
-  const selectedEmotionModelOption = useMemo(
-    () =>
-      CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS.find((option) => option.id === emotionModelSelectionDraft) ??
-      CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS[0],
-    [emotionModelSelectionDraft],
-  )
-  const normalizedEmotionStylePromptDraft = useMemo(
-    () =>
-      emotionStylePromptDraft
-        .replace(/\r\n/g, '\n')
-        .replace(/\s+/g, ' ')
-        .trimStart()
-        .slice(0, CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH),
-    [emotionStylePromptDraft],
-  )
   const selectedAiAvatarGenerationCost = selectedAiAvatarModelOption?.cost ?? 0
-  const selectedEmotionIds = useMemo(
-    () => normalizeEmotionSelection(selectedEmotionIdsDraft),
-    [selectedEmotionIdsDraft],
-  )
-  const emotionGenerationImageCount =
-    selectedEmotionIds.length > 0 ? selectedEmotionIds.length + 1 : 0
-  const emotionGenerationImageCountWithReference = selectedEmotionIds.length
-  const selectedEmotionGenerationCost =
-    (selectedEmotionModelOption?.cost ?? 0) *
-    (hasEmotionReferenceSource
-      ? emotionGenerationImageCountWithReference
-      : emotionGenerationImageCount)
   const canGenerateAiAvatar = normalizedDescriptionDraft.length > 0
-  const canGenerateEmotionPack = selectedEmotionIds.length > 0 && (normalizedDescriptionDraft.length > 0 || hasEmotionReferenceSource)
   const readyEmotionCount = useMemo(
     () => CHARACTER_EMOTION_IDS.filter((emotionId) => Boolean((emotionAssetsDraft[emotionId] ?? '').trim())).length,
     [emotionAssetsDraft],
   )
   const clearEmotionPresetDraft = useCallback(() => {
     setEmotionAssetsDraft({})
-    setEmotionModelDraft('')
-    setEmotionPromptLockDraft(null)
-    setEmotionGenerationJobIdDraft(null)
-    setPreserveExistingEmotionsDraft(false)
+    setNovelSpriteGenderDraft('')
   }, [])
 
   const resetDraft = useCallback(() => {
@@ -825,19 +716,12 @@ function CharacterManagerDialog({
     setAvatarScaleDraft(1)
     setVisibilityDraft('private')
     clearEmotionPresetDraft()
-    setEmotionGenerationJobIdDraft(null)
-    setPreserveExistingEmotionsDraft(false)
     setAvatarCropSource(null)
     setIsAiAvatarDialogOpen(false)
     setAiAvatarModelDraft(CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID)
     setAiAvatarStylePromptDraft('')
     setIsGeneratingAiAvatar(false)
-    setIsEmotionDialogOpen(false)
-    setEmotionModelSelectionDraft(CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID)
-    setEmotionStylePromptDraft('')
-    setSelectedEmotionIdsDraft([...CHARACTER_EMOTION_IDS])
-    setIsGeneratingEmotionPack(false)
-    setEmotionGenerationProgressLabel('')
+    setUploadingEmotionId(null)
     setIsAdditionalFieldsExpanded(false)
     setAvatarError('')
   }, [clearEmotionPresetDraft])
@@ -895,10 +779,8 @@ function CharacterManagerDialog({
       setCharacterAvatarPreview(null)
       setAvatarCropSource(null)
       setIsAiAvatarDialogOpen(false)
-      setIsEmotionDialogOpen(false)
       setIsGeneratingAiAvatar(false)
-      setIsGeneratingEmotionPack(false)
-      setEmotionGenerationProgressLabel('')
+      setUploadingEmotionId(null)
       setHasAppliedInitialAction(false)
       setHasLoadedCharacters(false)
       setCharacterRaceOptions([])
@@ -945,8 +827,6 @@ function CharacterManagerDialog({
     setCharacterEmotionPreview(null)
     setAvatarCropSource(null)
     setIsAiAvatarDialogOpen(false)
-    setIsEmotionDialogOpen(false)
-    setEmotionGenerationProgressLabel('')
     onClose()
   }
 
@@ -1005,17 +885,10 @@ function CharacterManagerDialog({
     setAvatarScaleDraft(Math.max(1, Math.min(3, character.avatar_scale ?? 1)))
     setVisibilityDraft(resolvePublicationDraftVisibility(character.publication, character.visibility))
     setEmotionAssetsDraft(character.emotion_assets ?? {})
-    setEmotionModelDraft(character.emotion_model ?? '')
-    setEmotionPromptLockDraft(character.emotion_prompt_lock ?? null)
-    setEmotionGenerationJobIdDraft(null)
-    setPreserveExistingEmotionsDraft(
-      Object.values(character.emotion_assets ?? {}).some((value) => typeof value === 'string' && value.trim().length > 0),
-    )
+    setNovelSpriteGenderDraft(character.novel_sprite_gender ?? '')
     setAvatarCropSource(null)
     setIsAiAvatarDialogOpen(false)
-    setIsEmotionDialogOpen(false)
-    setSelectedEmotionIdsDraft([...CHARACTER_EMOTION_IDS])
-    setEmotionGenerationProgressLabel('')
+    setUploadingEmotionId(null)
     setIsAdditionalFieldsExpanded(
       Boolean(
         (character.clothing ?? '').trim() || (character.inventory ?? '').trim() || (character.health_status ?? '').trim(),
@@ -1032,8 +905,6 @@ function CharacterManagerDialog({
     setIsEditorOpen(false)
     setAvatarCropSource(null)
     setIsAiAvatarDialogOpen(false)
-    setIsEmotionDialogOpen(false)
-    setEmotionGenerationProgressLabel('')
     resetDraft()
   }
 
@@ -1056,8 +927,8 @@ function CharacterManagerDialog({
       return
     }
 
-    if (selectedFile.size > CHARACTER_AVATAR_SOURCE_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
+    if (selectedFile.size > CHARACTER_IMAGE_SOURCE_MAX_BYTES) {
+      setAvatarError('Файл слишком большой для обработки в браузере. Максимум 20 МБ.')
       return
     }
 
@@ -1080,13 +951,9 @@ function CharacterManagerDialog({
       void (async () => {
         try {
           const normalizedAvatar = await compressImageDataUrl(croppedDataUrl, {
-            maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+            maxBytes: CHARACTER_AVATAR_REQUEST_MAX_BYTES,
             maxDimension: CHARACTER_AI_AVATAR_OUTPUT_SIZE,
           })
-          if (estimateDataUrlBytes(normalizedAvatar) > CHARACTER_AVATAR_MAX_BYTES) {
-            setAvatarError('Аватар слишком большой после кропа. Максимум 2 МБ.')
-            return
-          }
           setAvatarDraft(normalizedAvatar)
           setAvatarScaleDraft(1)
           setAvatarCropSource(null)
@@ -1125,33 +992,15 @@ function CharacterManagerDialog({
     if (isCharacterDialogBusy) {
       return
     }
-    setIsEmotionDialogOpen(false)
     setIsAiAvatarDialogOpen(true)
   }, [isCharacterDialogBusy])
 
   const handleCloseAiAvatarDialog = useCallback(() => {
-    if (isGeneratingAiAvatar || isGeneratingEmotionPack) {
+    if (isGeneratingAiAvatar) {
       return
     }
     setIsAiAvatarDialogOpen(false)
-  }, [isGeneratingAiAvatar, isGeneratingEmotionPack])
-
-  const handleOpenEmotionDialog = useCallback(() => {
-    if (!showEmotionTools || isCharacterDialogBusy) {
-      return
-    }
-    setIsAiAvatarDialogOpen(false)
-    setEmotionGenerationProgressLabel('')
-    setIsEmotionDialogOpen(true)
-  }, [isCharacterDialogBusy, showEmotionTools])
-
-  const handleCloseEmotionDialog = useCallback(() => {
-    if (isGeneratingEmotionPack) {
-      return
-    }
-    setEmotionGenerationProgressLabel('')
-    setIsEmotionDialogOpen(false)
-  }, [isGeneratingEmotionPack])
+  }, [isGeneratingAiAvatar])
 
   const handleCreateRace = useCallback(
     async (rawValue: string) => {
@@ -1229,12 +1078,9 @@ function CharacterManagerDialog({
       const sourceDataUrl = await resolveImageSourceToDataUrl(imageSource)
       const autoCroppedAvatar = await buildAutoCroppedAvatar(sourceDataUrl)
       const normalizedAvatar = await compressImageDataUrl(autoCroppedAvatar, {
-        maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+        maxBytes: CHARACTER_AVATAR_REQUEST_MAX_BYTES,
         maxDimension: CHARACTER_AI_AVATAR_OUTPUT_SIZE,
       })
-      if (estimateDataUrlBytes(normalizedAvatar) > CHARACTER_AVATAR_MAX_BYTES) {
-        throw new Error('Аватар от ИИ слишком большой после обработки')
-      }
       setAvatarSourceDraft(sourceDataUrl)
       setAvatarDraft(normalizedAvatar)
       setAvatarScaleDraft(1)
@@ -1263,124 +1109,67 @@ function CharacterManagerDialog({
     clearEmotionPresetDraft()
   }, [clearEmotionPresetDraft, isAvatarActionsLocked, showEmotionTools])
 
-  const handleGenerateEmotionPack = useCallback(async () => {
-    if (!showEmotionTools || isCharacterDialogBusy) {
-      return
-    }
-    if (!canGenerateEmotionPack) {
-      setAvatarError('Сначала добавьте описание персонажа или базовый аватар для референса.')
-      return
-    }
+  const emotionSlotInputRef = useRef<HTMLInputElement | null>(null)
+  const emotionSlotUploadTargetRef = useRef<StoryCharacterEmotionId | null>(null)
 
-    const normalizedName = nameDraft.replace(/\s+/g, ' ').trim()
-    const normalizedTriggers = normalizeCharacterTriggersDraft(triggersDraft, normalizedName)
-    const requestedEmotionIds = [...selectedEmotionIds]
-    if (requestedEmotionIds.length === 0) {
-      setAvatarError('\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0445\u043e\u0442\u044f \u0431\u044b \u043e\u0434\u043d\u0443 \u044d\u043c\u043e\u0446\u0438\u044e \u0434\u043b\u044f \u0433\u0435\u043d\u0435\u0440\u0430\u0446\u0438\u0438.')
+  const handleChooseEmotionSlot = useCallback(
+    (emotionId: StoryCharacterEmotionId) => {
+      if (!showEmotionTools || isAvatarActionsLocked) {
+        return
+      }
+      emotionSlotUploadTargetRef.current = emotionId
+      emotionSlotInputRef.current?.click()
+    },
+    [isAvatarActionsLocked, showEmotionTools],
+  )
+
+  const handleEmotionSlotFileChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0]
+    const emotionId = emotionSlotUploadTargetRef.current
+    event.target.value = ''
+    emotionSlotUploadTargetRef.current = null
+    if (!selectedFile || !emotionId) {
       return
     }
-    const rawReferenceAvatarUrl = (avatarSourceDraft ?? avatarDraft ?? '').trim() || null
-    const referenceAvatarUrl =
-      rawReferenceAvatarUrl && rawReferenceAvatarUrl.startsWith('data:image/')
-        ? await compressImageDataUrl(rawReferenceAvatarUrl, {
-            maxBytes: CHARACTER_EMOTION_REFERENCE_MAX_BYTES,
-            maxDimension: CHARACTER_EMOTION_REFERENCE_MAX_DIMENSION,
-          })
-        : rawReferenceAvatarUrl
-    const hadReferenceBeforeGeneration = Boolean(referenceAvatarUrl)
+    if (!selectedFile.type.startsWith('image/')) {
+      setAvatarError('Выберите файл изображения (PNG, JPEG, WEBP или GIF).')
+      return
+    }
+    if (selectedFile.size > CHARACTER_EMOTION_IMAGE_SOURCE_MAX_BYTES) {
+      setAvatarError('Файл слишком большой для обработки в браузере. Максимум 50 МБ.')
+      return
+    }
 
     setAvatarError('')
-    setIsGeneratingEmotionPack(true)
-    setEmotionGenerationProgressLabel('Подготавливаем задачу генерации...')
+    setUploadingEmotionId(emotionId)
     try {
-      let latestEmotionJobId: number | null = null
-      const generation = await generateStoryCharacterEmotionPack({
-        token: authToken,
-        imageModel: emotionModelSelectionDraft,
-        name: normalizedName || undefined,
-        description: normalizedDescriptionDraft || undefined,
-        triggers: normalizedTriggers,
-        stylePrompt: normalizedEmotionStylePromptDraft || undefined,
-        referenceAvatarUrl,
-        emotionIds: requestedEmotionIds,
-        onProgress: (job) => {
-          latestEmotionJobId = typeof job.id === 'number' ? job.id : latestEmotionJobId
-          const totalVariants = Math.max(job.total_variants || requestedEmotionIds.length, requestedEmotionIds.length, 1)
-          if (job.status === 'queued') {
-            setEmotionGenerationProgressLabel(`Задача поставлена в очередь: 0/${totalVariants}`)
-            return
-          }
-          if (job.status === 'running') {
-            setEmotionGenerationProgressLabel(
-              formatEmotionGenerationProgressLabel(
-                job.completed_variants,
-                totalVariants,
-                job.current_emotion_id ?? null,
-              ),
-            )
-            return
-          }
-          if (job.status === 'completed') {
-            setEmotionGenerationProgressLabel(`Готово: ${totalVariants}/${totalVariants}`)
-          }
-        },
+      const dataUrl = await readFileAsDataUrl(selectedFile)
+      const normalizedSprite = await compressImageDataUrl(dataUrl, {
+        maxBytes: CHARACTER_EMOTION_ASSET_MAX_BYTES,
+        maxDimension: CHARACTER_EMOTION_ASSET_MAX_DIMENSION,
       })
-
-      const nextEmotionAssets: StoryCharacterEmotionAssets = {}
-      for (const emotionId of requestedEmotionIds) {
-        const rawAsset = generation.emotion_assets[emotionId]
-        if (!rawAsset) {
-          continue
-        }
-        nextEmotionAssets[emotionId] = rawAsset
-      }
-
-      if (Object.keys(nextEmotionAssets).length === 0) {
-        throw new Error('ИИ не вернул готовые эмоции персонажа')
-      }
-
-      const generatedReferenceSource = (generation.reference_image_data_url ?? generation.reference_image_url ?? '').trim()
-      if (!hadReferenceBeforeGeneration && generatedReferenceSource) {
-        const sourceDataUrl = await resolveImageSourceToDataUrl(generatedReferenceSource)
-        const autoCroppedAvatar = await buildAutoCroppedAvatar(sourceDataUrl)
-        const normalizedAvatar = await compressImageDataUrl(autoCroppedAvatar, {
-          maxBytes: CHARACTER_AVATAR_MAX_BYTES,
-          maxDimension: CHARACTER_AI_AVATAR_OUTPUT_SIZE,
-        })
-        setAvatarSourceDraft(sourceDataUrl)
-        setAvatarDraft(normalizedAvatar)
-        setAvatarScaleDraft(1)
-      }
-
-      setEmotionAssetsDraft((currentAssets) => ({ ...currentAssets, ...nextEmotionAssets }))
-      setEmotionModelDraft(generation.model)
-      setEmotionPromptLockDraft(generation.emotion_prompt_lock ?? null)
-      setEmotionGenerationJobIdDraft(latestEmotionJobId)
-      setPreserveExistingEmotionsDraft(false)
-      setEmotionGenerationProgressLabel('')
-      setIsEmotionDialogOpen(false)
-      setAvatarError('')
+      setEmotionAssetsDraft((current) => ({ ...current, [emotionId]: normalizedSprite }))
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать эмоции персонажа'
-      setEmotionGenerationProgressLabel('')
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить изображение'
       setAvatarError(detail)
     } finally {
-      setIsGeneratingEmotionPack(false)
+      setUploadingEmotionId(null)
     }
-  }, [
-    authToken,
-    avatarDraft,
-    avatarSourceDraft,
-    canGenerateEmotionPack,
-    emotionModelSelectionDraft,
-    isCharacterDialogBusy,
-    nameDraft,
-    normalizedDescriptionDraft,
-    normalizedEmotionStylePromptDraft,
-    selectedEmotionIds,
-    showEmotionTools,
-    triggersDraft,
-  ])
+  }, [])
+
+  const handleRemoveEmotionSlot = useCallback(
+    (emotionId: StoryCharacterEmotionId) => {
+      if (!showEmotionTools || isAvatarActionsLocked) {
+        return
+      }
+      setEmotionAssetsDraft((current) => {
+        const next = { ...current }
+        delete next[emotionId]
+        return next
+      })
+    },
+    [isAvatarActionsLocked, showEmotionTools],
+  )
 
   const handleSaveCharacter = useCallback(async () => {
     if (isAvatarActionsLocked) {
@@ -1418,14 +1207,13 @@ function CharacterManagerDialog({
         maxBytes: CHARACTER_AVATAR_MAX_BYTES,
         maxDimension: CHARACTER_AI_AVATAR_OUTPUT_SIZE,
       })
-      const hasPreparedAvatar = Boolean(preparedAvatarPayload.avatarUrl)
-      const shouldUseEmotionGenerationJob =
-        showEmotionTools && hasPreparedAvatar && typeof emotionGenerationJobIdDraft === 'number' && emotionGenerationJobIdDraft > 0
-      const shouldPreserveExistingEmotions =
-        showEmotionTools && hasPreparedAvatar && draftMode === 'edit' && preserveExistingEmotionsDraft && !shouldUseEmotionGenerationJob
-      const shouldPersistEmotionAssets = showEmotionTools && hasPreparedAvatar && !shouldUseEmotionGenerationJob && !shouldPreserveExistingEmotions
+      const previousEmotionAssets =
+        draftMode === 'edit' && editingCharacterId !== null
+          ? sortedCharacters.find((character) => character.id === editingCharacterId)?.emotion_assets ?? {}
+          : {}
+      let savedCharacter: StoryCharacter | null = null
       if (draftMode === 'create') {
-        await createStoryCharacter({
+        savedCharacter = await createStoryCharacter({
           token: authToken,
           input: {
             name: normalizedName,
@@ -1443,16 +1231,12 @@ function CharacterManagerDialog({
             avatar_url: preparedAvatarPayload.avatarUrl,
             avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
             avatar_scale: avatarScaleDraft,
-            emotion_assets: shouldPersistEmotionAssets ? emotionAssetsDraft : {},
-            emotion_model: shouldPersistEmotionAssets ? emotionModelDraft || null : null,
-            emotion_prompt_lock: shouldPersistEmotionAssets ? emotionPromptLockDraft : null,
-            emotion_generation_job_id: shouldUseEmotionGenerationJob ? emotionGenerationJobIdDraft : null,
-            preserve_existing_emotions: shouldPreserveExistingEmotions,
+            novel_sprite_gender: showEmotionTools ? novelSpriteGenderDraft : '',
             visibility: visibilityDraft,
           },
         })
       } else if (editingCharacterId !== null) {
-        await updateStoryCharacter({
+        savedCharacter = await updateStoryCharacter({
           token: authToken,
           characterId: editingCharacterId,
           input: {
@@ -1471,13 +1255,17 @@ function CharacterManagerDialog({
             avatar_url: preparedAvatarPayload.avatarUrl,
             avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
             avatar_scale: avatarScaleDraft,
-            emotion_assets: shouldPersistEmotionAssets ? emotionAssetsDraft : {},
-            emotion_model: shouldPersistEmotionAssets ? emotionModelDraft || null : null,
-            emotion_prompt_lock: shouldPersistEmotionAssets ? emotionPromptLockDraft : null,
-            emotion_generation_job_id: shouldUseEmotionGenerationJob ? emotionGenerationJobIdDraft : null,
-            preserve_existing_emotions: shouldPreserveExistingEmotions,
+            novel_sprite_gender: showEmotionTools ? novelSpriteGenderDraft : '',
             visibility: visibilityDraft,
           },
+        })
+      }
+      if (showEmotionTools && savedCharacter) {
+        await syncStoryCharacterEmotionAssets({
+          token: authToken,
+          characterId: savedCharacter.id,
+          assets: emotionAssetsDraft,
+          previousAssets: previousEmotionAssets,
         })
       }
       await loadCharacters()
@@ -1498,9 +1286,7 @@ function CharacterManagerDialog({
     descriptionDraft,
     draftMode,
     emotionAssetsDraft,
-    emotionGenerationJobIdDraft,
-    emotionModelDraft,
-    emotionPromptLockDraft,
+    novelSpriteGenderDraft,
     editingCharacterId,
     clothingDraft,
     healthStatusDraft,
@@ -1510,10 +1296,10 @@ function CharacterManagerDialog({
     nameDraft,
     nameColorDraft,
     noteDraft,
-    preserveExistingEmotionsDraft,
     raceDraft,
     resetDraft,
     showEmotionTools,
+    sortedCharacters,
     speechColorDraft,
     bubbleColorDraft,
     thoughtBubbleColorDraft,
@@ -1644,68 +1430,6 @@ function CharacterManagerDialog({
 
           {isEditorOpen ? (
             <>
-            {showEmotionTools ? (
-            <Stack spacing={0.7}>
-              <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.82rem', fontWeight: 700 }}>
-                  {'\u042d\u043c\u043e\u0446\u0438\u0438 \u0434\u043b\u044f \u0433\u0435\u043d\u0435\u0440\u0430\u0446\u0438\u0438'}
-                </Typography>
-                <Stack direction="row" spacing={0.6}>
-                  <Button
-                    onClick={() => setSelectedEmotionIdsDraft([...CHARACTER_EMOTION_IDS])}
-                    disabled={isAvatarActionsLocked}
-                    sx={{ minHeight: 28, borderRadius: '8px', px: 0.9, color: 'var(--morius-text-secondary)', textTransform: 'none' }}
-                  >
-                    {'\u0412\u0441\u0435'}
-                  </Button>
-                  <Button
-                    onClick={() => setSelectedEmotionIdsDraft([])}
-                    disabled={isAvatarActionsLocked}
-                    sx={{ minHeight: 28, borderRadius: '8px', px: 0.9, color: 'var(--morius-text-secondary)', textTransform: 'none' }}
-                  >
-                    {'\u041d\u0438\u0447\u0435\u0433\u043e'}
-                  </Button>
-                </Stack>
-              </Stack>
-              <Stack direction="row" flexWrap="wrap" gap={0.55}>
-                {CHARACTER_EMOTION_IDS.map((emotionId) => {
-                  const isSelected = selectedEmotionIds.includes(emotionId)
-                  return (
-                    <Button
-                      key={emotionId}
-                      onClick={() =>
-                        setSelectedEmotionIdsDraft((currentValue) => {
-                          const currentSelection = normalizeEmotionSelection(currentValue)
-                          return currentSelection.includes(emotionId)
-                            ? currentSelection.filter((value) => value !== emotionId)
-                            : [...currentSelection, emotionId]
-                        })
-                      }
-                      disabled={isAvatarActionsLocked}
-                      sx={{
-                        minHeight: 30,
-                        borderRadius: '999px',
-                        px: 1,
-                        py: 0.38,
-                        border: 'var(--morius-border-width) solid rgba(189, 202, 220, 0.22)',
-                        backgroundColor: isSelected ? 'rgba(61, 84, 118, 0.56)' : 'rgba(26, 30, 35, 0.7)',
-                        color: isSelected ? 'rgba(235, 243, 255, 0.96)' : 'var(--morius-text-secondary)',
-                        fontSize: '0.73rem',
-                        lineHeight: 1.2,
-                        fontWeight: 600,
-                        textTransform: 'none',
-                        '&:hover': {
-                          backgroundColor: isSelected ? 'rgba(71, 99, 139, 0.66)' : 'rgba(39, 45, 53, 0.82)',
-                        },
-                      }}
-                    >
-                      {CHARACTER_EMOTION_LABELS[emotionId]}
-                    </Button>
-                  )
-                })}
-              </Stack>
-            </Stack>
-            ) : null}
             <Box
               data-tour-id="character-manager-editor"
               sx={{
@@ -1799,7 +1523,7 @@ function CharacterManagerDialog({
                         +
                       </Box>
                     </Box>
-                    {isGeneratingAiAvatar || isGeneratingEmotionPack ? (
+                    {isGeneratingAiAvatar ? (
                       <Box
                         sx={{
                           position: 'absolute',
@@ -1863,37 +1587,6 @@ function CharacterManagerDialog({
                         </IconButton>
                       </span>
                     </Tooltip>
-                    {showEmotionTools ? (
-                      <Tooltip
-                        disableInteractive
-                        title={
-                          readyEmotionCount > 0
-                            ? 'Обновить пресет эмоций'
-                            : canGenerateEmotionPack
-                              ? 'Сгенерировать пресет эмоций'
-                              : 'Нужно описание персонажа или аватар для референса'
-                        }
-                      >
-                        <span>
-                          <IconButton
-                            onClick={handleOpenEmotionDialog}
-                            disabled={isAvatarActionsLocked}
-                            sx={{
-                              width: 36,
-                              height: 36,
-                              border: 'var(--morius-border-width) solid rgba(201, 210, 223, 0.36)',
-                              backgroundColor: readyEmotionCount > 0 ? 'rgba(31, 38, 31, 0.8)' : 'rgba(20, 22, 25, 0.76)',
-                              color: 'rgba(226, 233, 243, 0.95)',
-                              '&:hover': {
-                                backgroundColor: readyEmotionCount > 0 ? 'rgba(40, 49, 40, 0.88)' : 'rgba(29, 33, 37, 0.86)',
-                              },
-                            }}
-                          >
-                            <EmotionsIcon />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    ) : null}
                   </Stack>
                 </Stack>
                 <input
@@ -2155,11 +1848,10 @@ function CharacterManagerDialog({
                     <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
                       <Box>
                         <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.86rem', fontWeight: 700 }}>
-                          Эмоции персонажа
+                          Спрайты эмоций (визуальная новелла)
                         </Typography>
                         <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
-                          {readyEmotionCount}/{CHARACTER_EMOTION_IDS.length} эмоций готово
-                          {emotionModelDraft ? ` • ${emotionModelDraft}` : ''}
+                          {readyEmotionCount}/{CHARACTER_EMOTION_IDS.length} загружено вручную
                         </Typography>
                       </Box>
                       {readyEmotionCount > 0 ? (
@@ -2178,66 +1870,86 @@ function CharacterManagerDialog({
                         </Button>
                       ) : null}
                     </Stack>
-                    <Stack direction="row" flexWrap="wrap" gap={0.55}>
+                    <Stack direction="row" spacing={0.6} alignItems="center">
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
+                        Пол (для силуэта-инкогнито):
+                      </Typography>
+                      <Stack direction="row" spacing={0.5}>
+                        {NOVEL_SPRITE_GENDER_OPTIONS.map((option) => {
+                          const isSelected = novelSpriteGenderDraft === option.value
+                          return (
+                            <Button
+                              key={option.value || 'none'}
+                              onClick={() => setNovelSpriteGenderDraft(option.value)}
+                              disabled={isAvatarActionsLocked}
+                              sx={{
+                                minHeight: 28,
+                                borderRadius: '999px',
+                                px: 1,
+                                border: 'var(--morius-border-width) solid rgba(189, 202, 220, 0.22)',
+                                backgroundColor: isSelected ? 'rgba(61, 84, 118, 0.56)' : 'rgba(26, 30, 35, 0.7)',
+                                color: isSelected ? 'rgba(235, 243, 255, 0.96)' : 'var(--morius-text-secondary)',
+                                fontSize: '0.72rem',
+                                textTransform: 'none',
+                              }}
+                            >
+                              {option.label}
+                            </Button>
+                          )
+                        })}
+                      </Stack>
+                    </Stack>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' },
+                        gap: 0.7,
+                      }}
+                    >
                       {CHARACTER_EMOTION_IDS.map((emotionId) => {
-                        const isReady = Boolean((emotionAssetsDraft[emotionId] ?? '').trim())
+                        const assetUrl = (emotionAssetsDraft[emotionId] ?? '').trim()
+                        const isUploadingSlot = uploadingEmotionId === emotionId
                         return (
                           <Box
                             key={emotionId}
                             sx={{
-                              px: 0.75,
-                              py: 0.38,
-                              borderRadius: '999px',
-                              border: 'var(--morius-border-width) solid rgba(189, 202, 220, 0.22)',
-                              backgroundColor: isReady ? 'rgba(54, 91, 62, 0.46)' : 'rgba(26, 30, 35, 0.7)',
-                              color: isReady ? 'rgba(219, 241, 223, 0.95)' : 'var(--morius-text-secondary)',
-                              fontSize: '0.73rem',
-                              lineHeight: 1.2,
-                              fontWeight: 600,
+                              position: 'relative',
+                              borderRadius: '14px',
+                              overflow: 'hidden',
+                              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
+                              backgroundColor: 'rgba(18, 21, 25, 0.88)',
                             }}
                           >
-                            {CHARACTER_EMOTION_LABELS[emotionId]}
-                          </Box>
-                        )
-                      })}
-                    </Stack>
-                    {readyEmotionCount > 0 ? (
-                      <Box
-                        sx={{
-                          display: 'grid',
-                          gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))' },
-                          gap: 0.7,
-                        }}
-                      >
-                        {CHARACTER_EMOTION_IDS.map((emotionId) => {
-                          const assetUrl = (emotionAssetsDraft[emotionId] ?? '').trim()
-                          if (!assetUrl) {
-                            return null
-                          }
-                          return (
                             <Box
-                              key={`preview-${emotionId}`}
-                              component="button"
-                              type="button"
-                              onClick={() => handleOpenCharacterEmotionPreview(emotionId, assetUrl, nameDraft)}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() =>
+                                assetUrl
+                                  ? handleOpenCharacterEmotionPreview(emotionId, assetUrl, nameDraft)
+                                  : handleChooseEmotionSlot(emotionId)
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault()
+                                  assetUrl
+                                    ? handleOpenCharacterEmotionPreview(emotionId, assetUrl, nameDraft)
+                                    : handleChooseEmotionSlot(emotionId)
+                                }
+                              }}
                               sx={{
-                                p: 0,
-                                m: 0,
-                                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
-                                borderRadius: '14px',
-                                overflow: 'hidden',
-                                backgroundColor: 'rgba(18, 21, 25, 0.88)',
-                                cursor: 'zoom-in',
-                                textAlign: 'left',
+                                position: 'relative',
+                                height: 104,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: isAvatarActionsLocked ? 'default' : assetUrl ? 'zoom-in' : 'pointer',
+                                background: assetUrl
+                                  ? 'linear-gradient(180deg, rgba(34, 39, 46, 0.78) 0%, rgba(18, 21, 25, 0.96) 100%)'
+                                  : 'transparent',
+                                border: assetUrl ? 'none' : '1px dashed rgba(194, 208, 226, 0.4)',
                               }}
                             >
-                              <Box
-                                sx={{
-                                  position: 'relative',
-                                  height: 138,
-                                  background: 'linear-gradient(180deg, rgba(34, 39, 46, 0.78) 0%, rgba(18, 21, 25, 0.96) 100%)',
-                                }}
-                              >
+                              {assetUrl ? (
                                 <ProgressiveImage
                                   src={assetUrl}
                                   alt={`${nameDraft || 'Персонаж'} ${CHARACTER_EMOTION_LABELS[emotionId]}`}
@@ -2245,30 +1957,68 @@ function CharacterManagerDialog({
                                   fetchPriority="low"
                                   objectFit="contain"
                                   objectPosition="top center"
-                                  loaderSize={24}
-                                  containerSx={{
-                                    width: '100%',
-                                    height: '100%',
-                                  }}
-                                  imgSx={{
-                                    transform: 'scale(1.08)',
-                                  }}
+                                  loaderSize={20}
+                                  containerSx={{ width: '100%', height: '100%' }}
+                                  imgSx={{ transform: 'scale(1.05)' }}
                                 />
-                              </Box>
-                              <Box sx={{ px: 0.8, py: 0.62 }}>
-                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.74rem', fontWeight: 700, lineHeight: 1.2 }}>
-                                  {CHARACTER_EMOTION_LABELS[emotionId]}
+                              ) : (
+                                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '1.6rem', fontWeight: 300 }}>
+                                  +
                                 </Typography>
-                              </Box>
+                              )}
+                              {isUploadingSlot ? (
+                                <Box
+                                  sx={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                    backgroundColor: 'rgba(14, 16, 20, 0.56)',
+                                  }}
+                                >
+                                  <CircularProgress size={20} sx={{ color: 'rgba(224, 232, 243, 0.95)' }} />
+                                </Box>
+                              ) : null}
+                              {assetUrl && !isAvatarActionsLocked ? (
+                                <IconButton
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    handleRemoveEmotionSlot(emotionId)
+                                  }}
+                                  sx={{
+                                    position: 'absolute',
+                                    top: 3,
+                                    right: 3,
+                                    width: 22,
+                                    height: 22,
+                                    backgroundColor: 'rgba(10, 12, 15, 0.72)',
+                                    color: 'rgba(240, 244, 250, 0.92)',
+                                    '&:hover': { backgroundColor: 'rgba(16, 18, 22, 0.88)' },
+                                  }}
+                                >
+                                  <Typography sx={{ fontSize: '0.7rem', lineHeight: 1 }}>{'\u00d7'}</Typography>
+                                </IconButton>
+                              ) : null}
                             </Box>
-                          )
-                        })}
-                      </Box>
-                    ) : (
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem', lineHeight: 1.35 }}>
-                        После генерации здесь появится галерея эмоций персонажа.
-                      </Typography>
-                    )}
+                            <Box sx={{ px: 0.7, py: 0.5 }}>
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.72rem', fontWeight: 700, lineHeight: 1.2 }}>
+                                {CHARACTER_EMOTION_LABELS[emotionId]}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        )
+                      })}
+                    </Box>
+                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', lineHeight: 1.32 }}>
+                      Загрузите PNG для каждой эмоции вручную. Пустые слоты в новелле показываются как силуэт-инкогнито.
+                    </Typography>
+                    <input
+                      ref={emotionSlotInputRef}
+                      type="file"
+                      accept="image/*"
+                      hidden
+                      onChange={(event) => void handleEmotionSlotFileChange(event)}
+                    />
                   </Stack>
                 ) : null}
                 {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
@@ -2698,152 +2448,6 @@ function CharacterManagerDialog({
               <Stack component="span" direction="row" spacing={0.65} alignItems="center">
                 <Box component="span">{hasAvatarDraft ? 'Перегенерировать за' : 'Сгенерировать за'}</Box>
                 <SoulAmount amount={selectedAiAvatarGenerationCost} iconSize={17} />
-              </Stack>
-            )}
-          </Button>
-        </DialogActions>
-      </BaseDialog>
-
-      <BaseDialog
-        open={isEmotionDialogOpen}
-        onClose={handleCloseEmotionDialog}
-        maxWidth="xs"
-        rawChildren
-      >
-        <DialogTitle sx={{ fontWeight: 700 }}>
-          {readyEmotionCount > 0 ? 'Обновление эмоций персонажа' : 'Генерация эмоций персонажа'}
-        </DialogTitle>
-        <DialogContent sx={{ pt: 0.4 }}>
-          <Stack spacing={0.7}>
-            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
-              Генерируется единый набор эмоций на основе одного и того же персонажа. При наличии аватара он используется как
-              референс, иначе сначала создается спокойный reference-sprite.
-            </Typography>
-            <Stack spacing={0.6}>
-              {CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS.map((option) => (
-                <Button
-                  key={option.id}
-                  onClick={() => setEmotionModelSelectionDraft(option.id)}
-                  disabled={isAvatarActionsLocked}
-                  sx={{
-                    justifyContent: 'flex-start',
-                    borderRadius: '10px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: emotionModelSelectionDraft === option.id ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
-                    color: 'var(--morius-text-primary)',
-                    textTransform: 'none',
-                    px: 1,
-                    py: 0.85,
-                    '&:hover': {
-                      backgroundColor: 'transparent',
-                    },
-                  }}
-                >
-                  <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ width: '100%', minWidth: 0 }}>
-                    <Stack alignItems="flex-start" spacing={0.15} sx={{ minWidth: 0 }}>
-                      <Typography sx={{ fontWeight: 700, fontSize: '0.86rem', lineHeight: 1.25 }}>{option.title}</Typography>
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem', lineHeight: 1.25 }}>
-                        {option.description}
-                      </Typography>
-                    </Stack>
-                    <SoulAmount amount={option.cost} iconSize={17} color="rgba(231, 211, 158, 0.96)" fontSize="0.8rem" fontWeight={700} />
-                  </Stack>
-                </Button>
-              ))}
-            </Stack>
-            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.84rem', fontWeight: 700 }}>
-              Стиль
-            </Typography>
-            <Box
-              component="input"
-              value={emotionStylePromptDraft}
-              placeholder="Стиль визуальной новеллы..."
-              maxLength={CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setEmotionStylePromptDraft(event.target.value)}
-              disabled={isAvatarActionsLocked}
-              sx={{
-                width: '100%',
-                minHeight: 36,
-                borderRadius: '11px',
-                border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                backgroundColor: 'var(--morius-elevated-bg)',
-                color: 'var(--morius-text-primary)',
-                px: 0.92,
-                outline: 'none',
-                fontSize: '0.85rem',
-                '&::placeholder': {
-                  color: 'var(--morius-text-secondary)',
-                },
-              }}
-            />
-            <Stack direction="row" alignItems="center" justifyContent="space-between">
-              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem' }}>
-                {emotionStylePromptDraft.length}/{CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH}
-              </Typography>
-              {!canGenerateEmotionPack ? (
-                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem' }}>
-                  Нужен аватар или описание персонажа
-                </Typography>
-              ) : null}
-            </Stack>
-            <Box
-              sx={{
-                borderRadius: '10px',
-                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 76%, transparent)',
-                px: 1,
-                py: 0.75,
-                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
-              }}
-            >
-              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem', mt: 0.2 }}>
-                Будет создано {hasEmotionReferenceSource ? CHARACTER_EMOTION_GENERATION_WITH_REFERENCE_COUNT : CHARACTER_EMOTION_GENERATION_WITHOUT_REFERENCE_COUNT}{' '}
-                изображений с прозрачным фоном: спокойный, злой, раздраженный, веселый, улыбчивый, хитрый, настороженный,
-                напуганный и счастливый.
-              </Typography>
-            </Box>
-            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', lineHeight: 1.32 }}>
-              Дополнительно создаются эмоции: смущенный и растерянный.
-            </Typography>
-            {isGeneratingEmotionPack && emotionGenerationProgressLabel ? (
-              <Alert
-                severity="info"
-                sx={{
-                  borderRadius: '10px',
-                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 84%, transparent)',
-                  border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
-                  color: 'var(--morius-text-primary)',
-                  '& .MuiAlert-icon': {
-                    color: 'rgba(184, 214, 244, 0.96)',
-                  },
-                }}
-              >
-                {emotionGenerationProgressLabel}
-              </Alert>
-            ) : null}
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2 }}>
-          <Button onClick={handleCloseEmotionDialog} disabled={isGeneratingEmotionPack} sx={{ color: 'text.secondary' }}>
-            Отмена
-          </Button>
-          <Button
-            variant="contained"
-            onClick={() => void handleGenerateEmotionPack()}
-            disabled={isAvatarActionsLocked || !canGenerateEmotionPack}
-            sx={{
-              border: 'var(--morius-border-width) solid var(--morius-card-border)',
-              backgroundColor: 'var(--morius-button-active)',
-              color: 'var(--morius-text-primary)',
-              textTransform: 'none',
-              '&:hover': { backgroundColor: 'transparent' },
-            }}
-          >
-            {isGeneratingEmotionPack ? (
-              <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
-            ) : (
-              <Stack component="span" direction="row" spacing={0.65} alignItems="center">
-                <Box component="span">{readyEmotionCount > 0 ? 'Обновить за' : 'Сгенерировать за'}</Box>
-                <SoulAmount amount={selectedEmotionGenerationCost} iconSize={17} />
               </Stack>
             )}
           </Button>

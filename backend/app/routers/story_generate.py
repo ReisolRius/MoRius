@@ -811,7 +811,6 @@ def _fallback_resolve_story_turn_postprocess_payload(
     character_state_enabled: bool = False,
     important_event_enabled: bool = False,
     ambient_enabled: bool = False,
-    emotion_visualization_enabled: bool = False,
     auto_npc_cards_enabled: bool = False,
 ) -> dict[str, Any] | None:
     try:
@@ -841,7 +840,6 @@ def _fallback_resolve_story_turn_postprocess_payload(
                 character_state_enabled=character_state_enabled,
                 important_event_enabled=important_event_enabled,
                 ambient_enabled=ambient_enabled,
-                emotion_visualization_enabled=emotion_visualization_enabled,
                 auto_npc_cards_enabled=auto_npc_cards_enabled,
             )
             if isinstance(resolved_payload, dict) and resolved_payload:
@@ -1328,7 +1326,6 @@ def _fallback_build_story_runtime_deps() -> StoryRuntimeDeps:
         plot_card_to_out=story_plot_card_to_out,
         world_card_to_out=story_world_card_to_out,
         resolve_story_ambient_profile=lambda **kwargs: None,
-        resolve_story_scene_emotion_payload=lambda **kwargs: None,
         resolve_story_turn_postprocess_payload=_fallback_resolve_story_turn_postprocess_payload,
         serialize_story_ambient_profile=serialize_story_ambient_profile,
         story_game_summary_to_out=story_game_summary_to_out,
@@ -1344,12 +1341,12 @@ def _fallback_validate_provider_config() -> None:
     if not settings.polza_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Story provider is not configured: missing POLZA_API_KEY",
+            detail="Story provider is not configured: missing ROUTERAI_API_KEY",
         )
     if not settings.polza_chat_url:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Story provider is not configured: missing POLZA_CHAT_URL",
+            detail="Story provider is not configured: missing ROUTERAI_CHAT_URL",
         )
 
 

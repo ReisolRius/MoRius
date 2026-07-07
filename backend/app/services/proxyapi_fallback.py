@@ -46,9 +46,9 @@ def is_configured() -> bool:
 
 
 def _chat_completions_url() -> str:
-    base_url = str(settings.proxyapi_base_openrouter or "").strip().rstrip("/")
+    base_url = str(settings.proxyapi_base_routerai or "").strip().rstrip("/")
     if not base_url:
-        base_url = "https://api.proxyapi.ru/openrouter/v1"
+        base_url = "https://api.proxyapi.ru/routerai/v1"
     return f"{base_url}/chat/completions"
 
 
@@ -91,11 +91,11 @@ def _raise_for_status(response: requests.Response, *, route: str, model_name: st
     if response.status_code in {401, 403}:
         message = "ProxyAPI key is invalid or lacks access"
     elif response.status_code == 404:
-        message = "Model is not available through ProxyAPI OpenRouter route"
+        message = "Model is not available through ProxyAPI RouterAI route"
     elif response.status_code == 429:
         message = "ProxyAPI rate limit or quota exceeded"
     elif response.status_code >= 500:
-        message = "ProxyAPI/OpenRouter upstream error"
+        message = "ProxyAPI/RouterAI upstream error"
     else:
         message = f"ProxyAPI request failed ({response.status_code})"
     if detail:
@@ -220,7 +220,7 @@ def request_text(
 
         try:
             response = session.post(url, headers=headers, json=payload, timeout=timeout)
-            _raise_for_status(response, route="proxyapi_openrouter", model_name=candidate_model)
+            _raise_for_status(response, route="proxyapi_routerai", model_name=candidate_model)
             try:
                 payload_value = response.json()
             except ValueError as exc:
@@ -380,7 +380,7 @@ def request_image(
 
         try:
             response = session.post(url, headers=headers, json=payload, timeout=timeout)
-            _raise_for_status(response, route="proxyapi_openrouter_image", model_name=candidate_model)
+            _raise_for_status(response, route="proxyapi_routerai_image", model_name=candidate_model)
             try:
                 payload_value = response.json()
             except ValueError as exc:

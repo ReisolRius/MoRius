@@ -95,7 +95,7 @@ class StoryGenerationLockingTests(unittest.TestCase):
     def test_stream_time_budget_fails_when_first_token_never_arrives(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "did not produce content"):
             _ensure_story_stream_within_time_budget(
-                provider_label="OpenRouter",
+                provider_label="RouterAI",
                 started_at=10.0,
                 current_time=131.0,
                 emitted_delta=False,
@@ -106,7 +106,7 @@ class StoryGenerationLockingTests(unittest.TestCase):
 
     def test_stream_time_budget_does_not_cut_a_healthy_long_stream(self) -> None:
         _ensure_story_stream_within_time_budget(
-            provider_label="OpenRouter",
+            provider_label="RouterAI",
             started_at=10.0,
             current_time=3_611.0,
             emitted_delta=True,
@@ -370,7 +370,6 @@ class StoryGenerationLockingTests(unittest.TestCase):
                     memory_optimization_enabled=True,
                     reroll_discarded_assistant_text=None,
                     ambient_enabled=False,
-                    emotion_visualization_enabled=False,
                     visual_novel_enabled=False,
                     show_gg_thoughts=False,
                     show_npc_thoughts=False,
@@ -447,7 +446,6 @@ class StoryGenerationLockingTests(unittest.TestCase):
                 memory_optimization_enabled=True,
                 reroll_discarded_assistant_text=None,
                 ambient_enabled=False,
-                emotion_visualization_enabled=False,
                 visual_novel_enabled=False,
                 show_gg_thoughts=False,
                 show_npc_thoughts=False,
@@ -481,7 +479,7 @@ class StoryGenerationLockingTests(unittest.TestCase):
             nonlocal provider_calls
             provider_calls += 1
             yield "partial text"
-            raise RuntimeError("OpenRouter story stream ended incomplete")
+            raise RuntimeError("RouterAI story stream ended incomplete")
 
         deps = SimpleNamespace(
             stream_persist_min_chars=10_000,
@@ -527,7 +525,6 @@ class StoryGenerationLockingTests(unittest.TestCase):
                     memory_optimization_enabled=True,
                     reroll_discarded_assistant_text=None,
                     ambient_enabled=False,
-                    emotion_visualization_enabled=False,
                     visual_novel_enabled=False,
                     show_gg_thoughts=False,
                     show_npc_thoughts=False,

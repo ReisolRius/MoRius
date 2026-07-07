@@ -238,7 +238,7 @@ def _fit_polza_messages_to_context_window(
 
     final_estimate = current_estimate()
     logger.warning(
-        "OpenRouter payload trimmed to fit combined context: model=%s input_estimate=%s->%s budget=%s output_reserve=%s window=%s",
+        "RouterAI payload trimmed to fit combined context: model=%s input_estimate=%s->%s budget=%s output_reserve=%s window=%s",
         model_name,
         initial_estimate,
         final_estimate,
@@ -375,7 +375,7 @@ def _log_polza_completion_finish(
 
     usage_summary = _format_polza_usage_summary(usage_payload)
     logger.info(
-        "OpenRouter %s finish: model=%s finish_reason=%s max_tokens=%s usage=%s",
+        "RouterAI %s finish: model=%s finish_reason=%s max_tokens=%s usage=%s",
         mode,
         model_name,
         normalized_finish_reason,
@@ -384,7 +384,7 @@ def _log_polza_completion_finish(
     )
     if normalized_finish_reason.casefold() == "length":
         logger.warning(
-            "OpenRouter %s response hit token limit: model=%s max_tokens=%s usage=%s",
+            "RouterAI %s response hit token limit: model=%s max_tokens=%s usage=%s",
             mode,
             model_name,
             max_tokens,
@@ -937,7 +937,7 @@ def _iter_polza_story_stream_chunks(
     )
     messages_payload = repair_likely_utf8_mojibake_deep(messages_payload)
     if len(messages_payload) <= 1:
-        raise RuntimeError("No messages to send to OpenRouter")
+        raise RuntimeError("No messages to send to RouterAI")
 
     headers = {
         "Authorization": f"Bearer {settings.polza_api_key}",
@@ -954,7 +954,7 @@ def _iter_polza_story_stream_chunks(
 
     primary_model = (model_name or settings.polza_model).strip()
     if not primary_model:
-        raise RuntimeError("OpenRouter chat model is not configured")
+        raise RuntimeError("RouterAI chat model is not configured")
 
     candidate_models = _build_polza_story_candidate_models(
         primary_model,
@@ -1000,7 +1000,7 @@ def _iter_polza_story_stream_chunks(
             provider_label = _resolve_polza_provider_attempt_label(provider_payload)
             request_started_at_attempt = time.monotonic()
             logger.info(
-                "OpenRouter stream request started: model=%s provider=%s attempt=%s",
+                "RouterAI stream request started: model=%s provider=%s attempt=%s",
                 model_name,
                 provider_label,
                 attempt_index + 1,
@@ -1027,7 +1027,7 @@ def _iter_polza_story_stream_chunks(
                     raise StoryGenerationCancelled("Story generation cancelled") from exc
                 if attempt_index < len(POLZA_RETRY_DELAYS_SECONDS):
                     logger.warning(
-                        "OpenRouter stream request transport failed; retrying: model=%s provider=%s attempt=%s error=%s",
+                        "RouterAI stream request transport failed; retrying: model=%s provider=%s attempt=%s error=%s",
                         model_name,
                         provider_label,
                         attempt_index + 1,
@@ -1035,11 +1035,11 @@ def _iter_polza_story_stream_chunks(
                     )
                     _sleep_polza_retry(attempt_index)
                     continue
-                raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
+                raise RuntimeError("Failed to reach RouterAI chat endpoint") from exc
 
             try:
                 logger.info(
-                    "OpenRouter stream response opened: model=%s provider=%s status=%s latency=%.3fs",
+                    "RouterAI stream response opened: model=%s provider=%s status=%s latency=%.3fs",
                     model_name,
                     provider_label,
                     response.status_code,
@@ -1059,7 +1059,7 @@ def _iter_polza_story_stream_chunks(
                         detail=detail,
                     ):
                         logger.warning(
-                            "OpenRouter stream temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
+                            "RouterAI stream temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
                             model_name,
                             provider_label,
                             response.status_code,
@@ -1069,7 +1069,7 @@ def _iter_polza_story_stream_chunks(
                         _sleep_polza_retry(attempt_index)
                         continue
 
-                    error_text = f"OpenRouter chat error ({response.status_code})"
+                    error_text = f"RouterAI chat error ({response.status_code})"
                     if detail:
                         error_text = f"{error_text}: {detail}"
 
@@ -1092,7 +1092,7 @@ def _iter_polza_story_stream_chunks(
                     ):
                         current_time = time.monotonic()
                         _ensure_story_stream_within_time_budget(
-                            provider_label="OpenRouter",
+                            provider_label="RouterAI",
                             started_at=request_started_at_attempt,
                             current_time=current_time,
                             emitted_delta=emitted_delta,
@@ -1120,7 +1120,7 @@ def _iter_polza_story_stream_chunks(
                             chunk_payload = json.loads(raw_data)
                         except json.JSONDecodeError as exc:
                             raise RuntimeError(
-                                "OpenRouter stream returned malformed SSE JSON"
+                                "RouterAI stream returned malformed SSE JSON"
                             ) from exc
 
                         if isinstance(chunk_payload.get("usage"), dict):
@@ -1129,7 +1129,7 @@ def _iter_polza_story_stream_chunks(
                         error_value = chunk_payload.get("error")
                         if isinstance(error_value, dict):
                             error_detail = str(error_value.get("message") or error_value.get("code") or "").strip()
-                            raise RuntimeError(error_detail or "OpenRouter stream returned an error")
+                            raise RuntimeError(error_detail or "RouterAI stream returned an error")
                         if isinstance(error_value, str) and error_value.strip():
                             raise RuntimeError(error_value.strip())
 
@@ -1150,7 +1150,7 @@ def _iter_polza_story_stream_chunks(
                                 if first_content_emitted_at is None:
                                     first_content_emitted_at = time.monotonic()
                                     logger.info(
-                                        "OpenRouter stream first token latency: %.3fs model=%s",
+                                        "RouterAI stream first token latency: %.3fs model=%s",
                                         first_content_emitted_at - request_started_at,
                                         model_name,
                                     )
@@ -1173,7 +1173,7 @@ def _iter_polza_story_stream_chunks(
                                 if first_content_emitted_at is None:
                                     first_content_emitted_at = time.monotonic()
                                     logger.info(
-                                        "OpenRouter stream first token latency (message payload): %.3fs model=%s",
+                                        "RouterAI stream first token latency (message payload): %.3fs model=%s",
                                         first_content_emitted_at - request_started_at,
                                         model_name,
                                     )
@@ -1185,9 +1185,9 @@ def _iter_polza_story_stream_chunks(
                     if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                         raise StoryGenerationCancelled("Story generation cancelled") from exc
                     if not emitted_delta and attempt_index < len(POLZA_RETRY_DELAYS_SECONDS):
-                        last_error = RuntimeError("Failed while reading OpenRouter chat stream")
+                        last_error = RuntimeError("Failed while reading RouterAI chat stream")
                         logger.warning(
-                            "OpenRouter stream read failed before content; silently retrying same turn: model=%s provider=%s attempt=%s error=%s",
+                            "RouterAI stream read failed before content; silently retrying same turn: model=%s provider=%s attempt=%s error=%s",
                             model_name,
                             provider_label,
                             attempt_index + 1,
@@ -1198,7 +1198,7 @@ def _iter_polza_story_stream_chunks(
                     if emitted_delta:
                         partial_text = "".join(emitted_text_parts)
                         logger.warning(
-                            "OpenRouter stream read failed after content; recovering only the missing tail: "
+                            "RouterAI stream read failed after content; recovering only the missing tail: "
                             "model=%s provider=%s partial_chars=%s error=%s",
                             model_name,
                             provider_label,
@@ -1219,16 +1219,16 @@ def _iter_polza_story_stream_chunks(
                             for chunk in _yield_story_stream_chunks_with_pacing(recovered_tail):
                                 yield chunk
                             return
-                    raise RuntimeError("Failed while reading OpenRouter chat stream") from exc
+                    raise RuntimeError("Failed while reading RouterAI chat stream") from exc
                 except RuntimeError as exc:
                     if (
                         not emitted_delta
                         and attempt_index < len(POLZA_RETRY_DELAYS_SECONDS)
                         and is_retryable_provider_error(exc)
                     ):
-                        last_error = RuntimeError(str(exc).strip() or "OpenRouter stream returned an error")
+                        last_error = RuntimeError(str(exc).strip() or "RouterAI stream returned an error")
                         logger.warning(
-                            "OpenRouter stream failed before content; silently retrying same turn: model=%s provider=%s attempt=%s error=%s",
+                            "RouterAI stream failed before content; silently retrying same turn: model=%s provider=%s attempt=%s error=%s",
                             model_name,
                             provider_label,
                             attempt_index + 1,
@@ -1239,7 +1239,7 @@ def _iter_polza_story_stream_chunks(
                     if emitted_delta and is_retryable_provider_error(exc):
                         partial_text = "".join(emitted_text_parts)
                         logger.warning(
-                            "OpenRouter stream failed after content; recovering only the missing tail: "
+                            "RouterAI stream failed after content; recovering only the missing tail: "
                             "model=%s provider=%s partial_chars=%s error=%s",
                             model_name,
                             provider_label,
@@ -1277,7 +1277,7 @@ def _iter_polza_story_stream_chunks(
                     model_hit_length_limit = str(finish_reason or "").strip().casefold() == "length"
                     if model_hit_length_limit:
                         logger.warning(
-                            "OpenRouter stream hit response token limit; recovering missing tail: "
+                            "RouterAI stream hit response token limit; recovering missing tail: "
                             "model=%s provider=%s partial_chars=%s max_tokens=%s",
                             model_name,
                             provider_label,
@@ -1300,9 +1300,9 @@ def _iter_polza_story_stream_chunks(
                                 yield chunk
                             return
                         raise RuntimeError(
-                            "OpenRouter story response hit the token limit before a complete answer"
+                            "RouterAI story response hit the token limit before a complete answer"
                         )
-                    # Polza/OpenRouter sometimes report finish_reason "stop" (or only send the
+                    # Polza/RouterAI sometimes report finish_reason "stop" (or only send the
                     # [DONE] sentinel) even when the underlying text was cut mid-sentence, so
                     # that metadata alone is not trustworthy. Always inspect the emitted text's
                     # own shape before accepting it as a finished reply, regardless of what
@@ -1310,7 +1310,7 @@ def _iter_polza_story_stream_chunks(
                     if not _story_stream_text_needs_tail_recovery(partial_text):
                         return
                     logger.warning(
-                        "OpenRouter stream text looks cut off despite finish_reason=%s done=%s; "
+                        "RouterAI stream text looks cut off despite finish_reason=%s done=%s; "
                         "recovering only the missing tail: model=%s provider=%s partial_chars=%s",
                         finish_reason or "n/a",
                         saw_done_marker,
@@ -1333,7 +1333,7 @@ def _iter_polza_story_stream_chunks(
                             yield chunk
                         return
                     logger.warning(
-                        "OpenRouter stream tail recovery returned no text; keeping emitted partial answer instead "
+                        "RouterAI stream tail recovery returned no text; keeping emitted partial answer instead "
                         "of deleting a visible generation: model=%s provider=%s partial_chars=%s",
                         model_name,
                         provider_label,
@@ -1342,16 +1342,16 @@ def _iter_polza_story_stream_chunks(
                     return
 
                 logger.warning(
-                    "OpenRouter stream completed without textual content: model=%s provider=%s finish_reason=%s done=%s",
+                    "RouterAI stream completed without textual content: model=%s provider=%s finish_reason=%s done=%s",
                     model_name,
                     provider_label,
                     finish_reason or "",
                     saw_done_marker,
                 )
-                last_error = RuntimeError("OpenRouter stream completed without textual content")
+                last_error = RuntimeError("RouterAI stream completed without textual content")
                 if attempt_index < len(POLZA_RETRY_DELAYS_SECONDS):
                     logger.warning(
-                        "OpenRouter empty stream/text response; retrying same turn: model=%s provider=%s next_attempt=%s",
+                        "RouterAI empty stream/text response; retrying same turn: model=%s provider=%s next_attempt=%s",
                         model_name,
                         provider_label,
                         attempt_index + 2,
@@ -1373,7 +1373,7 @@ def _iter_polza_story_stream_chunks(
     if last_error is not None:
         raise last_error
 
-    raise RuntimeError("OpenRouter chat request failed")
+    raise RuntimeError("RouterAI chat request failed")
 
 def _request_gigachat_story_text(
     messages_payload: list[dict[str, str]],
@@ -1465,7 +1465,7 @@ def _request_polza_story_text(
 
     primary_model = (model_name or settings.polza_model).strip()
     if not primary_model:
-        raise RuntimeError("OpenRouter chat model is not configured")
+        raise RuntimeError("RouterAI chat model is not configured")
 
     candidate_models = _build_polza_story_candidate_models(
         primary_model,
@@ -1513,7 +1513,7 @@ def _request_polza_story_text(
             provider_label = _resolve_polza_provider_attempt_label(provider_payload)
             request_started_at = time.monotonic()
             logger.info(
-                "OpenRouter text request started: model=%s provider=%s attempt=%s",
+                "RouterAI text request started: model=%s provider=%s attempt=%s",
                 candidate_model,
                 provider_label,
                 attempt_index + 1,
@@ -1529,7 +1529,7 @@ def _request_polza_story_text(
             except requests.RequestException as exc:
                 if attempt_index < len(retry_delays):
                     logger.warning(
-                        "OpenRouter text transport failed; retrying: model=%s provider=%s attempt=%s error=%s",
+                        "RouterAI text transport failed; retrying: model=%s provider=%s attempt=%s error=%s",
                         candidate_model,
                         provider_label,
                         attempt_index + 1,
@@ -1537,10 +1537,10 @@ def _request_polza_story_text(
                     )
                     _sleep_polza_retry(attempt_index)
                     continue
-                raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
+                raise RuntimeError("Failed to reach RouterAI chat endpoint") from exc
 
             logger.info(
-                "OpenRouter text response received: model=%s provider=%s status=%s latency=%.3fs",
+                "RouterAI text response received: model=%s provider=%s status=%s latency=%.3fs",
                 candidate_model,
                 provider_label,
                 response.status_code,
@@ -1567,7 +1567,7 @@ def _request_polza_story_text(
                     should_retry = False
                 if should_retry:
                     logger.warning(
-                        "OpenRouter text temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
+                        "RouterAI text temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
                         candidate_model,
                         provider_label,
                         response.status_code,
@@ -1577,7 +1577,7 @@ def _request_polza_story_text(
                     _sleep_polza_retry(attempt_index)
                     continue
 
-                error_text = f"OpenRouter chat error ({response.status_code})"
+                error_text = f"RouterAI chat error ({response.status_code})"
                 if detail:
                     error_text = f"{error_text}: {detail}"
 
@@ -1588,7 +1588,7 @@ def _request_polza_story_text(
                     candidate_models=candidate_models,
                 ):
                     logger.warning(
-                        "OpenRouter text failed for model=%s provider=%s; trying next configured model. status=%s detail=%s",
+                        "RouterAI text failed for model=%s provider=%s; trying next configured model. status=%s detail=%s",
                         candidate_model,
                         provider_label,
                         response.status_code,
@@ -1601,21 +1601,21 @@ def _request_polza_story_text(
             try:
                 payload_value = response.json()
             except ValueError as exc:
-                last_error = RuntimeError("OpenRouter chat returned invalid payload")
+                last_error = RuntimeError("RouterAI chat returned invalid payload")
                 if attempt_index < len(retry_delays):
                     _sleep_polza_retry(attempt_index)
                     continue
                 raise last_error from exc
 
             if not isinstance(payload_value, dict):
-                last_error = RuntimeError("OpenRouter chat returned invalid payload root")
+                last_error = RuntimeError("RouterAI chat returned invalid payload root")
                 if attempt_index < len(retry_delays):
                     _sleep_polza_retry(attempt_index)
                     continue
                 raise last_error
             choices = payload_value.get("choices")
             if not isinstance(choices, list) or not choices:
-                last_error = RuntimeError("OpenRouter chat completed without choices")
+                last_error = RuntimeError("RouterAI chat completed without choices")
                 if attempt_index < len(retry_delays):
                     _sleep_polza_retry(attempt_index)
                     continue
@@ -1631,7 +1631,7 @@ def _request_polza_story_text(
             )
             message_value = choice.get("message")
             if not isinstance(message_value, dict):
-                last_error = RuntimeError("OpenRouter chat completed without a message payload")
+                last_error = RuntimeError("RouterAI chat completed without a message payload")
                 if attempt_index < len(retry_delays):
                     _sleep_polza_retry(attempt_index)
                     continue
@@ -1639,7 +1639,7 @@ def _request_polza_story_text(
             result_text = _extract_text_from_model_content(message_value.get("content"))
             if result_text:
                 return result_text
-            last_error = RuntimeError("OpenRouter chat completed without textual content")
+            last_error = RuntimeError("RouterAI chat completed without textual content")
             if attempt_index < len(retry_delays):
                 _sleep_polza_retry(attempt_index)
                 continue
@@ -1704,7 +1704,7 @@ def _iter_polza_story_stream_chunks_single_model(
             emitted_text = True
         yield chunk
     if not emitted_text:
-        raise RuntimeError("OpenRouter story stream completed without textual content")
+        raise RuntimeError("RouterAI story stream completed without textual content")
 
 
 def _iter_story_provider_stream_chunks(
