@@ -18,9 +18,11 @@ import advantageStorytellersPreview from '../assets/images/advantages/storytelle
 import advantageImagesPreview from '../assets/images/advantages/images-preview.png'
 import advantageCommunityPreview from '../assets/images/advantages/community-preview.png'
 import advantageMemoryPreview from '../assets/images/advantages/memory-preview.png'
-import pkgPutnikImg from '../assets/images/packages/putnik.png'
-import pkgIskateltImg from '../assets/images/packages/iskatel.png'
-import pkgKhronistImg from '../assets/images/packages/khronist.png'
+import CoinPackageCard, {
+  COIN_PACKAGE_BULLETS,
+  SUBSCRIPTION_PACKAGE_BULLETS,
+  SubscriptionPlanCard,
+} from '../components/shop/CoinPackageCard'
 import landingLikeIcon from '../assets/icons/landing-like.svg'
 import landingGearIcon from '../assets/icons/landing-gear.svg'
 import landingPlayIcon from '../assets/icons/landing-play.svg'
@@ -145,8 +147,7 @@ type TariffPlan = {
   title: string
   price: string
   coins: string
-  details: string[]
-  image: string
+  details: readonly string[]
 }
 
 const tariffPlans: TariffPlan[] = [
@@ -155,100 +156,56 @@ const tariffPlans: TariffPlan[] = [
     title: 'Путник',
     price: '399 ₽',
     coins: '400',
-    details: [
-      'Для старта, тестовых миров и коротких кампаний.',
-      'Работает с лимитом контекста до 64k.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-    image: pkgPutnikImg,
+    details: COIN_PACKAGE_BULLETS.standard,
   },
   {
     id: 'seeker',
     title: 'Искатель',
     price: '1190 ₽',
     coins: '1290',
-    details: [
-      'Оптимален для регулярной игры и длинных сцен.',
-      'Лучший баланс между ценой и запасом валюты.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-    image: pkgIskateltImg,
+    details: COIN_PACKAGE_BULLETS.pro,
   },
   {
     id: 'archon',
     title: 'Архонт',
     price: '2990 ₽',
     coins: '3350',
-    details: [
-      'Для больших кампаний и тяжёлых сцен с запасом.',
-      'Удобен, если часто используете дорогие модели.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-    image: pkgKhronistImg,
+    details: COIN_PACKAGE_BULLETS.mega,
   },
   {
     id: 'legendary',
     title: 'Летописец',
     price: '5990 ₽',
     coins: '7000',
-    details: [
-      'Максимальный запас для долгих хроник и сложных миров.',
-      'Идеален для дорогих моделей и активных кампаний.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-    image: pkgKhronistImg,
+    details: COIN_PACKAGE_BULLETS.legendary,
   },
 ]
 
 type SubscriptionSet = {
   id: string
   title: string
-  subtitle: string
   price: string
-  period: string
-  badge: string | null
-  perks: string[]
+  perks: readonly string[]
 }
 
 const subscriptionSets: SubscriptionSet[] = [
   {
     id: 'spark',
     title: 'Искра',
-    subtitle: 'Для регулярной игры без оглядки на счётчик',
     price: '299 ₽',
-    period: 'мес',
-    badge: null,
-    perks: [
-      '2 модели: DeepSeek V4 Flash и Gemini 2.5 Flash Lite',
-      'До 40 ходов в день без списания солов',
-      'Память сцены до 8K токенов',
-    ],
+    perks: SUBSCRIPTION_PACKAGE_BULLETS.spark,
   },
   {
     id: 'flame',
     title: 'Пламя',
-    subtitle: 'Расширенный доступ для активных хронистов',
     price: '599 ₽',
-    period: 'мес',
-    badge: 'Популярный',
-    perks: [
-      '3 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite и GLM 4.5 Air',
-      'До 60 ходов в день без списания солов',
-      'Память сцены до 20K токенов',
-    ],
+    perks: SUBSCRIPTION_PACKAGE_BULLETS.flame,
   },
   {
     id: 'constellation',
     title: 'Созвездие',
-    subtitle: 'Максимум памяти и лучшие модели',
     price: '1190 ₽',
-    period: 'мес',
-    badge: null,
-    perks: [
-      '4 модели: добавляется Gemini 3 Flash Preview',
-      'До 90 ходов в день без списания солов',
-      'Память сцены до 32K токенов',
-    ],
+    perks: SUBSCRIPTION_PACKAGE_BULLETS.constellation,
   },
 ]
 
@@ -591,137 +548,33 @@ export default function PublicLandingPage({
   const handlePrevFeatureSlide = () => setCurrentFeatureSlide((i) => Math.max(0, i - 1))
   const handleNextFeatureSlide = () => setCurrentFeatureSlide((i) => Math.min(featureCards.length - 1, i + 1))
   const renderTariffPlanCard = (plan: TariffPlan, index: number) => {
-    const accents = ['#6B9BFF', '#5ADDC7', '#F2B356', '#C47FFF']
-    const accent = accents[index % accents.length]
     const priceDigits = Number.parseInt(plan.price.replace(/[^\d]/g, ''), 10)
     const priceLabel = Number.isFinite(priceDigits) ? `${priceDigits.toLocaleString('ru-RU')} ₽` : plan.price
     return (
-      <Box
-        sx={{
-          borderRadius: '18px',
-          overflow: 'hidden',
-          backgroundColor: CARD_BG,
-          border: `0.5px solid ${CARD_BORDER}`,
-          boxShadow: '0 18px 42px rgba(0,0,0,0.24)',
-          display: 'flex',
-          flexDirection: 'column',
-          minHeight: '100%',
-          transition: 'transform 240ms ease, border-color 240ms ease',
-          '&:hover': { transform: 'translateY(-6px)', borderColor: 'var(--morius-hover-border)', boxShadow: 'var(--morius-neutral-shadow)' },
-        }}
-      >
-        <Box sx={{ height: 84, p: 2, background: `linear-gradient(135deg, ${accent}, color-mix(in srgb, ${accent} 58%, #111 42%))` }}>
-          <Typography sx={{ color: '#101317', fontSize: '1.6rem', fontWeight: 900, lineHeight: 1, fontFamily: '"Manrope", sans-serif' }}>
-            {plan.title}
-          </Typography>
-        </Box>
-        <Stack spacing={1.4} sx={{ p: 2, flex: 1 }}>
-          <Typography sx={{ color: '#ffffff', fontSize: { xs: '2rem', md: '2.15rem' }, fontWeight: 900, lineHeight: 1, fontFamily: '"Manrope", sans-serif' }}>
-            {priceLabel}
-          </Typography>
-          <Stack direction="row" spacing={0.45} alignItems="center">
-            <Typography sx={{ color: accent, fontFamily: '"Manrope", sans-serif', fontSize: '1.05rem', fontWeight: 900 }}>
-              {plan.coins}
-            </Typography>
-            <SoulIcon size={20} sx={{ color: accent, opacity: 0.95, filter: 'none' }} />
-          </Stack>
-          <Stack spacing={0.5} sx={{ flex: 1 }}>
-            {plan.details.map((detail, detailIndex) => (
-              <Typography key={detailIndex} sx={{ color: TEXT_BODY, fontFamily: '"Manrope", sans-serif', fontSize: '0.88rem', lineHeight: 1.45 }}>
-                {detail}
-              </Typography>
-            ))}
-          </Stack>
-          <Button variant="contained" onClick={() => openAuthPage('register')} sx={{ ...ctaButtonSx, width: '100%', mt: 1, borderRadius: '14px', backgroundColor: accent, color: '#101317', fontWeight: 900, '&:hover': { backgroundColor: `color-mix(in srgb, ${accent} 88%, #fff 12%)`, color: '#101317' } }}>
-            {BUY_PLAN_CTA_LABEL}
-          </Button>
-        </Stack>
-      </Box>
+      <CoinPackageCard
+        title={plan.title}
+        priceLabel={priceLabel}
+        coinsLabel={plan.coins}
+        bullets={plan.details}
+        styleIndex={index}
+        buyLabel={BUY_PLAN_CTA_LABEL}
+        onBuy={() => openAuthPage('register')}
+      />
     )
   }
 
   const renderSubscriptionCard = (plan: SubscriptionSet, index: number) => {
-    const accents = ['#F0B24B', '#FF7A66', '#8C7BFF']
-    const accent = accents[index % accents.length]
-    const isFeatured = Boolean(plan.badge)
+    const priceDigits = Number.parseInt(plan.price.replace(/[^\d]/g, ''), 10)
+    const priceLabel = Number.isFinite(priceDigits) ? `${priceDigits.toLocaleString('ru-RU')} ₽` : plan.price
     return (
-      <Box
-        sx={{
-          position: 'relative',
-          borderRadius: '18px',
-          overflow: 'hidden',
-          backgroundColor: CARD_BG,
-          border: isFeatured
-            ? `1px solid color-mix(in srgb, ${accent} 55%, ${CARD_BORDER})`
-            : `0.5px solid ${CARD_BORDER}`,
-          boxShadow: isFeatured ? `0 22px 50px color-mix(in srgb, ${accent} 22%, rgba(0,0,0,0.4))` : '0 18px 42px rgba(0,0,0,0.24)',
-          display: 'flex',
-          flexDirection: 'column',
-          minHeight: '100%',
-          transition: 'transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease',
-          '&:hover': { transform: 'translateY(-6px)', borderColor: 'var(--morius-hover-border)', boxShadow: 'var(--morius-neutral-shadow)' },
-        }}
-      >
-        <Box sx={{ position: 'relative', p: 2, pb: 1.6, background: `linear-gradient(135deg, ${accent}, color-mix(in srgb, ${accent} 58%, #111 42%))` }}>
-          <Typography sx={{ color: '#101317', fontSize: '1.5rem', fontWeight: 900, lineHeight: 1.1, fontFamily: '"Manrope", sans-serif' }}>
-            {plan.title}
-          </Typography>
-          <Typography sx={{ color: 'rgba(16,19,23,0.78)', fontSize: '0.82rem', fontWeight: 600, fontFamily: '"Manrope", sans-serif', mt: 0.4 }}>
-            {plan.subtitle}
-          </Typography>
-          {plan.badge ? (
-            <Box
-              sx={{
-                position: 'absolute',
-                top: 12,
-                right: 12,
-                px: 1,
-                py: 0.35,
-                borderRadius: '999px',
-                backgroundColor: '#101317',
-                color: '#fff',
-                fontFamily: '"Manrope", sans-serif',
-                fontSize: '0.68rem',
-                fontWeight: 900,
-                lineHeight: 1,
-              }}
-            >
-              {plan.badge}
-            </Box>
-          ) : null}
-        </Box>
-        <Stack spacing={1.5} sx={{ p: 2, flex: 1 }}>
-          <Stack direction="row" spacing={0.6} alignItems="baseline">
-            <Typography sx={{ color: '#ffffff', fontSize: { xs: '2rem', md: '2.15rem' }, fontWeight: 900, lineHeight: 1, fontFamily: '"Manrope", sans-serif' }}>
-              {plan.price}
-            </Typography>
-            <Typography sx={{ color: TEXT_BODY, fontSize: '0.95rem', fontWeight: 700, fontFamily: '"Manrope", sans-serif' }}>
-              / {plan.period}
-            </Typography>
-          </Stack>
-          <Stack spacing={1} sx={{ flex: 1 }}>
-            {plan.perks.map((perk, perkIndex) => (
-              <Stack key={perkIndex} direction="row" spacing={1} alignItems="flex-start">
-                <Box
-                  component="svg"
-                  viewBox="0 0 20 20"
-                  sx={{ width: 18, height: 18, flexShrink: 0, mt: '1px', color: accent }}
-                  aria-hidden="true"
-                >
-                  <circle cx="10" cy="10" r="9" fill="currentColor" opacity="0.16" />
-                  <path d="M6 10.5l2.4 2.4L14 7.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                </Box>
-                <Typography sx={{ color: TEXT_BODY, fontFamily: '"Manrope", sans-serif', fontSize: '0.88rem', lineHeight: 1.45 }}>
-                  {perk}
-                </Typography>
-              </Stack>
-            ))}
-          </Stack>
-          <Button variant="contained" onClick={() => openAuthPage('register')} sx={{ ...ctaButtonSx, width: '100%', mt: 1, borderRadius: '14px', backgroundColor: accent, color: '#101317', fontWeight: 900, '&:hover': { backgroundColor: `color-mix(in srgb, ${accent} 88%, #fff 12%)`, color: '#101317' } }}>
-            Оформить подписку
-          </Button>
-        </Stack>
-      </Box>
+      <SubscriptionPlanCard
+        title={plan.title}
+        priceLabel={priceLabel}
+        bullets={plan.perks}
+        styleIndex={index}
+        buyLabel={BUY_PLAN_CTA_LABEL}
+        onBuy={() => openAuthPage('register')}
+      />
     )
   }
 

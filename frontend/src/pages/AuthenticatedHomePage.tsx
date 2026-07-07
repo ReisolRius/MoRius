@@ -60,6 +60,12 @@ import {
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
 import QuickStartWizardDialog from '../components/home/QuickStartWizardDialog'
+import {
+  CreatorRewardPromoBanner,
+  CreatorRewardPromoDialog,
+  hasSeenCreatorRewardPromo,
+  markCreatorRewardPromoSeen,
+} from '../components/home/CreatorRewardPromo'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import HeaderAccountActions from '../components/HeaderAccountActions'
@@ -738,6 +744,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [isCreatorCandidatesLoading, setIsCreatorCandidatesLoading] = useState(false)
   const [isCreatorSlotSaving, setIsCreatorSlotSaving] = useState(false)
   const [isQuickStartDialogOpen, setIsQuickStartDialogOpen] = useState(false)
+  const [isCreatorRewardPromoOpen, setIsCreatorRewardPromoOpen] = useState(() => !hasSeenCreatorRewardPromo())
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
   const [communityWorldsError, setCommunityWorldsError] = useState('')
@@ -3088,6 +3095,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             ) : null}
           </Box>
 
+          <CreatorRewardPromoBanner />
+
           <Box sx={{ display: 'grid', gap: 1.35 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
               <Box>
@@ -3355,6 +3364,14 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         authToken={authToken}
         onClose={() => setIsQuickStartDialogOpen(false)}
         onStarted={handleQuickStartStarted}
+      />
+
+      <CreatorRewardPromoDialog
+        open={isCreatorRewardPromoOpen}
+        onClose={() => {
+          markCreatorRewardPromoSeen()
+          setIsCreatorRewardPromoOpen(false)
+        }}
       />
 
       <Dialog
