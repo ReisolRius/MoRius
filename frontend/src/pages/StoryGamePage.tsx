@@ -811,6 +811,7 @@ const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, numb
 const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [7, 9, 10, 14, 14]
 const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [16, 18, 22, 30, 30]
 const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 35]
+const STORY_TURN_COST_GLM52_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 20]
 const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [18, 24, 30, 45, 45]
 const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [22, 30, 40, 65, 65]
 const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
@@ -1026,6 +1027,12 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 50,
     storyTopR: 0.93,
   },
+  'z-ai/glm-5.2': {
+    storyTemperature: 0.9,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.93,
+  },
   // Быстрая дешёвая: держим под контролем, сильнее боремся с зацикливанием.
   'z-ai/glm-4.7-flash': {
     storyTemperature: 0.8,
@@ -1166,6 +1173,19 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Интеллект', value: 5 },
       { label: 'Скорость', value: 4 },
       { label: 'Глубина', value: 4 },
+    ],
+  },
+  {
+    id: 'z-ai/glm-5.2',
+    title: 'GLM 5.2',
+    description:
+      'Новая GLM для выразительного рассказчика: держит сцену и причинность, лучше раскрывает характеры и диалоги. Стоимость: 8/10/14/20 солов до 64K контекста.',
+    portraitSrc: narratorOgmaPortrait,
+    portraitAlt: 'GLM 5.2',
+    stats: [
+      { label: 'Интеллект', value: 5 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 5 },
     ],
   },
   {
@@ -4482,6 +4502,9 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'z-ai/glm-5.1') {
     return STORY_TURN_COST_GLM51_TIERS
   }
+  if (modelId === 'z-ai/glm-5.2') {
+    return STORY_TURN_COST_GLM52_TIERS
+  }
   if (modelId === 'aion-labs/aion-2.0') {
     return STORY_TURN_COST_AION_TIERS
   }
@@ -4572,6 +4595,12 @@ function getStoryTurnCostTooltipText(): string {
     '32001–64000 — 20 ед.',
     '64001–128000 — 35 ед.',
     '',
+    'GLM 5.2:',
+    'до 6000 — 8 ед.',
+    '6001–16000 — 10 ед.',
+    '16001–32000 — 14 ед.',
+    '32001–64000 — 20 ед.',
+    '',
     'Gemini 2.5 Pro:',
     'до 6000 — 16 ед.',
     '6001–16000 — 18 ед.',
@@ -4603,6 +4632,7 @@ function StoryTurnCostTooltipContent() {
     { title: 'AionLabs', values: ['6', '8', '10', '16', '28'] },
     { title: 'Gemini 3.1 Flash Lite', values: ['7', '9', '10', '14', '—'] },
     { title: 'GLM 5.1', values: ['8', '10', '14', '20', '35'] },
+    { title: 'GLM 5.2', values: ['8', '10', '14', '20', '—'] },
     { title: 'Gemini 2.5 Pro', values: ['16', '18', '22', '30', '—'] },
     { title: 'Gemini 3.1 Pro', values: ['18', '24', '30', '45', '—'] },
     { title: 'Claude 4.6', values: ['22', '30', '40', '65', '—'] },
@@ -22251,7 +22281,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <Box data-tour-id="story-settings-narrator-panel" sx={{ pb: 0.9 }}>
                         <SettingsSectionLabel
                           text="Выбор рассказчика"
-                          tooltip={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны DeepSeek V4 Pro, DeepSeek R1, GLM 5.1, AionLabs, Gemini 2.5 Pro, Gemini 3.1 Pro и Claude Sonnet 4.6.`}
+                          tooltip={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны DeepSeek V4 Pro, DeepSeek R1, GLM 5.1, GLM 5.2, AionLabs, Gemini 2.5 Pro, Gemini 3.1 Pro и Claude Sonnet 4.6.`}
                         />
                         <FormControl fullWidth size="small" sx={{ mt: 0.85 }}>
                           <Select

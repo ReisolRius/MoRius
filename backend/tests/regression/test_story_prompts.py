@@ -53,6 +53,9 @@ def test_story_system_prompt_includes_glm51_model_hint() -> None:
     assert "ОСОБЕННОСТЬ ЭТОЙ МОДЕЛИ:" in prompt
     assert "z-ai/glm-5.1" in main.STORY_MODEL_HINTS
     assert main.STORY_MODEL_HINTS["z-ai/glm-5.1"][0] in prompt
+    glm52_prompt = _story_prompt(model_name="z-ai/glm-5.2")
+    assert "z-ai/glm-5.2" in main.STORY_MODEL_HINTS
+    assert main.STORY_MODEL_HINTS["z-ai/glm-5.2"][0] in glm52_prompt
     assert "__legacy_removed__/story-model-2" not in main.STORY_MODEL_HINTS
 
 

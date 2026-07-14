@@ -329,6 +329,7 @@ def _apply_polza_story_reasoning_preferences(
     if normalized_model_name in {
         "z-ai/glm-5",
         "z-ai/glm-5.1",
+        "z-ai/glm-5.2",
         "z-ai/glm-4.7-flash",
         "z-ai/glm-4.7",
         STORY_SERVICE_TEXT_MODEL,

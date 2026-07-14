@@ -135,6 +135,8 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
     def test_cost_tiers_respect_model_context_caps(self) -> None:
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 20)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 35)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.2"), 20)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.2"), 20)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 16)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 28)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 14)
@@ -147,6 +149,10 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(
             coerce_story_llm_model("deepseek/deepseek-r1-0528"),
             "deepseek/deepseek-r1-0528",
+        )
+        self.assertEqual(
+            coerce_story_llm_model("z-ai/glm-5.2"),
+            "z-ai/glm-5.2",
         )
         self.assertEqual(
             coerce_story_llm_model("minimax/minimax-m2-her"),
@@ -172,6 +178,10 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             normalize_story_context_limit_chars(128_000, model_name="deepseek/deepseek-r1-0528"),
             64_000,
         )
+        self.assertEqual(
+            normalize_story_context_limit_chars(128_000, model_name="z-ai/glm-5.2"),
+            64_000,
+        )
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-2.5-pro"), 22)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 40)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 65)
@@ -192,6 +202,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "minimax/minimax-m2-her": (6, 8, 10, 16, 16),
             "google/gemini-3.1-flash-lite": (7, 9, 10, 14, 14),
             "z-ai/glm-5.1": (8, 10, 14, 20, 35),
+            "z-ai/glm-5.2": (8, 10, 14, 20, 20),
             "google/gemini-2.5-pro": (16, 18, 22, 30, 30),
             "google/gemini-3.1-pro-preview": (18, 24, 30, 45, 45),
             "anthropic/claude-sonnet-4.6": (22, 30, 40, 65, 65),

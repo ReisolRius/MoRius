@@ -1228,12 +1228,14 @@ STORY_STREAM_TRANSLATION_MAX_CHARS = 180
 STORY_POLZA_TRANSLATION_FORCE_MODEL_IDS: set[str] = {
     "z-ai/glm-5",
     "z-ai/glm-5.1",
+    "z-ai/glm-5.2",
     "z-ai/glm-4.7-flash",
     "z-ai/glm-4.7",
 }
 STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "z-ai/glm-5": STORY_SERVICE_TEXT_MODEL,
     "z-ai/glm-5.1": STORY_SERVICE_TEXT_MODEL,
+    "z-ai/glm-5.2": STORY_SERVICE_TEXT_MODEL,
     "z-ai/glm-4.7-flash": STORY_SERVICE_TEXT_MODEL,
     "z-ai/glm-4.7": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-v3.2": STORY_SERVICE_TEXT_MODEL,
@@ -1269,6 +1271,7 @@ STORY_POLZA_PROVIDER_CLOUDFLARE = "Cloudflare"
 STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "z-ai/glm-5": STORY_POLZA_PROVIDER_NEBIUS,
     "z-ai/glm-5.1": STORY_POLZA_PROVIDER_IONSTREAM,
+    "z-ai/glm-5.2": STORY_POLZA_PROVIDER_IONSTREAM,
     "z-ai/glm-4.7-flash": STORY_POLZA_PROVIDER_CLOUDFLARE,
     "z-ai/glm-4.7": STORY_POLZA_PROVIDER_DEKALLM,
     POLZA_GEMINI_25_FLASH_MODEL: STORY_POLZA_PROVIDER_ALIBABA,
@@ -1286,6 +1289,7 @@ STORY_POLZA_IMAGE_PROVIDER_PINNED_BY_MODEL: dict[str, str] = {}
 STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-5",
     "z-ai/glm-5.1",
+    "z-ai/glm-5.2",
     "z-ai/glm-4.7-flash",
     "z-ai/glm-4.7",
     "deepseek/deepseek-v3.2",
@@ -1588,6 +1592,7 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
         "Предпочитай конкретные решения персонажей и движение сюжета общим описаниям.",
     ),
 }
+STORY_MODEL_HINTS["z-ai/glm-5.2"] = STORY_MODEL_HINTS["z-ai/glm-5.1"]
 STORY_STRICT_ENGLISH_OUTPUT_RULES = (
     "LANGUAGE:",
     "All narrative, dialogue, and thought text outside [[...]] markers must be English.",
@@ -5855,6 +5860,7 @@ def _apply_polza_story_reasoning_preferences(
     if normalized_model in {
         "z-ai/glm-5",
         "z-ai/glm-5.1",
+        "z-ai/glm-5.2",
         "z-ai/glm-4.7-flash",
         "z-ai/glm-4.7",
         STORY_SERVICE_TEXT_MODEL,

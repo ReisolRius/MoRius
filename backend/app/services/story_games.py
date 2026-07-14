@@ -175,12 +175,14 @@ STORY_TURN_COST_GLM5_TIERS = (6, 8, 10, 14, 14)
 STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS = (7, 9, 10, 14, 14)
 STORY_TURN_COST_GEMINI_25_PRO_TIERS = (16, 18, 22, 30, 30)
 STORY_TURN_COST_GLM51_TIERS = (8, 10, 14, 20, 35)
+STORY_TURN_COST_GLM52_TIERS = (8, 10, 14, 20, 20)
 STORY_TURN_COST_GEMINI_31_PRO_TIERS = (18, 24, 30, 45, 45)
 STORY_TURN_COST_CLAUDE_SONNET_TIERS = (22, 30, 40, 65, 65)
 STORY_ENVIRONMENT_TIME_MODE_SERVICE = "service"
 STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 3
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
 STORY_LLM_MODEL_GLM51 = "z-ai/glm-5.1"
+STORY_LLM_MODEL_GLM52 = "z-ai/glm-5.2"
 STORY_LLM_MODEL_GLM47_FLASH = "z-ai/glm-4.7-flash"
 STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
 STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
@@ -217,6 +219,7 @@ STORY_LLM_MODEL_LEGACY_ALIASES: dict[str, str] = {
 STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
     STORY_LLM_MODEL_GLM51,
+    STORY_LLM_MODEL_GLM52,
     STORY_LLM_MODEL_GLM47_FLASH,
     STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_DEEPSEEK_V32,
@@ -294,6 +297,7 @@ STORY_DEFAULT_TEMPERATURE = 0.75
 STORY_MODEL_SAMPLING_PROFILES: dict[str, dict[str, float]] = {
     STORY_LLM_MODEL_GLM5: {"temperature": 0.85, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_GLM51: {"temperature": 0.90, "top_r": 0.93, "top_k": 50, "repetition_penalty": 1.08},
+    STORY_LLM_MODEL_GLM52: {"temperature": 0.90, "top_r": 0.93, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_GLM47_FLASH: {"temperature": 0.80, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_GLM47: {"temperature": 0.82, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.06},
     STORY_LLM_MODEL_DEEPSEEK_V32: {"temperature": 0.85, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
@@ -603,6 +607,8 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
         return STORY_TURN_COST_GLM47_TIERS
     if normalized_model_name == STORY_LLM_MODEL_GLM51:
         return STORY_TURN_COST_GLM51_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_GLM52:
+        return STORY_TURN_COST_GLM52_TIERS
     if normalized_model_name == STORY_LLM_MODEL_AION_2:
         return STORY_TURN_COST_AION_TIERS
     if normalized_model_name == STORY_LLM_MODEL_MINIMAX_M2_HER:
@@ -659,7 +665,7 @@ def normalize_story_llm_model(value: str | None) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported story model. "
-                "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7-flash, z-ai/glm-4.7, "
+                "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-5.2, z-ai/glm-4.7-flash, z-ai/glm-4.7, "
                 "deepseek/deepseek-v3.2, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v4-pro, "
                 "deepseek/deepseek-r1-0528, mistralai/mistral-nemo, "
                 "aion-labs/aion-2.0, minimax/minimax-m2-her, google/gemini-3.1-flash-lite, "
