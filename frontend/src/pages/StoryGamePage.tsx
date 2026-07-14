@@ -750,6 +750,103 @@ const STORY_GENERATION_INTERRUPTION_MARKERS = [
 ] as const
 const STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 const STORY_PROMPT_MAX_LENGTH = 4000
+const STORY_COMPOSER_DRAFT_STORAGE_PREFIX = 'morius.story.composer-draft.v1'
+const STORY_COMPOSER_PENDING_STORAGE_PREFIX = 'morius.story.composer-pending.v1'
+
+type StoryComposerPendingDraft = {
+  text: string
+  afterMessageId: number
+  submittedAt: number
+}
+
+function getStoryComposerStorageKey(prefix: string, userId: number, gameId: number | null): string {
+  return `${prefix}:${userId}:${gameId ?? 0}`
+}
+
+function readStoryComposerDraft(userId: number, gameId: number | null): string {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+  try {
+    return (window.localStorage.getItem(
+      getStoryComposerStorageKey(STORY_COMPOSER_DRAFT_STORAGE_PREFIX, userId, gameId),
+    ) ?? '').slice(0, STORY_PROMPT_MAX_LENGTH)
+  } catch {
+    return ''
+  }
+}
+
+function persistStoryComposerDraft(userId: number, gameId: number | null, value: string): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+  const storageKey = getStoryComposerStorageKey(STORY_COMPOSER_DRAFT_STORAGE_PREFIX, userId, gameId)
+  try {
+    if (value) {
+      window.localStorage.setItem(storageKey, value.slice(0, STORY_PROMPT_MAX_LENGTH))
+    } else {
+      window.localStorage.removeItem(storageKey)
+    }
+  } catch {
+    // The composer still works when browser storage is unavailable.
+  }
+}
+
+function readStoryComposerPendingDraft(userId: number, gameId: number | null): StoryComposerPendingDraft | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+  try {
+    const rawValue = window.localStorage.getItem(
+      getStoryComposerStorageKey(STORY_COMPOSER_PENDING_STORAGE_PREFIX, userId, gameId),
+    )
+    if (!rawValue) {
+      return null
+    }
+    const parsed = JSON.parse(rawValue) as Partial<StoryComposerPendingDraft>
+    const text = typeof parsed.text === 'string' ? parsed.text.slice(0, STORY_PROMPT_MAX_LENGTH) : ''
+    const afterMessageId = Number(parsed.afterMessageId)
+    const submittedAt = Number(parsed.submittedAt)
+    if (!text || !Number.isInteger(afterMessageId) || afterMessageId < 0 || !Number.isFinite(submittedAt)) {
+      return null
+    }
+    return { text, afterMessageId, submittedAt }
+  } catch {
+    return null
+  }
+}
+
+function persistStoryComposerPendingDraft(
+  userId: number,
+  gameId: number,
+  pendingDraft: StoryComposerPendingDraft,
+): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+  try {
+    window.localStorage.setItem(
+      getStoryComposerStorageKey(STORY_COMPOSER_PENDING_STORAGE_PREFIX, userId, gameId),
+      JSON.stringify(pendingDraft),
+    )
+  } catch {
+    // The server-side user message remains the source of truth after submission.
+  }
+}
+
+function clearStoryComposerPendingDraft(userId: number, gameId: number | null): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+  try {
+    window.localStorage.removeItem(
+      getStoryComposerStorageKey(STORY_COMPOSER_PENDING_STORAGE_PREFIX, userId, gameId),
+    )
+  } catch {
+    // Ignore unavailable browser storage.
+  }
+}
+
 const STORY_GAME_LIST_SNAPSHOT_LIMIT = 12
 const STORY_BUG_REPORT_TITLE_MAX_LENGTH = 160
 const STORY_BUG_REPORT_DESCRIPTION_MAX_LENGTH = 8000
@@ -6471,8 +6568,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [savedGalleryTurnImageIds, setSavedGalleryTurnImageIds] = useState<Set<number>>(() => new Set())
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
-  const [isGameMenuOpen, setIsGameMenuOpen] = useState(() => !isMobileComposerViewport())
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(() => !isMobileComposerViewport())
+  const [isGameMenuOpen, setIsGameMenuOpen] = useState(false)
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(false)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_WIDTH_DEFAULT)
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('ai')
   const [rightPanelSection, setRightPanelSection] = useState<RightPanelSection>('narrator')
@@ -6809,6 +6906,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const composerContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
   const composerDraftRef = useRef('')
+  const composerDraftGameIdRef = useRef<number | null | undefined>(undefined)
   const hasPromptTextRef = useRef(false)
   const inputLengthIndicatorRef = useRef<HTMLSpanElement | null>(null)
   const inputHeightFrameRef = useRef<number | null>(null)
@@ -9277,9 +9375,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [adjustInputHeight])
 
   const syncComposerDraft = useCallback(
-    (rawValue: string, options?: { updateDom?: boolean }) => {
+    (
+      rawValue: string,
+      options?: { updateDom?: boolean; gameId?: number | null; preservePending?: boolean },
+    ) => {
       const nextValue = rawValue.slice(0, STORY_PROMPT_MAX_LENGTH)
+      const targetGameId = options && 'gameId' in options ? options.gameId ?? null : activeGameIdRef.current
       composerDraftRef.current = nextValue
+      persistStoryComposerDraft(user.id, targetGameId, nextValue)
+      if (!options?.preservePending) {
+        clearStoryComposerPendingDraft(user.id, targetGameId)
+      }
       if (options?.updateDom !== false && textAreaRef.current && textAreaRef.current.value !== nextValue) {
         textAreaRef.current.value = nextValue
       }
@@ -9294,7 +9400,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       scheduleAdjustInputHeight()
       return nextValue
     },
-    [scheduleAdjustInputHeight],
+    [scheduleAdjustInputHeight, user.id],
   )
 
   const handleComposerInputChange = useCallback(
@@ -9307,6 +9413,38 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [syncComposerDraft],
   )
+
+  useEffect(() => {
+    const targetGameId = activeGameId ?? null
+    const pendingDraft = readStoryComposerPendingDraft(user.id, targetGameId)
+    const pendingMessageWasPersisted = Boolean(
+      pendingDraft &&
+      targetGameId !== null &&
+      messages.some(
+        (message) =>
+          message.id > pendingDraft.afterMessageId &&
+          message.game_id === targetGameId &&
+          message.role === 'user' &&
+          message.content.replace(/\r\n/g, '\n').trim() === pendingDraft.text.replace(/\r\n/g, '\n').trim(),
+      ),
+    )
+
+    if (pendingMessageWasPersisted) {
+      clearStoryComposerPendingDraft(user.id, targetGameId)
+      composerDraftGameIdRef.current = targetGameId
+      syncComposerDraft('', { gameId: targetGameId, preservePending: true })
+      return
+    }
+
+    if (composerDraftGameIdRef.current === targetGameId) {
+      return
+    }
+    composerDraftGameIdRef.current = targetGameId
+    syncComposerDraft(readStoryComposerDraft(user.id, targetGameId), {
+      gameId: targetGameId,
+      preservePending: true,
+    })
+  }, [activeGameId, messages, syncComposerDraft, user.id])
 
   const applyUpdatedGameSummary = useCallback((updatedGame: StoryGameSummary) => {
     setActiveGameSummary(updatedGame)
@@ -15677,6 +15815,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       smartRegenerationMode?: SmartRegenerationMode
       smartRegenerationOptions?: SmartRegenerationOption[]
       instructionCards?: StoryInstructionCard[]
+      clearComposerOnStart?: boolean
     }) => {
       isAutoScrollPausedRef.current = false
       setIsAutoScrollPaused(false)
@@ -15782,6 +15921,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           signal: requestState.controller.signal,
           onStart: (payload) => {
             streamStarted = true
+            if (options.clearComposerOnStart) {
+              clearStoryComposerPendingDraft(user.id, options.gameId)
+              syncComposerDraft('', { gameId: options.gameId, preservePending: true })
+            }
             if (options.rerollLastResponse || (options.discardLastAssistantSteps ?? 0) > 0) {
               setIsRerollTurnPendingReplacement(false)
             }
@@ -15962,7 +16105,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         const generationInterrupted = isStoryGenerationInterruptionDetail(detail)
         if (!streamStarted && options.prompt && !options.rerollLastResponse && !(options.discardLastAssistantSteps ?? 0)) {
           if (!composerDraftRef.current) {
-            syncComposerDraft(options.prompt!.slice(0, STORY_PROMPT_MAX_LENGTH))
+            syncComposerDraft(options.prompt!.slice(0, STORY_PROMPT_MAX_LENGTH), { gameId: options.gameId })
           }
         }
         if (generationCancelledByUser) {
@@ -16156,6 +16299,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       storyTopR,
       setIsRerollTurnPendingReplacement,
       syncComposerDraft,
+      user.id,
     ],
   )
 
@@ -16266,6 +16410,29 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [canUseVoiceInput, hasPromptText, isCreatingGame, isGenerating, isVoiceInputActive, hasInsufficientTokensForTurn, speechRecognitionCtor, syncComposerDraft])
 
+  const prepareComposerDraftForSubmission = useCallback(
+    (gameId: number, prompt: string) => {
+      if (activeGameId !== gameId) {
+        persistStoryComposerDraft(user.id, activeGameId, '')
+        clearStoryComposerPendingDraft(user.id, activeGameId)
+      }
+      const afterMessageId = messages.reduce((latestMessageId, message) => {
+        if (message.game_id !== gameId || message.role !== 'user' || message.id <= latestMessageId) {
+          return latestMessageId
+        }
+        return message.id
+      }, 0)
+      composerDraftGameIdRef.current = gameId
+      syncComposerDraft(prompt, { gameId })
+      persistStoryComposerPendingDraft(user.id, gameId, {
+        text: prompt,
+        afterMessageId,
+        submittedAt: Date.now(),
+      })
+    },
+    [activeGameId, messages, syncComposerDraft, user.id],
+  )
+
   const sendStoryPrompt = useCallback(
     async (
       rawPrompt: string,
@@ -16348,7 +16515,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         hiddenContinueTempUserMessageIdRef.current = null
       }
       if (options?.clearComposer) {
-        syncComposerDraft('')
+        prepareComposerDraftForSubmission(targetGameId, normalizedPrompt)
       }
 
       return runStoryGeneration({
@@ -16359,6 +16526,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         smartRegenerationMode: options?.smartRegenerationMode,
         smartRegenerationOptions: options?.smartRegenerationOptions,
         instructionCards,
+        clearComposerOnStart: options?.clearComposer,
       })
     },
     [
@@ -16373,8 +16541,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isVisualNovelInputLocked,
       isStoryTurnBusy,
       onNavigate,
+      prepareComposerDraftForSubmission,
       runStoryGeneration,
-      syncComposerDraft,
     ],
   )
 
@@ -16453,13 +16621,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         updated_at: now,
       },
     ])
-    syncComposerDraft('')
+    prepareComposerDraftForSubmission(targetGameId, normalizedPrompt)
     await runStoryGeneration({
       gameId: targetGameId,
       prompt: normalizedPrompt,
       instructionCards,
+      clearComposerOnStart: true,
     })
-  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, instructionCards, isStoryTurnBusy, isVisualNovelInputLocked, isVoiceInputActive, onNavigate, runStoryGeneration, syncComposerDraft])
+  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, instructionCards, isStoryTurnBusy, isVisualNovelInputLocked, isVoiceInputActive, onNavigate, prepareComposerDraftForSubmission, runStoryGeneration])
 
   const handleStopStoryGeneration = useCallback(async () => {
     const activeRequest = generationRequestRef.current
@@ -25801,6 +25970,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     <Button
                                       className="morius-turn-image-gallery-action"
                                       type="button"
+                                      aria-label={
+                                        savedGalleryTurnImageIds.has(assistantTurnImage.id)
+                                          ? 'Изображение сохранено в галерее'
+                                          : 'Сохранить изображение в галерею'
+                                      }
+                                      title={
+                                        savedGalleryTurnImageIds.has(assistantTurnImage.id)
+                                          ? 'В галерее'
+                                          : 'Сохранить в галерею'
+                                      }
                                       onClick={() => void handleSaveTurnImageToGallery(assistantTurnImage)}
                                       disabled={
                                         gallerySavingTurnImageIds.has(assistantTurnImage.id) ||
@@ -25812,9 +25991,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         right: 9,
                                         zIndex: 2,
                                         minWidth: 0,
-                                        minHeight: 30,
+                                        minHeight: { xs: 34, sm: 30 },
+                                        width: { xs: 34, sm: 'auto' },
                                         maxWidth: 'calc(100% - 18px)',
-                                        px: 1.1,
+                                        px: { xs: 0, sm: 1.1 },
                                         py: 0.35,
                                         borderRadius: '999px',
                                         textTransform: 'none',
@@ -25844,11 +26024,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         },
                                       }}
                                     >
-                                      {gallerySavingTurnImageIds.has(assistantTurnImage.id)
-                                        ? 'Сохраняем...'
-                                        : savedGalleryTurnImageIds.has(assistantTurnImage.id)
-                                          ? 'В галерее'
-                                          : 'Сохранить в галерею'}
+                                      {gallerySavingTurnImageIds.has(assistantTurnImage.id) ? (
+                                        <>
+                                          <CircularProgress size={15} sx={{ display: { xs: 'block', sm: 'none' }, color: 'currentColor' }} />
+                                          <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Сохраняем...</Box>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Box sx={{ display: { xs: 'flex', sm: 'none' }, alignItems: 'center', justifyContent: 'center' }}>
+                                            <AssetMaskIcon
+                                              src={savedGalleryTurnImageIds.has(assistantTurnImage.id) ? icons.communityCheck : icons.communityAdd}
+                                              size={17}
+                                            />
+                                          </Box>
+                                          <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                                            {savedGalleryTurnImageIds.has(assistantTurnImage.id) ? 'В галерее' : 'Сохранить в галерею'}
+                                          </Box>
+                                        </>
+                                      )}
                                     </Button>
                                   </Fragment>
                                 ) : assistantTurnImage.status === 'error' ? (

@@ -52,7 +52,7 @@ class StoryTokenBudgetTests(unittest.TestCase):
 
         location_card = next(card for card in cards if card["title"] == "Место")
         self.assertEqual(location_card["memory_layer"], "location")
-        self.assertIn("старая таверна", location_card["content"])
+        self.assertIn("старая таверна", location_card["content"].casefold())
 
     def test_location_prompt_card_survives_context_pressure(self) -> None:
         cards = [

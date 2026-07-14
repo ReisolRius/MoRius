@@ -189,6 +189,7 @@ const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     perks: [
       '2 модели для отыгрыша: DeepSeek V4 Flash и Gemini 2.5 Flash Lite',
       'До 40 ходов в день на этих моделях — без списания солов',
+      'Неиспользованные ходы не сгорают и накапливаются каждый день',
       'Память сцены до 8K токенов',
     ],
     badge: null,
@@ -206,6 +207,7 @@ const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     perks: [
       '3 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite и GLM 4.5 Air',
       'До 60 ходов в день на этих моделях — без списания солов',
+      'Неиспользованные ходы не сгорают и накапливаются каждый день',
       'Память сцены до 20K токенов',
     ],
     badge: 'Популярный',
@@ -228,6 +230,7 @@ const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     perks: [
       '4 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite, GLM 4.5 Air и Gemini 3 Flash Preview',
       'До 90 ходов в день на этих моделях — без списания солов',
+      'Неиспользованные ходы не сгорают и накапливаются каждый день',
       'Память сцены до 32K токенов',
     ],
     badge: null,

@@ -170,6 +170,8 @@ try:
         delete_user_notification,
         list_user_notifications_out,
         mark_all_user_notifications_read,
+        mark_user_notification_read,
+        reconcile_stale_moderation_notifications,
     )
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
     def count_total_user_notifications(db: Session, *, user_id: int) -> int:
@@ -192,6 +194,14 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
         return []
 
     def mark_all_user_notifications_read(db: Session, *, user_id: int) -> int:
+        _ = (db, user_id)
+        return 0
+
+    def mark_user_notification_read(db: Session, *, user_id: int, notification_id: int) -> bool:
+        _ = (db, user_id, notification_id)
+        return False
+
+    def reconcile_stale_moderation_notifications(db: Session, *, user_id: int) -> int:
         _ = (db, user_id)
         return 0
 
@@ -2087,6 +2097,8 @@ def get_my_notifications(
     normalized_limit = max(1, min(int(limit or 12), 120))
     normalized_offset = max(0, int(offset or 0))
     try:
+        if reconcile_stale_moderation_notifications(db, user_id=int(user.id)):
+            db.commit()
         total_count = count_total_user_notifications(db, user_id=int(user.id))
         unread_count = count_unread_user_notifications(db, user_id=int(user.id))
         items = list_user_notifications_out(
@@ -2116,6 +2128,8 @@ def get_my_notification_summary(
 ) -> UserNotificationUnreadCountOut:
     user = get_current_user(db, authorization)
     try:
+        if reconcile_stale_moderation_notifications(db, user_id=int(user.id)):
+            db.commit()
         return UserNotificationUnreadCountOut(
             unread_count=count_unread_user_notifications(db, user_id=int(user.id)),
             total_count=count_total_user_notifications(db, user_id=int(user.id)),
@@ -2132,6 +2146,8 @@ def get_my_notification_unread_count(
 ) -> UserNotificationUnreadCountOut:
     user = get_current_user(db, authorization)
     try:
+        if reconcile_stale_moderation_notifications(db, user_id=int(user.id)):
+            db.commit()
         return UserNotificationUnreadCountOut(
             unread_count=count_unread_user_notifications(db, user_id=int(user.id)),
             total_count=count_total_user_notifications(db, user_id=int(user.id)),
@@ -2151,6 +2167,27 @@ def read_all_my_notifications(
     db.commit()
     return UserNotificationUnreadCountOut(
         unread_count=0,
+        total_count=count_total_user_notifications(db, user_id=int(user.id)),
+    )
+
+
+@router.post("/api/auth/me/notifications/{notification_id}/read", response_model=UserNotificationUnreadCountOut)
+def read_my_notification(
+    notification_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> UserNotificationUnreadCountOut:
+    user = get_current_user(db, authorization)
+    found = mark_user_notification_read(
+        db,
+        user_id=int(user.id),
+        notification_id=int(notification_id),
+    )
+    if not found:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    db.commit()
+    return UserNotificationUnreadCountOut(
+        unread_count=count_unread_user_notifications(db, user_id=int(user.id)),
         total_count=count_total_user_notifications(db, user_id=int(user.id)),
     )
 

@@ -3,13 +3,13 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from html import escape
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import User, UserNotification
+from app.models import StoryCharacter, StoryGame, StoryInstructionTemplate, User, UserNotification
 from app.schemas import UserNotificationOut
 from app.services.auth_verification import send_email_message
 from app.services.media import resolve_media_display_url
@@ -321,6 +321,76 @@ def mark_all_user_notifications_read(db: Session, *, user_id: int) -> int:
     )
     db.flush()
     return len(unread_ids)
+
+
+def mark_user_notification_read(
+    db: Session,
+    *,
+    user_id: int,
+    notification_id: int,
+) -> bool:
+    notification = db.scalar(
+        select(UserNotification).where(
+            UserNotification.id == notification_id,
+            UserNotification.user_id == user_id,
+        )
+    )
+    if notification is None:
+        return False
+    if not bool(notification.is_read):
+        notification.is_read = True
+        db.flush()
+    return True
+
+
+def _parse_moderation_notification_target(action_url: str | None) -> tuple[str, int] | None:
+    parsed = urlparse(str(action_url or "").strip())
+    if parsed.path.rstrip("/") != "/profile":
+        return None
+    query = parse_qs(parsed.query)
+    if (query.get("admin") or [""])[0] != "moderation":
+        return None
+    target_type = str((query.get("target_type") or [""])[0]).strip()
+    raw_target_id = str((query.get("target_id") or [""])[0]).strip()
+    if target_type not in {"world", "character", "instruction_template"} or not raw_target_id.isdigit():
+        return None
+    target_id = int(raw_target_id)
+    return (target_type, target_id) if target_id > 0 else None
+
+
+def reconcile_stale_moderation_notifications(db: Session, *, user_id: int) -> int:
+    """Mark queue alerts read once their target has left the pending queue."""
+    model_by_target_type = {
+        "world": StoryGame,
+        "character": StoryCharacter,
+        "instruction_template": StoryInstructionTemplate,
+    }
+    notifications = db.scalars(
+        select(UserNotification).where(
+            UserNotification.user_id == user_id,
+            UserNotification.kind == NOTIFICATION_KIND_MODERATION_QUEUE,
+            UserNotification.is_read.is_(False),
+        )
+    ).all()
+    changed = 0
+    for notification in notifications:
+        target = _parse_moderation_notification_target(notification.action_url)
+        if target is None:
+            # Legacy queue notifications carried only "/profile", so their target cannot be
+            # reconciled or opened. Retire them instead of leaving a permanently active badge.
+            if str(notification.action_url or "").strip().rstrip("/") == "/profile":
+                notification.is_read = True
+                changed += 1
+            continue
+        target_type, target_id = target
+        record = db.get(model_by_target_type[target_type], target_id)
+        if record is not None and str(getattr(record, "publication_status", "") or "").strip() == "pending":
+            continue
+        notification.is_read = True
+        changed += 1
+    if changed:
+        db.flush()
+    return changed
 
 
 def delete_user_notification(

@@ -579,7 +579,7 @@ def report_story_community_instruction_template(
         kind=NOTIFICATION_KIND_MODERATION_REPORT,
         title="Новая жалоба на инструкцию",
         body=f"{reporter_name} отправил жалобу на инструкцию \"{template_title}\".",
-        action_url="/profile",
+        action_url=f"/profile?admin=reports&target_type=instruction_template&target_id={int(template.id)}",
         actor_user_id=int(user.id),
     )
     db.refresh(template)
@@ -691,7 +691,7 @@ def create_story_instruction_template(
             kind=NOTIFICATION_KIND_MODERATION_QUEUE,
             title="Новая инструкция на модерации",
             body=f"{author_name} отправил на модерацию инструкцию \"{template_title}\".",
-            action_url="/profile",
+            action_url=f"/profile?admin=moderation&target_type=instruction_template&target_id={int(template.id)}",
             actor_user_id=int(user.id),
         )
     return story_instruction_template_to_out(template)
@@ -738,7 +738,7 @@ def update_story_instruction_template(
             kind=NOTIFICATION_KIND_MODERATION_QUEUE,
             title="Инструкция отправлена на модерацию",
             body=f"{author_name} отправил на модерацию инструкцию \"{template_title}\".",
-            action_url="/profile",
+            action_url=f"/profile?admin=moderation&target_type=instruction_template&target_id={int(template.id)}",
             actor_user_id=int(user.id),
         )
     return story_instruction_template_to_out(template)

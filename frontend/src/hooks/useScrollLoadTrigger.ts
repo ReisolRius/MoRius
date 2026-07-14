@@ -26,14 +26,12 @@ export function useScrollLoadTrigger<T extends HTMLElement = HTMLElement>({
       return
     }
 
+    const elapsed = Date.now() - lastTriggeredAtRef.current
+    const delay = Math.max(80, 120 - elapsed)
     const timeoutId = window.setTimeout(() => {
-      const now = Date.now()
-      if (now - lastTriggeredAtRef.current < 120) {
-        return
-      }
-      lastTriggeredAtRef.current = now
+      lastTriggeredAtRef.current = Date.now()
       setLoadMoreSignal((currentSignal) => currentSignal + 1)
-    }, 80)
+    }, delay)
 
     return () => {
       window.clearTimeout(timeoutId)

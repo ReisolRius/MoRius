@@ -64,15 +64,16 @@ class StoryLlmModuleTests(unittest.TestCase):
         self.assertIn("If an important NPC is unnamed, invent a lore-appropriate personal name", prompt)
         self.assertIn("Age: ... Appearance: ... Character: ...", prompt)
         self.assertIn("inventory.value is the complete current comma-separated item list", prompt)
-        self.assertIn("Return all qualifying NPC actions from the turn", prompt)
+        self.assertIn("Return all qualifying new NPC actions from the turn", prompt)
+        self.assertIn("Existing cards are immutable", prompt)
         self.assertIn("PREVIOUS_NARRATOR_RESPONSE", prompt)
 
-    def test_auto_modules_use_gemini_without_cross_model_fallback(self) -> None:
+    def test_auto_modules_use_glm_flash_without_cross_model_fallback(self) -> None:
         from app.services import story_memory_pipeline
 
-        service = story_memory_pipeline._llm_service(gemini_only=True)
+        service = story_memory_pipeline._llm_service(service_model_only=True)
 
-        self.assertEqual(service.primary_model, "google/gemini-2.5-flash")
+        self.assertEqual(service.primary_model, "z-ai/glm-4.7-flash")
         self.assertEqual(service.fallback_models, [])
 
     def test_create_card_schema_tolerates_missing_ai_generated_state(self) -> None:

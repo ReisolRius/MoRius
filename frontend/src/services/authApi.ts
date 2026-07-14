@@ -174,6 +174,14 @@ export type ProfileView = {
   followers_count: number
   subscriptions_count: number
   world_card_templates_count: number
+  games_count: number
+  characters_count: number
+  instruction_templates_count: number
+  gallery_images_count: number
+  published_worlds_count: number
+  published_characters_count: number
+  published_instruction_templates_count: number
+  unpublished_worlds_count: number
   privacy: ProfilePrivacySettings
   can_view_subscriptions: boolean
   can_view_public_worlds: boolean
@@ -187,6 +195,22 @@ export type ProfileView = {
   unpublished_worlds: StoryGameSummary[]
   gallery_images: ProfileGalleryImage[]
 }
+
+export type ProfileContentKind =
+  | 'subscriptions'
+  | 'published_worlds'
+  | 'published_characters'
+  | 'published_instruction_templates'
+  | 'unpublished_worlds'
+  | 'gallery_images'
+
+export type ProfileContentItem =
+  | ProfileSubscriptionUser
+  | StoryCommunityWorldSummary
+  | StoryCommunityCharacterSummary
+  | StoryCommunityInstructionTemplateSummary
+  | StoryGameSummary
+  | ProfileGalleryImage
 
 export type UserNotification = {
   id: number
@@ -719,6 +743,8 @@ function normalizeProfileUserView(value: ProfileView['user'] | null | undefined)
 
 function normalizeProfileViewPayload(rawView: ProfileView): ProfileView {
   const view = rawView as Partial<ProfileView>
+  const normalizeCount = (value: unknown): number =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0
   return {
     user: normalizeProfileUserView(view.user ?? null),
     is_self: Boolean(view.is_self),
@@ -731,10 +757,15 @@ function normalizeProfileViewPayload(rawView: ProfileView): ProfileView {
       typeof view.subscriptions_count === 'number' && Number.isFinite(view.subscriptions_count)
         ? Math.max(0, Math.trunc(view.subscriptions_count))
         : 0,
-    world_card_templates_count:
-      typeof view.world_card_templates_count === 'number' && Number.isFinite(view.world_card_templates_count)
-        ? Math.max(0, Math.trunc(view.world_card_templates_count))
-        : 0,
+    world_card_templates_count: normalizeCount(view.world_card_templates_count),
+    games_count: normalizeCount(view.games_count),
+    characters_count: normalizeCount(view.characters_count),
+    instruction_templates_count: normalizeCount(view.instruction_templates_count),
+    gallery_images_count: normalizeCount(view.gallery_images_count),
+    published_worlds_count: normalizeCount(view.published_worlds_count),
+    published_characters_count: normalizeCount(view.published_characters_count),
+    published_instruction_templates_count: normalizeCount(view.published_instruction_templates_count),
+    unpublished_worlds_count: normalizeCount(view.unpublished_worlds_count),
     privacy: normalizeProfilePrivacySettings(view.privacy ?? null),
     can_view_subscriptions: Boolean(view.can_view_subscriptions),
     can_view_public_worlds: Boolean(view.can_view_public_worlds),
@@ -1247,6 +1278,24 @@ export async function markAllCurrentUserNotificationsRead(payload: {
   return normalizeUserNotificationCounters(response)
 }
 
+export async function markCurrentUserNotificationRead(payload: {
+  token: string
+  notificationId: number
+}): Promise<UserNotificationCounters> {
+  const response = await requestJson<UserNotificationCounters>(
+    `/api/auth/me/notifications/${payload.notificationId}/read`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({}),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeUserNotificationCounters(response)
+}
+
 export async function deleteCurrentUserNotification(payload: {
   token: string
   notificationId: number
@@ -1281,6 +1330,40 @@ export async function getProfileView(payload: {
     AUTH_NETWORK_ERROR,
   )
   return normalizeProfileViewPayload(response)
+}
+
+export async function listProfileContentPage<T extends ProfileContentItem>(payload: {
+  token: string
+  userId: number
+  kind: ProfileContentKind
+  limit: number
+  offset: number
+}): Promise<T[]> {
+  const query = new URLSearchParams({
+    limit: String(Math.max(1, Math.trunc(payload.limit))),
+    offset: String(Math.max(0, Math.trunc(payload.offset))),
+  })
+  const response = await requestJson<T[]>(
+    `/api/auth/profiles/${Math.max(1, Math.trunc(payload.userId))}/content/${payload.kind}?${query.toString()}`,
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  if (!Array.isArray(response)) {
+    return []
+  }
+  if (payload.kind === 'subscriptions') {
+    return normalizeProfileSubscriptionUsers(response as ProfileSubscriptionUser[]) as T[]
+  }
+  if (payload.kind === 'gallery_images') {
+    return normalizeProfileGalleryImages(response as ProfileGalleryImage[]) as T[]
+  }
+  return response
 }
 
 export async function listCurrentUserGalleryImages(payload: { token: string } | string): Promise<ProfileGalleryImage[]> {

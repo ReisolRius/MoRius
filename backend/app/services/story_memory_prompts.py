@@ -258,21 +258,22 @@ def build_game_state_analysis_messages(
     if include_npc_cards:
         module_rules.append(
             (
-                "NPC_CARDS: create or update cards only for distinct narratively important NPCs from "
+                "NPC_CARDS: create cards only for newly introduced, distinct, narratively important NPCs from "
                 "PLAYER_TURN, PREVIOUS_NARRATOR_RESPONSE, and NARRATOR_RESPONSE. create_card is allowed only when the NPC is "
-                "absent from EXISTING_CHARACTER_CARDS and NPC_DEDUP_CANDIDATES. update_existing_card must copy "
-                "existing_card_id exactly. Do not create cards for crowds, incidental extras, or the player "
+                "absent from EXISTING_CHARACTER_CARDS and NPC_DEDUP_CANDIDATES. Existing cards are immutable: "
+                "never update their description, triggers or any other fields; return no_action for them. "
+                "Do not create cards for crowds, incidental extras, or the player "
                 "character. A named NPC who speaks, acts, makes a decision, blocks/enables the player, owns an important "
                 "resource, or is likely to recur is important by default. If an important NPC is unnamed, invent a lore-appropriate personal name and keep the "
                 "scene designation among triggers; важному безымянному NPC обязательно придумай личное имя. "
-                "Return all qualifying NPC actions from the turn. Do not return an empty action list when the turn clearly "
-                "introduces or updates an important NPC."
+                "Return all qualifying new NPC actions from the turn. Do not return an empty action list when the turn "
+                "clearly introduces an important new NPC."
             )
         )
         response_shape["npc_cards"] = {
             "actions": [
                 {
-                    "type": "create_card|update_existing_card|no_action",
+                    "type": "create_card|no_action",
                     "existing_card_id": None,
                     "new_card": {
                         "name": "canonical personal name",
@@ -285,7 +286,6 @@ def build_game_state_analysis_messages(
                         "triggers": ["exact name", "stable scene designation"],
                         "importance_reason": "why this NPC matters",
                     },
-                    "update_existing": {"add_triggers": ["new stable alias"], "notes": "new useful facts"},
                     "evidence": "why",
                 }
             ]

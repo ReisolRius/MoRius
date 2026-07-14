@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.config import (
     POLZA_GEMINI_25_FLASH_LITE_MODEL,
-    POLZA_GEMINI_25_FLASH_MODEL,
+    POLZA_STORY_SERVICE_TEXT_MODEL,
     settings,
 )
 from app.database import SessionLocal
@@ -322,8 +322,8 @@ STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 600
 STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
 STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 75
 STORY_PLOT_CARD_REQUEST_MAX_TOKENS = 700
-STORY_SERVICE_TEXT_MODEL = POLZA_GEMINI_25_FLASH_MODEL
-STORY_PLOT_CARD_MEMORY_MODEL = POLZA_GEMINI_25_FLASH_MODEL
+STORY_SERVICE_TEXT_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
+STORY_PLOT_CARD_MEMORY_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
 STORY_OUTPUT_TRANSLATION_MODEL = STORY_SERVICE_TEXT_MODEL
 STORY_MEMORY_LOCATION_TITLE = "Место"
 STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS = 280
@@ -331,9 +331,9 @@ STORY_MEMORY_LOCATION_REQUEST_MAX_TOKENS = 240
 STORY_MEMORY_WEATHER_TITLE = "Погода и время"
 STORY_MEMORY_WEATHER_CONTENT_MAX_CHARS = 1_200
 STORY_MEMORY_POSTPROCESS_REQUEST_MAX_TOKENS = 2_400
-STORY_ENVIRONMENT_ANALYSIS_MODEL = POLZA_GEMINI_25_FLASH_MODEL
-STORY_CHARACTER_STATE_GENERATION_MODEL = POLZA_GEMINI_25_FLASH_MODEL
-STORY_TURN_POSTPROCESS_MODEL = POLZA_GEMINI_25_FLASH_MODEL
+STORY_ENVIRONMENT_ANALYSIS_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
+STORY_CHARACTER_STATE_GENERATION_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
+STORY_TURN_POSTPROCESS_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
 STORY_CHARACTER_STATE_REQUEST_MAX_TOKENS = 1_200
 STORY_ENVIRONMENT_ANALYSIS_REQUEST_MAX_TOKENS = 520
 STORY_ENVIRONMENT_TIME_CARD_TITLE = "Время"
@@ -545,7 +545,7 @@ STORY_AITUNNEL_BLANK_EDIT_CANVAS_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
 )
 # --- Story summary ("Подвести итоги") configuration ---------------------------------
-STORY_SUMMARY_NARRATIVE_MODEL = POLZA_GEMINI_25_FLASH_MODEL
+STORY_SUMMARY_NARRATIVE_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
 STORY_SUMMARY_IMAGE_MODEL = STORY_TURN_IMAGE_MODEL_NANO_BANANO_2
 STORY_SUMMARY_MIN_TURNS = 10
 STORY_SUMMARY_MAX_IMAGES = 10
@@ -1274,8 +1274,7 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "z-ai/glm-5.2": STORY_POLZA_PROVIDER_IONSTREAM,
     "z-ai/glm-4.7-flash": STORY_POLZA_PROVIDER_CLOUDFLARE,
     "z-ai/glm-4.7": STORY_POLZA_PROVIDER_DEKALLM,
-    POLZA_GEMINI_25_FLASH_MODEL: STORY_POLZA_PROVIDER_ALIBABA,
-    STORY_SERVICE_TEXT_MODEL: STORY_POLZA_PROVIDER_ALIBABA,
+    STORY_SERVICE_TEXT_MODEL: STORY_POLZA_PROVIDER_CLOUDFLARE,
     "deepseek/deepseek-v3.2": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
     "deepseek/deepseek-chat-v3-0324": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
     "mistralai/mistral-nemo": STORY_POLZA_PROVIDER_AZURE,
@@ -7197,150 +7196,66 @@ def _resolve_story_turn_postprocess_payload(
         and story_memory_pipeline._story_environment_weather_enabled_for_game(game)
     )
 
-    # --- Call A: «Мир/повествование» (location + время + важная память + ambient + эмоции) ---
-    if important_event_enabled:
+    # Run every enabled world module in one structured service-model request. Disabled modules are
+    # omitted from requested_modules entirely, so they add neither prompt data nor provider work.
+    world_analysis_enabled = any(
+        (
+            location_enabled,
+            environment_time_enabled,
+            environment_weather_enabled,
+            important_event_enabled,
+            ambient_enabled,
+        )
+    )
+    if world_analysis_enabled:
         try:
             with use_story_service_http_request_budget(StoryServiceHttpRequestBudget(max_requests=1)):
-                important_payload = story_memory_pipeline._extract_story_postprocess_memory_payload(
+                world_payload = story_memory_pipeline._extract_story_world_analysis_payload(
                     db=db,
                     game=game,
                     current_location_content=current_location_content,
                     latest_user_prompt=latest_user_prompt,
                     previous_assistant_text=resolved_previous_assistant_text,
                     latest_assistant_text=latest_assistant_text,
-                    raw_memory_enabled=False,
-                    location_enabled=False,
-                    environment_enabled=False,
-                    character_state_enabled=False,
-                    important_event_enabled=True,
-                    ambient_enabled=False,                    auto_npc_cards_enabled=False,
-                    world_cards=active_scene_world_cards,
-                    max_attempts=1,
-                )
-        except Exception as exc:
-            logger.warning(
-                "Story important-memory analysis failed: game_id=%s assistant_message_id=%s error=%s",
-                game.id,
-                assistant_message.id,
-                exc,
-            )
-            failed_modules.append("important_event")
-        else:
-            if isinstance(important_payload, dict):
-                absorb(important_payload)
-            else:
-                failed_modules.append("important_event")
-
-    if location_enabled:
-        try:
-            with use_story_service_http_request_budget(StoryServiceHttpRequestBudget(max_requests=1)):
-                location_payload = story_memory_pipeline._extract_story_world_analysis_payload(
-                    db=db,
-                    game=game,
-                    current_location_content=current_location_content,
-                    latest_user_prompt=latest_user_prompt,
-                    previous_assistant_text=resolved_previous_assistant_text,
-                    latest_assistant_text=latest_assistant_text,
-                    location_enabled=True,
-                    environment_time_enabled=False,
-                    environment_weather_enabled=False,
-                    important_event_enabled=False,
-                    ambient_enabled=False,                    world_cards=active_scene_world_cards,
-                    max_attempts=1,
-                )
-        except Exception as exc:
-            logger.warning(
-                "Story location analysis failed: game_id=%s assistant_message_id=%s error=%s",
-                game.id,
-                assistant_message.id,
-                exc,
-            )
-            failed_modules.append("location")
-        else:
-            if isinstance(location_payload, dict):
-                absorb(location_payload)
-            else:
-                failed_modules.append("location")
-
-    effective_location_content = current_location_content
-    location_payload = merged_payload.get("location")
-    if isinstance(location_payload, dict):
-        normalized_location_content = story_memory_pipeline._normalize_story_location_memory_content(
-            str(location_payload.get("content") or "")
-        )
-        normalized_location_label = story_memory_pipeline._normalize_story_location_memory_label(
-            normalized_location_content
-        )
-        is_actionable_location = (
-            story_memory_pipeline._is_story_location_label_actionable(normalized_location_label)
-            if hasattr(story_memory_pipeline, "_is_story_location_label_actionable")
-            else bool(normalized_location_label)
-        )
-        if normalized_location_content and is_actionable_location:
-            effective_location_content = normalized_location_content
-
-    if environment_time_enabled:
-        try:
-            with use_story_service_http_request_budget(StoryServiceHttpRequestBudget(max_requests=1)):
-                environment_payload = story_memory_pipeline._extract_story_world_analysis_payload(
-                    db=db,
-                    game=game,
-                    current_location_content=effective_location_content,
-                    latest_user_prompt=latest_user_prompt,
-                    previous_assistant_text=resolved_previous_assistant_text,
-                    latest_assistant_text=latest_assistant_text,
-                    location_enabled=False,
-                    environment_time_enabled=True,
-                    environment_weather_enabled=False,
-                    important_event_enabled=False,
-                    ambient_enabled=False,                    world_cards=active_scene_world_cards,
-                    max_attempts=1,
-                )
-        except Exception as exc:
-            logger.warning(
-                "Story time analysis failed: game_id=%s assistant_message_id=%s error=%s",
-                game.id,
-                assistant_message.id,
-                exc,
-            )
-            failed_modules.append("environment_time")
-        else:
-            if isinstance(environment_payload, dict):
-                absorb(environment_payload)
-            else:
-                failed_modules.append("environment_time")
-
-    if ambient_enabled:
-        try:
-            with use_story_service_http_request_budget(StoryServiceHttpRequestBudget(max_requests=1)):
-                visual_payload = story_memory_pipeline._extract_story_world_analysis_payload(
-                    db=db,
-                    game=game,
-                    current_location_content=effective_location_content,
-                    latest_user_prompt=latest_user_prompt,
-                    previous_assistant_text=resolved_previous_assistant_text,
-                    latest_assistant_text=latest_assistant_text,
-                    location_enabled=False,
-                    environment_time_enabled=False,
-                    environment_weather_enabled=False,
-                    important_event_enabled=False,
+                    location_enabled=location_enabled,
+                    environment_time_enabled=environment_time_enabled,
+                    environment_weather_enabled=environment_weather_enabled,
+                    important_event_enabled=important_event_enabled,
                     ambient_enabled=ambient_enabled,
                     world_cards=active_scene_world_cards,
                     max_attempts=1,
                 )
         except Exception as exc:
             logger.warning(
-                "Story visual ambience analysis failed: game_id=%s assistant_message_id=%s error=%s",
+                "Story world analysis (Call A) failed: game_id=%s assistant_message_id=%s error=%s",
                 game.id,
                 assistant_message.id,
                 exc,
             )
-            failed_modules.append("visual_analysis")
-        else:
-            if isinstance(visual_payload, dict):
-                absorb(visual_payload)
-            else:
+            if location_enabled:
+                failed_modules.append("location")
+            if environment_time_enabled:
+                failed_modules.append("environment_time")
+            if environment_weather_enabled:
+                failed_modules.append("environment_weather")
+            if important_event_enabled:
+                failed_modules.append("important_event")
+            if ambient_enabled:
                 failed_modules.append("visual_analysis")
+        else:
+            if isinstance(world_payload, dict):
+                absorb(world_payload)
+            else:
+                if location_enabled:
+                    failed_modules.append("location")
+                if environment_time_enabled:
+                    failed_modules.append("environment_time")
+                if environment_weather_enabled:
+                    failed_modules.append("environment_weather")
+                if important_event_enabled:
+                    failed_modules.append("important_event")
+                if ambient_enabled:
+                    failed_modules.append("visual_analysis")
 
     effective_location_content = current_location_content
     location_payload = merged_payload.get("location")
@@ -7367,7 +7282,8 @@ def _resolve_story_turn_postprocess_payload(
                     environment_enabled=False,
                     character_state_enabled=character_state_enabled,
                     important_event_enabled=False,
-                    ambient_enabled=False,                    auto_npc_cards_enabled=auto_npc_cards_enabled,
+                    ambient_enabled=False,
+                    auto_npc_cards_enabled=auto_npc_cards_enabled,
                     world_cards=active_scene_world_cards,
                     max_attempts=1,
                 )
@@ -8238,6 +8154,13 @@ def _apply_story_world_card_change_operations(
         if card is None:
             continue
 
+        # Automated world-card extraction may create a new important NPC once, but it must
+        # never revise or delete an existing character card. Character descriptions are
+        # user-owned; only the dedicated state pipeline may touch its structured extra fields.
+        existing_card_kind = _normalize_story_world_card_kind(card.kind)
+        if existing_card_kind in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
+            continue
+
         if action == STORY_WORLD_CARD_EVENT_UPDATED:
             try:
                 db.refresh(card)
@@ -8464,7 +8387,7 @@ def _build_story_plot_card_memory_messages(
 
 def _resolve_story_service_model_pair(game: StoryGame | None = None) -> tuple[str, list[str]]:
     _ = game
-    primary_model = POLZA_GEMINI_25_FLASH_MODEL
+    primary_model = POLZA_STORY_SERVICE_TEXT_MODEL
     fallback_model = str(getattr(settings, "polza_service_fallback_model", "") or "").strip()
     fallback_models = [fallback_model] if fallback_model and fallback_model != primary_model else []
     return primary_model, fallback_models
@@ -8472,7 +8395,7 @@ def _resolve_story_service_model_pair(game: StoryGame | None = None) -> tuple[st
 
 def _resolve_story_plot_memory_model_name(game: StoryGame | None = None) -> str:
     _ = game
-    return POLZA_GEMINI_25_FLASH_MODEL
+    return POLZA_STORY_SERVICE_TEXT_MODEL
 
 
 def _resolve_story_plot_memory_fallback_models(
@@ -10172,7 +10095,7 @@ def _upsert_story_plot_memory_card(
             _rebalance_story_memory_layers(
                 db=db,
                 game=game,
-                max_model_requests=1,
+                max_model_requests=3,
                 require_model_compaction=True,
                 commit_each_model_compaction=True,
                 prioritize_recent_transitions=True,
@@ -10180,7 +10103,7 @@ def _upsert_story_plot_memory_card(
             if rebalance_memory_pipeline._has_story_stale_raw_memory_blocks(db=db, game=game):
                 _record_postprocess_failure("memory_compression_not_applied")
                 logger.warning(
-                    "Story memory compression not applied after Gemini response: game_id=%s assistant_message_id=%s",
+                    "Story memory compression not applied after service-model response: game_id=%s assistant_message_id=%s",
                     game.id,
                     assistant_message.id,
                 )
@@ -13520,6 +13443,12 @@ def _iter_story_provider_stream_chunks(
 
 
 def _build_story_runtime_deps() -> StoryRuntimeDeps:
+    # Keep production generation on the extracted provider implementation. It validates the
+    # SSE terminator and finish reason, and recovers a missing tail when an upstream stream ends
+    # after delivering only part of the answer. The legacy monolith copy intentionally remains
+    # available for compatibility, but must not be the runtime path.
+    from app.services import story_generation_provider
+
     return StoryRuntimeDeps(
         validate_provider_config=_validate_story_provider_config,
         get_current_user=_get_current_user,
@@ -13538,7 +13467,7 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         get_story_turn_cost_tokens=_get_story_turn_cost_tokens,
         spend_user_tokens_if_sufficient=_spend_user_tokens_if_sufficient,
         add_user_tokens=_add_user_tokens,
-        stream_story_provider_chunks=_iter_story_provider_stream_chunks,
+        stream_story_provider_chunks=story_generation_provider._iter_story_provider_stream_chunks,
         upsert_story_plot_memory_card=_upsert_story_plot_memory_card,
         list_story_prompt_memory_cards=_list_story_prompt_memory_cards,
         list_story_memory_blocks=_list_story_memory_blocks,
@@ -13860,7 +13789,7 @@ def _build_story_summary_source_context(db: Session, game: StoryGame) -> dict[st
     }
 
 
-def _build_story_summary_gemini_messages(
+def _build_story_summary_service_messages(
     *,
     source_context: dict[str, Any],
     style_prompt: str,
@@ -14279,13 +14208,13 @@ def _process_story_summary_job(job_id: int) -> None:
         source_context = _build_story_summary_source_context(db, game)
 
         _set_story_summary_job_progress(db, job, stage="writing")
-        gemini_messages = _build_story_summary_gemini_messages(
+        service_messages = _build_story_summary_service_messages(
             source_context=source_context,
             style_prompt=style_prompt,
             max_images=STORY_SUMMARY_MAX_IMAGES,
         )
         raw_narrative = _request_polza_story_text(
-            gemini_messages,
+            service_messages,
             model_name=STORY_SUMMARY_NARRATIVE_MODEL,
             allow_service_fallback=False,
             translate_input=False,

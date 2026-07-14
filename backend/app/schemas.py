@@ -267,6 +267,14 @@ class ProfileViewOut(BaseModel):
     followers_count: int
     subscriptions_count: int
     world_card_templates_count: int = 0
+    games_count: int = 0
+    characters_count: int = 0
+    instruction_templates_count: int = 0
+    gallery_images_count: int = 0
+    published_worlds_count: int = 0
+    published_characters_count: int = 0
+    published_instruction_templates_count: int = 0
+    unpublished_worlds_count: int = 0
     privacy: ProfilePrivacyOut
     can_view_subscriptions: bool
     can_view_public_worlds: bool

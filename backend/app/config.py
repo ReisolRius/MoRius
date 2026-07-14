@@ -17,8 +17,8 @@ PROXYAPI_ROUTERAI_BASE_URL = ROUTERAI_API_BASE_URL
 AITUNNEL_API_BASE_URL = ""
 POLZA_SERVICE_TEXT_MODEL = "google/gemma-4-31b-it"
 POLZA_SERVICE_FALLBACK_MODEL = "nex-agi/nex-n2-pro"
-POLZA_GEMINI_25_FLASH_MODEL = "google/gemini-2.5-flash"
 POLZA_GEMINI_25_FLASH_LITE_MODEL = "google/gemini-2.5-flash-lite"
+POLZA_STORY_SERVICE_TEXT_MODEL = "z-ai/glm-4.7-flash"
 POLZA_DEFAULT_STORY_MODEL = "z-ai/glm-5"
 POLZA_DEFAULT_IMAGE_MODEL = "black-forest-labs/flux.2-pro"
 # Subscription-only narrator models (accessible only with an active subscription/admin test,
@@ -430,17 +430,17 @@ settings = Settings(
     polza_world_card_model=_env_alias(
         "ROUTERAI_WORLD_CARD_MODEL",
         "POLZA_WORLD_CARD_MODEL",
-        POLZA_GEMINI_25_FLASH_MODEL,
+        POLZA_STORY_SERVICE_TEXT_MODEL,
     ).strip(),
     polza_translation_model=_env_alias(
         "ROUTERAI_TRANSLATION_MODEL",
         "POLZA_TRANSLATION_MODEL",
-        POLZA_GEMINI_25_FLASH_MODEL,
+        POLZA_STORY_SERVICE_TEXT_MODEL,
     ).strip(),
     polza_plot_card_model=_env_alias(
         "ROUTERAI_PLOT_CARD_MODEL",
         "POLZA_PLOT_CARD_MODEL",
-        POLZA_GEMINI_25_FLASH_MODEL,
+        POLZA_STORY_SERVICE_TEXT_MODEL,
     ).strip(),
     polza_service_fallback_model=_env_alias(
         "ROUTERAI_SERVICE_FALLBACK_MODEL",

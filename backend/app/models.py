@@ -869,7 +869,7 @@ class StoryNovelBeat(Base):
 class StorySceneBackground(Base):
     """A saved Visual Novel scene background (admin-only) with trigger-based memory.
 
-    Generated on demand via Gemini 2.5 flash (prompt) + the image pipeline. Once created it
+    Generated on demand via the internal service model (prompt) + the image pipeline. Once created it
     is remembered with trigger keywords, so re-entering the same location swaps to the saved
     background with a smooth cross-fade instead of regenerating (free, instant).
     """

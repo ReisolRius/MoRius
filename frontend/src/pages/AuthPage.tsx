@@ -372,7 +372,8 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
   const isResetMode = mode === 'reset'
   const isRegisterVerificationStep = isRegisterMode && registerStep === 'verify'
   const isResetVerificationStep = isResetMode && resetStep === 'verify'
-  const shouldShowGoogle = !isRegisterVerificationStep && !isResetMode
+  const shouldShowExternalAuth = !isRegisterVerificationStep && !isResetMode
+  const shouldShowGoogle = false
   const hasGoogleClientId = IS_GOOGLE_AUTH_CONFIGURED && Boolean(GOOGLE_CLIENT_ID)
   const shouldValidatePasswordMatch =
     (isRegisterMode && registerStep === 'credentials') || isResetVerificationStep
@@ -1022,12 +1023,12 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                 {isSubmitting ? <CircularProgress size={22} sx={{ color: '#ffffff' }} /> : submitLabel}
               </Button>
 
-              {shouldShowGoogle ? (
+              {shouldShowExternalAuth ? (
                 <Stack spacing={2.3} sx={{ pt: { xs: 1.8, md: 2.8 } }}>
                   <Typography sx={{ textAlign: 'center', color: '#f0f0f0', fontSize: '1rem', fontWeight: 400 }}>
                     Или войдите через
                   </Typography>
-                  {hasGoogleClientId ? (
+                  {shouldShowGoogle && hasGoogleClientId ? (
                     <GoogleAuthButton
                       disabled={isSubmitting || isExternalAuthSubmitting}
                       onStart={() => {
@@ -1041,11 +1042,11 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                         setIsGoogleSubmitting(false)
                       }}
                     />
-                  ) : (
+                  ) : shouldShowGoogle ? (
                     <Alert severity="warning">
                       Google вход отключен. Проверьте VITE_GOOGLE_CLIENT_ID во frontend/.env и GOOGLE_CLIENT_ID в backend/.env.
                     </Alert>
-                  )}
+                  ) : null}
                   <Stack spacing={1}>
                     <ProviderAuthButton
                       provider="yandex"

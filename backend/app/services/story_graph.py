@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete as sa_delete, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.config import POLZA_GEMINI_25_FLASH_MODEL
+from app.config import POLZA_STORY_SERVICE_TEXT_MODEL
 from app.models import (
     StoryGame,
     StoryGraphEdge,
@@ -1091,7 +1091,7 @@ def create_story_graph_edge(
                 db,
                 game,
                 event_type="edge_updated",
-                message="Gemini updated an existing graph relationship",
+                message="Service model updated an existing graph relationship",
                 payload={
                     "edge_id": int(existing.id),
                     "before": before_snapshot,
@@ -1164,7 +1164,7 @@ def update_story_graph_edge(
             db,
             game,
             event_type="edge_updated",
-            message="Gemini updated an existing graph relationship",
+            message="Service model updated an existing graph relationship",
             payload={
                 "edge_id": int(edge.id),
                 "before": before_snapshot,
@@ -1803,7 +1803,7 @@ def _build_graph_analysis_messages(
                 "You analyze a text RPG turn for a card relationship graph. Return JSON only; no markdown, reasoning, or commentary. "
                 "All user-visible card names, relationship labels, and relationship descriptions in your JSON are final copy: "
                 "the application will display them as written and will not rewrite or complete them. "
-                "Use Gemini-level semantic judgment, but default to no graph change unless the turn reveals a durable, future-relevant graph fact. "
+                "Use strong semantic judgment, but default to no graph change unless the turn reveals a durable, future-relevant graph fact. "
                 "Create missing cards only for entities with persistent narrative agency, plot weight, ownership/state relevance, or repeated future utility. "
                 "Do not create cards or nodes for transient extras, generic roles, scenery, props, consumables, background objects, incidental services, "
                 "or one-scene obstacles unless the current turn clearly elevates them into a lasting plot element. "
@@ -1943,7 +1943,7 @@ def request_gemini_graph_analysis(
     def request_text(messages_payload: list[dict[str, str]], **kwargs: Any) -> str:
         return _request_polza_story_text(
             messages_payload,
-            model_name=str(kwargs.get("model_name") or POLZA_GEMINI_25_FLASH_MODEL),
+            model_name=str(kwargs.get("model_name") or POLZA_STORY_SERVICE_TEXT_MODEL),
             allow_service_fallback=False,
             translate_input=False,
             fallback_model_names=[],
@@ -1955,7 +1955,7 @@ def request_gemini_graph_analysis(
 
     service = LlmModuleService(
         request_text,
-        primary_model=POLZA_GEMINI_25_FLASH_MODEL,
+        primary_model=POLZA_STORY_SERVICE_TEXT_MODEL,
         fallback_models=[],
         include_configured_fallback=False,
     )
@@ -1977,7 +1977,7 @@ def request_gemini_graph_analysis(
     )
     if evidence_warnings:
         # Evidence protects diagnostics, but a punctuation or declension
-        # mismatch must not discard every otherwise valid Gemini action.
+        # mismatch must not discard every otherwise valid service-model action.
         logger.warning(
             "Story graph evidence warnings: game_id=%s warnings=%s",
             game.id,
@@ -2432,7 +2432,7 @@ def analyze_story_graph_after_turn(
     payload = resolved_payload_override if isinstance(resolved_payload_override, dict) else None
     if payload is None and allow_model_request:
         logger.info(
-            "Story graph Gemini analysis started: game_id=%s assistant_message_id=%s cards=%s nodes=%s edges=%s",
+            "Story graph service-model analysis started: game_id=%s assistant_message_id=%s cards=%s nodes=%s edges=%s",
             game.id,
             assistant_message_id,
             len(cards),
@@ -2443,7 +2443,7 @@ def analyze_story_graph_after_turn(
             db,
             game,
             event_type="gemini_called",
-            message="Gemini graph analysis requested",
+            message="Service-model graph analysis requested",
             payload={"cards": len(cards), "nodes": len(nodes), "edges": len(edges)},
             assistant_message_id=assistant_message_id,
         )
@@ -2460,7 +2460,7 @@ def analyze_story_graph_after_turn(
             db,
             game,
             event_type="empty_payload",
-            message="Gemini graph analysis returned empty payload",
+            message="Service-model graph analysis returned empty payload",
             assistant_message_id=assistant_message_id,
         )
         return {
@@ -2475,7 +2475,7 @@ def analyze_story_graph_after_turn(
         db,
         game,
         event_type="gemini_response",
-        message="Gemini graph analysis returned structured actions",
+            message="Service-model graph analysis returned structured actions",
         payload={
             "create_cards": len(payload.get("createCards", [])) if isinstance(payload.get("createCards"), list) else 0,
             "add_nodes": len(payload.get("addNodes", [])) if isinstance(payload.get("addNodes"), list) else 0,
@@ -2512,12 +2512,12 @@ def analyze_story_graph_after_turn(
         db,
         game,
         event_type="analysis_applied",
-        message="Gemini graph analysis processed",
+        message="Service-model graph analysis processed",
         payload=result,
         assistant_message_id=assistant_message_id,
     )
     logger.info(
-        "Story graph Gemini analysis processed: game_id=%s assistant_message_id=%s cards=%s nodes=%s edges=%s updates=%s suggestions=%s skipped=%s",
+        "Story graph service-model analysis processed: game_id=%s assistant_message_id=%s cards=%s nodes=%s edges=%s updates=%s suggestions=%s skipped=%s",
         game.id,
         assistant_message_id,
         result["applied_cards"],
@@ -2604,7 +2604,7 @@ def analyze_story_graph_for_api(
             db,
             game,
             event_type="analysis_failed",
-            message="Manual Gemini graph analysis failed",
+            message="Manual service-model graph analysis failed",
             payload={"error": error_detail},
             assistant_message_id=resolved_assistant_message_id,
         )
@@ -2615,7 +2615,7 @@ def analyze_story_graph_for_api(
             "applied_edges": 0,
             "updated_edges": 0,
             "suggestions_created": 0,
-            "skipped": [f"Gemini graph analysis failed: {error_detail}"],
+            "skipped": [f"Service-model graph analysis failed: {error_detail}"],
         }
     db.flush()
     return StoryGraphAiAnalyzeOut(

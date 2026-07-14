@@ -69,7 +69,7 @@ class StoryMemoryCompressionTests(unittest.TestCase):
         self.assertIn("Марина (npc)", content)
         self.assertIn("дверь закрыта", content)
         self.assertEqual(request_mock.call_count, 1)
-        self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL)
+        self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_STORY_SERVICE_TEXT_MODEL)
         self.assertTrue(request_mock.call_args.kwargs["retry_on_rate_limit"])
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
 
@@ -84,7 +84,7 @@ class StoryMemoryCompressionTests(unittest.TestCase):
                     raw_content="PLAYER_TURN:\nI enter.\n\nNARRATOR_RESPONSE:\nThe room is quiet.",
                 )
 
-    def test_memory_compression_has_reserved_gemini_budget_after_postprocess_budget_is_exhausted(self) -> None:
+    def test_memory_compression_has_reserved_service_budget_after_postprocess_budget_is_exhausted(self) -> None:
         valid_memory_json = (
             '{"summary":"Alex entered the hall.",'
             '"important_entities":[],"state_changes":[],"open_threads":[]}'
@@ -113,7 +113,7 @@ class StoryMemoryCompressionTests(unittest.TestCase):
         self.assertEqual(request_mock.call_count, 1)
         self.assertEqual(
             request_mock.call_args.kwargs["model_name"],
-            story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL,
+            story_memory_pipeline.POLZA_STORY_SERVICE_TEXT_MODEL,
         )
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
 
@@ -143,7 +143,7 @@ class StoryMemoryCompressionTests(unittest.TestCase):
                 story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
 
         self.assertEqual(request_mock.call_count, 1)
-        self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL)
+        self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_STORY_SERVICE_TEXT_MODEL)
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
 
     def test_copy_like_detailed_memory_payload_raises_without_manual_fallback(self) -> None:

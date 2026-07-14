@@ -221,6 +221,7 @@ const subscriptionSets: SubscriptionSet[] = [
     perks: [
       '2 модели: DeepSeek V4 Flash и Gemini 2.5 Flash Lite',
       'До 40 ходов в день без списания солов',
+      'Неиспользованные ходы не сгорают и накапливаются каждый день',
       'Память сцены до 8K токенов',
     ],
   },
@@ -234,6 +235,7 @@ const subscriptionSets: SubscriptionSet[] = [
     perks: [
       '3 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite и GLM 4.5 Air',
       'До 60 ходов в день без списания солов',
+      'Неиспользованные ходы не сгорают и накапливаются каждый день',
       'Память сцены до 20K токенов',
     ],
   },
@@ -247,6 +249,7 @@ const subscriptionSets: SubscriptionSet[] = [
     perks: [
       '4 модели: добавляется Gemini 3 Flash Preview',
       'До 90 ходов в день без списания солов',
+      'Неиспользованные ходы не сгорают и накапливаются каждый день',
       'Память сцены до 32K токенов',
     ],
   },

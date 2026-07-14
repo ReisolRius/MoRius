@@ -58,6 +58,7 @@ type WorldDetailTypeOption = {
 type WorldCardTemplatesPanelProps = {
   authToken: string
   searchQuery?: string
+  totalCount?: number
   onTemplatesCountChange?: (count: number) => void
 }
 
@@ -91,12 +92,18 @@ function mergeTemplatesById(currentItems: StoryWorldCardTemplate[], nextItems: S
   return mergedItems
 }
 
-function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCountChange }: WorldCardTemplatesPanelProps) {
+function WorldCardTemplatesPanel({
+  authToken,
+  searchQuery = '',
+  totalCount: providedTotalCount = 0,
+  onTemplatesCountChange,
+}: WorldCardTemplatesPanelProps) {
   const [templates, setTemplates] = useState<StoryWorldCardTemplate[]>([])
   const [detailTypes, setDetailTypes] = useState<StoryWorldDetailType[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [hasMoreTemplates, setHasMoreTemplates] = useState(false)
+  const [totalCount, setTotalCount] = useState(() => Math.max(0, providedTotalCount))
   const [error, setError] = useState('')
 
   const [editorOpen, setEditorOpen] = useState(false)
@@ -201,8 +208,8 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
   }, [refreshData])
 
   useEffect(() => {
-    onTemplatesCountChange?.(templates.length)
-  }, [onTemplatesCountChange, templates.length])
+    setTotalCount(Math.max(0, providedTotalCount))
+  }, [providedTotalCount])
 
   const worldProfileTemplates = useMemo(
     () =>
@@ -459,6 +466,11 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
               ...payload,
               templateId: editingTemplateId,
             })
+      if (editingTemplateId === null) {
+        const nextTotalCount = totalCount + 1
+        setTotalCount(nextTotalCount)
+        onTemplatesCountChange?.(nextTotalCount)
+      }
       setTemplates((previous) => {
         const nextItems = previous.filter((item) => item.id !== savedTemplate.id)
         nextItems.push(savedTemplate)
@@ -483,10 +495,12 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
     isSaving,
     kindDraft,
     memoryTurnsDraft,
+    onTemplatesCountChange,
     resetEditor,
     titleDraft,
     contentDraft,
     triggersDraft,
+    totalCount,
   ])
 
   const handleDeleteTemplate = useCallback(async () => {
@@ -503,6 +517,9 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
         token: authToken,
         templateId: editingTemplateId,
       })
+      const nextTotalCount = Math.max(0, totalCount - 1)
+      setTotalCount(nextTotalCount)
+      onTemplatesCountChange?.(nextTotalCount)
       setTemplates((previous) => previous.filter((item) => item.id !== editingTemplateId))
       resetEditor()
     } catch (requestError) {
@@ -511,7 +528,7 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
     } finally {
       setIsDeleting(false)
     }
-  }, [authToken, editingTemplateId, isDeleting, isSaving, resetEditor])
+  }, [authToken, editingTemplateId, isDeleting, isSaving, onTemplatesCountChange, resetEditor, totalCount])
 
   const renderCreateCard = (kind: StoryWorldCardTemplateKind) => (
     <ButtonBase

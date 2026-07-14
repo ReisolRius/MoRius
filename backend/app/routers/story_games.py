@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, load_only
 
 from app.database import get_db
-from app.config import POLZA_GEMINI_25_FLASH_LITE_MODEL, POLZA_GEMINI_25_FLASH_MODEL, settings
+from app.config import POLZA_GEMINI_25_FLASH_LITE_MODEL, POLZA_STORY_SERVICE_TEXT_MODEL, settings
 from app.models import (
     StoryBugReport,
     StoryCommunityWorldComment,
@@ -896,7 +896,7 @@ def _normalize_story_environment_location_label(value: str | None) -> str:
     return " ".join(str(value).replace("\r", " ").replace("\n", " ").split()).strip()[:160]
 
 
-_STORY_ENVIRONMENT_SERVICE_MODEL = POLZA_GEMINI_25_FLASH_MODEL
+_STORY_ENVIRONMENT_SERVICE_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
 _STORY_ENVIRONMENT_TIMELINE_SLOTS: tuple[tuple[str, str], ...] = (
     ("00:00", "06:00"),
     ("06:00", "12:00"),
@@ -2393,7 +2393,7 @@ def report_story_community_world(
         kind=NOTIFICATION_KIND_MODERATION_REPORT,
         title="Новая жалоба на мир",
         body=f"{reporter_name} отправил жалобу на мир \"{world_title}\".",
-        action_url="/profile",
+        action_url=f"/profile?admin=reports&target_type=world&target_id={int(world.id)}",
         actor_user_id=int(user.id),
     )
     db.refresh(world)
@@ -2715,7 +2715,7 @@ def create_story_game(
             kind=NOTIFICATION_KIND_MODERATION_QUEUE,
             title="Новый мир на модерации",
             body=f"{author_name} отправил на модерацию мир \"{game_title}\".",
-            action_url="/profile",
+            action_url=f"/profile?admin=moderation&target_type=world&target_id={int(game.id)}",
             actor_user_id=int(user.id),
         )
     return _story_game_summary_response(db, game)
@@ -3092,7 +3092,7 @@ def create_story_bug_report(
         kind=NOTIFICATION_KIND_MODERATION_REPORT,
         title="Новый bug report",
         body=f"{reporter_name} отправил bug report по миру \"{source_game_label}\": {title}.",
-        action_url="/profile",
+        action_url=f"/profile?admin=bug_reports&target_type=bug_report&target_id={int(report.id)}",
         actor_user_id=int(user.id),
     )
     return MessageResponse(message="Bug report submitted")
@@ -4249,7 +4249,7 @@ def update_story_game_meta(
             kind=NOTIFICATION_KIND_MODERATION_QUEUE,
             title="Мир отправлен на модерацию",
             body=f"{author_name} отправил на модерацию мир \"{game_title}\".",
-            action_url="/profile",
+            action_url=f"/profile?admin=moderation&target_type=world&target_id={int(game.id)}",
             actor_user_id=int(user.id),
         )
     return _story_game_summary_response(db, game)

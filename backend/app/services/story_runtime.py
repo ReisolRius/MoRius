@@ -1303,7 +1303,7 @@ def _best_effort_sync_story_turn_memory_and_environment(
             story_memory_pipeline._rebalance_story_memory_layers(
                 db=db,
                 game=game,
-                max_model_requests=1,
+                max_model_requests=3,
                 backfill_existing_compact_layers=False,
                 prioritize_recent_transitions=True,
             )

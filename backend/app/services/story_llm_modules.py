@@ -7,7 +7,7 @@ from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from app.config import POLZA_GEMINI_25_FLASH_MODEL, settings
+from app.config import POLZA_STORY_SERVICE_TEXT_MODEL, settings
 from app.services.provider_resilience import is_content_policy_error
 
 
@@ -388,7 +388,7 @@ class WorldAnalysisPayload(BaseModel):
 
 
 class SceneBackgroundPromptPayload(BaseModel):
-    """Visual Novel scene background prompt (admin-triggered, Gemini 2.5 flash).
+    """Visual Novel scene background prompt (admin-triggered internal service model).
 
     An empty scene (just the location) unless the last turn implies a crowd/people present,
     in which case generic (unnamed) figures may be described -- never specific named characters.
@@ -444,8 +444,8 @@ class LlmModuleService:
         fallback_models: list[str] | None = None,
         include_configured_fallback: bool = True,
     ) -> None:
-        configured_primary = str(primary_model or POLZA_GEMINI_25_FLASH_MODEL).strip()
-        self.primary_model = configured_primary or POLZA_GEMINI_25_FLASH_MODEL
+        configured_primary = str(primary_model or POLZA_STORY_SERVICE_TEXT_MODEL).strip()
+        self.primary_model = configured_primary or POLZA_STORY_SERVICE_TEXT_MODEL
         configured_fallback = str(settings.polza_service_fallback_model or "").strip()
         resolved_fallbacks = [str(item or "").strip() for item in (fallback_models or []) if str(item or "").strip()]
         if (

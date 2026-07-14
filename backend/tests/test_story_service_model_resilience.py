@@ -178,7 +178,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             {"choices": [{"message": {"content": "{\"ok\":true}"}}]},
         )
         for model_name in (
-            "google/gemini-2.5-flash",
+            "z-ai/glm-4.7-flash",
             "aion-labs/aion-2.0",
             "deepseek/deepseek-v3.2",
             "z-ai/glm-5.1",
@@ -223,7 +223,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Prohibited request"):
                 monolith_main._request_polza_story_text(
                     [{"role": "user", "content": "test"}],
-                    model_name="google/gemini-2.5-flash",
+                    model_name="z-ai/glm-4.7-flash",
                     fallback_model_names=[],
                     allow_service_fallback=False,
                     retry_on_rate_limit=True,
@@ -405,19 +405,19 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
 
         self.assertEqual(
             request_mock.call_args.kwargs["model_name"],
-            "google/gemini-2.5-flash",
+            "z-ai/glm-4.7-flash",
         )
         self.assertEqual(
             request_mock.call_args.kwargs["fallback_model_names"],
             ["nex-agi/nex-n2-pro"],
         )
 
-    def test_standard_game_uses_gemini_flash_service_model_pair(self) -> None:
+    def test_standard_game_uses_glm_flash_service_model_pair(self) -> None:
         primary_model, fallback_models = monolith_main._resolve_story_service_model_pair(
             SimpleNamespace(accelerated_service_enabled=False)
         )
 
-        self.assertEqual(primary_model, "google/gemini-2.5-flash")
+        self.assertEqual(primary_model, "z-ai/glm-4.7-flash")
         self.assertEqual(fallback_models, ["nex-agi/nex-n2-pro"])
 
     def test_gpt_oss_fallback_keeps_required_reasoning_but_excludes_it_from_output(self) -> None:
@@ -506,7 +506,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         with patch.object(monolith_main.HTTP_SESSION, "post", side_effect=[rate_limited, success]) as post_mock:
             result = monolith_main._request_polza_story_text(
                 [{"role": "user", "content": "test"}],
-                model_name="google/gemini-2.5-flash",
+                model_name="z-ai/glm-4.7-flash",
                 fallback_model_names=["nex-agi/nex-n2-pro"],
                 allow_service_fallback=False,
                 retry_on_rate_limit=False,
@@ -516,7 +516,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(post_mock.call_count, 2)
         self.assertEqual(
             [call.kwargs["json"]["model"] for call in post_mock.call_args_list],
-            ["google/gemini-2.5-flash", "nex-agi/nex-n2-pro"],
+            ["z-ai/glm-4.7-flash", "nex-agi/nex-n2-pro"],
         )
 
     def test_turn_service_http_budget_blocks_fourth_request(self) -> None:
@@ -645,7 +645,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
 
         self.assertEqual(content, "Alex вошел в зал и закрыл дверь.")
         self.assertEqual(request_mock.call_count, 1)
-        self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL)
+        self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_STORY_SERVICE_TEXT_MODEL)
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
         self.assertTrue(request_mock.call_args.kwargs["retry_on_rate_limit"])
 
@@ -669,12 +669,12 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(
             [call.kwargs["model_name"] for call in request_mock.call_args_list],
             [
-                story_memory_pipeline.POLZA_GEMINI_25_FLASH_MODEL,
+                story_memory_pipeline.POLZA_STORY_SERVICE_TEXT_MODEL,
             ],
         )
         self.assertTrue(all(call.kwargs["fallback_model_names"] == [] for call in request_mock.call_args_list))
 
-    def test_important_memory_uses_only_gemini_flash_and_creates_no_manual_fallback(self) -> None:
+    def test_important_memory_uses_only_glm_flash_and_creates_no_manual_fallback(self) -> None:
         class FakeSession:
             def scalars(self, *_args, **_kwargs):
                 return []
@@ -702,13 +702,13 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(request_mock.call_count, 1)
         self.assertEqual(
             request_mock.call_args.kwargs["model_name"],
-            "google/gemini-2.5-flash",
+            "z-ai/glm-4.7-flash",
         )
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
         self.assertFalse(request_mock.call_args.kwargs["allow_service_fallback"])
         self.assertFalse(request_mock.call_args.kwargs["include_configured_service_fallback"])
 
-    def test_important_memory_skips_routine_turn_when_gemini_marks_it_unimportant(self) -> None:
+    def test_important_memory_skips_routine_turn_when_service_model_marks_it_unimportant(self) -> None:
         class FakeSession:
             def scalars(self, *_args, **_kwargs):
                 return []

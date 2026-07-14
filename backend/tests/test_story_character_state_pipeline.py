@@ -161,7 +161,7 @@ class StoryCharacterStatePipelineTests(unittest.TestCase):
         self.assertEqual(cards[0]["equipment"], "old key")
         self.assertEqual(cards[0]["location"], "в библиотеке")
 
-    def test_auto_state_does_not_fill_health_when_gemini_omits_update(self) -> None:
+    def test_auto_state_does_not_fill_health_when_service_model_omits_update(self) -> None:
         game = SimpleNamespace(
             id=10,
             character_state_enabled=True,
@@ -368,6 +368,7 @@ class StoryCharacterStatePipelineTests(unittest.TestCase):
             id=1,
             game_id=10,
             title="Mira",
+            content="Original character description.",
             kind="npc",
             ai_edit_enabled=True,
             health_status="",
@@ -404,6 +405,7 @@ class StoryCharacterStatePipelineTests(unittest.TestCase):
         self.assertEqual(world_card.health_status, "Порез ладони")
         self.assertEqual(world_card.clothing, "синий плащ")
         self.assertEqual(world_card.inventory, "серебряный ключ")
+        self.assertEqual(world_card.content, "Original character description.")
 
 
 if __name__ == "__main__":

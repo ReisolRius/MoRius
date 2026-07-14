@@ -813,7 +813,7 @@ def report_story_community_character(
         kind=NOTIFICATION_KIND_MODERATION_REPORT,
         title="Новая жалоба на персонажа",
         body=f"{reporter_name} отправил жалобу на персонажа \"{character_name}\".",
-        action_url="/profile",
+        action_url=f"/profile?admin=reports&target_type=character&target_id={int(character.id)}",
         actor_user_id=int(user.id),
     )
     db.refresh(character)
@@ -1002,7 +1002,7 @@ def create_story_character(
             kind=NOTIFICATION_KIND_MODERATION_QUEUE,
             title="Новый персонаж на модерации",
             body=f"{author_name} отправил на модерацию персонажа \"{character_name}\".",
-            action_url="/profile",
+            action_url=f"/profile?admin=moderation&target_type=character&target_id={int(character.id)}",
             actor_user_id=int(user.id),
         )
     return story_character_to_out(character)
@@ -1085,7 +1085,7 @@ def update_story_character(
             kind=NOTIFICATION_KIND_MODERATION_QUEUE,
             title="Персонаж отправлен на модерацию",
             body=f"{author_name} отправил на модерацию персонажа \"{character_name}\".",
-            action_url="/profile",
+            action_url=f"/profile?admin=moderation&target_type=character&target_id={int(character.id)}",
             actor_user_id=int(user.id),
         )
     return story_character_to_out(character)

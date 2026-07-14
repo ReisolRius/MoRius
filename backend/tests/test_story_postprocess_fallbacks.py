@@ -104,7 +104,7 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
         self.assertNotIn("location", payload)
         self.assertNotIn("auto_npcs", payload)
 
-    def test_auto_npc_gemini_request_uses_previous_turn_and_extended_output_budget(self) -> None:
+    def test_auto_npc_service_request_uses_previous_turn_and_extended_output_budget(self) -> None:
         game = SimpleNamespace(id=42, current_location_label="", character_state_payload="[]")
         captured_call: dict[str, object] = {}
         captured_prompt: dict[str, object] = {}
@@ -219,6 +219,90 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
         self.assertIn("location", payload)
         self.assertIn("character_state", payload)
         self.assertIn("auto_npcs", payload)
+
+    def test_turn_postprocess_combines_all_enabled_world_modules_in_one_call(self) -> None:
+        game = SimpleNamespace(
+            id=42,
+            environment_enabled=True,
+            environment_time_enabled=True,
+            environment_weather_enabled=True,
+        )
+        assistant_message = SimpleNamespace(id=9, game_id=42, role="assistant")
+        world_calls: list[dict] = []
+
+        def fake_world_extract(**kwargs):
+            world_calls.append(kwargs)
+            return {
+                "location": {"content": "Current place"},
+                "environment": {"time": {}, "weather": {}},
+                "important_event": None,
+                "ambient": {"scene": "night"},
+                "call_count": 1,
+            }
+
+        with (
+            patch.object(story_memory_pipeline, "_get_story_latest_location_memory_content", return_value="Previous place"),
+            patch.object(story_memory_pipeline, "_extract_story_world_analysis_payload", side_effect=fake_world_extract),
+            patch.object(story_memory_pipeline, "_extract_story_postprocess_memory_payload") as character_extract,
+        ):
+            payload = main._resolve_story_turn_postprocess_payload(
+                db=SimpleNamespace(),
+                game=game,
+                assistant_message=assistant_message,
+                latest_user_prompt="Turn",
+                latest_assistant_text="Response",
+                previous_assistant_text="Previous response",
+                world_cards=[],
+                location_enabled=True,
+                environment_enabled=True,
+                character_state_enabled=False,
+                important_event_enabled=True,
+                ambient_enabled=True,
+                auto_npc_cards_enabled=False,
+            )
+
+        self.assertEqual(len(world_calls), 1)
+        call = world_calls[0]
+        self.assertTrue(call["location_enabled"])
+        self.assertTrue(call["environment_time_enabled"])
+        self.assertTrue(call["environment_weather_enabled"])
+        self.assertTrue(call["important_event_enabled"])
+        self.assertTrue(call["ambient_enabled"])
+        character_extract.assert_not_called()
+        self.assertIn("environment", payload)
+
+    def test_turn_postprocess_makes_no_request_for_disabled_modules(self) -> None:
+        game = SimpleNamespace(
+            id=42,
+            environment_enabled=False,
+            environment_time_enabled=False,
+            environment_weather_enabled=False,
+        )
+        assistant_message = SimpleNamespace(id=9, game_id=42, role="assistant")
+        with (
+            patch.object(story_memory_pipeline, "_get_story_latest_location_memory_content", return_value=""),
+            patch.object(story_memory_pipeline, "_extract_story_world_analysis_payload") as world_extract,
+            patch.object(story_memory_pipeline, "_extract_story_postprocess_memory_payload") as character_extract,
+        ):
+            payload = main._resolve_story_turn_postprocess_payload(
+                db=SimpleNamespace(),
+                game=game,
+                assistant_message=assistant_message,
+                latest_user_prompt="Turn",
+                latest_assistant_text="Response",
+                previous_assistant_text="Previous response",
+                world_cards=[],
+                location_enabled=False,
+                environment_enabled=False,
+                character_state_enabled=False,
+                important_event_enabled=False,
+                ambient_enabled=False,
+                auto_npc_cards_enabled=False,
+            )
+
+        self.assertIsNone(payload)
+        world_extract.assert_not_called()
+        character_extract.assert_not_called()
 
     def test_player_turn_location_fallback_is_disabled(self) -> None:
         payload = story_memory_pipeline._build_story_location_fallback_payload_from_player_turn(
@@ -490,7 +574,7 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
         self.assertEqual(blocks[0].layer, "location")
         self.assertIn("зал гильдии", blocks[0].content)
 
-    def test_auto_npc_update_existing_card_deduplicates_by_id(self) -> None:
+    def test_auto_npc_never_updates_existing_card_by_id(self) -> None:
         existing = SimpleNamespace(
             id=1,
             game_id=10,
@@ -532,10 +616,10 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
                 ],
             )
 
-        self.assertEqual(changed, [existing])
+        self.assertEqual(changed, [])
         self.assertEqual(session.added, [])
-        self.assertIn("Dawn Healer", existing.triggers)
-        self.assertIn("Known as the Dawn Healer.", existing.content)
+        self.assertEqual(json.loads(existing.triggers), ["Mira"])
+        self.assertEqual(existing.content, "Guild healer.")
 
     def test_auto_npc_create_card_does_not_duplicate_existing_candidate(self) -> None:
         existing = SimpleNamespace(
@@ -587,7 +671,7 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
         self.assertEqual(session.added, [])
         self.assertEqual(json.loads(existing.triggers), ["Mira"])
 
-    def test_auto_npc_create_card_dedup_preserves_new_aliases_on_existing_card(self) -> None:
+    def test_auto_npc_create_card_dedup_leaves_existing_card_immutable(self) -> None:
         existing = SimpleNamespace(
             id=1,
             game_id=10,
@@ -631,12 +715,13 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
                 ],
             )
 
-        self.assertEqual(changed, [existing])
+        self.assertEqual(changed, [])
         self.assertEqual(session.added, [])
         self.assertEqual(
             json.loads(existing.triggers),
-            ["Рен", "бандит со шрамом", "главарь из темноты"],
+            ["Рен", "бандит со шрамом"],
         )
+        self.assertEqual(existing.content, "Возраст: около 30 лет. Внешность: шрам на щеке. Характер: резкий.")
 
     def test_auto_npc_create_card_persists_new_gemini_card(self) -> None:
         game = SimpleNamespace(id=10, auto_npc_cards_enabled=True)

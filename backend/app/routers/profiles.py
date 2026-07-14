@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -131,6 +133,15 @@ def _count_world_card_templates(db: Session, *, user_id: int) -> int:
     return int(value or 0)
 
 
+def _count_owned_rows(db: Session, model: Any, *criteria: Any, user_id: int) -> int:
+    value = db.scalar(
+        select(func.count())
+        .select_from(model)
+        .where(model.user_id == int(user_id), *criteria)
+    )
+    return max(int(value or 0), 0)
+
+
 def _serialize_privacy(user: User) -> ProfilePrivacyOut:
     return ProfilePrivacyOut(
         show_subscriptions=bool(user.show_subscriptions),
@@ -183,13 +194,20 @@ def _build_profile_user(db: Session, user: User) -> ProfileUserOut:
     )
 
 
-def _list_subscriptions(db: Session, *, user_id: int) -> list[ProfileSubscriptionUserOut]:
+def _list_subscriptions(
+    db: Session,
+    *,
+    user_id: int,
+    limit: int = PROFILE_LIST_LIMIT,
+    offset: int = 0,
+) -> list[ProfileSubscriptionUserOut]:
     rows = db.execute(
         select(UserFollow, User)
         .join(User, User.id == UserFollow.following_user_id)
         .where(UserFollow.follower_user_id == user_id)
         .order_by(UserFollow.created_at.desc(), UserFollow.id.desc())
-        .limit(PROFILE_LIST_LIMIT)
+        .offset(max(int(offset), 0))
+        .limit(max(int(limit), 1))
     ).all()
     if not rows:
         return []
@@ -315,6 +333,8 @@ def _list_published_worlds(
     *,
     owner_user: User,
     viewer_user_id: int,
+    limit: int = PROFILE_LIST_LIMIT,
+    offset: int = 0,
 ) -> list:
     worlds = db.scalars(
         select(StoryGame)
@@ -323,7 +343,8 @@ def _list_published_worlds(
             StoryGame.visibility == STORY_GAME_VISIBILITY_PUBLIC,
         )
         .order_by(StoryGame.updated_at.desc(), StoryGame.id.desc())
-        .limit(PROFILE_LIST_LIMIT)
+        .offset(max(int(offset), 0))
+        .limit(max(int(limit), 1))
     ).all()
     if not worlds:
         return []
@@ -363,6 +384,8 @@ def _list_published_characters(
     *,
     owner_user: User,
     viewer_user_id: int,
+    limit: int = PROFILE_LIST_LIMIT,
+    offset: int = 0,
 ) -> list[StoryCommunityCharacterSummaryOut]:
     characters = db.scalars(
         select(StoryCharacter)
@@ -371,7 +394,8 @@ def _list_published_characters(
             StoryCharacter.visibility == STORY_CHARACTER_VISIBILITY_PUBLIC,
         )
         .order_by(StoryCharacter.updated_at.desc(), StoryCharacter.id.desc())
-        .limit(PROFILE_LIST_LIMIT)
+        .offset(max(int(offset), 0))
+        .limit(max(int(limit), 1))
     ).all()
     if not characters:
         return []
@@ -440,6 +464,8 @@ def _list_published_instruction_templates(
     *,
     owner_user: User,
     viewer_user_id: int,
+    limit: int = PROFILE_LIST_LIMIT,
+    offset: int = 0,
 ) -> list[StoryCommunityInstructionTemplateSummaryOut]:
     templates = db.scalars(
         select(StoryInstructionTemplate)
@@ -448,7 +474,8 @@ def _list_published_instruction_templates(
             StoryInstructionTemplate.visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC,
         )
         .order_by(StoryInstructionTemplate.updated_at.desc(), StoryInstructionTemplate.id.desc())
-        .limit(PROFILE_LIST_LIMIT)
+        .offset(max(int(offset), 0))
+        .limit(max(int(limit), 1))
     ).all()
     if not templates:
         return []
@@ -501,7 +528,13 @@ def _list_published_instruction_templates(
     return summaries
 
 
-def _list_unpublished_worlds(db: Session, *, owner_user_id: int) -> list:
+def _list_unpublished_worlds(
+    db: Session,
+    *,
+    owner_user_id: int,
+    limit: int = PROFILE_LIST_LIMIT,
+    offset: int = 0,
+) -> list:
     worlds = db.scalars(
         select(StoryGame)
         .where(
@@ -509,7 +542,8 @@ def _list_unpublished_worlds(db: Session, *, owner_user_id: int) -> list:
             StoryGame.visibility != STORY_GAME_VISIBILITY_PUBLIC,
         )
         .order_by(StoryGame.updated_at.desc(), StoryGame.id.desc())
-        .limit(PROFILE_LIST_LIMIT)
+        .offset(max(int(offset), 0))
+        .limit(max(int(limit), 1))
     ).all()
     return [story_game_summary_to_out(world) for world in worlds]
 
@@ -518,12 +552,19 @@ def _serialize_gallery_image(image: UserGalleryImage) -> ProfileGalleryImageOut:
     return ProfileGalleryImageOut.model_validate(image)
 
 
-def _list_profile_gallery_images(db: Session, *, user_id: int) -> list[ProfileGalleryImageOut]:
+def _list_profile_gallery_images(
+    db: Session,
+    *,
+    user_id: int,
+    limit: int = PROFILE_LIST_LIMIT,
+    offset: int = 0,
+) -> list[ProfileGalleryImageOut]:
     rows = db.scalars(
         select(UserGalleryImage)
         .where(UserGalleryImage.user_id == int(user_id))
         .order_by(UserGalleryImage.created_at.desc(), UserGalleryImage.id.desc())
-        .limit(240)
+        .offset(max(int(offset), 0))
+        .limit(max(int(limit), 1))
     ).all()
     return [_serialize_gallery_image(row) for row in rows]
 
@@ -550,6 +591,54 @@ def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) ->
     followers_count = _count_followers(db, user_id=target_user.id)
     subscriptions_count = _count_subscriptions(db, user_id=target_user.id)
     world_card_templates_count = _count_world_card_templates(db, user_id=target_user.id) if is_self else 0
+    games_count = _count_owned_rows(db, StoryGame, user_id=target_user.id) if is_self else 0
+    characters_count = _count_owned_rows(db, StoryCharacter, user_id=target_user.id) if is_self else 0
+    instruction_templates_count = (
+        _count_owned_rows(db, StoryInstructionTemplate, user_id=target_user.id)
+        if is_self
+        else 0
+    )
+    gallery_images_count = _count_owned_rows(db, UserGalleryImage, user_id=target_user.id) if is_self else 0
+    published_worlds_count = (
+        _count_owned_rows(
+            db,
+            StoryGame,
+            StoryGame.visibility == STORY_GAME_VISIBILITY_PUBLIC,
+            user_id=target_user.id,
+        )
+        if can_view_public_worlds
+        else 0
+    )
+    published_characters_count = (
+        _count_owned_rows(
+            db,
+            StoryCharacter,
+            StoryCharacter.visibility == STORY_CHARACTER_VISIBILITY_PUBLIC,
+            user_id=target_user.id,
+        )
+        if can_view_public_characters
+        else 0
+    )
+    published_instruction_templates_count = (
+        _count_owned_rows(
+            db,
+            StoryInstructionTemplate,
+            StoryInstructionTemplate.visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC,
+            user_id=target_user.id,
+        )
+        if can_view_public_instruction_templates
+        else 0
+    )
+    unpublished_worlds_count = (
+        _count_owned_rows(
+            db,
+            StoryGame,
+            StoryGame.visibility != STORY_GAME_VISIBILITY_PUBLIC,
+            user_id=target_user.id,
+        )
+        if can_view_private_worlds
+        else 0
+    )
 
     subscriptions = _list_subscriptions(db, user_id=target_user.id) if can_view_subscriptions else []
     published_worlds = _list_published_worlds(db, owner_user=target_user, viewer_user_id=viewer_user.id) if can_view_public_worlds else []
@@ -572,6 +661,14 @@ def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) ->
         followers_count=followers_count,
         subscriptions_count=subscriptions_count,
         world_card_templates_count=world_card_templates_count,
+        games_count=games_count,
+        characters_count=characters_count,
+        instruction_templates_count=instruction_templates_count,
+        gallery_images_count=gallery_images_count,
+        published_worlds_count=published_worlds_count,
+        published_characters_count=published_characters_count,
+        published_instruction_templates_count=published_instruction_templates_count,
+        unpublished_worlds_count=unpublished_worlds_count,
         privacy=privacy,
         can_view_subscriptions=can_view_subscriptions,
         can_view_public_worlds=can_view_public_worlds,
@@ -583,7 +680,11 @@ def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) ->
         published_characters=published_characters,
         published_instruction_templates=published_instruction_templates,
         unpublished_worlds=unpublished_worlds,
-        gallery_images=_list_profile_gallery_images(db, user_id=target_user.id),
+        gallery_images=(
+            _list_profile_gallery_images(db, user_id=target_user.id)
+            if is_self
+            else []
+        ),
     )
 
 
@@ -617,11 +718,13 @@ def get_my_profile(
 
 @router.get("/api/auth/profiles/me/gallery", response_model=list[ProfileGalleryImageOut])
 def list_my_profile_gallery(
+    limit: int = Query(default=PROFILE_LIST_LIMIT + 1, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[ProfileGalleryImageOut]:
     user = get_current_user(db, authorization)
-    return _list_profile_gallery_images(db, user_id=int(user.id))
+    return _list_profile_gallery_images(db, user_id=int(user.id), limit=limit, offset=offset)
 
 
 @router.post("/api/auth/profiles/me/gallery", response_model=ProfileGalleryImageOut)
@@ -701,6 +804,84 @@ def delete_my_profile_gallery_image(
     db.delete(gallery_image)
     db.commit()
     return MessageResponse(message="Gallery image deleted")
+
+
+@router.get("/api/auth/profiles/{user_id}/content/{content_kind}", response_model=None)
+def list_profile_content_page(
+    user_id: int,
+    content_kind: str,
+    limit: int = Query(default=PROFILE_LIST_LIMIT + 1, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[Any]:
+    """Return one stable profile page; clients request 13 rows and render 12 at a time."""
+
+    viewer_user = get_current_user(db, authorization)
+    target_user = _resolve_user_or_404(db, user_id)
+    is_self = int(viewer_user.id) == int(target_user.id)
+    privacy = _serialize_privacy(target_user)
+    normalized_kind = str(content_kind or "").strip().lower()
+
+    if normalized_kind == "subscriptions":
+        if not (is_self or privacy.show_subscriptions):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Profile subscriptions are private")
+        return _list_subscriptions(
+            db,
+            user_id=int(target_user.id),
+            limit=limit,
+            offset=offset,
+        )
+    if normalized_kind == "published_worlds":
+        if not (is_self or privacy.show_public_worlds):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Published worlds are private")
+        return _list_published_worlds(
+            db,
+            owner_user=target_user,
+            viewer_user_id=int(viewer_user.id),
+            limit=limit,
+            offset=offset,
+        )
+    if normalized_kind == "published_characters":
+        if not (is_self or privacy.show_public_characters):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Published characters are private")
+        return _list_published_characters(
+            db,
+            owner_user=target_user,
+            viewer_user_id=int(viewer_user.id),
+            limit=limit,
+            offset=offset,
+        )
+    if normalized_kind == "published_instruction_templates":
+        if not (is_self or privacy.show_public_instruction_templates):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Published instructions are private")
+        return _list_published_instruction_templates(
+            db,
+            owner_user=target_user,
+            viewer_user_id=int(viewer_user.id),
+            limit=limit,
+            offset=offset,
+        )
+    if normalized_kind == "unpublished_worlds":
+        if not (is_self or privacy.show_private_worlds):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Private worlds are hidden")
+        return _list_unpublished_worlds(
+            db,
+            owner_user_id=int(target_user.id),
+            limit=limit,
+            offset=offset,
+        )
+    if normalized_kind == "gallery_images":
+        if not is_self:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Profile gallery is private")
+        return _list_profile_gallery_images(
+            db,
+            user_id=int(target_user.id),
+            limit=limit,
+            offset=offset,
+        )
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile content section not found")
 
 
 @router.get("/api/auth/profiles/{user_id}", response_model=ProfileViewOut)

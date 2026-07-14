@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import POLZA_GEMINI_25_FLASH_MODEL
+from app.config import POLZA_STORY_SERVICE_TEXT_MODEL
 from app.models import StoryGame, StorySceneBackground, StoryWorldCard
 from app.schemas import StorySceneBackgroundOut
 from app.services.concurrency import add_user_tokens, spend_user_tokens_if_sufficient
@@ -212,7 +212,7 @@ def _request_scene_background_prompt_text(messages: list[dict[str, str]], **kwar
 
     return _request_polza_story_text(
         messages,
-        model_name=str(kwargs.get("model_name") or POLZA_GEMINI_25_FLASH_MODEL),
+        model_name=str(kwargs.get("model_name") or POLZA_STORY_SERVICE_TEXT_MODEL),
         allow_service_fallback=False,
         translate_input=False,
         fallback_model_names=[],
@@ -248,7 +248,7 @@ def generate_story_scene_background_prompt(
     )
     service = LlmModuleService(
         _request_scene_background_prompt_text,
-        primary_model=POLZA_GEMINI_25_FLASH_MODEL,
+        primary_model=POLZA_STORY_SERVICE_TEXT_MODEL,
         fallback_models=[],
         include_configured_fallback=False,
     )

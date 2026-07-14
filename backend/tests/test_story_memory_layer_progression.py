@@ -202,7 +202,7 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
         self.assertEqual([block.content for block in blocks if block.layer == "raw_pending"], ["old turn awaiting retry"])
         self.assertEqual([block.content for block in blocks if block.layer == "fresh_detailed"], ["compressed new turn"])
 
-    def test_one_failed_block_does_not_abort_other_gemini_compactions(self) -> None:
+    def test_rebalance_attempts_only_newest_raw_block_even_with_larger_request_budget(self) -> None:
         blocks = [
             _block(1, 100, "latest_full", "problematic full turn"),
             _block(2, 101, "latest_full", "healthy full turn"),
@@ -228,25 +228,23 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
             patch.object(
                 story_memory_pipeline,
                 "_compress_story_memory_block_with_model",
-                side_effect=[
-                    RuntimeError("invalid Gemini JSON"),
-                    ("Detailed memory", "compressed healthy turn"),
-                ],
+                side_effect=RuntimeError("invalid Gemini JSON"),
             ) as compress_mock,
             patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
         ):
-            story_memory_pipeline._rebalance_story_memory_layers(
-                db=_FakeSession(blocks),
-                game=_game(),
-                max_model_requests=2,
-                require_model_compaction=True,
-                commit_each_model_compaction=True,
-            )
+            with self.assertRaisesRegex(RuntimeError, "invalid Gemini JSON"):
+                story_memory_pipeline._rebalance_story_memory_layers(
+                    db=_FakeSession(blocks),
+                    game=_game(),
+                    max_model_requests=2,
+                    require_model_compaction=True,
+                    commit_each_model_compaction=True,
+                )
 
-        self.assertEqual(compress_mock.call_count, 2)
+        self.assertEqual(compress_mock.call_count, 1)
         self.assertEqual(
             [(block.assistant_message_id, block.layer) for block in blocks],
-            [(100, "raw_pending"), (102, "latest_full"), (101, "fresh_detailed")],
+            [(100, "latest_full"), (101, "raw_pending"), (102, "latest_full")],
         )
 
     def test_rebalance_retries_raw_pending_and_replaces_it_with_fresh_detailed(self) -> None:
@@ -352,6 +350,83 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
             ["fresh_detailed"],
         )
         self.assertEqual(promote_mock.call_args.kwargs["target_layer"], "compressed")
+
+    def test_terminal_fact_blocks_are_never_recompressed(self) -> None:
+        blocks = [
+            _block(1, 100, "facts", "old terminal facts", token_count=100),
+            _block(2, 101, "facts", "new terminal facts", token_count=100),
+            _block(3, 102, "latest_full", "latest turn", token_count=5),
+        ]
+
+        with (
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget(facts=10)),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
+            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
+            patch.object(story_memory_pipeline, "_promote_blocks") as promote_mock,
+        ):
+            changed = story_memory_pipeline._rebalance_story_memory_layers(
+                db=_FakeSession(blocks),
+                game=_game(),
+                max_model_requests=1,
+            )
+
+        self.assertFalse(changed)
+        promote_mock.assert_not_called()
+        self.assertEqual([block.content for block in blocks if block.layer == "facts"], [
+            "old terminal facts",
+            "new terminal facts",
+        ])
+
+    def test_rebalance_runs_at_most_one_transition_for_each_memory_tier(self) -> None:
+        blocks = [
+            _block(1, 100, "latest_full", "previous full turn", token_count=50),
+            _block(2, 98, "fresh_detailed", "old detailed one", token_count=100),
+            _block(3, 97, "fresh_detailed", "old detailed two", token_count=100),
+            _block(4, 96, "compressed", "old compressed one", token_count=100),
+            _block(5, 95, "compressed", "old compressed two", token_count=100),
+            _block(6, 101, "latest_full", "latest full turn", token_count=5),
+        ]
+
+        def create_memory_block(**kwargs):
+            block = _block(
+                max(item.id for item in blocks) + 1,
+                kwargs["assistant_message_id"],
+                kwargs["layer"],
+                kwargs["content"],
+                token_count=5,
+            )
+            block.title = kwargs["title"]
+            blocks.append(block)
+            return block
+
+        def promote_once(**kwargs):
+            self.assertEqual(len(kwargs["source_blocks"]), 1)
+            return True, kwargs["max_model_requests_left"] - 1
+
+        with (
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget(fresh=10, compressed=10)),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
+            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[101]),
+            patch.object(
+                story_memory_pipeline,
+                "_compress_story_memory_block_with_model",
+                return_value=("Detailed memory", "compressed previous turn"),
+            ) as compress_mock,
+            patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
+            patch.object(story_memory_pipeline, "_promote_blocks", side_effect=promote_once) as promote_mock,
+        ):
+            story_memory_pipeline._rebalance_story_memory_layers(
+                db=_FakeSession(blocks),
+                game=_game(),
+                max_model_requests=3,
+            )
+
+        self.assertEqual(compress_mock.call_count, 1)
+        self.assertEqual(promote_mock.call_count, 2)
+        self.assertEqual(
+            [call.kwargs["target_layer"] for call in promote_mock.call_args_list],
+            ["compressed", "facts"],
+        )
 
     def test_optimize_memory_state_accepts_legacy_endpoint_kwargs(self) -> None:
         with patch.object(story_memory_pipeline, "_rebalance_story_memory_layers", return_value=True) as rebalance_mock:

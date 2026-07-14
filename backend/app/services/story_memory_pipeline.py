@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import main as monolith_main
-from app.config import POLZA_GEMINI_25_FLASH_MODEL, settings
+from app.config import POLZA_STORY_SERVICE_TEXT_MODEL, settings
 from app.models import StoryGame, StoryMemoryBlock, StoryMessage, StoryWorldCard
 from app.services.story_game_state_analysis import (
     NpcCardDedupService,
@@ -95,9 +95,9 @@ STORY_MEMORY_LAYER_RAW = STORY_MEMORY_LAYER_LATEST_FULL
 STORY_MEMORY_LAYER_COMPRESSED = STORY_MEMORY_LAYER_COMPRESSED_SUMMARY
 STORY_MEMORY_LAYER_SUPER = STORY_MEMORY_LAYER_FACTS
 
-STORY_TURN_POSTPROCESS_MODEL = POLZA_GEMINI_25_FLASH_MODEL
-STORY_ENVIRONMENT_ANALYSIS_MODEL = POLZA_GEMINI_25_FLASH_MODEL
-STORY_CHARACTER_STATE_GENERATION_MODEL = POLZA_GEMINI_25_FLASH_MODEL
+STORY_TURN_POSTPROCESS_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
+STORY_ENVIRONMENT_ANALYSIS_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
+STORY_CHARACTER_STATE_GENERATION_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
 STORY_MEMORY_RAW_KEEP_LATEST_ASSISTANT_FULL_TURNS = 1
 STORY_DEFAULT_MEMORY_TOKEN_LIMIT = 30_000
 
@@ -110,10 +110,16 @@ STORY_IMPORTANT_MEMORY_MODEL_MAX_ATTEMPTS = 1
 # additionally enforce this floor server-side, so trivial turns never leak into long-term memory.
 STORY_IMPORTANT_MEMORY_MIN_SIGNIFICANCE = 7
 STORY_MEMORY_HTTP_MAX_REQUESTS = 1
+STORY_MEMORY_MAX_TRANSITIONS_PER_TURN = 3
 STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO = 900
 STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO = 0.78
 STORY_MEMORY_DETAILED_COPY_NGRAM_SIZE = 12
 STORY_MEMORY_DETAILED_COPY_RATIO_LIMIT = 0.32
+STORY_SERVICE_WORLD_CONTEXT_MAX_CARDS = 12
+STORY_SERVICE_WORLD_CONTEXT_CARD_MAX_CHARS = 1_200
+STORY_SERVICE_CHARACTER_DESCRIPTION_MAX_CHARS = 600
+STORY_SERVICE_IMPORTANT_MEMORY_MAX_ITEMS = 20
+STORY_SERVICE_IMPORTANT_MEMORY_MAX_CHARS = 600
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -199,7 +205,7 @@ def _request_polza_story_text(messages_payload: list[dict[str, str]], *args: Any
     requested_model = str(kwargs.get("model_name") or STORY_TURN_POSTPROCESS_MODEL).strip()
     service_models = {
         STORY_TURN_POSTPROCESS_MODEL,
-        POLZA_GEMINI_25_FLASH_MODEL,
+        POLZA_STORY_SERVICE_TEXT_MODEL,
         str(getattr(settings, "polza_plot_card_model", "") or "").strip(),
     }
     if include_configured_service_fallback and requested_model in service_models:
@@ -216,16 +222,16 @@ def _request_polza_story_text(messages_payload: list[dict[str, str]], *args: Any
     return monolith_main._request_polza_story_text(repaired_messages, *args, **kwargs)
 
 
-def _llm_service(*, gemini_only: bool = False) -> LlmModuleService:
+def _llm_service(*, service_model_only: bool = False) -> LlmModuleService:
     return LlmModuleService(
         _request_polza_story_text,
-        primary_model=POLZA_GEMINI_25_FLASH_MODEL,
+        primary_model=POLZA_STORY_SERVICE_TEXT_MODEL,
         fallback_models=(
             []
-            if gemini_only
+            if service_model_only
             else [str(getattr(settings, "polza_service_fallback_model", "") or "").strip()]
         ),
-        include_configured_fallback=not gemini_only,
+        include_configured_fallback=not service_model_only,
     )
 
 
@@ -501,23 +507,23 @@ def _validate_detailed_memory_model_result(
     result = _normalize_story_message_content(result_content)
     summary = _normalize_story_message_content(payload.summary)
     if not summary:
-        raise RuntimeError("Gemini detailed memory returned empty summary")
+        raise RuntimeError("Service model detailed memory returned empty summary")
     if re.search(
         r"\b(?:PLAYER_TURN|NARRATOR_RESPONSE|Important entities|State changes|Open threads)\s*:",
         summary,
         flags=re.IGNORECASE,
     ):
-        raise RuntimeError("Gemini detailed memory leaked raw memory markers into summary")
+        raise RuntimeError("Service model detailed memory leaked raw memory markers into summary")
     if len(source) >= STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO:
         max_result_length = max(
             STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO,
             int(len(source) * STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO),
         )
         if len(result) > max_result_length:
-            raise RuntimeError("Gemini detailed memory was not shorter than the source turn")
+            raise RuntimeError("Service model detailed memory was not shorter than the source turn")
     copied_ratio = _story_memory_copied_ngram_ratio(source_content=source, candidate_content=summary)
     if copied_ratio > STORY_MEMORY_DETAILED_COPY_RATIO_LIMIT:
-        raise RuntimeError("Gemini detailed memory copied too much source text")
+        raise RuntimeError("Service model detailed memory copied too much source text")
 
 
 def _compress_story_memory_block_with_model(
@@ -533,7 +539,7 @@ def _compress_story_memory_block_with_model(
     content = _normalize_story_message_content(raw_content)
     if not content:
         raise ValueError("Cannot compress empty memory block")
-    service = _llm_service(gemini_only=True)
+    service = _llm_service(service_model_only=True)
     with use_story_service_http_request_budget_or_reserve(STORY_MEMORY_HTTP_MAX_REQUESTS):
         if super_mode:
             payload, _meta = service.call_json(
@@ -569,14 +575,14 @@ def _compress_story_memory_block_with_model(
                 )
             except RuntimeError as exc:
                 logger.warning(
-                    "Gemini detailed memory semantic validation failed",
+                    "Service model detailed memory semantic validation failed",
                     extra={
                         "attempt": attempt_index + 1,
                         "validationErrors": str(exc),
                     },
                 )
                 if attempt_index + 1 >= STORY_MEMORY_MODEL_MAX_ATTEMPTS:
-                    raise RuntimeError(f"Gemini detailed memory failed semantic validation: {exc}") from exc
+                    raise RuntimeError(f"Service model detailed memory failed semantic validation: {exc}") from exc
                 messages = [
                     *messages,
                     {
@@ -584,7 +590,7 @@ def _compress_story_memory_block_with_model(
                         "content": (
                             "Previous JSON was valid, but it was rejected because the summary was too close to the "
                             "source text or too long. Return a shorter factual retelling, not copied prose. "
-                            "Use Gemini to compress the same turn again. Return only strict JSON."
+                            "Use the internal service model to compress the same turn again. Return only strict JSON."
                         ),
                     },
                 ]
@@ -684,7 +690,7 @@ def _promote_blocks(
 ) -> tuple[bool, int]:
     if not source_blocks or max_model_requests_left <= 0:
         return False, max_model_requests_left
-    service = _llm_service(gemini_only=True)
+    service = _llm_service(service_model_only=True)
     block_payloads = [
         {
             "id": int(getattr(block, "id", 0) or 0),
@@ -750,15 +756,22 @@ def _rebalance_story_memory_layers(
     *,
     db: Session,
     game: StoryGame,
-    max_model_requests: int = 4,
+    max_model_requests: int = STORY_MEMORY_MAX_TRANSITIONS_PER_TURN,
     require_model_compaction: bool = False,
     commit_each_model_compaction: bool = False,
     backfill_existing_compact_layers: bool = False,
-    prioritize_recent_transitions: bool = False,
+    prioritize_recent_transitions: bool = True,
 ) -> bool:
     _ = backfill_existing_compact_layers
     budget = _calculate_memory_budget(db, game)
-    requests_left = max(int(max_model_requests or 0), 0)
+    # A turn may run at most one transition per tier: previous full turn -> detailed,
+    # one detailed -> compressed, and one compressed -> facts. It must never sweep a backlog.
+    requested_model_calls = (
+        STORY_MEMORY_MAX_TRANSITIONS_PER_TURN
+        if max_model_requests is None
+        else max(int(max_model_requests), 0)
+    )
+    requests_left = min(requested_model_calls, STORY_MEMORY_MAX_TRANSITIONS_PER_TURN)
     changed = False
     successful_raw_compactions = 0
     raw_compaction_failures: list[Exception] = []
@@ -778,7 +791,7 @@ def _rebalance_story_memory_layers(
             ),
         ),
     )
-    for block in list(stale_latest):
+    for block in list(stale_latest[:1]):
         if requests_left <= 0:
             break
         block_id = int(getattr(block, "id", 0) or 0)
@@ -835,7 +848,7 @@ def _rebalance_story_memory_layers(
     if raw_compaction_failures and require_model_compaction and successful_raw_compactions <= 0:
         first_failure = raw_compaction_failures[0]
         raise RuntimeError(
-            f"Gemini memory compression failed for all attempted blocks: {first_failure}"
+            f"Service-model memory compression failed for all attempted blocks: {first_failure}"
         ) from first_failure
 
     fresh_blocks = sorted(
@@ -857,7 +870,7 @@ def _rebalance_story_memory_layers(
                 promoted, requests_left = _promote_blocks(
                     db=db,
                     game=game,
-                    source_blocks=promotable[: max(1, min(len(promotable), 6))],
+                    source_blocks=promotable[:1],
                     target_layer=STORY_MEMORY_LAYER_COMPRESSED_SUMMARY,
                     prompt_name=LLM_COMPRESSED_MEMORY_PROMPT_NAME,
                     max_model_requests_left=requests_left,
@@ -877,7 +890,7 @@ def _rebalance_story_memory_layers(
             promoted, requests_left = _promote_blocks(
                 db=db,
                 game=game,
-                source_blocks=compressed_blocks[: max(1, min(len(compressed_blocks), 8))],
+                source_blocks=compressed_blocks[:1],
                 target_layer=STORY_MEMORY_LAYER_FACTS,
                 prompt_name=LLM_FACT_MEMORY_PROMPT_NAME,
                 max_model_requests_left=requests_left,
@@ -888,25 +901,8 @@ def _rebalance_story_memory_layers(
                 raise
             logger.warning("Story compressed_summary promotion failed", exc_info=True)
 
-    facts_blocks = sorted(
-        _layer_blocks(db, game, {STORY_MEMORY_LAYER_FACTS}),
-        key=lambda item: int(getattr(item, "id", 0) or 0),
-    )
-    if len(facts_blocks) > 1 and _sum_block_tokens(facts_blocks) > budget.facts_budget and requests_left > 0:
-        try:
-            promoted, requests_left = _promote_blocks(
-                db=db,
-                game=game,
-                source_blocks=facts_blocks[: max(2, min(len(facts_blocks), 10))],
-                target_layer=STORY_MEMORY_LAYER_FACTS,
-                prompt_name=LLM_FACT_MEMORY_PROMPT_NAME,
-                max_model_requests_left=requests_left,
-            )
-            changed = changed or promoted
-        except Exception:
-            if require_model_compaction:
-                raise
-            logger.warning("Story facts merge failed", exc_info=True)
+    # Facts are the terminal tier. Never merge facts back into facts: that would repeatedly
+    # rewrite already-optimized history on later turns, violating one-time tier promotion.
 
     return changed
 
@@ -1325,7 +1321,7 @@ def _sync_story_character_state_cards(
             if card is None:
                 skipped_updates += 1
                 logger.warning(
-                    "Story character-state update skipped because Gemini reference did not match a tracked card: "
+                    "Story character-state update skipped because the service-model reference did not match a tracked card: "
                     "game_id=%s assistant_message_id=%s character_id=%s character_name=%s",
                     game.id,
                     assistant_message.id,
@@ -1346,7 +1342,7 @@ def _sync_story_character_state_cards(
             if current_location_content and not str(card.get("location") or "").strip():
                 card["location"] = _state_location_from_content(current_location_content)
         logger.info(
-            "Story character-state Gemini actions processed: game_id=%s assistant_message_id=%s "
+            "Story character-state service-model actions processed: game_id=%s assistant_message_id=%s "
             "applied=%s skipped=%s",
             game.id,
             assistant_message.id,
@@ -1368,6 +1364,41 @@ def _build_existing_character_cards(db: Session, game: StoryGame, cards: list[An
         for payload in (world_card_to_character_payload(card) for card in source_cards)
         if payload is not None
     ]
+
+
+def _compact_story_service_text(value: Any, *, max_chars: int) -> str:
+    normalized = _normalize_story_message_content(value)
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[:max(max_chars, 1)].rstrip()
+
+
+def _build_compact_story_world_context(cards: list[Any]) -> str:
+    compact_cards: list[dict[str, Any]] = []
+    for card in list(cards or [])[:STORY_SERVICE_WORLD_CONTEXT_MAX_CARDS]:
+        if isinstance(card, dict):
+            compact_cards.append(
+                {
+                    "kind": card.get("kind"),
+                    "title": card.get("title") or card.get("name"),
+                    "content": _compact_story_service_text(
+                        card.get("content") or card.get("description"),
+                        max_chars=STORY_SERVICE_WORLD_CONTEXT_CARD_MAX_CHARS,
+                    ),
+                }
+            )
+        else:
+            compact_cards.append(
+                {
+                    "kind": getattr(card, "kind", ""),
+                    "title": getattr(card, "title", ""),
+                    "content": _compact_story_service_text(
+                        getattr(card, "content", ""),
+                        max_chars=STORY_SERVICE_WORLD_CONTEXT_CARD_MAX_CHARS,
+                    ),
+                }
+            )
+    return build_world_card_context(compact_cards)
 
 
 def _sync_story_auto_npc_cards_for_assistant_message(
@@ -1407,7 +1438,7 @@ def _sync_story_auto_npc_cards_for_assistant_message(
     actions = payload.get("actions") if isinstance(payload, dict) else payload
     if not isinstance(actions, list):
         logger.warning(
-            "Story auto-NPC Gemini payload has no actions list: game_id=%s assistant_message_id=%s",
+            "Story auto-NPC service-model payload has no actions list: game_id=%s assistant_message_id=%s",
             game.id,
             assistant_message.id,
         )
@@ -1421,9 +1452,19 @@ def _sync_story_auto_npc_cards_for_assistant_message(
     for action in actions:
         if not isinstance(action, dict):
             continue
-        dedup_triggers: list[str] = []
         action_type = str(action.get("type") or "").strip()
         if action_type == "no_action":
+            continue
+        # Auto cards are creation-only. An existing character card is immutable here: its
+        # description, aliases and all other fields can only be edited explicitly by the user.
+        if action_type == "update_existing_card":
+            logger.info(
+                "Story auto-NPC update ignored by creation-only policy: game_id=%s "
+                "assistant_message_id=%s existing_card_id=%s",
+                game.id,
+                assistant_message.id,
+                action.get("existing_card_id"),
+            )
             continue
         existing_id = _safe_int(action.get("existing_card_id"))
         target_card = db.get(StoryWorldCard, existing_id) if existing_id > 0 else None
@@ -1458,8 +1499,14 @@ def _sync_story_auto_npc_cards_for_assistant_message(
                 candidates=candidates,
             )
             if target_card is not None:
-                action_type = "update_existing_card"
-                dedup_triggers = triggers
+                logger.info(
+                    "Story auto-NPC duplicate ignored by creation-only policy: game_id=%s "
+                    "assistant_message_id=%s existing_card_id=%s",
+                    game.id,
+                    assistant_message.id,
+                    getattr(target_card, "id", None),
+                )
+                continue
             elif name:
                 description = str(new_card.get("description") or "").strip()
                 personality = str(new_card.get("personality") or "").strip()
@@ -1485,59 +1532,6 @@ def _sync_story_auto_npc_cards_for_assistant_message(
                     extra={"gameId": game.id, "turnId": assistant_message.id, "npcDedupDecision": "create_card"},
                 )
                 continue
-        if (
-            action_type == "update_existing_card"
-            and target_card is not None
-            and not bool(getattr(target_card, "ai_edit_enabled", True))
-        ):
-            logger.info(
-                "Story auto-NPC dedup matched an AI-locked card; update ignored: "
-                "game_id=%s assistant_message_id=%s existing_card_id=%s",
-                game.id,
-                assistant_message.id,
-                getattr(target_card, "id", None),
-            )
-            continue
-        if action_type == "update_existing_card" and target_card is not None:
-            update = action.get("update_existing") if isinstance(action.get("update_existing"), dict) else {}
-            add_triggers = [
-                str(item).strip()
-                for item in [*dedup_triggers, *update.get("add_triggers", [])]
-                if str(item or "").strip()
-            ]
-            current_triggers = [str(item).strip() for item in parse_json_list(getattr(target_card, "triggers", "[]")) if str(item or "").strip()]
-            merged_triggers: list[str] = []
-            seen_trigger_keys: set[str] = set()
-            for trigger in [*current_triggers, *add_triggers]:
-                trigger_key = normalize_match_text(trigger)
-                if not trigger_key or trigger_key in seen_trigger_keys:
-                    continue
-                seen_trigger_keys.add(trigger_key)
-                merged_triggers.append(trigger)
-            notes = str(update.get("notes") or "").strip()
-            changed = False
-            next_triggers_json = json.dumps(merged_triggers, ensure_ascii=False)
-            if target_card.triggers != next_triggers_json:
-                target_card.triggers = next_triggers_json
-                changed = True
-            if notes and notes not in str(target_card.content or ""):
-                target_card.content = "\n".join(part for part in [str(target_card.content or "").strip(), notes] if part)
-                changed = True
-            if changed:
-                db.flush()
-                changed_cards.append(target_card)
-                logger.info(
-                    "Story NPC dedup decision",
-                    extra={"gameId": game.id, "turnId": assistant_message.id, "npcDedupDecision": "update_existing_card"},
-                )
-        elif action_type == "update_existing_card":
-            logger.warning(
-                "Story auto-NPC update skipped because Gemini did not provide a valid existing card id: "
-                "game_id=%s assistant_message_id=%s existing_card_id=%s",
-                game.id,
-                assistant_message.id,
-                action.get("existing_card_id"),
-            )
     return changed_cards
 
 
@@ -1587,7 +1581,7 @@ def _extract_story_postprocess_memory_payload(
             result["call_count"] += 1
         except Exception:
             logger.warning(
-                "Important-memory analysis failed after Gemini retries: game_id=%s",
+                "Important-memory analysis failed after service-model retries: game_id=%s",
                 game.id,
                 exc_info=True,
             )
@@ -1604,12 +1598,12 @@ def _extract_story_postprocess_memory_payload(
         source_world_cards: list[Any] = list(list_story_world_cards(db, game.id))
     except Exception:
         logger.warning(
-            "Failed to load complete world-card context for Gemini post-process: game_id=%s",
+            "Failed to load complete world-card context for service-model post-process: game_id=%s",
             game.id,
             exc_info=True,
         )
         source_world_cards = list(world_cards or [])
-    world_context_cards = list(world_cards or source_world_cards)
+    world_context_cards = list(world_cards) if world_cards is not None else source_world_cards
     existing_character_cards = _build_existing_character_cards(db, game, source_world_cards)
     candidates = _NPC_DEDUP_SERVICE.build_candidates(
         cards=source_world_cards,
@@ -1618,6 +1612,46 @@ def _extract_story_postprocess_memory_payload(
     )
     main_hero_card = next((item for item in existing_character_cards if item.get("kind") == "main_hero"), None)
     current_states = _story_character_state_cards_from_game(game) if character_state_enabled else []
+    relevant_character_ids = {
+        _safe_int(item.get("id"))
+        for item in candidates
+        if isinstance(item, dict) and _safe_int(item.get("id")) > 0
+    }
+    main_hero_id = _safe_int(main_hero_card.get("id")) if isinstance(main_hero_card, dict) else 0
+    if main_hero_id > 0:
+        relevant_character_ids.add(main_hero_id)
+    current_states = [
+        item
+        for item in current_states
+        if isinstance(item, dict)
+        and _safe_int(item.get("world_card_id") or item.get("id")) in relevant_character_ids
+    ]
+    for character in existing_character_cards:
+        is_relevant = (
+            str(character.get("kind") or "") == "main_hero"
+            or _safe_int(character.get("id")) in relevant_character_ids
+        )
+        character["description"] = (
+            _compact_story_service_text(
+                character.get("description"),
+                max_chars=STORY_SERVICE_CHARACTER_DESCRIPTION_MAX_CHARS,
+            )
+            if is_relevant
+            else ""
+        )
+        character["triggers"] = list(character.get("triggers") or [])[:16]
+    compact_candidates = [
+        {
+            **candidate,
+            "description": _compact_story_service_text(
+                candidate.get("description"),
+                max_chars=STORY_SERVICE_CHARACTER_DESCRIPTION_MAX_CHARS,
+            ),
+            "triggers": list(candidate.get("triggers") or [])[:16],
+        }
+        for candidate in candidates
+        if isinstance(candidate, dict)
+    ]
     previous_location = {
         "display": _normalize_story_location_memory_label(current_location_content)
         or str(getattr(game, "current_location_label", "") or "").strip()
@@ -1625,11 +1659,11 @@ def _extract_story_postprocess_memory_payload(
     }
     messages = build_game_state_analysis_messages(
         requested_modules=requested_modules,
-        world_card=build_world_card_context(world_context_cards),
+        world_card=_build_compact_story_world_context(world_context_cards),
         previous_location=previous_location,
         player_character_card=main_hero_card,
         existing_character_cards=existing_character_cards,
-        npc_dedup_candidates=candidates,
+        npc_dedup_candidates=compact_candidates,
         current_character_states=current_states,
         player_turn=_normalize_story_message_content(latest_user_prompt),
         previous_narrator_response=_normalize_story_assistant_text_for_analysis(previous_assistant_text),
@@ -1641,7 +1675,7 @@ def _extract_story_postprocess_memory_payload(
         response_max_tokens = 2_400
     else:
         response_max_tokens = 1_400
-    payload, _meta = _llm_service(gemini_only=True).call_json(
+    payload, _meta = _llm_service(service_model_only=True).call_json(
         messages=messages,
         schema=GameStateAnalysisPayload,
         module=LLM_GAME_STATE_ANALYSIS_PROMPT_NAME,
@@ -1700,7 +1734,7 @@ def _extract_story_world_analysis_payload(
     world_cards: list[Any] | None = None,
     max_attempts: int = 1,
 ) -> dict[str, Any] | None:
-    """Call A — один Gemini-вызов на все «мировые» модули хода.
+    """Call A — один вызов внутренней сервисной модели на все «мировые» модули хода.
 
     Возвращает только секции включённых модулей в формате, который ждут существующие
     потребители (location.content, important_event как кортеж, ambient/
@@ -1724,7 +1758,7 @@ def _extract_story_world_analysis_payload(
         source_world_cards: list[Any] = list(world_cards or list_story_world_cards(db, game.id))
     except Exception:
         logger.warning(
-            "Failed to load world-card context for Gemini world analysis: game_id=%s",
+            "Failed to load world-card context for service-model world analysis: game_id=%s",
             game.id,
             exc_info=True,
         )
@@ -1741,11 +1775,14 @@ def _extract_story_world_analysis_payload(
         existing_important_memories = [
             {
                 "title": str(getattr(block, "title", "") or "").strip(),
-                "summary": str(getattr(block, "content", "") or "").strip(),
+                "summary": _compact_story_service_text(
+                    getattr(block, "content", ""),
+                    max_chars=STORY_SERVICE_IMPORTANT_MEMORY_MAX_CHARS,
+                ),
             }
             for block in _list_story_memory_blocks(db, game.id)
             if _normalize_story_memory_layer(getattr(block, "layer", "")) == STORY_MEMORY_LAYER_KEY
-        ][-40:]
+        ][-STORY_SERVICE_IMPORTANT_MEMORY_MAX_ITEMS:]
 
     environment_time_facts = ""
     environment_weather_facts = ""
@@ -1764,7 +1801,7 @@ def _extract_story_world_analysis_payload(
         player_turn=_normalize_story_message_content(latest_user_prompt),
         previous_narrator_response=_normalize_story_assistant_text_for_analysis(previous_assistant_text),
         narrator_response=_normalize_story_assistant_text_for_analysis(latest_assistant_text),
-        world_card=build_world_card_context(source_world_cards),
+        world_card=_build_compact_story_world_context(source_world_cards),
         previous_location=previous_location,
         existing_important_memories=existing_important_memories,
         environment_time_enabled=environment_time_enabled,
@@ -1772,7 +1809,7 @@ def _extract_story_world_analysis_payload(
         environment_time_facts=environment_time_facts,
         environment_weather_facts=environment_weather_facts,
     )
-    payload, _meta = _llm_service(gemini_only=True).call_json(
+    payload, _meta = _llm_service(service_model_only=True).call_json(
         messages=messages,
         schema=WorldAnalysisPayload,
         module=LLM_WORLD_ANALYSIS_PROMPT_NAME,
@@ -2461,7 +2498,10 @@ def _sync_story_raw_memory_blocks_for_recent_turns(
 
 
 def _optimize_story_memory_state(*, db: Session, game: StoryGame, **kwargs: Any) -> bool:
-    max_model_requests = int(kwargs.pop("max_model_requests", 4) or 4)
+    max_model_requests = int(
+        kwargs.pop("max_model_requests", STORY_MEMORY_MAX_TRANSITIONS_PER_TURN)
+        or STORY_MEMORY_MAX_TRANSITIONS_PER_TURN
+    )
     kwargs.pop("starting_assistant_message_id", None)
     kwargs.pop("max_assistant_messages", None)
     return _rebalance_story_memory_layers(db=db, game=game, max_model_requests=max_model_requests, **kwargs)
@@ -2534,7 +2574,7 @@ def _extract_story_important_plot_card_payload(
         for block in _list_story_memory_blocks(db, game.id)
         if _normalize_story_memory_layer(getattr(block, "layer", "")) == STORY_MEMORY_LAYER_KEY
     ][-40:]
-    payload, _meta = _llm_service(gemini_only=True).call_json(
+    payload, _meta = _llm_service(service_model_only=True).call_json(
         messages=build_important_memory_messages(
             player_turn=player_turn,
             narrator_response=narrator_response,
@@ -2563,7 +2603,7 @@ def _extract_story_important_plot_card_payload(
     title = _base_normalize_memory_title(payload.title)
     content = _sanitize_story_key_memory_content(payload.summary)
     if not _is_story_key_memory_content_valid(content):
-        raise RuntimeError("Gemini important-memory module returned invalid content")
+        raise RuntimeError("Service-model important-memory module returned invalid content")
     return title, content
 
 

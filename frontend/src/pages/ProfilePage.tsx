@@ -42,7 +42,7 @@ import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import { MobileCardItem } from '../components/mobile/MobileCardSlider'
-import AdminPanelDialog from '../components/profile/AdminPanelDialog'
+import AdminPanelDialog, { type AdminPanelInitialTarget } from '../components/profile/AdminPanelDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
@@ -63,8 +63,10 @@ import {
   getShopCatalog,
   listCurrentUserNotifications,
   markAllCurrentUserNotificationsRead,
+  markCurrentUserNotificationRead,
   getProfileView,
   getCoinTopUpPlans,
+  listProfileContentPage,
   syncCoinTopUpPayment,
   unfollowUserProfile,
   updateCurrentUserAvatar,
@@ -74,6 +76,8 @@ import {
   type CosmeticItem,
   type ProfileFollowState,
   type ProfileGalleryImage,
+  type ProfileContentItem,
+  type ProfileContentKind,
   type ProfileView,
   type ReferralSummary,
   type UserNotificationCounters,
@@ -139,6 +143,7 @@ type ProfileServerPage<T> = {
   items: T[]
   hasMore: boolean
 }
+type ProfileContentPagingState = Record<ProfileContentKind, { hasMore: boolean; isLoading: boolean }>
 
 const PROFILE_NAME_MAX = 25
 const PROFILE_DESC_MAX = 2000
@@ -156,6 +161,58 @@ const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 const PROFILE_CONTENT_SKELETON_CARD_KEYS = Array.from({ length: 4 }, (_, index) => `profile-content-skeleton-${index}`)
 const PROFILE_TAB_BUTTON_SKELETON_KEYS = Array.from({ length: 6 }, (_, index) => `profile-tab-skeleton-${index}`)
 const PROFILE_PUBLICATION_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
+const PROFILE_VIEW_FIELD_BY_CONTENT_KIND = {
+  subscriptions: 'subscriptions',
+  published_worlds: 'published_worlds',
+  published_characters: 'published_characters',
+  published_instruction_templates: 'published_instruction_templates',
+  unpublished_worlds: 'unpublished_worlds',
+  gallery_images: 'gallery_images',
+} as const satisfies Record<ProfileContentKind, keyof ProfileView>
+const PROFILE_VIEW_TOTAL_FIELD_BY_CONTENT_KIND = {
+  subscriptions: 'subscriptions_count',
+  published_worlds: 'published_worlds_count',
+  published_characters: 'published_characters_count',
+  published_instruction_templates: 'published_instruction_templates_count',
+  unpublished_worlds: 'unpublished_worlds_count',
+  gallery_images: 'gallery_images_count',
+} as const satisfies Record<ProfileContentKind, keyof ProfileView>
+
+function createProfileContentPagingState(view?: ProfileView | null): ProfileContentPagingState {
+  const mayHaveAnotherPage = (items: unknown[]) => items.length >= PROFILE_CARD_BATCH_SIZE
+  const hasRemaining = (items: unknown[], total: number) =>
+    items.length < Math.max(total, items.length) || (total <= 0 && mayHaveAnotherPage(items))
+  return {
+    subscriptions: {
+      hasMore: view
+        ? view.subscriptions.length < Math.max(view.subscriptions_count, view.subscriptions.length)
+        : false,
+      isLoading: false,
+    },
+    published_worlds: {
+      hasMore: view ? hasRemaining(view.published_worlds, view.published_worlds_count) : false,
+      isLoading: false,
+    },
+    published_characters: {
+      hasMore: view ? hasRemaining(view.published_characters, view.published_characters_count) : false,
+      isLoading: false,
+    },
+    published_instruction_templates: {
+      hasMore: view
+        ? hasRemaining(view.published_instruction_templates, view.published_instruction_templates_count)
+        : false,
+      isLoading: false,
+    },
+    unpublished_worlds: {
+      hasMore: view ? hasRemaining(view.unpublished_worlds, view.unpublished_worlds_count) : false,
+      isLoading: false,
+    },
+    gallery_images: {
+      hasMore: view ? hasRemaining(view.gallery_images, view.gallery_images_count) : false,
+      isLoading: false,
+    },
+  }
+}
 const DEFAULT_CLONE_SELECTION: CloneSelectionState = {
   instructions: true,
   plot: true,
@@ -627,6 +684,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [profileView, setProfileView] = useState<ProfileView | null>(null)
   const [isProfileViewLoading, setIsProfileViewLoading] = useState(false)
+  const [profileContentPaging, setProfileContentPaging] = useState<ProfileContentPagingState>(() =>
+    createProfileContentPagingState(),
+  )
   const [isFollowSaving, setIsFollowSaving] = useState(false)
   const [privacyDialogOpen, setPrivacyDialogOpen] = useState(false)
   const [isSavingPrivacy, setIsSavingPrivacy] = useState(false)
@@ -709,6 +769,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [avatarError, setAvatarError] = useState('')
   const [logoutOpen, setLogoutOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
+  const [adminInitialTarget, setAdminInitialTarget] = useState<AdminPanelInitialTarget | null>(null)
 
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const lastContentTabRef = useRef<TabId>('characters')
@@ -766,6 +827,45 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     resolvedProfileUser.profile_banner_id.startsWith('b') && !resolvedProfileUser.profile_banner_image_url
   const resolvedAvatarUser = isOwnProfile ? user : toAvatarUser(resolvedProfileUser)
   const resolvedCanOpenAdmin = isOwnProfile && canOpenAdmin
+
+  const parseAdminTarget = useCallback((actionUrl: string): AdminPanelInitialTarget | null => {
+    try {
+      const parsed = new URL(actionUrl, 'https://morius.local')
+      if (parsed.pathname.replace(/\/+$/, '') !== '/profile') {
+        return null
+      }
+      const tab = parsed.searchParams.get('admin')
+      const targetType = parsed.searchParams.get('target_type')
+      const targetId = Number.parseInt(parsed.searchParams.get('target_id') ?? '', 10)
+      if (!Number.isFinite(targetId) || targetId <= 0) {
+        return null
+      }
+      if (tab === 'bug_reports' && targetType === 'bug_report') {
+        return { tab, targetType, targetId }
+      }
+      if (
+        (tab === 'moderation' || tab === 'reports') &&
+        (targetType === 'world' || targetType === 'character' || targetType === 'instruction_template')
+      ) {
+        return { tab, targetType, targetId }
+      }
+    } catch {
+      return null
+    }
+    return null
+  }, [])
+
+  useEffect(() => {
+    if (!resolvedCanOpenAdmin || typeof window === 'undefined') {
+      return
+    }
+    const target = parseAdminTarget(`${window.location.pathname}${window.location.search}`)
+    if (!target) {
+      return
+    }
+    setAdminInitialTarget(target)
+    setAdminOpen(true)
+  }, [parseAdminTarget, resolvedCanOpenAdmin])
   const followersCount = Math.max(0, profileView?.followers_count ?? 0)
   const subscriptionsCount = Math.max(0, profileView?.subscriptions_count ?? 0)
   const canViewSubscriptions = Boolean(profileView?.can_view_subscriptions)
@@ -1091,6 +1191,60 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       ),
     [instructionSortMode, profilePublicationTemplates],
   )
+  const loadMoreProfileContent = useCallback(
+    async (kind: ProfileContentKind) => {
+      const pagingState = profileContentPaging[kind]
+      const field = PROFILE_VIEW_FIELD_BY_CONTENT_KIND[kind]
+      const totalField = PROFILE_VIEW_TOTAL_FIELD_BY_CONTENT_KIND[kind]
+      const currentItems = (profileView?.[field] ?? []) as ProfileContentItem[]
+      const expectedTotal = Math.max(Number(profileView?.[totalField] ?? 0), currentItems.length)
+      const targetUserId = profileView?.user.id ?? normalizedViewedUserId ?? user.id
+      if (!profileView || pagingState.isLoading || !pagingState.hasMore || targetUserId <= 0) {
+        return
+      }
+
+      setProfileContentPaging((previous) => ({
+        ...previous,
+        [kind]: { ...previous[kind], isLoading: true },
+      }))
+      setError('')
+      try {
+        const loadedItems = await listProfileContentPage<ProfileContentItem>({
+          token: authToken,
+          userId: targetUserId,
+          kind,
+          limit: PROFILE_SERVER_REQUEST_SIZE,
+          offset: currentItems.length,
+        })
+        const page = splitProfileServerPage(loadedItems)
+        const mergedItems = mergeProfileServerItems(currentItems, page.items)
+        setProfileView((previous) => {
+          if (!previous) {
+            return previous
+          }
+          return {
+            ...previous,
+            [field]: mergeProfileServerItems(previous[field] as ProfileContentItem[], page.items),
+          } as ProfileView
+        })
+        setProfileContentPaging((previous) => ({
+          ...previous,
+          [kind]: {
+            hasMore: loadedItems.length > 0 && (page.hasMore || mergedItems.length < expectedTotal),
+            isLoading: false,
+          },
+        }))
+      } catch (requestError) {
+        const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить следующую страницу профиля'
+        setError(detail)
+        setProfileContentPaging((previous) => ({
+          ...previous,
+          [kind]: { ...previous[kind], isLoading: false },
+        }))
+      }
+    },
+    [authToken, normalizedViewedUserId, profileContentPaging, profileView, user.id],
+  )
   const loadMoreOwnGames = useCallback(async () => {
     if (!isOwnProfile || isOwnGamesLoading || isOwnGamesLoadingMore || !hasMoreOwnGamesServer) {
       return
@@ -1106,8 +1260,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         query: normalizedContentSearchQuery || undefined,
       })
       const page = splitProfileServerPage(loadedGames)
-      setOwnGames((previous) => mergeProfileServerItems(previous, page.items))
-      setHasMoreOwnGamesServer(page.hasMore)
+      const mergedGames = mergeProfileServerItems(ownGames, page.items)
+      setOwnGames(mergedGames)
+      const expectedTotal = normalizedContentSearchQuery
+        ? 0
+        : Math.max(profileView?.games_count ?? 0, mergedGames.length)
+      setHasMoreOwnGamesServer(
+        loadedGames.length > 0 && (page.hasMore || mergedGames.length < expectedTotal),
+      )
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить еще игры'
       setError(detail)
@@ -1122,10 +1282,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     isOwnGamesLoadingMore,
     isOwnProfile,
     normalizedContentSearchQuery,
-    ownGames.length,
+    ownGames,
+    profileView?.games_count,
   ])
   const loadMoreCharacters = useCallback(async () => {
-    if (!isOwnProfile || isLoadingContent || isCharactersLoadingMore || !hasMoreCharactersServer) {
+    if (!isOwnProfile || isCharactersLoadingMore || !hasMoreCharactersServer) {
       return
     }
     setIsCharactersLoadingMore(true)
@@ -1138,8 +1299,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         includeEmotionAssets: false,
       })
       const page = splitProfileServerPage(loadedCharacters)
-      setCharacters((previous) => mergeProfileServerItems(previous, page.items))
-      setHasMoreCharactersServer(page.hasMore)
+      const mergedCharacters = mergeProfileServerItems(characters, page.items)
+      setCharacters(mergedCharacters)
+      const expectedTotal = normalizedContentSearchQuery ? 0 : Math.max(profileView?.characters_count ?? 0, mergedCharacters.length)
+      setHasMoreCharactersServer(
+        loadedCharacters.length > 0 && (page.hasMore || mergedCharacters.length < expectedTotal),
+      )
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить еще персонажей'
       setError(detail)
@@ -1148,15 +1313,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     }
   }, [
     authToken,
-    characters.length,
+    characters,
     hasMoreCharactersServer,
     isCharactersLoadingMore,
-    isLoadingContent,
     isOwnProfile,
     normalizedContentSearchQuery,
+    profileView?.characters_count,
   ])
   const loadMoreTemplates = useCallback(async () => {
-    if (!isOwnProfile || isLoadingContent || isTemplatesLoadingMore || !hasMoreTemplatesServer) {
+    if (!isOwnProfile || isTemplatesLoadingMore || !hasMoreTemplatesServer) {
       return
     }
     setIsTemplatesLoadingMore(true)
@@ -1168,8 +1333,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         query: normalizedContentSearchQuery || undefined,
       })
       const page = splitProfileServerPage(loadedTemplates)
-      setTemplates((previous) => mergeProfileServerItems(previous, page.items))
-      setHasMoreTemplatesServer(page.hasMore)
+      const mergedTemplates = mergeProfileServerItems(templates, page.items)
+      setTemplates(mergedTemplates)
+      const expectedTotal = normalizedContentSearchQuery
+        ? 0
+        : Math.max(profileView?.instruction_templates_count ?? 0, mergedTemplates.length)
+      setHasMoreTemplatesServer(
+        loadedTemplates.length > 0 && (page.hasMore || mergedTemplates.length < expectedTotal),
+      )
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить еще инструкции'
       setError(detail)
@@ -1179,11 +1350,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }, [
     authToken,
     hasMoreTemplatesServer,
-    isLoadingContent,
     isOwnProfile,
     isTemplatesLoadingMore,
     normalizedContentSearchQuery,
-    templates.length,
+    profileView?.instruction_templates_count,
+    templates,
   ])
   const loadMoreFavoriteWorlds = useCallback(async () => {
     if (!isOwnProfile || isFavoriteWorldsLoading || isFavoriteWorldsLoadingMore || !hasMoreFavoriteWorldsServer) {
@@ -1269,7 +1440,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredSubscriptions, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|subscriptions|${filteredSubscriptions.length}`,
+    resetKey: `${normalizedContentSearchQuery}|subscriptions`,
+    hasMoreRemote: profileContentPaging.subscriptions.hasMore,
+    isLoadingMore: profileContentPaging.subscriptions.isLoading,
+    onLoadMore: () => void loadMoreProfileContent('subscriptions'),
   })
   const {
     visibleItems: visibleGalleryImages,
@@ -1278,7 +1452,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredGalleryImages, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|gallery|${filteredGalleryImages.length}`,
+    resetKey: `${normalizedContentSearchQuery}|gallery`,
+    hasMoreRemote: profileContentPaging.gallery_images.hasMore,
+    isLoadingMore: profileContentPaging.gallery_images.isLoading,
+    onLoadMore: () => void loadMoreProfileContent('gallery_images'),
   })
   const {
     ref: loadMoreNotificationsRef,
@@ -1299,7 +1476,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredVisiblePublicationWorlds, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|published|${filteredVisiblePublicationWorlds.length}`,
+    resetKey: `${normalizedContentSearchQuery}|published`,
+    hasMoreRemote: profileContentPaging.published_worlds.hasMore,
+    isLoadingMore: profileContentPaging.published_worlds.isLoading,
+    onLoadMore: () => void loadMoreProfileContent('published_worlds'),
   })
   const {
     visibleItems: visibleUnpublishedWorldCards,
@@ -1308,7 +1488,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredVisibleUnpublishedWorlds, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|unpublished|${filteredVisibleUnpublishedWorlds.length}`,
+    resetKey: `${normalizedContentSearchQuery}|unpublished`,
+    hasMoreRemote: profileContentPaging.unpublished_worlds.hasMore,
+    isLoadingMore: profileContentPaging.unpublished_worlds.isLoading,
+    onLoadMore: () => void loadMoreProfileContent('unpublished_worlds'),
   })
   const {
     visibleItems: visiblePublishedCharacterCards,
@@ -1317,7 +1500,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredVisiblePublicationCharacters, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|published-characters|${filteredVisiblePublicationCharacters.length}`,
+    resetKey: `${normalizedContentSearchQuery}|published-characters`,
+    hasMoreRemote: profileContentPaging.published_characters.hasMore,
+    isLoadingMore: profileContentPaging.published_characters.isLoading,
+    onLoadMore: () => void loadMoreProfileContent('published_characters'),
   })
   const {
     visibleItems: visiblePublishedInstructionCards,
@@ -1326,7 +1512,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredVisiblePublicationTemplates, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|published-instructions|${filteredVisiblePublicationTemplates.length}`,
+    resetKey: `${normalizedContentSearchQuery}|published-instructions`,
+    hasMoreRemote: profileContentPaging.published_instruction_templates.hasMore,
+    isLoadingMore: profileContentPaging.published_instruction_templates.isLoading,
+    onLoadMore: () => void loadMoreProfileContent('published_instruction_templates'),
   })
   const {
     visibleItems: visibleProfilePublicationGames,
@@ -1367,27 +1556,34 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const activeContentHeading = tab === 'notifications' ? PROFILE_NOTIFICATIONS_LABEL : PROFILE_TAB_LABELS[tab]
   void activeContentHeading
   const profileSidebarItems = useMemo(() => {
+    const gamesTotal = Math.max(profileView?.games_count ?? 0, ownGames.length)
+    const charactersTotal = Math.max(profileView?.characters_count ?? 0, managedCharacters.length)
+    const instructionsTotal = Math.max(profileView?.instruction_templates_count ?? 0, sortedTemplates.length)
+    const galleryTotal = Math.max(profileView?.gallery_images_count ?? 0, profileGalleryImages.length)
+    const publicationsTotal =
+      Math.max(profileView?.published_worlds_count ?? 0, visiblePublicationWorlds.length)
+      + Math.max(profileView?.published_characters_count ?? 0, visiblePublicationCharacters.length)
+      + Math.max(profileView?.published_instruction_templates_count ?? 0, visiblePublicationTemplates.length)
+      + (isOwnProfile && canViewPrivateWorlds
+        ? Math.max(profileView?.unpublished_worlds_count ?? 0, visibleUnpublishedWorlds.length)
+        : 0)
     const items: Array<{ id: TabId; label: string; count: number }> = [
       {
         id: 'games',
         label: PROFILE_TAB_LABELS.games,
-        count: ownGames.length,
+        count: gamesTotal,
       },
       {
         id: 'publications',
         label: PROFILE_TAB_LABELS.publications,
-        count:
-          visiblePublicationWorlds.length
-          + visiblePublicationCharacters.length
-          + visiblePublicationTemplates.length
-          + (isOwnProfile && canViewPrivateWorlds ? visibleUnpublishedWorlds.length : 0),
+        count: publicationsTotal,
       },
     ]
     if (isOwnProfile) {
       items.push(
-        { id: 'characters', label: PROFILE_TAB_LABELS.characters, count: managedCharacters.length },
-        { id: 'instructions', label: PROFILE_TAB_LABELS.instructions, count: sortedTemplates.length },
-        { id: 'gallery', label: PROFILE_TAB_LABELS.gallery, count: profileGalleryImages.length },
+        { id: 'characters', label: PROFILE_TAB_LABELS.characters, count: charactersTotal },
+        { id: 'instructions', label: PROFILE_TAB_LABELS.instructions, count: instructionsTotal },
+        { id: 'gallery', label: PROFILE_TAB_LABELS.gallery, count: galleryTotal },
       )
     }
     return items
@@ -1396,6 +1592,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     isOwnProfile,
     managedCharacters.length,
     ownGames.length,
+    profileView,
     profileGalleryImages.length,
     sortedTemplates.length,
     visiblePublicationCharacters.length,
@@ -1405,13 +1602,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   ])
   const libraryTabCounts = useMemo<Partial<Record<TabId, number>>>(
     () => ({
-      games: ownGames.length,
+      games: Math.max(profileView?.games_count ?? 0, ownGames.length),
       world_cards: worldCardTemplateCount,
-      characters: managedCharacters.length,
-      instructions: sortedTemplates.length,
-      gallery: profileGalleryImages.length,
+      characters: Math.max(profileView?.characters_count ?? 0, managedCharacters.length),
+      instructions: Math.max(profileView?.instruction_templates_count ?? 0, sortedTemplates.length),
+      gallery: Math.max(profileView?.gallery_images_count ?? 0, profileGalleryImages.length),
     }),
-    [managedCharacters.length, ownGames.length, profileGalleryImages.length, sortedTemplates.length, worldCardTemplateCount],
+    [managedCharacters.length, ownGames.length, profileGalleryImages.length, profileView, sortedTemplates.length, worldCardTemplateCount],
   )
   const libraryTotalCount = useMemo(
     () => BASE_PROFILE_TABS.reduce((sum, item) => sum + (libraryTabCounts[item.id] ?? 0), 0),
@@ -1422,12 +1619,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       ? notificationCounts.total_count
       : profileMainSection === 'publications' && isOwnProfile
         ? publicationSection === 'worlds'
-          ? filteredProfilePublicationGames.length
+          ? Math.max(profileView?.games_count ?? 0, filteredProfilePublicationGames.length)
           : publicationSection === 'characters'
-            ? filteredProfilePublicationCharacters.length
-            : filteredProfilePublicationTemplates.length
+            ? Math.max(profileView?.characters_count ?? 0, filteredProfilePublicationCharacters.length)
+            : Math.max(profileView?.instruction_templates_count ?? 0, filteredProfilePublicationTemplates.length)
         : tab === 'publications'
-          ? visiblePublicationWorlds.length + visiblePublicationCharacters.length + visiblePublicationTemplates.length
+          ? Math.max(profileView?.published_worlds_count ?? 0, visiblePublicationWorlds.length)
+            + Math.max(profileView?.published_characters_count ?? 0, visiblePublicationCharacters.length)
+            + Math.max(profileView?.published_instruction_templates_count ?? 0, visiblePublicationTemplates.length)
           : tab === 'subscriptions'
             ? visibleSubscriptions.length
             : tab === 'favorites'
@@ -1866,18 +2065,41 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   )
 
   const handleOpenNotification = useCallback(
-    (notification: UserNotification) => {
+    async (notification: UserNotification) => {
       const actionUrl = notification.action_url?.trim()
       if (!actionUrl) {
         return
+      }
+      if (!notification.is_read) {
+        try {
+          const response = await markCurrentUserNotificationRead({
+            token: authToken,
+            notificationId: notification.id,
+          })
+          setNotifications((previous) =>
+            previous.map((item) => (item.id === notification.id ? { ...item, is_read: true } : item)),
+          )
+          setNotificationCounts(response)
+          dispatchNotificationsChanged(response.unread_count)
+        } catch (requestError) {
+          const detail = requestError instanceof Error ? requestError.message : 'Не удалось отметить уведомление прочитанным'
+          setError(detail)
+        }
       }
       if (/^https?:\/\//i.test(actionUrl)) {
         window.location.assign(actionUrl)
         return
       }
+      const adminTarget = resolvedCanOpenAdmin ? parseAdminTarget(actionUrl) : null
+      if (adminTarget) {
+        setNotificationPopoverAnchorEl(null)
+        setAdminInitialTarget(adminTarget)
+        setAdminOpen(true)
+        return
+      }
       onNavigate(actionUrl)
     },
-    [onNavigate],
+    [authToken, onNavigate, parseAdminTarget, resolvedCanOpenAdmin],
   )
 
   const handleToggleNotificationPopover = useCallback(
@@ -1918,6 +2140,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         user_id: normalizedViewedUserId,
       })
       setProfileView(response)
+      setProfileContentPaging(createProfileContentPagingState(response))
       setWorldCardTemplateCount(Math.max(0, response.world_card_templates_count ?? 0))
       setPrivacyDraft({
         show_subscriptions: response.privacy.show_subscriptions,
@@ -1930,6 +2153,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить профиль'
       setError(detail)
       setProfileView(null)
+      setProfileContentPaging(createProfileContentPagingState())
     } finally {
       setIsProfileViewLoading(false)
     }
@@ -1937,6 +2161,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
   useEffect(() => {
     setProfileView(null)
+    setProfileContentPaging(createProfileContentPagingState())
     setWorldCardTemplateCount(0)
     setOwnGames([])
     setFavoriteWorlds([])
@@ -1970,6 +2195,22 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   useEffect(() => {
     void loadProfileView()
   }, [loadProfileView])
+
+  useEffect(() => {
+    if (!isOwnProfile || !profileView || normalizedContentSearchQuery) {
+      return
+    }
+    setHasMoreOwnGamesServer(ownGames.length < profileView.games_count)
+    setHasMoreCharactersServer(characters.length < profileView.characters_count)
+    setHasMoreTemplatesServer(templates.length < profileView.instruction_templates_count)
+  }, [
+    characters.length,
+    isOwnProfile,
+    normalizedContentSearchQuery,
+    ownGames.length,
+    profileView,
+    templates.length,
+  ])
 
   useEffect(() => {
     if (tabs.length === 0) {
@@ -2510,7 +2751,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setCharacterDialogMode('list')
     setCharacterEditId(null)
     void loadCharactersOnly()
-  }, [loadCharactersOnly])
+    void loadProfileView()
+  }, [loadCharactersOnly, loadProfileView])
 
   useEffect(() => {
     const handleOnboardingCommand = (event: Event) => {
@@ -2557,13 +2799,16 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       if (refs.some((ref) => ref.type === 'profile_character')) {
         setTab('characters')
         void loadCharactersOnly()
+        void loadProfileView()
       }
       if (refs.some((ref) => ref.type === 'instruction_template')) {
         setTab('instructions')
         void loadTemplatesOnly()
+        void loadProfileView()
       }
       if (refs.some((ref) => ref.type === 'world_card_template')) {
         setTab('world_cards')
+        void loadProfileView()
       }
     }
 
@@ -2607,6 +2852,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             : currentView,
         )
         setGalleryPreviewImage((currentImage) => (currentImage?.id === imageId ? null : currentImage))
+        void loadProfileView()
       } catch (requestError) {
         const detail = requestError instanceof Error ? requestError.message : 'Не удалось удалить картинку из галереи'
         setError(detail)
@@ -2618,7 +2864,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         })
       }
     },
-    [authToken, deletingGalleryImageIds, isOwnProfile],
+    [authToken, deletingGalleryImageIds, isOwnProfile, loadProfileView],
   )
 
   const openInstructionCreate = useCallback(() => {
@@ -2638,7 +2884,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setInstructionDialogMode('list')
     setInstructionEditId(null)
     void loadTemplatesOnly()
-  }, [loadTemplatesOnly])
+    void loadProfileView()
+  }, [loadProfileView, loadTemplatesOnly])
 
   const handleOpenContentCardMenu = useCallback(
     (event: ReactMouseEvent<HTMLElement>, type: 'character' | 'instruction', itemId: number) => {
@@ -2724,6 +2971,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         copy_history: cloneSelection.history,
       })
       setOwnGames((previousGames) => [clonedGame, ...previousGames.filter((game) => game.id !== clonedGame.id)])
+      void loadProfileView()
       setCloneDialogSourceGame(null)
       setCloneSelection({ ...DEFAULT_CLONE_SELECTION })
     } catch (requestError) {
@@ -2732,7 +2980,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     } finally {
       setGameCardMenuBusyAction(null)
     }
-  }, [authToken, cloneDialogSourceGame, cloneSelection, gameCardMenuBusyAction])
+  }, [authToken, cloneDialogSourceGame, cloneSelection, gameCardMenuBusyAction, loadProfileView])
 
   const handleDeleteGameCardFromMenu = useCallback(async () => {
     if (!selectedGameCardMenuItem || gameCardMenuBusyAction !== null) {
@@ -2753,6 +3001,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         gameId: targetGameId,
       })
       setOwnGames((previousGames) => previousGames.filter((game) => game.id !== targetGameId))
+      void loadProfileView()
       setGameCardMenuAnchorEl(null)
       setGameCardMenuGameId(null)
     } catch (requestError) {
@@ -2761,7 +3010,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     } finally {
       setGameCardMenuBusyAction(null)
     }
-  }, [authToken, gameCardMenuBusyAction, selectedGameCardMenuItem])
+  }, [authToken, gameCardMenuBusyAction, loadProfileView, selectedGameCardMenuItem])
 
   const handleEditContentCardFromMenu = useCallback(() => {
     if (contentCardMenuType === 'character' && selectedContentCharacterMenuItem) {
@@ -2793,6 +3042,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           characterId: selectedContentCharacterMenuItem.id,
         })
         setCharacters((previous) => previous.filter((item) => item.id !== selectedContentCharacterMenuItem.id))
+        void loadProfileView()
         if (characterEditId === selectedContentCharacterMenuItem.id) {
           setCharacterDialogOpen(false)
           setCharacterDialogMode('list')
@@ -2815,6 +3065,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           templateId: selectedContentInstructionMenuItem.id,
         })
         setTemplates((previous) => previous.filter((item) => item.id !== selectedContentInstructionMenuItem.id))
+        void loadProfileView()
         if (instructionEditId === selectedContentInstructionMenuItem.id) {
           setInstructionDialogOpen(false)
           setInstructionDialogMode('list')
@@ -2836,6 +3087,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     contentCardMenuType,
     handleCloseContentCardMenu,
     instructionEditId,
+    loadProfileView,
     selectedContentCharacterMenuItem,
     selectedContentInstructionMenuItem,
   ])
@@ -3287,14 +3539,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 tabIndex={notification.action_url ? 0 : -1}
                 onMouseEnter={() => setHoveredNotificationId(notification.id)}
                 onMouseLeave={() => setHoveredNotificationId(null)}
-                onClick={() => handleOpenNotification(notification)}
+                onClick={() => void handleOpenNotification(notification)}
                 onKeyDown={(event) => {
                   if (!notification.action_url) {
                     return
                   }
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
-                    handleOpenNotification(notification)
+                    void handleOpenNotification(notification)
                   }
                 }}
                 sx={{
@@ -4111,6 +4363,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         <WorldCardTemplatesPanel
           authToken={authToken}
           searchQuery={contentSearchQuery}
+          totalCount={worldCardTemplateCount}
           onTemplatesCountChange={setWorldCardTemplateCount}
         />
       )
@@ -6122,7 +6375,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   key={`notification-popover-${notification.id}`}
                   onClick={() => {
                     handleCloseNotificationPopover()
-                    handleOpenNotification(notification)
+                    void handleOpenNotification(notification)
                   }}
                   sx={{
                     position: 'relative',
@@ -6894,8 +7147,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         open={adminOpen}
         authToken={authToken}
         currentUserRole={user.role}
+        initialTarget={adminInitialTarget}
         onNavigate={onNavigate}
-        onClose={() => setAdminOpen(false)}
+        onClose={() => {
+          setAdminOpen(false)
+          setAdminInitialTarget(null)
+        }}
       />
 
       <Footer
