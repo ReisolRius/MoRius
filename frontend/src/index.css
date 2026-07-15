@@ -413,32 +413,33 @@ select {
   background: color-mix(in srgb, var(--morius-elevated-bg) 74%, black 26%) !important;
 }
 
-.morius-app-shell .MuiIconButton-root.morius-header-play-button {
-  width: 44px !important;
-  height: 44px !important;
-  min-width: 44px !important;
-  min-height: 44px !important;
-  max-width: 44px !important;
-  max-height: 44px !important;
-  border-radius: 12px !important;
+.morius-app-shell .MuiButtonBase-root.morius-header-play-button {
+  width: var(--morius-header-play-width, 124px) !important;
+  height: var(--morius-header-play-height, 44px) !important;
+  min-width: var(--morius-header-play-width, 124px) !important;
+  min-height: var(--morius-header-play-height, 44px) !important;
+  max-width: var(--morius-header-play-width, 124px) !important;
+  max-height: var(--morius-header-play-height, 44px) !important;
+  border-radius: var(--morius-header-play-radius, 12px) !important;
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 82%, #ffffff 18%), var(--accent, #4c8dff)) !important;
   color: #fff !important;
   box-shadow: none !important;
   overflow: hidden !important;
+  text-transform: none !important;
 }
 
-.morius-app-shell .MuiIconButton-root.morius-header-play-button:hover {
+.morius-app-shell .MuiButtonBase-root.morius-header-play-button:hover {
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 88%, #ffffff 12%), color-mix(in srgb, var(--accent, #4c8dff) 92%, #000 8%)) !important;
   color: #fff !important;
   box-shadow: none !important;
 }
 
-.morius-app-shell .MuiIconButton-root.morius-header-play-button:active {
+.morius-app-shell .MuiButtonBase-root.morius-header-play-button:active {
   background: color-mix(in srgb, var(--accent, #4c8dff) 88%, #000 12%) !important;
   box-shadow: none !important;
 }
 
-.morius-app-shell .MuiIconButton-root.morius-header-play-button svg {
+.morius-app-shell .MuiButtonBase-root.morius-header-play-button svg {
   width: var(--morius-header-play-icon-size, 20px) !important;
   height: var(--morius-header-play-icon-size, 20px) !important;
 }

@@ -2171,10 +2171,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
   const handleCancelWorld = useCallback(() => {
     if (isEditMode) {
-      onNavigate(isMyPublicationsEdit ? '/games/publications' : '/games')
+      onNavigate(isMyPublicationsEdit ? '/games/publications' : '/profile')
       return
     }
-    void handleSaveWorld({ saveAsDraft: true, navigateTo: '/games' })
+    void handleSaveWorld({ saveAsDraft: true, navigateTo: '/profile' })
   }, [handleSaveWorld, isEditMode, isMyPublicationsEdit, onNavigate])
 
   const handleNavigateFromWorldCreate = useCallback(
@@ -2263,7 +2263,6 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         })}
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => handleNavigateFromWorldCreate('/dashboard') },
-          { key: 'games-my', label: 'Мои игры', isActive: false, onClick: () => handleNavigateFromWorldCreate('/games') },
           { key: 'games-publications', label: 'Мои публикации', isActive: false, onClick: () => handleNavigateFromWorldCreate('/games/publications') },
           {
             key: isEditMode ? 'community-worlds' : 'world-create',

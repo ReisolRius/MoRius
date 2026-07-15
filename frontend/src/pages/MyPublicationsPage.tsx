@@ -3,13 +3,15 @@ import { Alert, Box, CircularProgress, IconButton, Menu, MenuItem, Stack, Typogr
 import AppHeader from '../components/AppHeader'
 import HeaderAccountActions from '../components/HeaderAccountActions'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
+import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
+import CommunityRuleCard from '../components/community/CommunityRuleCard'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import SettingsDialog from '../components/settings/SettingsDialog'
-import DeferredImage from '../components/media/DeferredImage'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
 import cardsWorldRaw from '../assets/icons/cards-world.svg?raw'
@@ -65,8 +67,6 @@ const APP_CARD_BACKGROUND = 'var(--morius-card-bg)'
 const APP_BORDER_COLOR = 'var(--morius-card-border)'
 const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
-const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
-const COMMUNITY_PUBLIC_CARD_HERO_HEIGHT = 138
 const COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
@@ -307,22 +307,13 @@ export function resolvePublicationWorldEditTargetId(game: StoryGameSummary, visi
   return visibleGames.some((item) => item.id === sourceWorldId) ? sourceWorldId : game.id
 }
 
-function resolveAuthorInitials(authorName: string): string {
-  const cleaned = authorName.trim()
-  if (!cleaned) {
-    return '??'
-  }
-  const parts = cleaned.split(/\s+/).filter(Boolean)
-  if (parts.length === 1) {
-    return parts[0].slice(0, 1).toUpperCase()
-  }
-  return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase()
-}
-
 type PublicationEntityCardProps = {
+  entityId: number
+  entityKind: 'world' | 'character' | 'rule'
   title: string
   description: string
   note?: string
+  genres?: string[]
   authorName: string
   authorAvatarUrl: string | null
   authorAvatarFrameId?: string | null
@@ -331,8 +322,12 @@ type PublicationEntityCardProps = {
   statusTone: PublicationChipTone
   additionsCount: number
   ratingAvg: number
-  heroBackgroundSx: Record<string, string | number>
+  heroBackgroundSx?: Record<string, string | number>
   heroImageUrl?: string | null
+  imageScale?: number
+  coverScale?: number
+  coverPositionX?: number
+  coverPositionY?: number
   onClick: () => void
   onOpenMenu?: (event: ReactMouseEvent<HTMLElement>) => void
   menuAriaLabel?: string
@@ -340,9 +335,12 @@ type PublicationEntityCardProps = {
 
 export function PublicationEntityCard(props: PublicationEntityCardProps) {
   const {
+    entityId,
+    entityKind,
     title,
     description,
     note = '',
+    genres = [],
     authorName,
     authorAvatarUrl,
     authorAvatarFrameId,
@@ -353,45 +351,124 @@ export function PublicationEntityCard(props: PublicationEntityCardProps) {
     ratingAvg,
     heroBackgroundSx,
     heroImageUrl,
+    imageScale = 1,
+    coverScale = 1,
+    coverPositionX = 50,
+    coverPositionY = 50,
     onClick,
     onOpenMenu,
     menuAriaLabel,
   } = props
   const normalizedAuthorName = authorName.trim() || 'Неизвестный автор'
-  const authorInitials = resolveAuthorInitials(normalizedAuthorName)
   const normalizedNote = note.trim()
   const statusChipColors = resolvePublicationChipColors(statusTone)
-  const noteChipColors = resolvePublicationChipColors(statusTone === 'danger' ? 'danger' : 'info')
   const hasMenu = typeof onOpenMenu === 'function'
+  void heroBackgroundSx
+
+  const statusChip = (
+    <Box
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        minHeight: 26,
+        px: 1,
+        borderRadius: '999px',
+        border: `var(--morius-border-width) solid ${statusChipColors.borderColor}`,
+        backgroundColor: statusChipColors.backgroundColor,
+        color: statusChipColors.textColor,
+        fontSize: '0.68rem',
+        fontWeight: 850,
+        lineHeight: 1,
+        textTransform: 'uppercase',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {statusLabel}
+    </Box>
+  )
+
+  const menuButton = hasMenu ? (
+    <IconButton
+      onClick={onOpenMenu}
+      className="publication-card-menu-trigger"
+      aria-label={menuAriaLabel ?? 'Открыть действия публикации'}
+      sx={{
+        width: 32,
+        height: 32,
+        flexShrink: 0,
+        borderRadius: '999px',
+        border: 'var(--morius-border-width) solid rgba(220,231,245,0.14)',
+        backgroundColor: 'rgba(5, 8, 13, 0.64)',
+        color: 'rgba(220, 231, 245, 0.94)',
+        transition: 'opacity 180ms ease, background-color 180ms ease',
+        '&:hover': { backgroundColor: 'rgba(17, 27, 40, 0.78)' },
+      }}
+    >
+      <Box component="span" sx={{ fontSize: '0.96rem', lineHeight: 1 }}>...</Box>
+    </IconButton>
+  ) : null
+
+  if (entityKind === 'rule') {
+    return (
+      <CommunityRuleCard
+        title={title}
+        content={description}
+        authorName={normalizedAuthorName}
+        authorAvatarUrl={authorAvatarUrl}
+        authorAvatarFrameId={authorAvatarFrameId}
+        authorAvatarFrameImageUrl={authorAvatarFrameImageUrl}
+        gamesCount={additionsCount}
+        ratingAvg={ratingAvg}
+        actionSlot={(
+          <Stack direction="row" alignItems="center" spacing={0.6}>
+            {statusChip}
+            {menuButton}
+          </Stack>
+        )}
+        onClick={onClick}
+      />
+    )
+  }
+
+  if (entityKind === 'character') {
+    return (
+      <CharacterShowcaseCard
+        variant="community"
+        title={title}
+        description={description}
+        imageUrl={heroImageUrl}
+        imageScale={imageScale}
+        eyebrow={normalizedNote || null}
+        heroHeader={(
+          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+            <ProgressiveAvatar
+              src={authorAvatarUrl}
+              fallbackLabel={normalizedAuthorName}
+              frameId={authorAvatarFrameId}
+              frameImageUrl={authorAvatarFrameImageUrl}
+              size={28}
+              sx={{ flexShrink: 0, border: 'var(--morius-border-width) solid rgba(205,220,242,0.28)' }}
+            />
+            <Typography sx={{ minWidth: 0, color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {normalizedAuthorName}
+            </Typography>
+          </Stack>
+        )}
+        metaPrimary={statusLabel}
+        metaSecondary={`★ ${Math.max(0, ratingAvg).toFixed(1)}`}
+        actionSlot={menuButton}
+        onClick={onClick}
+        minHeight={340}
+      />
+    )
+  }
 
   return (
     <Box
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onClick()
-        }
-      }}
       sx={{
-        borderRadius: 'var(--morius-radius)',
-        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-        backgroundColor: APP_CARD_BACKGROUND,
-        overflow: 'hidden',
+        position: 'relative',
         width: '100%',
-        cursor: 'pointer',
-        transition: 'transform 180ms ease, border-color 180ms ease, background-color 180ms ease',
-        '&:hover': {
-          borderColor: 'rgba(203, 216, 234, 0.36)',
-          backgroundColor: APP_BUTTON_HOVER,
-          transform: 'translateY(-2px)',
-        },
-        '&:focus-visible': {
-          outline: '2px solid rgba(205, 223, 246, 0.62)',
-          outlineOffset: '2px',
-        },
+        height: '100%',
         '& .publication-card-menu-trigger': {
           opacity: { xs: 1, md: 0 },
           pointerEvents: { xs: 'auto', md: 'none' },
@@ -402,156 +479,36 @@ export function PublicationEntityCard(props: PublicationEntityCardProps) {
         },
       }}
     >
-      <Stack sx={{ minHeight: 238, justifyContent: 'space-between' }}>
-        <Box sx={{ position: 'relative', height: COMMUNITY_PUBLIC_CARD_HERO_HEIGHT, overflow: 'hidden' }}>
-          <Box sx={{ position: 'absolute', inset: 0, ...heroBackgroundSx }} />
-          <DeferredImage src={heroImageUrl} alt="" rootMargin="300px 0px" objectFit="cover" objectPosition="center" />
-          <Box
-            aria-hidden
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              background: 'linear-gradient(180deg, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.54) 44%, rgba(0,0,0,0) 100%)',
-            }}
-          />
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ position: 'absolute', top: 10, left: 10, right: 10, minWidth: 0, pr: hasMenu ? 4.2 : 0 }}>
-            <ProgressiveAvatar
-              src={authorAvatarUrl}
-              alt={normalizedAuthorName}
-              fallbackLabel={authorInitials}
-              frameId={authorAvatarFrameId}
-              frameImageUrl={authorAvatarFrameImageUrl}
-              size={36}
-              priority
-              sx={{
-                border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.34)',
-                backgroundColor: 'rgba(6, 10, 16, 0.72)',
-              }}
-            />
-            <Typography
-              sx={{
-                color: 'rgba(233, 241, 252, 0.97)',
-                fontSize: '0.95rem',
-                lineHeight: 1.2,
-                fontWeight: 700,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                minWidth: 0,
-              }}
-              title={normalizedAuthorName}
-            >
-              {normalizedAuthorName}
-            </Typography>
-          </Stack>
-          {hasMenu ? (
-            <IconButton
-              onClick={onOpenMenu}
-              className="publication-card-menu-trigger"
-              aria-label={menuAriaLabel ?? 'Открыть действия публикации'}
-              sx={{
-                position: 'absolute',
-                top: 10,
-                right: 10,
-                zIndex: 3,
-                width: 32,
-                height: 32,
-                borderRadius: '999px',
-                border: 'none',
-                backgroundColor: 'rgba(5, 8, 13, 0.64)',
-                color: 'rgba(220, 231, 245, 0.94)',
-                transition: 'opacity 180ms ease, background-color 180ms ease',
-                '&:hover': { backgroundColor: 'rgba(17, 27, 40, 0.78)' },
-              }}
-            >
-              <Box component="span" sx={{ fontSize: '0.96rem', lineHeight: 1 }}>...</Box>
-            </IconButton>
-          ) : null}
-        </Box>
-
-        <Stack sx={{ p: 1.25, flex: 1, justifyContent: 'space-between' }}>
-          <Stack spacing={0.8}>
-            <Typography
-              sx={{
-                color: APP_TEXT_PRIMARY,
-                fontSize: '1.03rem',
-                lineHeight: 1.2,
-                fontWeight: 800,
-                display: '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {title}
-            </Typography>
-            {normalizedNote ? (
-              <Box
-                title={normalizedNote}
-                sx={{
-                  width: 'fit-content',
-                  maxWidth: '100%',
-                  px: 0.75,
-                  py: 0.2,
-                  borderRadius: '999px',
-                  border: `var(--morius-border-width) solid ${noteChipColors.borderColor}`,
-                  color: noteChipColors.textColor,
-                  backgroundColor: noteChipColors.backgroundColor,
-                  fontSize: '0.68rem',
-                  fontWeight: 700,
-                  letterSpacing: 0.2,
-                  textTransform: 'uppercase',
-                  lineHeight: 1.2,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {normalizedNote}
-              </Box>
-            ) : null}
-            <Typography
-              sx={{
-                color: APP_TEXT_SECONDARY,
-                fontSize: '0.9rem',
-                lineHeight: 1.42,
-                minHeight: '4.2em',
-                display: '-webkit-box',
-                WebkitLineClamp: 3,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {description}
-            </Typography>
-          </Stack>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1.1 }}>
-            <Box
-              sx={{
-                px: 0.9,
-                py: 0.28,
-                borderRadius: '999px',
-                border: `var(--morius-border-width) solid ${statusChipColors.borderColor}`,
-                backgroundColor: statusChipColors.backgroundColor,
-                color: statusChipColors.textColor,
-                fontSize: '0.73rem',
-                fontWeight: 800,
-                letterSpacing: 0.18,
-                textTransform: 'uppercase',
-                lineHeight: 1.2,
-              }}
-            >
-              {statusLabel}
-            </Box>
-            <Stack direction="row" spacing={1.1} alignItems="center">
-              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>{additionsCount} +</Typography>
-              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>{ratingAvg.toFixed(1)} {'\u2605'}</Typography>
-            </Stack>
-          </Stack>
-        </Stack>
-      </Stack>
+      <CommunityWorldCard
+        world={{
+          id: entityId,
+          title,
+          description,
+          author_id: 0,
+          author_name: normalizedAuthorName,
+          author_avatar_url: authorAvatarUrl,
+          author_avatar_frame_id: authorAvatarFrameId ?? undefined,
+          author_avatar_frame_image_url: authorAvatarFrameImageUrl ?? null,
+          age_rating: '18+',
+          genres,
+          cover_image_url: heroImageUrl ?? null,
+          cover_scale: coverScale,
+          cover_position_x: coverPositionX,
+          cover_position_y: coverPositionY,
+          community_views: 0,
+          community_launches: additionsCount,
+          community_rating_avg: ratingAvg,
+          community_rating_count: 0,
+          user_rating: null,
+          is_reported_by_user: false,
+          is_favorited_by_user: false,
+          created_at: '',
+          updated_at: '',
+        }}
+        coverBadge={statusChip}
+        onClick={onClick}
+      />
+      {menuButton ? <Box sx={{ position: 'absolute', top: 10, right: 10, zIndex: 5 }}>{menuButton}</Box> : null}
     </Box>
   )
 }
@@ -1083,7 +1040,6 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
         })}
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
-          { key: 'games-my', label: 'Мои игры', isActive: false, onClick: () => onNavigate('/games') },
           { key: 'games-publications', label: 'Мои публикации', isActive: true, onClick: () => onNavigate('/games/publications') },
           { key: 'games-all', label: 'Сообщество', isActive: false, onClick: () => onNavigate('/games/all') },
         ]}
@@ -1195,9 +1151,11 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
                   return (
                     <PublicationEntityCard
                       key={game.id}
+                      entityId={game.id}
+                      entityKind="world"
                       title={game.title || 'Без названия'}
                       description={game.description || 'Описание отсутствует.'}
-                      note={publicationMeta.note || game.genres[0] || ''}
+                      genres={game.genres}
                       authorName={authorName}
                       authorAvatarUrl={authorAvatarUrl}
                       authorAvatarFrameId={authorAvatarFrameId}
@@ -1208,6 +1166,9 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
                       ratingAvg={game.community_rating_avg}
                       heroBackgroundSx={buildWorldFallbackArtwork(game.id)}
                       heroImageUrl={game.cover_image_url}
+                      coverScale={game.cover_scale}
+                      coverPositionX={game.cover_position_x}
+                      coverPositionY={game.cover_position_y}
                       onClick={() => onNavigate(`/worlds/${resolvePublicationWorldEditTargetId(game, publicationGames)}/edit?source=my-publications`)}
                       onOpenMenu={(event) => handleOpenCardMenu(event, 'world', game.id)}
                       menuAriaLabel="Открыть действия мира"
@@ -1234,9 +1195,11 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
                   return (
                     <PublicationEntityCard
                       key={character.id}
+                      entityId={character.id}
+                      entityKind="character"
                       title={character.name || 'Без имени'}
                       description={character.description || 'Описание отсутствует.'}
-                      note={publicationMeta.note || character.note}
+                      note={character.note}
                       authorName={authorName}
                       authorAvatarUrl={authorAvatarUrl}
                       authorAvatarFrameId={authorAvatarFrameId}
@@ -1247,6 +1210,7 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
                       ratingAvg={character.community_rating_avg}
                       heroBackgroundSx={buildWorldFallbackArtwork(character.id)}
                       heroImageUrl={character.avatar_url}
+                      imageScale={character.avatar_scale}
                       onClick={() => openCharacterEdit(character.source_character_id ?? character.id)}
                       onOpenMenu={(event) => handleOpenCardMenu(event, 'character', character.id)}
                       menuAriaLabel="Открыть действия персонажа"
@@ -1273,6 +1237,8 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
                   return (
                     <PublicationEntityCard
                       key={template.id}
+                      entityId={template.id}
+                      entityKind="rule"
                       title={template.title || 'Без названия'}
                       description={template.content || 'Текст инструкции отсутствует.'}
                       note={publicationMeta.note}

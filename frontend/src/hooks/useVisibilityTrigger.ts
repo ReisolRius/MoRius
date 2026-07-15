@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 type UseVisibilityTriggerOptions = {
   rootMargin?: string
@@ -13,7 +13,10 @@ export function useVisibilityTrigger<T extends HTMLElement = HTMLElement>({
   once = true,
   disabled = false,
 }: UseVisibilityTriggerOptions = {}) {
-  const ref = useRef<T | null>(null)
+  const [node, setNode] = useState<T | null>(null)
+  const ref = useCallback((nextNode: T | null) => {
+    setNode(nextNode)
+  }, [])
   const [isVisible, setIsVisible] = useState(
     !disabled && (typeof window === 'undefined' || typeof window.IntersectionObserver === 'undefined'),
   )
@@ -29,7 +32,6 @@ export function useVisibilityTrigger<T extends HTMLElement = HTMLElement>({
       return
     }
 
-    const node = ref.current
     if (!node) {
       return
     }
@@ -65,7 +67,7 @@ export function useVisibilityTrigger<T extends HTMLElement = HTMLElement>({
 
     observer.observe(node)
     return () => observer.disconnect()
-  }, [disabled, isVisible, once, rootMargin, threshold])
+  }, [disabled, isVisible, node, once, rootMargin, threshold])
 
   return {
     ref,

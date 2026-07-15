@@ -46,7 +46,8 @@ import cardsCharactersIconMarkup from '../assets/icons/cards-characters.svg?raw'
 import cardsRulesIconMarkup from '../assets/icons/cards-rules.svg?raw'
 import communityPlayIconMarkup from '../assets/icons/community-play.svg?raw'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
-import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
+import CommunityCharacterCard from '../components/characters/CommunityCharacterCard'
+import CommunityRuleCard from '../components/community/CommunityRuleCard'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
@@ -506,119 +507,6 @@ function SliderCard({ children }: { children: React.ReactNode }) {
   )
 }
 
-/** Character card for home sliders — uses CharacterShowcaseCard (has DeferredImage inside) */
-function HomeCharacterCard({ item, onClick }: { item: StoryCommunityCharacterSummary; onClick: () => void }) {
-  const authorName = item.author_name.trim() || 'Неизвестный автор'
-  return (
-    <CharacterShowcaseCard
-      title={item.name}
-      description={item.description}
-      imageUrl={item.avatar_url}
-      imageScale={item.avatar_scale}
-      eyebrow={item.note.trim() || null}
-      heroHeader={
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
-          <ProgressiveAvatar
-            src={item.author_avatar_url}
-            fallbackLabel={authorName}
-            size={34}
-            frameId={item.author_avatar_frame_id}
-            frameImageUrl={item.author_avatar_frame_image_url}
-            sx={{ border: 'var(--morius-border-width) solid rgba(214,225,239,0.3)', backgroundColor: 'rgba(6,10,16,0.76)' }}
-          />
-          <Typography
-            sx={{ color: 'rgba(233,241,252,0.97)', fontSize: '0.88rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
-          >
-            {authorName}
-          </Typography>
-        </Stack>
-      }
-      footerHint={`Автор: ${authorName}`}
-      metaPrimary={`+${item.community_additions_count}`}
-      metaSecondary={`${item.community_rating_avg.toFixed(1)} ★`}
-      onClick={onClick}
-      minHeight={300}
-      descriptionLineClamp={2}
-    />
-  )
-}
-
-/** Rule (instruction template) card for home sliders */
-function HomeRuleCard({ item, onClick }: { item: StoryCommunityInstructionTemplateSummary; onClick: () => void }) {
-  const authorName = item.author_name.trim() || 'Неизвестный автор'
-  const heroBackground = buildWorldFallbackArtwork(item.id + 100000)
-  return (
-    <Box
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
-      sx={{
-        borderRadius: 'var(--morius-radius)',
-        border: 'var(--morius-border-width) solid var(--morius-card-border)',
-        background: 'var(--morius-card-gradient)',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        cursor: 'pointer',
-        minHeight: 300,
-        transition: 'transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
-        '&:hover': { transform: 'translateY(-5px)', borderColor: 'var(--morius-hover-border)', boxShadow: 'var(--morius-neutral-shadow)' },
-        '&:focus-visible': { outline: '2px solid rgba(205,223,246,0.62)', outlineOffset: '2px' },
-      }}
-    >
-      {/* Hero */}
-      <Box sx={{ position: 'relative', height: 96, flexShrink: 0, overflow: 'hidden' }}>
-        <Box sx={{ position: 'absolute', inset: 0, ...heroBackground }} />
-        <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 45%, rgba(10,8,12,0.82))' }} />
-        <Stack
-          direction="row"
-          spacing={0.7}
-          alignItems="center"
-          sx={{
-            position: 'absolute',
-            top: 10,
-            left: 12,
-            maxWidth: 'calc(100% - 24px)',
-            minWidth: 0,
-            px: 0.6,
-            py: 0.35,
-            borderRadius: '999px',
-            border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
-            backgroundColor: 'rgba(9,9,9,0.42)',
-            backdropFilter: 'blur(8px)',
-          }}
-        >
-          <ProgressiveAvatar
-            src={item.author_avatar_url}
-            fallbackLabel={authorName}
-            size={34}
-            frameId={item.author_avatar_frame_id}
-            frameImageUrl={item.author_avatar_frame_image_url}
-            sx={{ border: 'var(--morius-border-width) solid rgba(205,220,242,0.3)', backgroundColor: 'rgba(6,10,16,0.72)' }}
-          />
-          <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.78rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-            {authorName}
-          </Typography>
-        </Stack>
-      </Box>
-      {/* Body */}
-      <Stack sx={{ flex: 1, px: '16px', py: '14px', background: 'var(--morius-card-gradient)' }} spacing={0.8}>
-        <Typography sx={{ color: APP_TEXT_PRIMARY, fontFamily: '"Spectral", serif', fontSize: '1.08rem', fontWeight: 700, lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-          {item.title}
-        </Typography>
-        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', lineHeight: 1.44, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', flex: 1 }}>
-          {item.content}
-        </Typography>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', pt: 1, borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)' }}>
-          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>{item.community_additions_count} +</Typography>
-          <Typography sx={{ color: 'var(--morius-rating-gold)', fontSize: '0.82rem', fontWeight: 700 }}>{item.community_rating_avg.toFixed(1)} ★</Typography>
-        </Stack>
-      </Stack>
-    </Box>
-  )
-}
-
 const MOBILE_CARD_HEIGHT = 130
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
@@ -689,6 +577,22 @@ function formatCreatorRating(value: number, count: number): string {
     return '0'
   }
   return `${value.toFixed(1)} (${count})`
+}
+
+function formatCreatorMonthLabel(value: string | null | undefined): string {
+  if (!value) {
+    return ''
+  }
+  const parsedDate = new Date(`${value.slice(0, 10)}T00:00:00Z`)
+  if (Number.isNaN(parsedDate.getTime())) {
+    return ''
+  }
+  const label = new Intl.DateTimeFormat('ru-RU', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsedDate)
+  return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
 function normalizeCreatorDateInput(value: string | null | undefined): string {
@@ -1651,7 +1555,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       setStoryGames(gamesSnapshot)
       setCommunityWorldGameIds(gameMapSnapshot)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось обновить список "Мои игры"'
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить библиотеку'
       setCommunityWorldsError(detail)
     } finally {
       setIsCommunityWorldMyGamesSaving(false)
@@ -1978,203 +1882,253 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     dashboardNewsDialogItem?.image_url?.trim() || getDashboardNewsFallbackImage(dashboardNewsDialogItem?.slot ?? 1)
   const dashboardNewsDialogAmbient = getDashboardNewsAmbientGradient(dashboardNewsDialogItem?.slot ?? 1)
   const isCreatorMonthInitialLoading = isCreatorMonthLoading && creatorMonth === null
-  const renderCreatorMonthSkeletonCard = (place: number) => {
-    return (
+  const creatorMonthLabel = formatCreatorMonthLabel(creatorMonth?.period_start)
+  const renderCreatorMonthSkeletonCard = (place: number) => (
+    <Box
+      key={`creator-month-skeleton-${place}`}
+      sx={{
+        position: 'relative',
+        width: '100%',
+        minHeight: { xs: 276, md: 286 },
+        overflow: 'hidden',
+        borderRadius: '18px',
+        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+        background: 'linear-gradient(145deg, var(--morius-elevated-bg), var(--morius-card-bg))',
+      }}
+    >
       <Box
-        key={`creator-month-skeleton-${place}`}
-        sx={{
-          width: '100%',
-          minHeight: 66,
-          display: 'grid',
-          gridTemplateColumns: { xs: '32px 46px minmax(0, 1fr) minmax(60px, 74px)', md: '42px 46px minmax(0, 1fr) repeat(4, minmax(64px, 82px))' },
-          alignItems: 'center',
-          gap: 1,
-          px: { xs: 1, md: 1.25 },
-          py: 0.85,
-          borderBottom: place === 3 ? 'none' : 'var(--morius-border-width) solid var(--morius-divider-color)',
-        }}
-      >
-        <Box className="morius-skeleton-card" sx={{ height: 28, borderRadius: '8px' }} />
-        <Box className="morius-skeleton-card" sx={{ width: 46, height: 46, borderRadius: '50%' }} />
-        <Stack spacing={0.5}>
-          <Box className="morius-skeleton-card" sx={{ width: '58%', height: 16, borderRadius: '999px' }} />
-          <Box className="morius-skeleton-card" sx={{ width: '42%', height: 12, borderRadius: '999px' }} />
+        className="morius-skeleton-card"
+        sx={{ position: 'absolute', top: 18, right: 20, width: 60, height: 78, borderRadius: '14px', opacity: 0.42 }}
+      />
+      <Stack justifyContent="flex-end" sx={{ position: 'relative', zIndex: 1, minHeight: { xs: 276, md: 286 }, p: { xs: 2, md: 2.2 } }}>
+        <Stack direction="row" spacing={1.35} alignItems="center">
+          <Box className="morius-skeleton-card" sx={{ width: 62, height: 62, flexShrink: 0, borderRadius: '50%' }} />
+          <Stack spacing={0.65} sx={{ minWidth: 0, flex: 1 }}>
+            <Box className="morius-skeleton-card" sx={{ width: '64%', height: 18, borderRadius: '999px' }} />
+            <Box className="morius-skeleton-card" sx={{ width: '36%', height: 12, borderRadius: '999px' }} />
+          </Stack>
         </Stack>
-        {[0, 1, 2, 3].map((key) => (
-          <Box key={`creator-month-skeleton-${place}-${key}`} className="morius-skeleton-card" sx={{ display: { xs: 'none', md: 'block' }, height: 42, borderRadius: '10px' }} />
-        ))}
-      </Box>
-    )
-  }
+        <Box sx={{ my: 1.55, borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)' }} />
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 1 }}>
+          {[0, 1, 2, 3].map((key) => (
+            <Stack key={`creator-month-skeleton-${place}-${key}`} spacing={0.55}>
+              <Box className="morius-skeleton-card" sx={{ width: '76%', height: 9, borderRadius: '999px' }} />
+              <Box className="morius-skeleton-card" sx={{ width: '48%', height: 17, borderRadius: '999px' }} />
+            </Stack>
+          ))}
+        </Box>
+      </Stack>
+    </Box>
+  )
   const renderCreatorMonthCard = (slot: CreatorMonthSlot) => {
     const creator = slot.user
     const place = slot.slot
-    const isFirstPlace = place === 1
+    const placeStyle = place === 1
+      ? {
+          accent: '#e5c36f',
+          border: 'rgba(225, 192, 109, 0.36)',
+          glow: 'rgba(202, 159, 65, 0.2)',
+        }
+      : place === 2
+        ? {
+            accent: '#bcc5d4',
+            border: 'rgba(185, 197, 214, 0.3)',
+            glow: 'rgba(137, 153, 177, 0.18)',
+          }
+        : {
+            accent: '#c58e66',
+            border: 'rgba(194, 137, 96, 0.32)',
+            glow: 'rgba(170, 105, 65, 0.18)',
+          }
     const creatorBannerPreset = creator ? getProfileBannerPreset(creator.profile_banner_id) : null
     const creatorBannerSrc = creator
       ? resolveProfileBannerImageUrl(creator.profile_banner_id, creator.profile_banner_image_url ?? null) ?? creatorBannerPreset?.src ?? null
       : null
+    const ratingValue = Number.isFinite(slot.stats.average_rating) && slot.stats.rating_count > 0
+      ? slot.stats.average_rating.toFixed(1)
+      : '0.0'
     const statItems = [
       ['Игры', slot.stats.worlds_count],
       ['Персонажи', slot.stats.characters_count],
-      ['Инструкции', slot.stats.instruction_templates_count],
-      ['Рейтинг', formatCreatorRating(slot.stats.average_rating, slot.stats.rating_count)],
+      ['Правила', slot.stats.instruction_templates_count],
+      ['Рейтинг', `★ ${ratingValue}`],
     ] as const
     return (
       <ButtonBase
         key={`creator-month-${place}`}
+        aria-label={creator ? `Открыть профиль ${creator.display_name}` : `Место ${place}`}
         onClick={() => handleOpenCreatorDialog(slot)}
+        disabled={!creator && !isCreatorMonthEditor}
         sx={{
           position: 'relative',
           width: '100%',
-          minHeight: 66,
-          display: 'grid',
-          gridTemplateColumns: { xs: '32px 46px minmax(0, 1fr) 72px', md: '42px 46px minmax(0, 1fr) repeat(4, 104px)' },
-          alignItems: 'center',
-          gap: 1,
-          px: { xs: 1, md: 1.25 },
-          py: 0.85,
-          borderRadius: 0,
+          minHeight: { xs: 276, md: 286 },
+          display: 'block',
+          p: 0,
+          borderRadius: '18px',
           overflow: 'hidden',
           textAlign: 'left',
-          borderBottom: place === 3 ? 'none' : 'var(--morius-border-width) solid var(--morius-divider-color)',
-          background: isFirstPlace ? 'linear-gradient(90deg, rgba(205,166,89,0.13), transparent 52%)' : 'transparent',
+          border: `var(--morius-border-width) solid ${placeStyle.border}`,
+          background: `radial-gradient(95% 80% at 100% 0%, ${placeStyle.glow}, transparent 62%), var(--morius-card-bg)`,
           color: APP_TEXT_PRIMARY,
-          transition: 'background-color 180ms ease',
-          '&::before': isFirstPlace
-            ? {
-                content: '""',
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: 0,
-                width: 3,
-                backgroundColor: 'var(--morius-gold)',
-              }
-            : undefined,
+          transition: 'transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
           '&:hover': {
-            backgroundColor: 'rgba(255,255,255,0.045)',
+            transform: 'translateY(-5px)',
+            borderColor: placeStyle.accent,
+            boxShadow: `0 18px 46px ${placeStyle.glow}`,
+            '& .creator-month-banner': {
+              transform: 'scale(1.035)',
+            },
+          },
+          '&:focus-visible': {
+            outline: `2px solid ${placeStyle.accent}`,
+            outlineOffset: '2px',
           },
         }}
       >
         {creatorBannerSrc ? (
-          <Box aria-hidden sx={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none', overflow: 'hidden' }}>
-            <Box
-              component="img"
-              src={creatorBannerSrc}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              sx={{
-                position: 'absolute',
-                inset: 0,
-                width: { xs: '72%', md: '54%' },
-                height: '100%',
-                objectFit: 'cover',
-                objectPosition: 'center center',
-                opacity: isFirstPlace ? 0.26 : 0.18,
-                filter: 'saturate(0.88) contrast(1.05)',
-                maskImage: 'linear-gradient(90deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.48) 42%, transparent 100%)',
-                WebkitMaskImage: 'linear-gradient(90deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.48) 42%, transparent 100%)',
-              }}
-            />
-            <Box
-              sx={{
-                position: 'absolute',
-                inset: 0,
-                background:
-                  'linear-gradient(90deg, rgba(7,8,13,0.12) 0%, rgba(7,8,13,0.04) 38%, transparent 72%)',
-              }}
-            />
-          </Box>
+          <Box
+            component="img"
+            className="creator-month-banner"
+            src={creatorBannerSrc}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: creatorBannerPreset?.objectPosition ?? 'center center',
+              opacity: 0.52,
+              filter: 'saturate(0.9) contrast(1.05)',
+              transition: 'transform 360ms ease',
+              pointerEvents: 'none',
+            }}
+          />
         ) : null}
-        <Typography
+        <Box
+          aria-hidden
           sx={{
-            fontFamily: '"Spectral", serif',
-            color: isFirstPlace ? '#e8c87d' : 'var(--morius-muted-text)',
-            fontSize: { xs: '1.32rem', md: '1.48rem' },
-            fontWeight: 700,
-            lineHeight: 1,
-            textAlign: 'center',
+            position: 'absolute',
+            inset: 0,
             zIndex: 1,
+            background: `linear-gradient(180deg, rgba(8, 10, 14, 0.38) 0%, rgba(8, 10, 14, 0.58) 38%, rgba(8, 10, 14, 0.97) 100%), radial-gradient(90% 72% at 100% 0%, ${placeStyle.glow}, transparent 70%)`,
+            pointerEvents: 'none',
+          }}
+        />
+        <Typography
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            top: { xs: 12, md: 14 },
+            right: { xs: 18, md: 22 },
+            zIndex: 2,
+            color: placeStyle.accent,
+            fontFamily: '"Spectral", serif',
+            fontSize: { xs: '4.4rem', md: '5.25rem' },
+            fontWeight: 500,
+            lineHeight: 0.9,
+            opacity: 0.25,
           }}
         >
           {place}
         </Typography>
-        <Box sx={{ position: 'relative', width: 46, height: 46, zIndex: 1 }}>
-          <ProgressiveAvatar
-            src={creator?.avatar_url ?? null}
-            alt={creator?.display_name ?? `Место ${place}`}
-            fallbackLabel={creator?.display_name ?? `${place}`}
-            size={46}
-            scale={creator?.avatar_scale ?? 1}
-            frameId={creator?.avatar_frame_id ?? 'none'}
-            frameImageUrl={creator?.avatar_frame_image_url ?? null}
-            sx={{
-              border: 'var(--morius-border-width) solid rgba(255,255,255,0.14)',
-              background: 'radial-gradient(circle at 30% 20%, rgba(255,255,255,0.14), rgba(255,255,255,0.03) 42%, rgba(0,0,0,0.34) 100%)',
-            }}
-          />
-          {isFirstPlace ? (
-            <Box
-              component="span"
-              className="material-symbols-outlined"
+
+        <Stack
+          justifyContent="flex-end"
+          sx={{ position: 'relative', zIndex: 3, width: '100%', minHeight: { xs: 276, md: 286 }, p: { xs: 2, md: 2.2 } }}
+        >
+          <Stack direction="row" spacing={1.35} alignItems="center" sx={{ minWidth: 0, pr: 4.5 }}>
+            <ProgressiveAvatar
+              src={creator?.avatar_url ?? null}
+              alt={creator?.display_name ?? `Место ${place}`}
+              fallbackLabel={creator?.display_name ?? `${place}`}
+              size={62}
+              scale={creator?.avatar_scale ?? 1}
+              frameId={creator?.avatar_frame_id ?? 'none'}
+              frameImageUrl={creator?.avatar_frame_image_url ?? null}
               sx={{
-                position: 'absolute',
-                right: -5,
-                bottom: -4,
-                width: 20,
-                height: 20,
-                display: 'grid',
-                placeItems: 'center',
-                borderRadius: '7px',
-                background: 'var(--morius-gold-gradient)',
-                color: '#1a1207',
-                fontSize: '15px',
-                border: 'var(--morius-border-width) solid rgba(255,255,255,0.18)',
+                flexShrink: 0,
+                border: `var(--morius-border-width) solid ${placeStyle.accent}`,
+                boxShadow: `0 0 0 3px rgba(7, 9, 13, 0.72), 0 8px 24px ${placeStyle.glow}`,
+                background: 'radial-gradient(circle at 30% 20%, rgba(255,255,255,0.18), rgba(255,255,255,0.04) 42%, rgba(0,0,0,0.42) 100%)',
               }}
-            >
-              emoji_events
-            </Box>
-          ) : null}
-        </Box>
-        <Stack spacing={0.18} sx={{ minWidth: 0, zIndex: 1 }}>
-          <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: { xs: '0.98rem', md: '1.03rem' }, fontWeight: 800, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {creator?.display_name || (isCreatorMonthEditor ? 'Назначить креатора' : 'Место свободно')}
-          </Typography>
-          <Typography sx={{ color: isFirstPlace ? 'var(--morius-gold)' : APP_TEXT_SECONDARY, fontSize: '0.78rem', fontWeight: isFirstPlace ? 800 : 650, lineHeight: 1.25 }}>
-            {isCreatorMonthEditor ? 'Нажмите, чтобы изменить слот' : isFirstPlace ? 'Креатор месяца' : 'Автор сообщества'}
-          </Typography>
+            />
+            <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
+              <Typography
+                title={creator?.display_name || undefined}
+                sx={{
+                  color: APP_TEXT_PRIMARY,
+                  fontSize: { xs: '1.08rem', md: '1.16rem' },
+                  fontWeight: 850,
+                  lineHeight: 1.15,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  textShadow: '0 2px 12px rgba(0,0,0,0.72)',
+                }}
+              >
+                {creator?.display_name || (isCreatorMonthEditor ? 'Назначить креатора' : 'Место свободно')}
+              </Typography>
+              <Typography
+                sx={{
+                  color: placeStyle.accent,
+                  fontSize: '0.74rem',
+                  fontWeight: 850,
+                  lineHeight: 1.2,
+                  letterSpacing: '0.14em !important',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {place} место
+              </Typography>
+            </Stack>
+          </Stack>
+
+          <Box sx={{ my: 1.55, borderTop: 'var(--morius-border-width) solid rgba(255,255,255,0.11)' }} />
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: { xs: 0.65, md: 1 } }}>
+            {statItems.map(([label, value]) => {
+              const isRating = label === 'Рейтинг'
+              return (
+                <Stack key={`${place}-${label}`} spacing={0.38} sx={{ minWidth: 0 }}>
+                  <Typography
+                    sx={{
+                      color: 'rgba(197, 204, 218, 0.72)',
+                      fontSize: { xs: '0.58rem', md: '0.62rem' },
+                      fontWeight: 800,
+                      lineHeight: 1,
+                      letterSpacing: '0.1em !important',
+                      textTransform: 'uppercase',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {label}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      color: isRating ? 'var(--morius-rating-gold)' : APP_TEXT_PRIMARY,
+                      fontSize: { xs: '0.92rem', md: '1rem' },
+                      fontWeight: 850,
+                      lineHeight: 1.2,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {String(value)}
+                  </Typography>
+                </Stack>
+              )
+            })}
+          </Box>
         </Stack>
-        {statItems.map(([label, value]) => {
-          const isRating = label === 'Рейтинг'
-          return (
-            <Box
-              key={`${place}-${label}`}
-              sx={{
-                display: { xs: isRating ? 'grid' : 'none', md: 'grid' },
-                width: '100%',
-                minWidth: 0,
-                height: { xs: 52, md: 62 },
-                py: 0.7,
-                px: 1,
-                borderRadius: '10px',
-                border: 'var(--morius-border-width) solid var(--morius-chip-border)',
-                backgroundColor: isFirstPlace && isRating ? 'rgba(216,166,74,0.08)' : 'var(--morius-chip-bg)',
-                gap: 0.2,
-                zIndex: 1,
-                alignContent: 'center',
-              }}
-            >
-              <Typography sx={{ color: 'var(--morius-muted-text)', fontSize: '9px', fontWeight: 800, lineHeight: 1, textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {label}
-              </Typography>
-              <Typography sx={{ color: isRating ? 'var(--morius-rating-gold)' : APP_TEXT_PRIMARY, fontSize: '15px', fontWeight: 800, lineHeight: 1.18, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {String(value)}
-              </Typography>
-            </Box>
-          )
-        })}
       </ButtonBase>
     )
   }
@@ -2423,7 +2377,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: true, onClick: () => onNavigate('/dashboard') },
           { key: 'games-all', label: 'Сообщество', onClick: () => onNavigate('/games/all') },
-          { key: 'games-my', label: 'Библиотека', onClick: () => onNavigate('/games') },
           { key: 'games-publications', label: 'Публикации', onClick: () => onNavigate('/games/publications') },
         ]}
         pageMenuLabels={{
@@ -3107,9 +3060,30 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   Три автора, которые сильнее всего оживили сообщество за выбранный период.
                 </Typography>
               </Box>
-              {isCreatorMonthLoading ? (
-                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', fontWeight: 700 }}>Загружаем...</Typography>
-              ) : null}
+              <Stack direction="row" spacing={1} alignItems="center">
+                {creatorMonthLabel ? (
+                  <Box
+                    sx={{
+                      minHeight: 36,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      px: 1.65,
+                      borderRadius: '999px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, transparent)',
+                      color: APP_TEXT_SECONDARY,
+                      fontSize: '0.82rem',
+                      fontWeight: 750,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {creatorMonthLabel}
+                  </Box>
+                ) : null}
+                {isCreatorMonthLoading ? (
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.84rem', fontWeight: 700 }}>Загружаем...</Typography>
+                ) : null}
+              </Stack>
             </Stack>
             {creatorMonthError ? (
               <Alert severity="error" sx={{ borderRadius: '14px' }}>{creatorMonthError}</Alert>
@@ -3117,11 +3091,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             <Box
               sx={{
                 display: 'grid',
-                borderRadius: '14px',
-                border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                background: 'var(--morius-card-gradient)',
-                overflow: 'hidden',
-                boxShadow: 'none',
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' },
+                gap: 1.5,
               }}
             >
               {isCreatorMonthInitialLoading
@@ -3224,7 +3195,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 {isCommunityCharactersLoading && communityCharacters.length === 0
                   ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
                       <SliderCard key={key}>
-                        <Box className="morius-skeleton-card" sx={{ height: 300 }} />
+                        <Box className="morius-skeleton-card" sx={{ width: '100%', minHeight: 420, aspectRatio: '0.65 / 1' }} />
                       </SliderCard>
                     ))
                   : communityCharacters.map((item) => (
@@ -3236,7 +3207,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                             handleOpenCommunityModerationMenu(event, { kind: 'character', id: item.id, title: item.name })
                           }
                         >
-                          <HomeCharacterCard item={item} onClick={() => setSelectedHomeCommunityCharacter(item)} />
+                          <CommunityCharacterCard item={item} onClick={() => setSelectedHomeCommunityCharacter(item)} />
                         </CommunityModerationCardFrame>
                       </SliderCard>
                     ))}
@@ -3260,6 +3231,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       authorAvatarFrameImageUrl={item.author_avatar_frame_image_url}
                       stat1={`+${item.community_additions_count}`}
                       stat2={`${item.community_rating_avg.toFixed(1)} ★`}
+                      showPlayButton={false}
                       onMenuClick={
                         canModerateCommunityCards
                           ? (event) =>
@@ -3293,7 +3265,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 {isCommunityRulesLoading && communityRules.length === 0
                   ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
                       <SliderCard key={key}>
-                        <Box className="morius-skeleton-card" sx={{ height: 300 }} />
+                        <Box className="morius-skeleton-card" sx={{ height: 318 }} />
                       </SliderCard>
                     ))
                   : communityRules.map((item) => (
@@ -3301,11 +3273,22 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         <CommunityModerationCardFrame
                           canModerate={canModerateCommunityCards}
                           disabled={isCommunityModerationSaving}
+                          actionOffsetRight={92}
                           onOpenMenu={(event) =>
                             handleOpenCommunityModerationMenu(event, { kind: 'instruction_template', id: item.id, title: item.title })
                           }
                         >
-                          <HomeRuleCard item={item} onClick={() => setSelectedHomeCommunityRule(item)} />
+                          <CommunityRuleCard
+                            title={item.title}
+                            content={item.content}
+                            authorName={item.author_name}
+                            authorAvatarUrl={item.author_avatar_url}
+                            authorAvatarFrameId={item.author_avatar_frame_id}
+                            authorAvatarFrameImageUrl={item.author_avatar_frame_image_url}
+                            gamesCount={item.community_additions_count}
+                            ratingAvg={item.community_rating_avg}
+                            onClick={() => setSelectedHomeCommunityRule(item)}
+                          />
                         </CommunityModerationCardFrame>
                       </SliderCard>
                     ))}
@@ -3329,6 +3312,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       authorAvatarFrameImageUrl={item.author_avatar_frame_image_url}
                       stat1={`+${item.community_additions_count}`}
                       stat2={`${item.community_rating_avg.toFixed(1)} ★`}
+                      showPlayButton={false}
                       onMenuClick={
                         canModerateCommunityCards
                           ? (event) =>

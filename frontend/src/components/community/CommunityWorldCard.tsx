@@ -27,20 +27,8 @@ const TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const TITLE_LINE_HEIGHT = 1.2
 const TITLE_LINE_COUNT = 1
 const DESCRIPTION_LINE_HEIGHT = 1.45
-const DESCRIPTION_LINE_COUNT = 2
+const DESCRIPTION_LINE_COUNT = 3
 const COVER_IMAGE_LOAD_TIMEOUT_MS = 8000
-
-function formatWorldCreatedAtLabel(isoDate: string): string {
-  const parsedDate = new Date(isoDate)
-  if (Number.isNaN(parsedDate.getTime())) {
-    return 'Unknown date'
-  }
-  return parsedDate.toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-}
 
 function resolveAuthorInitials(authorName: string): string {
   const cleaned = authorName.trim()
@@ -68,11 +56,12 @@ function CommunityWorldCard({
   onAuthorClick,
   disabled = false,
   sx,
+  showFavoriteButton = false,
   isFavoriteSaving = false,
   onToggleFavorite,
   coverBadge,
 }: CommunityWorldCardProps) {
-  const authorName = world.author_name.trim() || 'Unknown author'
+  const authorName = world.author_name.trim() || 'Неизвестный автор'
   const authorAvatarUrl = resolveApiResourceUrl(world.author_avatar_url)
   const coverImageUrl = resolveApiResourceUrl(world.cover_image_url)
   const authorInitials = resolveAuthorInitials(authorName)
@@ -82,7 +71,7 @@ function CommunityWorldCard({
   })
   const [isCoverLoaded, setIsCoverLoaded] = useState(false)
   const [isCoverFailed, setIsCoverFailed] = useState(false)
-  const shouldShowFavoriteButton = false
+  const shouldShowFavoriteButton = showFavoriteButton && Boolean(onToggleFavorite)
 
   useEffect(() => {
     setIsCoverLoaded(false)
@@ -202,7 +191,8 @@ function CommunityWorldCard({
         sx={{
           position: 'relative',
           width: '100%',
-          height: { xs: 152, md: 160 },
+          aspectRatio: '1.82 / 1',
+          minHeight: { xs: 156, md: 168 },
           flexShrink: 0,
           overflow: 'hidden',
         }}
@@ -251,6 +241,8 @@ function CommunityWorldCard({
                   display: 'block',
                   objectFit: 'cover',
                   objectPosition: `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`,
+                  transform: `scale(${Math.max(1, Math.min(3, world.cover_scale || 1))})`,
+                  transformOrigin: `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`,
                   opacity: isCoverLoaded ? 1 : 0,
                   transition: 'opacity 220ms ease',
                 }}
@@ -272,90 +264,9 @@ function CommunityWorldCard({
             position: 'absolute',
             inset: 0,
             background:
-              'linear-gradient(180deg, transparent 45%, rgba(10,8,12,0.82))',
+              'linear-gradient(180deg, rgba(5,7,10,0.04) 34%, rgba(5,7,10,0.78) 100%)',
           }}
         />
-        <Box
-          aria-hidden
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            height: { xs: '108px', md: '122px' },
-            background:
-              'linear-gradient(180deg, rgba(3, 6, 10, 0.94) 0%, rgba(3, 6, 10, 0.72) 34%, rgba(3, 6, 10, 0.34) 68%, rgba(3, 6, 10, 0) 100%)',
-          }}
-        />
-        <Stack
-          direction="row"
-          alignItems="center"
-          spacing={1.1}
-          role={onAuthorClick && !disabled ? 'button' : undefined}
-          tabIndex={onAuthorClick && !disabled ? 0 : undefined}
-          onClick={handleAuthorClick}
-          onKeyDown={handleAuthorKeyDown}
-          sx={{
-            position: 'absolute',
-            top: { xs: '12px', md: '14px' },
-            left: { xs: '12px', md: '14px' },
-            right: 'auto',
-            maxWidth: shouldShowFavoriteButton ? 'calc(100% - 64px)' : 'calc(100% - 28px)',
-            minWidth: 0,
-            width: 'fit-content',
-            px: 0.6,
-            py: 0.35,
-            borderRadius: '999px',
-            border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
-            backgroundColor: 'rgba(9,9,9,0.42)',
-            backdropFilter: 'blur(8px)',
-            pr: shouldShowFavoriteButton ? '48px' : { xs: 1.8, md: 2 },
-            overflow: 'visible',
-            cursor: onAuthorClick && !disabled ? 'pointer' : 'default',
-            '& .morius-framed-avatar': {
-              flexShrink: '0 !important',
-              marginRight: '5px',
-              zIndex: 0,
-            },
-            '&:focus-visible': onAuthorClick && !disabled
-              ? {
-                  outline: '2px solid rgba(205, 223, 246, 0.62)',
-                  outlineOffset: '2px',
-                  borderRadius: '8px',
-                }
-              : undefined,
-          }}
-        >
-          <ProgressiveAvatar
-            src={authorAvatarUrl}
-            alt={authorName}
-            fallbackLabel={authorInitials}
-            size={40}
-            frameId={world.author_avatar_frame_id}
-            frameImageUrl={world.author_avatar_frame_image_url}
-            sx={{
-              border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.32)',
-              background: 'radial-gradient(circle at 30% 20%, rgba(255,255,255,0.16), rgba(255,255,255,0.04) 42%, rgba(0,0,0,0.4) 100%)',
-            }}
-          />
-          <Typography
-            sx={{
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              color: 'var(--morius-text-primary)',
-              fontSize: { xs: '0.78rem', md: '0.82rem' },
-              lineHeight: 1.2,
-              fontWeight: 700,
-              position: 'relative',
-              zIndex: 1,
-            }}
-            title={authorName}
-          >
-            {authorName}
-          </Typography>
-        </Stack>
 
         {shouldShowFavoriteButton ? (
           <IconButton
@@ -385,17 +296,46 @@ function CommunityWorldCard({
           </IconButton>
         ) : null}
 
-        {coverBadge ? (
+        {world.genres.length > 0 || coverBadge ? (
           <Box
             sx={{
               position: 'absolute',
               left: { xs: '12px', md: '14px' },
+              right: { xs: '12px', md: '14px' },
               bottom: { xs: '12px', md: '14px' },
               zIndex: 2,
-              maxWidth: 'calc(100% - 28px)',
+              display: 'flex',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 0.55,
               pointerEvents: 'none',
             }}
           >
+            {world.genres.map((genre) => (
+              <Box
+                key={`${world.id}-${genre}`}
+                component="span"
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  minHeight: 24,
+                  px: 1.05,
+                  borderRadius: '999px',
+                  border: 'var(--morius-border-width) solid rgba(255,255,255,0.24)',
+                  backgroundColor: 'rgba(7,8,11,0.72)',
+                  backdropFilter: 'blur(9px)',
+                  color: 'rgba(244,241,236,0.94)',
+                  fontSize: { xs: '0.58rem', md: '0.62rem' },
+                  fontWeight: 850,
+                  lineHeight: 1,
+                  letterSpacing: '0.13em !important',
+                  textTransform: 'uppercase',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {genre}
+              </Box>
+            ))}
             {coverBadge}
           </Box>
         ) : null}
@@ -458,46 +398,73 @@ function CommunityWorldCard({
           alignItems="center"
           justifyContent="space-between"
           sx={{
-            mt: '14px',
-            pt: '12px',
+            mt: '16px',
+            pt: '13px',
             borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)',
             minWidth: 0,
           }}
         >
-          <Typography
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={0.8}
+            role={onAuthorClick && !disabled ? 'button' : undefined}
+            tabIndex={onAuthorClick && !disabled ? 0 : undefined}
+            onClick={handleAuthorClick}
+            onKeyDown={handleAuthorKeyDown}
             sx={{
-              color: TEXT_SECONDARY,
-              fontSize: { xs: '13px', md: '14px' },
-              lineHeight: 1.25,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              pr: 1.2,
+              minWidth: 0,
+              maxWidth: '58%',
+              cursor: onAuthorClick && !disabled ? 'pointer' : 'default',
+              borderRadius: '999px',
+              '&:focus-visible': onAuthorClick && !disabled
+                ? { outline: '2px solid rgba(205, 223, 246, 0.62)', outlineOffset: '3px' }
+                : undefined,
             }}
-            title={formatWorldCreatedAtLabel(world.created_at)}
           >
-            {formatWorldCreatedAtLabel(world.created_at)}
-          </Typography>
+            <ProgressiveAvatar
+              src={authorAvatarUrl}
+              alt={authorName}
+              fallbackLabel={authorInitials}
+              size={26}
+              frameId={world.author_avatar_frame_id}
+              frameImageUrl={world.author_avatar_frame_image_url}
+              sx={{
+                flexShrink: 0,
+                border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.26)',
+                background: 'radial-gradient(circle at 30% 20%, rgba(255,255,255,0.16), rgba(255,255,255,0.04) 42%, rgba(0,0,0,0.4) 100%)',
+              }}
+            />
+            <Typography
+              title={authorName}
+              sx={{
+                minWidth: 0,
+                color: TEXT_SECONDARY,
+                fontSize: { xs: '0.76rem', md: '0.82rem' },
+                fontWeight: 650,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {authorName}
+            </Typography>
+          </Stack>
 
-          <Stack direction="row" alignItems="center" spacing="10px" sx={{ flexShrink: 0 }}>
-            <Stack direction="row" alignItems="center" spacing="10px">
-              <Typography sx={{ color: 'var(--accent, #4c8dff)', fontSize: { xs: '13px', md: '14px' }, fontWeight: 700, lineHeight: 1 }}>
+          <Stack direction="row" alignItems="center" spacing={{ xs: 1, md: 1.35 }} sx={{ flexShrink: 0 }}>
+            <Stack direction="row" alignItems="center" spacing={0.55}>
+              <Box component="img" src={icons.communityPlay} alt="" sx={{ width: 14, height: 14, opacity: 0.9, filter: 'brightness(1.15)' }} />
+              <Typography sx={{ color: TEXT_SECONDARY, fontSize: { xs: '13px', md: '14px' }, fontWeight: 700, lineHeight: 1 }}>
                 {world.community_launches}
               </Typography>
-              <Box component="img" src={icons.communityPlay} alt="" sx={{ width: 14, height: 14, opacity: 0.9, filter: 'brightness(1.15)' }} />
             </Stack>
-            <Stack direction="row" alignItems="center" spacing="6px">
-              <Typography sx={{ color: 'var(--morius-rating-gold)', fontSize: { xs: '13px', md: '14px' }, fontWeight: 700, lineHeight: 1 }}>
-                {world.community_rating_avg.toFixed(1)}
-              </Typography>
+            <Stack direction="row" alignItems="center" spacing={0.45}>
               <Typography
                 sx={{
                   color: 'var(--morius-rating-gold)',
-                  fontSize: '20px',
+                  fontSize: '18px',
                   fontWeight: 600,
-                  lineHeight: '20px',
-                  width: 20,
-                  height: 20,
+                  lineHeight: 1,
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -505,6 +472,9 @@ function CommunityWorldCard({
                 }}
               >
                 {String.fromCharCode(9733)}
+              </Typography>
+              <Typography sx={{ color: 'var(--morius-rating-gold)', fontSize: { xs: '13px', md: '14px' }, fontWeight: 750, lineHeight: 1 }}>
+                {world.community_rating_avg.toFixed(1)}
               </Typography>
             </Stack>
           </Stack>

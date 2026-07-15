@@ -60,12 +60,34 @@ function normalizePath(pathname: string): string {
   return normalized || '/'
 }
 
-function normalizeNavigationTarget(targetPath: string): { pathname: string; href: string } {
+function normalizeNavigationTarget(targetPath: string): { pathname: string; href: string; hash: string } {
   const parsedTarget = new URL(targetPath, window.location.origin)
   const normalizedPathname = normalizePath(parsedTarget.pathname)
   return {
     pathname: normalizedPathname,
     href: `${normalizedPathname}${parsedTarget.search}${parsedTarget.hash}`,
+    hash: parsedTarget.hash,
+  }
+}
+
+function scrollToNavigationHash(hash: string, attempt = 0): void {
+  const rawId = hash.replace(/^#/, '')
+  if (!rawId) {
+    return
+  }
+  let targetId = rawId
+  try {
+    targetId = decodeURIComponent(rawId)
+  } catch {
+    // Keep the raw fragment when it is not URI-encoded correctly.
+  }
+  const target = document.getElementById(targetId)
+  if (target) {
+    target.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    return
+  }
+  if (attempt < 8) {
+    window.setTimeout(() => scrollToNavigationHash(hash, attempt + 1), 80)
   }
 }
 
@@ -474,6 +496,9 @@ function App() {
       }
     }
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    if (normalizedTarget.hash) {
+      window.setTimeout(() => scrollToNavigationHash(normalizedTarget.hash), 0)
+    }
     setPath(normalizedTarget.pathname)
   }, [])
 
@@ -1084,6 +1109,4 @@ function App() {
 }
 
 export default App
-
-
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import {
   Box,
   Button,
@@ -98,6 +98,7 @@ const MENU_COLLAPSED_WIDTH = 64
 const MENU_EXPANDED_WIDTH = 244
 const MENU_PANEL_TOP_OFFSET = HEADER_BUTTON_SIZE + 12
 const LOGO_WIDTH = 56
+const DESKTOP_LOGO_WIDTH = 43
 const LOGO_LEFT_OFFSET = HEADER_BUTTON_SIZE + 10
 const SIDEBAR_ICON_SIZE = 22
 const COMPACT_SIDEBAR_MEDIA_QUERY = '(max-width:1535.95px)'
@@ -110,12 +111,14 @@ const MOBILE_BOTTOM_NAV_HEIGHT = `calc(${MOBILE_BOTTOM_NAV_CONTENT_HEIGHT}px + $
 const MOBILE_SHEET_TOP_OFFSET = 'calc(var(--morius-header-menu-top) + 8px)'
 const MOBILE_ACTION_CARD_HEIGHT = 118
 const HEADER_NAV_KEYS = new Set(['dashboard', 'games-all', 'community-worlds'])
-const HEADER_NAV_ACTIVE_COLOR = 'var(--accent, #4c8dff)'
+const HEADER_NAV_ACTIVE_COLOR = 'var(--morius-gold, #cda659)'
 const HEADER_PLAY_ICON_COLOR = '#FFFFFF'
-const HEADER_PLAY_BUTTON_WIDTH = 44
+const HEADER_PLAY_BUTTON_WIDTH = 124
 const HEADER_PLAY_BUTTON_HEIGHT = HEADER_BUTTON_SIZE
 const HEADER_PLAY_ICON_SIZE = 20
 const HEADER_CONTENT_MAX_WIDTH = 1320
+const DESKTOP_HEADER_CENTER_GAP = 14
+const DESKTOP_HEADER_LEFT_FALLBACK_WIDTH = 460
 
 const headerBackdropSx = {
   position: 'fixed',
@@ -197,7 +200,9 @@ const headerPlayActionButtonSx = {
   maxHeight: HEADER_PLAY_BUTTON_HEIGHT,
   flex: `0 0 ${HEADER_PLAY_BUTTON_WIDTH}px`,
   mr: 1,
-  p: 0,
+  px: 1.55,
+  py: 0,
+  gap: 1.1,
   borderRadius: '12px !important',
   color: '#FFFFFF !important',
   background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 82%, #ffffff 18%), var(--accent, #4c8dff)) !important',
@@ -356,8 +361,11 @@ function AppHeader({
   const [isMobileActionSheetOpen, setIsMobileActionSheetOpen] = useState(false)
   const [isMobileMoreSheetOpen, setIsMobileMoreSheetOpen] = useState(false)
   const [headerQuickActionsAnchorEl, setHeaderQuickActionsAnchorEl] = useState<HTMLElement | null>(null)
+  const [desktopHeaderSideWidths, setDesktopHeaderSideWidths] = useState({ left: 0, right: 0 })
   const menuTriggerRef = useRef<HTMLDivElement | null>(null)
   const menuPanelRef = useRef<HTMLDivElement | null>(null)
+  const desktopHeaderLeftRef = useRef<HTMLDivElement | null>(null)
+  const desktopHeaderRightRef = useRef<HTMLDivElement | null>(null)
   const mobileActionSheet = useMobileDialogSheet({
     onClose: () => setIsMobileActionSheetOpen(false),
     mediaQuery: PHONE_MEDIA_QUERY,
@@ -419,10 +427,9 @@ function AppHeader({
     window.dispatchEvent(new CustomEvent(AI_ASSISTANT_OPEN_EVENT))
   }
 
-  const primaryMenuIcons = [SidebarHomeIcon, SidebarCommunityIcon, SidebarLibraryIcon, SidebarPublicationsIcon]
+  const primaryMenuIcons = [SidebarHomeIcon, SidebarCommunityIcon, SidebarPublicationsIcon]
   const primaryMenuIconByKey: Record<string, SidebarIconComponent> = {
     dashboard: SidebarHomeIcon,
-    'games-my': SidebarLibraryIcon,
     'games-publications': SidebarPublicationsIcon,
     'games-all': SidebarCommunityIcon,
     'community-worlds': SidebarCommunityIcon,
@@ -430,10 +437,8 @@ function AppHeader({
     'world-create': SidebarLibraryIcon,
   }
   const resolvedMenuItems = [...menuItems]
+    .filter((item) => item.key !== 'games-my')
     .map((item) => {
-      if (item.key === 'games-my') {
-        return { ...item, label: 'Библиотека' }
-      }
       if (item.key === 'games-all' || item.key === 'community-worlds') {
         return { ...item, label: 'Сообщество' }
       }
@@ -444,15 +449,11 @@ function AppHeader({
         dashboard: 0,
         'games-all': 1,
         'community-worlds': 1,
-        'games-my': 2,
         'games-publications': 3,
       }
       return (orderByKey[left.key] ?? 10) - (orderByKey[right.key] ?? 10)
     })
   const getSidebarItemLabel = (item: AppHeaderMenuItem) => {
-    if (item.key === 'games-my') {
-      return 'Библиотека'
-    }
     if (item.key === 'games-publications') {
       return 'Публикации'
     }
@@ -462,9 +463,6 @@ function AppHeader({
     return item.label
   }
   const getDisplayedSidebarLabel = (item: AppHeaderMenuItem) => {
-    if (item.key === 'games-my') {
-      return 'Библиотека'
-    }
     if (item.key === 'games-publications') {
       return 'Публикации'
     }
@@ -495,9 +493,6 @@ function AppHeader({
     return fallbackLabel
   }
   const getSafeSidebarLabel = (item: AppHeaderMenuItem) => {
-    if (item.key === 'games-my') {
-      return '\u0411\u0438\u0431\u043b\u0438\u043e\u0442\u0435\u043a\u0430'
-    }
     if (item.key === 'games-publications') {
       return '\u041f\u0443\u0431\u043b\u0438\u043a\u0430\u0446\u0438\u0438'
     }
@@ -604,9 +599,8 @@ function AppHeader({
     }
   }, [isPageMenuOpen, onClosePageMenu, onTogglePageMenu])
 
-  const mobilePrimaryKeys = new Set(['dashboard', 'games-my', 'games-all', 'community-worlds'])
+  const mobilePrimaryKeys = new Set(['dashboard', 'games-all', 'community-worlds'])
   const mobileHomeItem = resolvedMenuItems.find((item) => item.key === 'dashboard') ?? null
-  const mobileLibraryItem = resolvedMenuItems.find((item) => item.key === 'games-my') ?? null
   const mobileCommunityItem =
     resolvedMenuItems.find((item) => item.key === 'games-all' || item.key === 'community-worlds') ?? null
   const mobileMoreMenuItems = resolvedMenuItems.filter((item) => !mobilePrimaryKeys.has(item.key))
@@ -662,23 +656,9 @@ function AppHeader({
   const resolvedMobileActionItems = (mobileActionItems.length > 0 ? mobileActionItems : fallbackMobileActionItems).filter(
     (item) => !['theme-settings', 'top-up'].includes(item.key),
   )
-  const headerSupportActionItem: AppHeaderMobileActionItem = {
-    key: 'support',
-    title: '\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430',
-    description: '\u041f\u043e\u043c\u043e\u0449\u044c, FAQ \u0438 \u0441\u0441\u044b\u043b\u043a\u0438 \u0434\u043b\u044f \u0441\u0432\u044f\u0437\u0438.',
-    iconMarkup: sidebarHelpIconMarkup,
-    onClick: handleOpenSupportDialog,
-  }
-  const headerQuickActionItems =
-    mobileActionItems.length > 0 && !mobileActionItems.some((item) => item.key === headerSupportActionItem.key)
-      ? mobileActionItems.reduce<AppHeaderMobileActionItem[]>((items, item) => {
-          items.push(item)
-          if (item.key === 'new-world') {
-            items.push(headerSupportActionItem)
-          }
-          return items
-        }, mobileActionItems.some((item) => item.key === 'new-world') ? [] : [headerSupportActionItem])
-      : mobileActionItems
+  const headerQuickActionItems = mobileActionItems.filter(
+    (item) => !['support', 'games-my'].includes(item.key),
+  )
   const shouldShowHeaderQuickActions = !hidePageMenu && !isMobileBottomNav && !isMobileStory && headerQuickActionItems.length > 0
   const shouldShowHeaderAiAction = !hidePageMenu && !isMobileBottomNav && !isMobileStory && showAiAssistantAction
   const isHeaderQuickActionsOpen = Boolean(headerQuickActionsAnchorEl)
@@ -686,10 +666,52 @@ function AppHeader({
   const shouldRenderLegacyDesktopSidebar = false
   const shouldRenderLegacyCompactSidebar = false
   const isMoreButtonActive =
-    isMobileMoreSheetOpen || mobileMoreMenuItems.some((item) => item.isActive) || (!mobileHomeItem && !mobileLibraryItem && !mobileCommunityItem)
+    isMobileMoreSheetOpen || mobileMoreMenuItems.some((item) => item.isActive) || (!mobileHomeItem && !mobileCommunityItem)
   const shouldShowCompactSidebarOverlay = false
   const dashboardMenuItemOnClick = resolvedMenuItems.find((item) => item.key === 'dashboard')?.onClick
   const canLogoNavigateHome = Boolean(onGoHome || dashboardMenuItemOnClick)
+
+  useLayoutEffect(() => {
+    if (isPhoneLayout) {
+      return
+    }
+
+    const measureHeaderSides = () => {
+      const left = Math.ceil(desktopHeaderLeftRef.current?.getBoundingClientRect().width ?? 0)
+      const right = Math.ceil(desktopHeaderRightRef.current?.getBoundingClientRect().width ?? 0)
+      setDesktopHeaderSideWidths((current) => (
+        current.left === left && current.right === right ? current : { left, right }
+      ))
+    }
+
+    measureHeaderSides()
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measureHeaderSides)
+      return () => window.removeEventListener('resize', measureHeaderSides)
+    }
+
+    const resizeObserver = new ResizeObserver(measureHeaderSides)
+    if (desktopHeaderLeftRef.current) {
+      resizeObserver.observe(desktopHeaderLeftRef.current)
+    }
+    if (desktopHeaderRightRef.current) {
+      resizeObserver.observe(desktopHeaderRightRef.current)
+    }
+    window.addEventListener('resize', measureHeaderSides)
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', measureHeaderSides)
+    }
+  }, [hidePageMenu, isPhoneLayout, shouldHideRightToggle, shouldShowHeaderAiAction, shouldShowHeaderQuickActions])
+
+  const desktopHeaderLeftWidth = hidePageMenu
+    ? 0
+    : (desktopHeaderSideWidths.left || DESKTOP_HEADER_LEFT_FALLBACK_WIDTH)
+  const desktopHeaderRightWidth = desktopHeaderSideWidths.right
+  const desktopCenterLeftGap = desktopHeaderLeftWidth > 0 ? DESKTOP_HEADER_CENTER_GAP : 0
+  const desktopCenterRightGap = desktopHeaderRightWidth > 0 ? DESKTOP_HEADER_CENTER_GAP : 0
 
   const handleBrandLogoClick = () => {
     closeMobileSheets()
@@ -708,23 +730,47 @@ function AppHeader({
     setHeaderQuickActionsAnchorEl((current) => (current ? null : event.currentTarget))
   }
 
-  const renderBrandLogo = () => {
-    const logoImage = (
-      <Box
-        component="img"
-        src={brandLogo}
-        alt="Morius"
-        sx={{
-          width: LOGO_WIDTH,
-          height: 'auto',
-          display: 'block',
-          opacity: 0.96,
-        }}
-      />
+  const renderBrandLogo = ({
+    width = LOGO_WIDTH,
+    showWordmark = false,
+  }: {
+    width?: number
+    showWordmark?: boolean
+  } = {}) => {
+    const brandContent = (
+      <Stack direction="row" spacing={1.25} alignItems="center" sx={{ width: 'max-content' }}>
+        <Box
+          component="img"
+          src={brandLogo}
+          alt=""
+          sx={{
+            width,
+            height: 'auto',
+            display: 'block',
+            opacity: 0.96,
+          }}
+        />
+        {showWordmark ? (
+          <Typography
+            component="span"
+            sx={{
+              color: 'var(--morius-title-text)',
+              fontFamily: '"Spectral", "Times New Roman", serif',
+              fontSize: '1.48rem',
+              fontWeight: 600,
+              lineHeight: 1,
+              letterSpacing: '0.01em',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            MoRius
+          </Typography>
+        ) : null}
+      </Stack>
     )
 
     if (!canLogoNavigateHome) {
-      return logoImage
+      return brandContent
     }
 
     return (
@@ -736,7 +782,7 @@ function AppHeader({
         sx={{
           p: 0,
           m: 0,
-          width: LOGO_WIDTH,
+          width: 'max-content',
           border: 'none',
           background: 'transparent',
           display: 'block',
@@ -748,7 +794,7 @@ function AppHeader({
           },
         }}
       >
-        {logoImage}
+        {brandContent}
       </Box>
     )
   }
@@ -800,11 +846,23 @@ function AppHeader({
     return () => window.clearTimeout(timeoutId)
   }, [shouldShowHeaderQuickActions])
 
+  const headerContinueAction = headerQuickActionItems.find((item) => item.key === 'continue') ?? null
+  const headerCompactActions = ['quick-start', 'new-world']
+    .map((key) => headerQuickActionItems.find((item) => item.key === key) ?? null)
+    .filter((item): item is AppHeaderMobileActionItem => Boolean(item))
+  const headerShopAction =
+    headerQuickActionItems.find((item) => item.key === 'shop' || item.key === 'top-up') ?? null
+
+  const handleHeaderQuickAction = (item: AppHeaderMobileActionItem) => {
+    handleCloseHeaderQuickActions()
+    item.onClick()
+  }
+
   const headerQuickActionsNode = shouldShowHeaderQuickActions ? (
     <>
-      <IconButton
+      <Button
         className="morius-header-play-button"
-        aria-label={'\u0411\u044b\u0441\u0442\u0440\u044b\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f'}
+        aria-label="Играть"
         aria-expanded={isHeaderQuickActionsOpen ? 'true' : undefined}
         onClick={handleToggleHeaderQuickActions}
         sx={{
@@ -813,7 +871,10 @@ function AppHeader({
         }}
       >
         <ThemedSvgIcon markup={mobilePlayIconMarkup} size={HEADER_PLAY_ICON_SIZE} sx={{ color: HEADER_PLAY_ICON_COLOR }} />
-      </IconButton>
+        <Typography component="span" sx={{ color: 'inherit', fontSize: '1rem', fontWeight: 800, lineHeight: 1 }}>
+          Играть
+        </Typography>
+      </Button>
 
       <Popover
         open={isHeaderQuickActionsOpen}
@@ -824,165 +885,218 @@ function AppHeader({
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
         PaperProps={{
           sx: {
-            mt: 1.05,
-            width: 288,
+            mt: 1.15,
+            width: 348,
             maxWidth: 'calc(100vw - 28px)',
-            p: 0.7,
-            borderRadius: '18px',
-            border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
-            background: 'linear-gradient(180deg, #1a1a1e, #141417)',
-            boxShadow: '0 30px 70px -20px rgba(0,0,0,0.85)',
-            overflow: 'visible',
+            p: 1.4,
+            borderRadius: '20px',
+            border: 'var(--morius-border-width) solid rgba(255,255,255,0.1)',
+            background: 'linear-gradient(180deg, #171a20 0%, #12151a 100%)',
+            boxShadow: '0 30px 70px -20px rgba(0,0,0,0.86)',
+            overflow: 'hidden',
           },
         }}
       >
-        <Stack spacing={0.35}>
-          {headerQuickActionItems.map((item) => {
-            const isContinueAction = item.key === 'continue'
-            const hasCoverImage = isContinueAction && item.imageMode === 'cover' && Boolean(item.imageSrc)
-            const subtitle = item.headline || (isContinueAction ? item.description : '')
-
-            return (
-              <Button
-                key={item.key}
-                onClick={() => {
-                  handleCloseHeaderQuickActions()
-                  item.onClick()
-                }}
-                disabled={item.disabled}
+        <Stack spacing={1.15}>
+          {headerContinueAction ? (
+            <Button
+              onClick={() => handleHeaderQuickAction(headerContinueAction)}
+              disabled={headerContinueAction.disabled}
+              sx={{
+                width: '100%',
+                minHeight: 78,
+                px: 1.35,
+                py: 1.15,
+                justifyContent: 'flex-start',
+                textAlign: 'left',
+                textTransform: 'none',
+                color: 'var(--morius-title-text)',
+                borderRadius: '15px',
+                border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+                backgroundColor: 'rgba(255,255,255,0.035)',
+                gap: 1.25,
+                '&:hover': {
+                  backgroundColor: 'rgba(255,255,255,0.065)',
+                  borderColor: 'rgba(255,255,255,0.15)',
+                },
+                '&.Mui-disabled': { opacity: 0.5, color: 'var(--morius-title-text)' },
+              }}
+            >
+              <Box
                 sx={{
-                  position: 'relative',
-                  width: '100%',
-                  minHeight: isContinueAction ? 72 : 54,
-                  height: isContinueAction ? 72 : 54,
-                  px: 1,
-                  py: isContinueAction ? 1.15 : 0,
-                  justifyContent: 'flex-start',
-                  alignItems: 'center',
-                  overflow: 'hidden',
-                  borderRadius: '12px',
-                  border: 'var(--morius-border-width) solid transparent',
-                  color: 'var(--morius-title-text)',
-                  textTransform: 'none',
-                  textAlign: 'left',
-                  background: isContinueAction ? 'rgba(255,255,255,0.05)' : 'transparent',
-                  boxShadow: 'none',
-                  transition: 'transform 160ms ease, background 160ms ease, opacity 160ms ease',
-                  '&:hover': {
-                    background: 'rgba(255,255,255,0.06)',
-                    transform: item.disabled ? 'none' : 'translateY(-1px)',
-                  },
-                  '&:hover .morius-header-action-cover-shade': {
-                    opacity: 1,
-                  },
-                  '&.Mui-disabled': {
-                    opacity: 0.55,
-                    color: 'var(--morius-title-text)',
-                  },
+                  width: 44,
+                  height: 44,
+                  flexShrink: 0,
+                  display: 'grid',
+                  placeItems: 'center',
+                  borderRadius: '13px',
+                  color: '#9ebcff',
+                  border: 'var(--morius-border-width) solid rgba(91,137,238,0.48)',
+                  background: 'linear-gradient(145deg, rgba(69,103,182,0.28), rgba(38,52,88,0.44))',
                 }}
               >
-                {hasCoverImage && item.imageSrc ? (
-                  <>
-                    <ProgressiveImage
-                      src={item.imageSrc}
-                      alt=""
-                      loading="eager"
-                      fetchPriority="high"
-                      objectFit="cover"
-                      objectPosition={item.imagePosition ?? 'center'}
-                      loaderSize={18}
-                      containerSx={{
-                        position: 'absolute',
-                        inset: 0,
-                      }}
-                      imgSx={{
-                        opacity: 0.88,
-                      }}
-                    />
-                    <Box
-                      aria-hidden
-                      sx={{
-                        position: 'absolute',
-                        inset: 0,
-                        background:
-                          'linear-gradient(180deg, rgba(7, 10, 14, 0.44) 0%, rgba(7, 10, 14, 0.7) 46%, rgba(7, 10, 14, 0.88) 100%)',
-                      }}
-                    />
-                    <Box
-                      aria-hidden
-                      className="morius-header-action-cover-shade"
-                      sx={{
-                        position: 'absolute',
-                        inset: 0,
-                        opacity: 0,
-                        background: 'rgba(0, 0, 0, 0.18)',
-                        transition: 'opacity 160ms ease',
-                      }}
-                    />
-                  </>
+                {headerContinueAction.iconMarkup ? (
+                  <ThemedSvgIcon markup={headerContinueAction.iconMarkup} size={19} />
                 ) : null}
-
-                <Stack
-                  spacing={isContinueAction ? 0.35 : 0}
+              </Box>
+              <Stack spacing={0.18} sx={{ minWidth: 0, flex: 1, alignItems: 'flex-start' }}>
+                <Typography
                   sx={{
-                    position: 'relative',
-                    zIndex: 1,
-                    minWidth: 0,
-                    width: '100%',
-                    alignItems: 'flex-start',
+                    color: 'var(--morius-text-secondary)',
+                    fontSize: '0.68rem',
+                    fontWeight: 900,
+                    lineHeight: 1,
+                    letterSpacing: '0.14em !important',
+                    textTransform: 'uppercase',
                   }}
                 >
-                  <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0, width: '100%' }}>
-                    {item.iconMarkup ? (
-                      <Box
-                        sx={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: '10px',
-                          display: 'grid',
-                          placeItems: 'center',
-                          flexShrink: 0,
-                          border: 'var(--morius-border-width) solid var(--morius-chip-border)',
-                          backgroundColor: 'var(--morius-chip-bg)',
-                          color: isContinueAction ? 'var(--accent, #4c8dff)' : '#cfcdd4',
-                        }}
-                      >
-                        <ThemedSvgIcon markup={item.iconMarkup} size={isContinueAction ? 18 : 20} />
-                      </Box>
-                    ) : null}
-                    <Typography
-                      noWrap={!isContinueAction}
+                  {headerContinueAction.title}
+                </Typography>
+                <Typography
+                  noWrap
+                  sx={{ width: '100%', color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 850, lineHeight: 1.18 }}
+                >
+                  {headerContinueAction.headline || 'Вернуться в историю'}
+                </Typography>
+                {headerContinueAction.description ? (
+                  <Typography
+                    noWrap
+                    sx={{ width: '100%', color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.15 }}
+                  >
+                    {headerContinueAction.description}
+                  </Typography>
+                ) : null}
+              </Stack>
+              <Box component="img" src={icons.arrowback} alt="" sx={{ width: 12, height: 12, flexShrink: 0, opacity: 0.64 }} />
+            </Button>
+          ) : null}
+
+          {headerCompactActions.length > 0 ? (
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1.15 }}>
+              {headerCompactActions.map((item) => {
+                const compactDescription =
+                  item.key === 'quick-start'
+                    ? 'Случайный мир — в бой'
+                    : item.key === 'new-world'
+                      ? 'С чистого листа'
+                      : item.description
+                return (
+                  <Button
+                    key={item.key}
+                    onClick={() => handleHeaderQuickAction(item)}
+                    disabled={item.disabled}
+                    sx={{
+                      minWidth: 0,
+                      minHeight: 116,
+                      px: 1.35,
+                      py: 1.35,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      justifyContent: 'space-between',
+                      textAlign: 'left',
+                      textTransform: 'none',
+                      color: 'var(--morius-title-text)',
+                      borderRadius: '15px',
+                      border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+                      backgroundColor: 'rgba(255,255,255,0.035)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255,255,255,0.065)',
+                        borderColor: 'rgba(255,255,255,0.15)',
+                      },
+                      '&.Mui-disabled': { opacity: 0.5, color: 'var(--morius-title-text)' },
+                    }}
+                  >
+                    <Box
                       sx={{
-                        minWidth: 0,
-                        color: hasCoverImage ? '#f5f8ff' : 'var(--morius-title-text)',
-                        fontSize: isContinueAction ? '0.96rem' : '0.94rem',
-                        fontWeight: 800,
-                        lineHeight: 1.08,
+                        width: 38,
+                        height: 38,
+                        display: 'grid',
+                        placeItems: 'center',
+                        borderRadius: '11px',
+                        color: '#9ebcff',
+                        border: 'var(--morius-border-width) solid rgba(91,137,238,0.42)',
+                        backgroundColor: 'rgba(57,82,143,0.2)',
                       }}
                     >
-                      {item.title}
-                    </Typography>
-                  </Stack>
-                  {subtitle ? (
-                    <Typography
-                      sx={{
-                        color: hasCoverImage ? '#f5f8ff' : 'var(--morius-text-secondary)',
-                        fontSize: isContinueAction ? '0.86rem' : '0.82rem',
-                        fontWeight: isContinueAction ? 800 : 700,
-                        lineHeight: 1.2,
-                        display: '-webkit-box',
-                        WebkitLineClamp: isContinueAction ? 2 : 1,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      {subtitle}
-                    </Typography>
-                  ) : null}
-                </Stack>
-              </Button>
-            )
-          })}
+                      {item.iconMarkup ? <ThemedSvgIcon markup={item.iconMarkup} size={19} /> : null}
+                    </Box>
+                    <Stack spacing={0.35} sx={{ width: '100%', alignItems: 'flex-start' }}>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 850, lineHeight: 1.08 }}>
+                        {item.title}
+                      </Typography>
+                      {compactDescription ? (
+                        <Typography
+                          sx={{
+                            color: 'var(--morius-text-secondary)',
+                            fontSize: '0.76rem',
+                            lineHeight: 1.25,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {compactDescription}
+                        </Typography>
+                      ) : null}
+                    </Stack>
+                  </Button>
+                )
+              })}
+            </Box>
+          ) : null}
+
+          {headerShopAction ? (
+            <Button
+              onClick={() => handleHeaderQuickAction(headerShopAction)}
+              disabled={headerShopAction.disabled}
+              sx={{
+                width: '100%',
+                minHeight: 62,
+                px: 1.35,
+                py: 1,
+                gap: 1.2,
+                justifyContent: 'flex-start',
+                textAlign: 'left',
+                textTransform: 'none',
+                color: '#f1d48a',
+                borderRadius: '15px',
+                border: 'var(--morius-border-width) solid rgba(205,166,89,0.48)',
+                background: 'linear-gradient(90deg, rgba(205,166,89,0.12), rgba(205,166,89,0.035))',
+                '&:hover': {
+                  borderColor: 'rgba(226,190,109,0.7)',
+                  background: 'linear-gradient(90deg, rgba(205,166,89,0.18), rgba(205,166,89,0.06))',
+                },
+                '&.Mui-disabled': { opacity: 0.5, color: '#f1d48a' },
+              }}
+            >
+              <Box
+                sx={{
+                  width: 38,
+                  height: 38,
+                  flexShrink: 0,
+                  display: 'grid',
+                  placeItems: 'center',
+                  borderRadius: '11px',
+                  color: '#edc873',
+                  border: 'var(--morius-border-width) solid rgba(205,166,89,0.5)',
+                  backgroundColor: 'rgba(205,166,89,0.14)',
+                }}
+              >
+                {headerShopAction.iconMarkup ? <ThemedSvgIcon markup={headerShopAction.iconMarkup} size={18} /> : null}
+              </Box>
+              <Stack spacing={0.2} sx={{ minWidth: 0, flex: 1, alignItems: 'flex-start' }}>
+                <Typography sx={{ color: 'inherit', fontSize: '0.98rem', fontWeight: 850, lineHeight: 1.08 }}>
+                  {headerShopAction.title}
+                </Typography>
+                <Typography sx={{ color: 'rgba(229,192,111,0.82)', fontSize: '0.77rem', lineHeight: 1.2 }}>
+                  Пакеты солов и кристаллы
+                </Typography>
+              </Stack>
+              <Box component="img" src={icons.arrowback} alt="" sx={{ width: 12, height: 12, flexShrink: 0, opacity: 0.74 }} />
+            </Button>
+          ) : null}
         </Stack>
       </Popover>
     </>
@@ -1402,18 +1516,6 @@ function AppHeader({
                   </Box>
                 </IconButton>
                 <IconButton
-                  aria-label={'\u0411\u0438\u0431\u043b\u0438\u043e\u0442\u0435\u043a\u0430'}
-                  onClick={() => {
-                    closeMobileSheets()
-                    mobileLibraryItem?.onClick()
-                  }}
-                  sx={{ ...sidebarButtonSx(Boolean(mobileLibraryItem?.isActive), false, false, false), minHeight: 46, height: 46 }}
-                >
-                  <Box sx={sidebarIconWrapSx(Boolean(mobileLibraryItem?.isActive))}>
-                    <SidebarLibraryIcon />
-                  </Box>
-                </IconButton>
-                <IconButton
                   aria-label={isMobileActionSheetOpen ? '\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u0431\u044b\u0441\u0442\u0440\u044b\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f' : '\u0411\u044b\u0441\u0442\u0440\u044b\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f'}
                   onClick={() => {
                     setIsMobileMoreSheetOpen(false)
@@ -1686,6 +1788,7 @@ function AppHeader({
 
       {!hidePageMenu ? (
         <Box
+          ref={desktopHeaderLeftRef}
           sx={{
             position: 'fixed',
             top: 'var(--morius-header-top-offset)',
@@ -1697,16 +1800,15 @@ function AppHeader({
             pointerEvents: 'auto',
           }}
         >
-          <Stack direction="row" spacing={1.55} alignItems="center" sx={{ height: '100%' }}>
+          <Stack direction="row" spacing={3.1} alignItems="center" sx={{ height: '100%' }}>
             <Box
               sx={{
-                width: LOGO_WIDTH,
                 display: shouldHideBrandLogo ? 'none' : 'block',
                 flexShrink: 0,
                 pointerEvents: canLogoNavigateHome ? 'auto' : 'none',
               }}
             >
-              {renderBrandLogo()}
+              {renderBrandLogo({ width: DESKTOP_LOGO_WIDTH, showWordmark: true })}
             </Box>
             <Stack direction="row" spacing={1.15} alignItems="center" sx={{ height: '100%' }}>
               {headerNavItems.map((item, index) => {
@@ -1723,23 +1825,26 @@ function AppHeader({
                     sx={{
                       minWidth: 0,
                       minHeight: HEADER_BUTTON_SIZE,
-                      px: 1,
+                      px: 1.8,
                       py: 0,
                       gap: 1,
-                      border: 'none',
-                      borderRadius: '10px !important',
-                      backgroundColor: isActive ? 'rgba(255,255,255,0.05) !important' : 'transparent !important',
+                      border: isActive
+                        ? 'var(--morius-border-width) solid rgba(255,255,255,0.14)'
+                        : 'var(--morius-border-width) solid transparent',
+                      borderRadius: '12px !important',
+                      backgroundColor: isActive ? 'rgba(255,255,255,0.055) !important' : 'transparent !important',
                       color: `${navItemColor} !important`,
                       textTransform: 'none',
-                      fontSize: '0.9rem',
-                      fontWeight: 800,
+                      fontSize: '1rem',
+                      fontWeight: 750,
                       lineHeight: 1,
                       '&:hover': {
-                        backgroundColor: 'rgba(255,255,255,0.05) !important',
+                        backgroundColor: isActive ? 'rgba(255,255,255,0.075) !important' : 'rgba(255,255,255,0.035) !important',
+                        borderColor: isActive ? 'rgba(255,255,255,0.18)' : 'transparent',
                         color: 'var(--morius-title-text) !important',
                       },
                       '&:active': {
-                        backgroundColor: 'transparent !important',
+                        backgroundColor: isActive ? 'rgba(255,255,255,0.055) !important' : 'transparent !important',
                       },
                     }}
                   >
@@ -1825,14 +1930,18 @@ function AppHeader({
           sx={{
             position: 'fixed',
             top: 'var(--morius-header-top-offset)',
-            left: '50%',
-            transform: 'translateX(-50%)',
+            left: `calc(var(--morius-header-side-offset) + ${desktopHeaderLeftWidth + desktopCenterLeftGap}px)`,
+            right: `calc(var(--morius-header-side-offset) + ${desktopHeaderRightWidth + desktopCenterRightGap}px)`,
             height: HEADER_BUTTON_SIZE,
             zIndex: 37,
-            width: `clamp(260px, calc(100vw - var(--morius-header-side-offset) * 2 - 700px), ${HEADER_CONTENT_MAX_WIDTH}px)`,
+            width: 'auto',
+            maxWidth: `${HEADER_CONTENT_MAX_WIDTH}px`,
+            minWidth: 0,
+            mx: 'auto',
             display: { xs: 'none', md: 'flex' },
             alignItems: 'center',
             pointerEvents: 'auto',
+            overflow: 'hidden',
           }}
         >
           {centerSlot}
@@ -2049,6 +2158,7 @@ function AppHeader({
         </Grow>
       ) : null}
       <Box
+        ref={desktopHeaderRightRef}
         sx={{
           position: 'fixed',
           top: 'var(--morius-header-top-offset)',

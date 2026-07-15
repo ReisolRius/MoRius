@@ -6201,6 +6201,87 @@ function StoryTurnProgressIndicator({
   )
 }
 
+function ComposerStatusIndicator({
+  label,
+  isBusy,
+  hasInsufficientTokens,
+  mobile,
+}: {
+  label: string
+  isBusy: boolean
+  hasInsufficientTokens: boolean
+  mobile: boolean
+}) {
+  const isReady = label === 'Готов к ходу'
+  return (
+    <Stack
+      role="status"
+      aria-live="polite"
+      direction="row"
+      alignItems="center"
+      spacing={0.55}
+      sx={{
+        display: mobile ? { xs: 'flex', md: 'none' } : { xs: 'none', md: 'flex' },
+        alignSelf: 'center',
+        minWidth: 0,
+        flex: mobile ? '1 1 auto' : '0 1 auto',
+        maxWidth: mobile ? 'calc(100% - 76px)' : 220,
+        color: 'color-mix(in srgb, var(--morius-text-secondary) 84%, transparent)',
+      }}
+    >
+      <Box
+        aria-hidden
+        sx={{
+          width: 6,
+          height: 6,
+          borderRadius: '50%',
+          backgroundColor: hasInsufficientTokens
+            ? '#ef8f8f'
+            : isBusy
+              ? 'var(--morius-accent)'
+              : '#78a96f',
+          flexShrink: 0,
+          boxShadow: isBusy ? '0 0 12px color-mix(in srgb, var(--morius-accent) 70%, transparent)' : 'none',
+          transition: 'background-color 280ms ease, box-shadow 280ms ease',
+          animation: !isReady ? 'morius-composer-status-dot-pulse 1.15s ease-in-out infinite' : 'none',
+          '@keyframes morius-composer-status-dot-pulse': {
+            '0%, 100%': { transform: 'scale(1)', opacity: 1 },
+            '50%': { transform: 'scale(1.5)', opacity: 0.62 },
+          },
+        }}
+      />
+      <Typography
+        key={label}
+        sx={{
+          minWidth: 0,
+          color: 'inherit',
+          fontSize: mobile ? '0.64rem' : '0.68rem',
+          fontWeight: 850,
+          lineHeight: 1.15,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          animation: !isReady
+            ? 'morius-composer-status-label-enter 260ms cubic-bezier(0.22, 1, 0.36, 1), morius-composer-status-label-breathe 1.7s ease-in-out 260ms infinite'
+            : 'morius-composer-status-label-enter 260ms cubic-bezier(0.22, 1, 0.36, 1)',
+          '@keyframes morius-composer-status-label-enter': {
+            from: { opacity: 0, transform: 'translateY(5px)' },
+            to: { opacity: 1, transform: 'translateY(0)' },
+          },
+          '@keyframes morius-composer-status-label-breathe': {
+            '0%, 100%': { opacity: 1 },
+            '50%': { opacity: 0.55 },
+          },
+        }}
+      >
+        {label}
+      </Typography>
+    </Stack>
+  )
+}
+
 function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, onUserUpdate }: StoryGamePageProps) {
   const {
     themeId,
@@ -6225,10 +6306,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const rightPanelModeInactiveColor = isYamiTheme ? 'var(--morius-text-secondary)' : secondaryGameButtonColor
   const sendButtonIconColor = 'var(--morius-accent)'
   const getComposerTopActionButtonSx = (options?: { highlighted?: boolean }) => ({
-    width: COMPOSER_TOP_ACTION_BUTTON_SIZE,
-    height: COMPOSER_TOP_ACTION_BUTTON_SIZE,
-    minWidth: COMPOSER_TOP_ACTION_BUTTON_SIZE,
-    minHeight: COMPOSER_TOP_ACTION_BUTTON_SIZE,
+    width: { xs: 34, md: COMPOSER_TOP_ACTION_BUTTON_SIZE },
+    height: { xs: 34, md: COMPOSER_TOP_ACTION_BUTTON_SIZE },
+    minWidth: { xs: 34, md: COMPOSER_TOP_ACTION_BUTTON_SIZE },
+    minHeight: { xs: 34, md: COMPOSER_TOP_ACTION_BUTTON_SIZE },
     borderRadius: '50%',
     border: 'none',
     backgroundColor: 'transparent !important',
@@ -6251,8 +6332,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
   })
   const composerActionImageSx = {
-    width: 18,
-    height: 18,
+    width: { xs: 16, md: 18 },
+    height: { xs: 16, md: 18 },
     opacity: 0.9,
   }
   const overflowActionButtonSx = {
@@ -6566,6 +6647,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [turnImageWaitPhraseIndex, setTurnImageWaitPhraseIndex] = useState(0)
   const [gallerySavingTurnImageIds, setGallerySavingTurnImageIds] = useState<Set<number>>(() => new Set())
   const [savedGalleryTurnImageIds, setSavedGalleryTurnImageIds] = useState<Set<number>>(() => new Set())
+  const [revealedMobileGalleryAction, setRevealedMobileGalleryAction] = useState<{
+    turnImageId: number
+    imageUrl: string
+  } | null>(null)
+  const revealedMobileGalleryActionTimeoutRef = useRef<number | null>(null)
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isGameMenuOpen, setIsGameMenuOpen] = useState(false)
@@ -15790,6 +15876,97 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [authToken, gallerySavingTurnImageIds, savedGalleryTurnImageIds],
   )
 
+  const clearRevealedMobileGalleryActionTimeout = useCallback(() => {
+    if (revealedMobileGalleryActionTimeoutRef.current === null) {
+      return
+    }
+    window.clearTimeout(revealedMobileGalleryActionTimeoutRef.current)
+    revealedMobileGalleryActionTimeoutRef.current = null
+  }, [])
+
+  const hideRevealedMobileGalleryAction = useCallback(() => {
+    clearRevealedMobileGalleryActionTimeout()
+    setRevealedMobileGalleryAction(null)
+  }, [clearRevealedMobileGalleryActionTimeout])
+
+  const scheduleRevealedMobileGalleryActionHide = useCallback(() => {
+    clearRevealedMobileGalleryActionTimeout()
+    revealedMobileGalleryActionTimeoutRef.current = window.setTimeout(() => {
+      revealedMobileGalleryActionTimeoutRef.current = null
+      setRevealedMobileGalleryAction(null)
+    }, 5_000)
+  }, [clearRevealedMobileGalleryActionTimeout])
+
+  const handleToggleMobileGalleryAction = useCallback(
+    (turnImage: StoryTurnImageEntry) => {
+      if (!isMobileComposer || turnImage.status !== 'ready' || !turnImage.imageUrl) {
+        return
+      }
+
+      const isCurrentAction =
+        revealedMobileGalleryAction?.turnImageId === turnImage.id &&
+        revealedMobileGalleryAction.imageUrl === turnImage.imageUrl
+      if (isCurrentAction) {
+        hideRevealedMobileGalleryAction()
+        return
+      }
+
+      setRevealedMobileGalleryAction({ turnImageId: turnImage.id, imageUrl: turnImage.imageUrl })
+      scheduleRevealedMobileGalleryActionHide()
+    },
+    [
+      hideRevealedMobileGalleryAction,
+      isMobileComposer,
+      revealedMobileGalleryAction,
+      scheduleRevealedMobileGalleryActionHide,
+    ],
+  )
+
+  useEffect(() => {
+    if (!revealedMobileGalleryAction) {
+      return
+    }
+
+    if (!isMobileComposer) {
+      hideRevealedMobileGalleryAction()
+      return
+    }
+
+    const imageStillExists = Object.values(turnImageByAssistantMessageId).some((turnImages) =>
+      turnImages.some(
+        (turnImage) =>
+          turnImage.status === 'ready' &&
+          turnImage.id === revealedMobileGalleryAction.turnImageId &&
+          turnImage.imageUrl === revealedMobileGalleryAction.imageUrl,
+      ),
+    )
+    if (!imageStillExists) {
+      hideRevealedMobileGalleryAction()
+      return
+    }
+
+    const handlePointerDownOutside = (event: PointerEvent) => {
+      const target = event.target
+      if (
+        target instanceof Element &&
+        target.closest(`[data-morius-turn-image-id="${revealedMobileGalleryAction.turnImageId}"]`)
+      ) {
+        return
+      }
+      hideRevealedMobileGalleryAction()
+    }
+
+    document.addEventListener('pointerdown', handlePointerDownOutside, true)
+    return () => document.removeEventListener('pointerdown', handlePointerDownOutside, true)
+  }, [
+    hideRevealedMobileGalleryAction,
+    isMobileComposer,
+    revealedMobileGalleryAction,
+    turnImageByAssistantMessageId,
+  ])
+
+  useEffect(() => () => clearRevealedMobileGalleryActionTimeout(), [clearRevealedMobileGalleryActionTimeout])
+
   useEffect(() => {
     const assistantMessageIds = new Set(
       messages
@@ -17382,7 +17559,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         onClosePageMenu={() => setIsPageMenuOpen(false)}
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
-          { key: 'games-my', label: 'Мои игры', isActive: false, onClick: () => onNavigate('/games') },
           { key: 'games-publications', label: 'Публикации', isActive: false, onClick: () => onNavigate('/games/publications') },
           { key: 'games-all', label: 'Сообщество', isActive: false, onClick: () => onNavigate('/games/all') },
         ]}
@@ -25902,6 +26078,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   }}
                                 >
                               <Box
+                                data-morius-turn-image-id={
+                                  assistantTurnImage.status === 'ready' ? assistantTurnImage.id : undefined
+                                }
                                 sx={{
                                   width: '100%',
                                   ...(assistantTurnImage.status === 'error'
@@ -25923,10 +26102,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   position: 'relative',
                                   background:
                                     'linear-gradient(140deg, rgba(42, 56, 78, 0.6) 0%, rgba(22, 31, 46, 0.88) 48%, rgba(26, 40, 61, 0.84) 100%)',
-                                  '&:hover .morius-turn-image-gallery-action, &:focus-within .morius-turn-image-gallery-action': {
-                                    opacity: 1,
-                                    pointerEvents: 'auto',
-                                    transform: 'translateY(0)',
+                                  '@media (min-width: 900px)': {
+                                    '&:hover .morius-turn-image-gallery-action, &:focus-within .morius-turn-image-gallery-action': {
+                                      opacity: 1,
+                                      pointerEvents: 'auto',
+                                      transform: 'translateY(0)',
+                                    },
                                   },
                                   ...(assistantTurnImage.status === 'loading'
                                     ? {
@@ -25948,28 +26129,75 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               >
                                 {assistantTurnImage.status === 'ready' && assistantTurnImage.imageUrl ? (
                                   <Fragment>
-                                    <ProgressiveImage
-                                      src={assistantTurnImage.imageUrl}
-                                      alt="Scene frame"
-                                      loading="lazy"
-                                      fetchPriority="low"
-                                      objectFit="contain"
-                                      loaderSize={28}
-                                      containerSx={{
-                                        width: '100%',
-                                        minHeight: 180,
-                                        background: 'transparent',
+                                    <Box
+                                      role={isMobileComposer ? 'button' : undefined}
+                                      tabIndex={isMobileComposer ? 0 : undefined}
+                                      aria-label={isMobileComposer ? 'Показать кнопку сохранения изображения' : undefined}
+                                      onClick={(event) => {
+                                        if (!isMobileComposer) {
+                                          return
+                                        }
+                                        event.stopPropagation()
+                                        handleToggleMobileGalleryAction(assistantTurnImage)
                                       }}
-                                      imgSx={{
-                                        position: 'relative',
-                                        width: '100%',
-                                        height: 'auto',
-                                        objectFit: 'contain',
+                                      onKeyDown={(event) => {
+                                        if (!isMobileComposer || (event.key !== 'Enter' && event.key !== ' ')) {
+                                          return
+                                        }
+                                        event.preventDefault()
+                                        event.stopPropagation()
+                                        handleToggleMobileGalleryAction(assistantTurnImage)
                                       }}
-                                    />
+                                      sx={{
+                                        width: '100%',
+                                        cursor: { xs: 'pointer', md: 'default' },
+                                        outline: 'none',
+                                        '&:focus-visible': {
+                                          boxShadow: 'inset 0 0 0 2px color-mix(in srgb, var(--morius-accent) 72%, transparent)',
+                                        },
+                                      }}
+                                    >
+                                      <ProgressiveImage
+                                        src={assistantTurnImage.imageUrl}
+                                        alt="Scene frame"
+                                        loading="lazy"
+                                        fetchPriority="low"
+                                        objectFit="contain"
+                                        loaderSize={28}
+                                        containerSx={{
+                                          width: '100%',
+                                          minHeight: 180,
+                                          background: 'transparent',
+                                        }}
+                                        imgSx={{
+                                          position: 'relative',
+                                          width: '100%',
+                                          height: 'auto',
+                                          objectFit: 'contain',
+                                        }}
+                                      />
+                                    </Box>
                                     <Button
                                       className="morius-turn-image-gallery-action"
                                       type="button"
+                                      tabIndex={
+                                        isMobileComposer &&
+                                        !(
+                                          revealedMobileGalleryAction?.turnImageId === assistantTurnImage.id &&
+                                          revealedMobileGalleryAction.imageUrl === assistantTurnImage.imageUrl
+                                        )
+                                          ? -1
+                                          : 0
+                                      }
+                                      aria-hidden={
+                                        isMobileComposer &&
+                                        !(
+                                          revealedMobileGalleryAction?.turnImageId === assistantTurnImage.id &&
+                                          revealedMobileGalleryAction.imageUrl === assistantTurnImage.imageUrl
+                                        )
+                                          ? true
+                                          : undefined
+                                      }
                                       aria-label={
                                         savedGalleryTurnImageIds.has(assistantTurnImage.id)
                                           ? 'Изображение сохранено в галерее'
@@ -25980,7 +26208,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           ? 'В галерее'
                                           : 'Сохранить в галерею'
                                       }
-                                      onClick={() => void handleSaveTurnImageToGallery(assistantTurnImage)}
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        if (isMobileComposer) {
+                                          scheduleRevealedMobileGalleryActionHide()
+                                        }
+                                        void handleSaveTurnImageToGallery(assistantTurnImage)
+                                      }}
+                                      onFocus={() => {
+                                        if (isMobileComposer) {
+                                          clearRevealedMobileGalleryActionTimeout()
+                                        }
+                                      }}
+                                      onBlur={() => {
+                                        if (isMobileComposer) {
+                                          scheduleRevealedMobileGalleryActionHide()
+                                        }
+                                      }}
                                       disabled={
                                         gallerySavingTurnImageIds.has(assistantTurnImage.id) ||
                                         savedGalleryTurnImageIds.has(assistantTurnImage.id)
@@ -26009,9 +26253,30 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         border: '1px solid rgba(196, 211, 232, 0.2)',
                                         backdropFilter: 'blur(12px)',
                                         boxShadow: '0 10px 22px rgba(0, 0, 0, 0.28)',
-                                        opacity: { xs: 1, md: 0 },
-                                        pointerEvents: { xs: 'auto', md: 'none' },
-                                        transform: { xs: 'translateY(0)', md: 'translateY(-4px)' },
+                                        opacity: {
+                                          xs:
+                                            revealedMobileGalleryAction?.turnImageId === assistantTurnImage.id &&
+                                            revealedMobileGalleryAction.imageUrl === assistantTurnImage.imageUrl
+                                              ? 1
+                                              : 0,
+                                          md: 0,
+                                        },
+                                        pointerEvents: {
+                                          xs:
+                                            revealedMobileGalleryAction?.turnImageId === assistantTurnImage.id &&
+                                            revealedMobileGalleryAction.imageUrl === assistantTurnImage.imageUrl
+                                              ? 'auto'
+                                              : 'none',
+                                          md: 'none',
+                                        },
+                                        transform: {
+                                          xs:
+                                            revealedMobileGalleryAction?.turnImageId === assistantTurnImage.id &&
+                                            revealedMobileGalleryAction.imageUrl === assistantTurnImage.imageUrl
+                                              ? 'translateY(0)'
+                                              : 'translateY(-4px)',
+                                          md: 'translateY(-4px)',
+                                        },
                                         transition: 'opacity 160ms ease, transform 160ms ease, background-color 160ms ease',
                                         '&:hover': {
                                           backgroundColor: 'rgba(38, 48, 65, 0.9)',
@@ -26020,7 +26285,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           color: 'rgba(223, 232, 246, 0.68)',
                                           backgroundColor: 'rgba(19, 24, 32, 0.72)',
                                           borderColor: 'rgba(196, 211, 232, 0.14)',
-                                          opacity: { xs: 1, md: savedGalleryTurnImageIds.has(assistantTurnImage.id) ? 1 : 0 },
+                                          opacity: {
+                                            xs:
+                                              revealedMobileGalleryAction?.turnImageId === assistantTurnImage.id &&
+                                              revealedMobileGalleryAction.imageUrl === assistantTurnImage.imageUrl
+                                                ? 1
+                                                : 0,
+                                            md: savedGalleryTurnImageIds.has(assistantTurnImage.id) ? 1 : 0,
+                                          },
                                         },
                                       }}
                                     >
@@ -26332,10 +26604,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                gap: 1.1,
+                gap: { xs: 0.3, md: 1.1 },
               }}
             >
-              <Stack direction="row" alignItems="center" spacing={0.82} sx={{ minWidth: 0, flexShrink: 1 }}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={{ xs: 0.25, md: 0.82 }}
+                sx={{ minWidth: 0, flexShrink: 1 }}
+              >
                 <Tooltip
                   arrow
                   placement="top"
@@ -26359,25 +26636,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 >
                   <Box
                     sx={{
-                      minWidth: 72,
-                      px: 0.85,
-                      height: COMPOSER_TOP_ACTION_BUTTON_SIZE,
-                      borderRadius: '16px',
+                      minWidth: { xs: 54, sm: 60, md: 72 },
+                      px: { xs: 0.5, md: 0.85 },
+                      height: { xs: 34, md: COMPOSER_TOP_ACTION_BUTTON_SIZE },
+                      borderRadius: { xs: '12px', md: '16px' },
                       border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
                       background: 'color-mix(in srgb, var(--morius-card-bg) 90%, #000 10%)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: 0.48,
+                      gap: { xs: 0.3, md: 0.48 },
                       cursor: 'help',
                       flexShrink: 0,
                     }}
                   >
-                    <SoulIcon size={19} sx={{ opacity: 0.98 }} />
+                    <SoulIcon size={19} sx={{ width: { xs: 16, md: 19 }, height: { xs: 16, md: 19 }, opacity: 0.98 }} />
                     <Typography
                       sx={{
                         color: 'var(--morius-title-text)',
-                        fontSize: '1.15rem',
+                        fontSize: { xs: '0.92rem', md: '1.15rem' },
                         lineHeight: 1,
                         fontWeight: 700,
                         fontVariantNumeric: 'tabular-nums',
@@ -26392,7 +26669,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   aria-hidden
                   sx={{
                     width: '1px',
-                    height: 20,
+                    height: { xs: 16, md: 20 },
                     alignSelf: 'center',
                     backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
                     flexShrink: 0,
@@ -26460,71 +26737,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   </span>
                 </Tooltip>
               </Stack>
-              <Stack direction="row" alignItems="center" spacing={0.82} sx={{ ml: 'auto', flexShrink: 0 }}>
-                <Stack
-                  direction="row"
-                  alignItems="center"
-                  spacing={0.55}
-                  sx={{
-                    alignSelf: 'center',
-                    minWidth: 0,
-                    flexShrink: 1,
-                    maxWidth: { xs: 118, sm: 220 },
-                    color: 'color-mix(in srgb, var(--morius-text-secondary) 84%, transparent)',
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      backgroundColor: hasInsufficientTokensForTurn
-                        ? '#ef8f8f'
-                        : isStoryTurnBusy
-                          ? 'var(--morius-accent)'
-                          : '#78a96f',
-                      flexShrink: 0,
-                      boxShadow: isStoryTurnBusy ? '0 0 12px color-mix(in srgb, var(--morius-accent) 70%, transparent)' : 'none',
-                      transition: 'background-color 280ms ease, box-shadow 280ms ease',
-                      animation:
-                        composerStatusLabel !== 'Готов к ходу'
-                          ? 'morius-composer-status-dot-pulse 1.15s ease-in-out infinite'
-                          : 'none',
-                      '@keyframes morius-composer-status-dot-pulse': {
-                        '0%, 100%': { transform: 'scale(1)', opacity: 1 },
-                        '50%': { transform: 'scale(1.5)', opacity: 0.62 },
-                      },
-                    }}
-                  />
-                  <Typography
-                    key={composerStatusLabel}
-                    sx={{
-                      color: 'inherit',
-                      fontSize: { xs: '0.62rem', sm: '0.68rem' },
-                      fontWeight: 850,
-                      lineHeight: 1,
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      animation:
-                        composerStatusLabel !== 'Готов к ходу'
-                          ? 'morius-composer-status-label-enter 260ms cubic-bezier(0.22, 1, 0.36, 1), morius-composer-status-label-breathe 1.7s ease-in-out 260ms infinite'
-                          : 'morius-composer-status-label-enter 260ms cubic-bezier(0.22, 1, 0.36, 1)',
-                      '@keyframes morius-composer-status-label-enter': {
-                        from: { opacity: 0, transform: 'translateY(5px)' },
-                        to: { opacity: 1, transform: 'translateY(0)' },
-                      },
-                      '@keyframes morius-composer-status-label-breathe': {
-                        '0%, 100%': { opacity: 1 },
-                        '50%': { opacity: 0.55 },
-                      },
-                    }}
-                  >
-                    {composerStatusLabel}
-                  </Typography>
-                </Stack>
+              <Stack direction="row" alignItems="center" spacing={{ xs: 0.25, md: 0.82 }} sx={{ ml: 'auto', flexShrink: 0 }}>
+                <ComposerStatusIndicator
+                  label={composerStatusLabel}
+                  isBusy={isStoryTurnBusy}
+                  hasInsufficientTokens={hasInsufficientTokensForTurn}
+                  mobile={false}
+                />
                 <Tooltip arrow disableInteractive placement="top" title="Продолжить">
                   <span>
                     <IconButton
@@ -26533,10 +26752,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       disabled={!canContinueLatestTurn}
                       sx={{
                         ...getComposerTopActionButtonSx(),
-                        width: 42,
-                        height: 42,
-                        minWidth: 42,
-                        minHeight: 42,
+                        width: { xs: 34, md: 42 },
+                        height: { xs: 34, md: 42 },
+                        minWidth: { xs: 34, md: 42 },
+                        minHeight: { xs: 34, md: 42 },
                         border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 92%, transparent)',
                         color: secondaryGameButtonColor,
                         '&:hover': {
@@ -26958,9 +27177,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Box>
 
           <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
-            {isFinalizingStoryTurn ? (
-              <StoryTurnProgressIndicator label={storyPostprocessLabel} mobile />
-            ) : null}
+            <ComposerStatusIndicator
+              label={composerStatusLabel}
+              isBusy={isStoryTurnBusy}
+              hasInsufficientTokens={hasInsufficientTokensForTurn}
+              mobile
+            />
             <Typography
               ref={inputLengthIndicatorRef}
               component="span"

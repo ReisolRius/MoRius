@@ -33,6 +33,7 @@ import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import SoulAmount from '../components/currency/SoulAmount'
 import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT } from '../components/ai/aiAssistantEvents'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
+import CommunityCharacterCard from '../components/characters/CommunityCharacterCard'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import ProgressiveImage from '../components/media/ProgressiveImage'
 import { useIncrementalList } from '../hooks/useIncrementalList'
@@ -41,6 +42,7 @@ import { useScrollLoadTrigger } from '../hooks/useScrollLoadTrigger'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
+import CommunityRuleCard from '../components/community/CommunityRuleCard'
 import { MobileCardItem } from '../components/mobile/MobileCardSlider'
 import AdminPanelDialog, { type AdminPanelInitialTarget } from '../components/profile/AdminPanelDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
@@ -918,6 +920,36 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     () => buildReferralLink(referralSummary?.referral_code ?? user.referral_code ?? ''),
     [referralSummary?.referral_code, user.referral_code],
   )
+  useEffect(() => {
+    if (!isOwnProfile || typeof window === 'undefined') {
+      return
+    }
+
+    let scrollFrameId: number | null = null
+    const scrollToReferralProgram = () => {
+      if (window.location.hash !== '#referral-program') {
+        return
+      }
+      if (scrollFrameId !== null) {
+        window.cancelAnimationFrame(scrollFrameId)
+      }
+      scrollFrameId = window.requestAnimationFrame(() => {
+        scrollFrameId = null
+        document.getElementById('referral-program')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    }
+
+    scrollToReferralProgram()
+    window.addEventListener('hashchange', scrollToReferralProgram)
+    window.addEventListener('popstate', scrollToReferralProgram)
+    return () => {
+      if (scrollFrameId !== null) {
+        window.cancelAnimationFrame(scrollFrameId)
+      }
+      window.removeEventListener('hashchange', scrollToReferralProgram)
+      window.removeEventListener('popstate', scrollToReferralProgram)
+    }
+  }, [isOwnProfile])
   const isProfileBootstrapLoading = isProfileViewLoading
   const isCurrentTabContentLoading =
     (tab === 'games' && isOwnProfile && isOwnGamesLoading && ownGames.length === 0) ||
@@ -3302,14 +3334,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               {visibleCharacters.map((item) => (
                 <CharacterShowcaseCard
                   key={item.id}
+                  variant="community"
                   title={item.name}
                   description={item.description || 'Описание не заполнено.'}
                   imageUrl={item.avatar_url}
                   imageScale={clampAvatarScale(item.avatar_scale)}
-                  eyebrow={item.triggers.length ? `Триггеры: ${item.triggers.join(', ')}` : item.note || 'Личный персонаж'}
+                  eyebrow={item.note || null}
                   footerHint="Нажмите для редактирования"
                   metaPrimary={item.visibility === 'public' ? 'Публичный' : 'Приватный'}
-                  metaSecondary={item.community_rating_count > 0 ? `${item.community_rating_avg.toFixed(1)} ★` : null}
+                  metaSecondary={item.community_rating_count > 0 ? `★ ${item.community_rating_avg.toFixed(1)}` : null}
                   actionSlot={
                     <IconButton
                       onClick={(event) => handleOpenContentCardMenu(event, 'character', item.id)}
@@ -3368,83 +3401,34 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           >
             {renderCreatePlaceholderCard({ onClick: openInstructionCreate, ariaLabel: 'Create instruction' })}
             {visibleTemplates.map((item) => (
-              <ButtonBase
+              <CommunityRuleCard
                 key={item.id}
-                onClick={() => openInstructionEdit(item.id)}
-                sx={{
-                  width: '100%',
-                  maxWidth: '100%',
-                  minWidth: 0,
-                  minHeight: CARD_MIN_HEIGHT,
-                  p: 1.1,
-                  borderRadius: '12px',
-                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                  backgroundColor: 'var(--morius-elevated-bg)',
-                  textAlign: 'left',
-                  alignItems: 'stretch',
-                  overflow: 'hidden',
-                  transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
-                  '&:hover': {
-                    backgroundColor: 'transparent',
-                    borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, transparent)',
-                    transform: 'translateY(-1px)',
-                  },
-                }}
-              >
-                <Stack spacing={0.7} sx={{ width: '100%', height: '100%' }}>
-                  <Stack direction="row" spacing={0.65} alignItems="flex-start" sx={{ minWidth: 0 }}>
-                    <Typography
-                      sx={{
-                        fontWeight: 700,
-                        fontSize: '0.95rem',
-                        overflow: 'visible',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        minWidth: 0,
-                        flex: 1,
-                      }}
-                    >
-                      {item.title}
-                    </Typography>
-                    <IconButton
-                      onClick={(event) => handleOpenContentCardMenu(event, 'instruction', item.id)}
-                      aria-label="Open instruction actions"
-                      sx={{
-                        width: 26,
-                        height: 26,
-                        color: 'rgba(208, 219, 235, 0.84)',
-                        flexShrink: 0,
-                        backgroundColor: 'transparent !important',
-                        border: 'none',
-                        '&:hover': { backgroundColor: 'transparent !important' },
-                        '&:active': { backgroundColor: 'transparent !important' },
-                        '&.Mui-focusVisible': { backgroundColor: 'transparent !important' },
-                      }}
-                    >
-                      <Box sx={{ fontSize: '0.96rem', lineHeight: 1 }}>...</Box>
-                    </IconButton>
-                  </Stack>
-                  <Typography
+                title={item.title}
+                content={item.content}
+                authorName={resolvedProfileName}
+                authorAvatarUrl={resolvedProfileUser.avatar_url}
+                authorAvatarFrameId={resolvedProfileUser.avatar_frame_id}
+                authorAvatarFrameImageUrl={resolvedProfileUser.avatar_frame_image_url}
+                gamesCount={item.community_additions_count}
+                ratingAvg={item.community_rating_avg}
+                actionSlot={(
+                  <IconButton
+                    onClick={(event) => handleOpenContentCardMenu(event, 'instruction', item.id)}
+                    aria-label="Действия инструкции"
                     sx={{
+                      width: 28,
+                      height: 28,
                       color: 'var(--morius-text-secondary)',
-                      fontSize: '0.84rem',
-                      lineHeight: 1.36,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 6,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                      wordBreak: 'break-word',
-                      overflowWrap: 'anywhere',
-                      flex: 1,
+                      border: 'none',
+                      backgroundColor: 'transparent !important',
+                      '&:hover': { color: 'var(--morius-title-text)' },
                     }}
                   >
-                    {item.content}
-                  </Typography>
-                  <Typography sx={{ color: 'rgba(182, 200, 222, 0.8)', fontSize: '0.74rem', fontWeight: 700 }}>
-                    Нажмите для редактирования
-                  </Typography>
-                </Stack>
-              </ButtonBase>
+                    <Box sx={{ fontSize: '0.96rem', lineHeight: 1 }}>...</Box>
+                  </IconButton>
+                )}
+                onClick={() => openInstructionEdit(item.id)}
+              />
             ))}
             </Box>
             {isTemplatesLoadingMore ? (
@@ -3998,16 +3982,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 }}
               >
                 {visiblePublishedCharacterCards.map((item) => (
-                  <CharacterShowcaseCard
+                  <CommunityCharacterCard
                     key={item.id}
-                    title={item.name}
-                    description={item.description || 'Описание не заполнено.'}
-                    imageUrl={item.avatar_url}
-                    imageScale={clampAvatarScale(item.avatar_scale)}
-                    eyebrow={item.triggers.length ? `Триггеры: ${item.triggers.join(', ')}` : item.note || 'Опубликованный персонаж'}
-                    footerHint={`Автор: ${item.author_name}`}
-                    metaPrimary="Публикация"
-                    metaSecondary={item.community_rating_count > 0 ? `${item.community_rating_avg.toFixed(1)} ★` : null}
+                    item={item}
                     onClick={() => onNavigate('/games/all?tab=characters')}
                   />
                 ))}
@@ -4035,69 +4012,18 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 }}
               >
                 {visiblePublishedInstructionCards.map((item) => (
-                  <ButtonBase
+                  <CommunityRuleCard
                     key={item.id}
+                    title={item.title}
+                    content={item.content}
+                    authorName={item.author_name}
+                    authorAvatarUrl={item.author_avatar_url}
+                    authorAvatarFrameId={item.author_avatar_frame_id}
+                    authorAvatarFrameImageUrl={item.author_avatar_frame_image_url}
+                    gamesCount={item.community_additions_count}
+                    ratingAvg={item.community_rating_avg}
                     onClick={() => onNavigate('/games/all?tab=rules')}
-                    sx={{
-                      width: '100%',
-                      maxWidth: '100%',
-                      minWidth: 0,
-                      minHeight: CARD_MIN_HEIGHT,
-                      p: 1.1,
-                      borderRadius: '12px',
-                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                      backgroundColor: 'var(--morius-elevated-bg)',
-                      textAlign: 'left',
-                      alignItems: 'stretch',
-                      overflow: 'hidden',
-                      transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
-                      '&:hover': {
-                        backgroundColor: 'transparent',
-                        borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, transparent)',
-                        transform: 'translateY(-1px)',
-                      },
-                    }}
-                  >
-                    <Stack spacing={0.8} sx={{ width: '100%', height: '100%' }}>
-                      <Stack direction="row" spacing={0.8} alignItems="flex-start" justifyContent="space-between">
-                        <Typography
-                          sx={{
-                            fontWeight: 700,
-                            fontSize: '0.95rem',
-                            minWidth: 0,
-                            flex: 1,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {item.title}
-                        </Typography>
-                        <Typography sx={{ color: 'rgba(182, 200, 222, 0.8)', fontSize: '0.74rem', fontWeight: 700 }}>
-                          {item.community_rating_count > 0 ? `${item.community_rating_avg.toFixed(1)} ★` : 'Публикация'}
-                        </Typography>
-                      </Stack>
-                      <Typography
-                        sx={{
-                          color: 'var(--morius-text-secondary)',
-                          fontSize: '0.84rem',
-                          lineHeight: 1.36,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 6,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          wordBreak: 'break-word',
-                          overflowWrap: 'anywhere',
-                          flex: 1,
-                        }}
-                      >
-                        {item.content}
-                      </Typography>
-                      <Typography sx={{ color: 'rgba(182, 200, 222, 0.8)', fontSize: '0.74rem', fontWeight: 700 }}>
-                        {`Автор: ${item.author_name}`}
-                      </Typography>
-                    </Stack>
-                  </ButtonBase>
+                  />
                 ))}
               </Box>
               {hasMorePublishedInstructionCards ? (
@@ -4196,9 +4122,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               return (
                 <PublicationEntityCard
                   key={game.id}
+                  entityId={game.id}
+                  entityKind="world"
                   title={game.title || 'Без названия'}
                   description={game.description || 'Описание отсутствует.'}
-                  note={publicationMeta.note || game.genres[0] || ''}
+                  genres={game.genres}
                   authorName={resolvedProfileName}
                   authorAvatarUrl={resolvedProfileUser.avatar_url}
                   authorAvatarFrameId={resolvedProfileUser.avatar_frame_id}
@@ -4209,6 +4137,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   ratingAvg={game.community_rating_avg}
                   heroBackgroundSx={buildWorldFallbackArtwork(game.id)}
                   heroImageUrl={game.cover_image_url}
+                  coverScale={game.cover_scale}
+                  coverPositionX={game.cover_position_x}
+                  coverPositionY={game.cover_position_y}
                   onClick={() => onNavigate(`/worlds/${resolvePublicationWorldEditTargetId(game, profilePublicationGames)}/edit?source=my-publications`)}
                 />
               )
@@ -4248,9 +4179,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               return (
                 <PublicationEntityCard
                   key={character.id}
+                  entityId={character.id}
+                  entityKind="character"
                   title={character.name || 'Без имени'}
                   description={character.description || 'Описание отсутствует.'}
-                  note={publicationMeta.note || character.note}
+                  note={character.note}
                   authorName={resolvedProfileName}
                   authorAvatarUrl={resolvedProfileUser.avatar_url}
                   authorAvatarFrameId={resolvedProfileUser.avatar_frame_id}
@@ -4261,6 +4194,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   ratingAvg={character.community_rating_avg}
                   heroBackgroundSx={buildWorldFallbackArtwork(character.id)}
                   heroImageUrl={character.avatar_url}
+                  imageScale={character.avatar_scale}
                   onClick={() => openCharacterEdit(character.source_character_id ?? character.id)}
                 />
               )
@@ -4299,6 +4233,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             return (
               <PublicationEntityCard
                 key={template.id}
+                entityId={template.id}
+                entityKind="rule"
                 title={template.title || 'Без названия'}
                 description={template.content || 'Текст правила отсутствует.'}
                 note={publicationMeta.note}
@@ -4423,7 +4359,6 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         })}
         menuItems={[
           { key: 'dashboard', label: 'Главная', onClick: () => onNavigate('/dashboard') },
-          { key: 'games-my', label: 'Мои игры', onClick: () => onNavigate('/games') },
           { key: 'games-publications', label: 'Мои публикации', onClick: () => onNavigate('/games/publications') },
           { key: 'games-all', label: 'Сообщество', onClick: () => onNavigate('/games/all') },
         ]}
@@ -5756,6 +5691,161 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             </Box>
           </Box>
 
+          {isOwnProfile ? (
+            <Box
+              id="referral-program"
+              sx={{
+                position: 'relative',
+                scrollMarginTop: 'calc(var(--morius-header-menu-top) + 16px)',
+                overflow: 'hidden',
+                borderRadius: { xs: '16px', md: '20px' },
+                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 34%, var(--morius-card-border))',
+                background:
+                  'linear-gradient(135deg, color-mix(in srgb, var(--morius-card-bg) 90%, var(--morius-accent) 10%) 0%, color-mix(in srgb, var(--morius-card-bg) 98%, #000 2%) 68%)',
+                boxShadow: '0 18px 48px rgba(0, 0, 0, 0.2)',
+                p: { xs: 1.7, sm: 2.1, md: 2.4 },
+                mb: { xs: 1.4, lg: 2.2 },
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  width: { xs: 180, md: 260 },
+                  height: { xs: 180, md: 260 },
+                  top: { xs: -118, md: -168 },
+                  right: { xs: -92, md: '26%' },
+                  borderRadius: '50%',
+                  pointerEvents: 'none',
+                  background: 'radial-gradient(circle, color-mix(in srgb, var(--morius-accent) 20%, transparent) 0%, transparent 70%)',
+                },
+              }}
+            >
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={{ xs: 1.55, md: 3 }}
+                alignItems={{ xs: 'stretch', md: 'center' }}
+                justifyContent="space-between"
+                sx={{ position: 'relative', zIndex: 1, minWidth: 0 }}
+              >
+                <Stack spacing={0.72} sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography
+                    sx={{
+                      color: 'var(--morius-accent)',
+                      fontSize: { xs: '0.68rem', sm: '0.72rem' },
+                      lineHeight: 1.2,
+                      fontWeight: 900,
+                      letterSpacing: '0.14em !important',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Реферальная программа
+                  </Typography>
+                  <Typography
+                    sx={{
+                      color: 'var(--morius-title-text)',
+                      fontFamily: moriusThemeTokens.fonts.heading,
+                      fontSize: { xs: '1.3rem', sm: '1.55rem', md: '1.72rem' },
+                      lineHeight: 1.16,
+                      fontWeight: 800,
+                    }}
+                  >
+                    По 500 солов вам и другу
+                  </Typography>
+                  <Typography
+                    sx={{
+                      maxWidth: 700,
+                      color: 'var(--morius-text-secondary)',
+                      fontSize: { xs: '0.82rem', sm: '0.9rem' },
+                      lineHeight: 1.55,
+                    }}
+                  >
+                    Поделись ссылкой. После первой успешной покупки солов друг получит{' '}
+                    <SoulAmount amount="+500" iconSize={15} fontSize="0.82rem" />, и тебе начислим{' '}
+                    <SoulAmount amount="+500" iconSize={15} fontSize="0.82rem" />.
+                  </Typography>
+                  {referralSummary?.referral_pending_purchase ? (
+                    <Box
+                      sx={{
+                        alignSelf: 'flex-start',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 0.55,
+                        maxWidth: '100%',
+                        px: 0.95,
+                        py: 0.55,
+                        borderRadius: '999px',
+                        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 36%, transparent)',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, transparent)',
+                      }}
+                    >
+                      <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--morius-accent)', flexShrink: 0 }} />
+                      <Typography
+                        sx={{
+                          minWidth: 0,
+                          color: 'var(--morius-text-primary)',
+                          fontSize: { xs: '0.7rem', sm: '0.76rem' },
+                          lineHeight: 1.3,
+                          fontWeight: 750,
+                        }}
+                      >
+                        Твой бонус{' '}
+                        <SoulAmount
+                          amount={`+${Math.max(0, referralSummary.pending_bonus_amount || 500).toLocaleString('ru-RU')}`}
+                          iconSize={14}
+                          fontSize="0.74rem"
+                        />{' '}
+                        ждет первую покупку
+                      </Typography>
+                    </Box>
+                  ) : null}
+                </Stack>
+
+                <Stack spacing={0.82} sx={{ width: { xs: '100%', md: 320 }, minWidth: 0, flexShrink: 0 }}>
+                  {isReferralSummaryLoading && !referralSummary ? (
+                    <Skeleton variant="rounded" height={46} sx={{ borderRadius: '12px', bgcolor: 'rgba(184, 201, 226, 0.16)' }} />
+                  ) : (
+                    <Button
+                      onClick={() => void handleCopyReferralLink()}
+                      disabled={!referralLink}
+                      sx={{
+                        width: '100%',
+                        minHeight: 46,
+                        px: 1.4,
+                        borderRadius: '12px',
+                        justifyContent: 'center',
+                        gap: 0.8,
+                        textTransform: 'none',
+                        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-elevated-bg))',
+                        color: 'var(--morius-title-text)',
+                        fontSize: '0.84rem',
+                        fontWeight: 850,
+                        '&:hover': {
+                          borderColor: 'color-mix(in srgb, var(--morius-accent) 70%, var(--morius-card-border))',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 26%, var(--morius-elevated-bg))',
+                        },
+                      }}
+                    >
+                      <Box component="img" src={icons.communityShare} alt="" sx={{ width: 17, height: 17, flexShrink: 0 }} />
+                      <Box component="span">{isReferralCopied ? 'Ссылка скопирована' : 'Скопировать ссылку'}</Box>
+                    </Button>
+                  )}
+                  <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ px: 0.2 }}>
+                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem', lineHeight: 1.3 }}>
+                      Оплаченных приглашений
+                    </Typography>
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.88rem', lineHeight: 1, fontWeight: 900 }}>
+                      {Math.max(0, referralSummary?.paid_referrals_count ?? 0).toLocaleString('ru-RU')}
+                    </Typography>
+                  </Stack>
+                  {referralError ? (
+                    <Typography sx={{ color: 'var(--morius-danger, #ef6c6c)', fontSize: '0.74rem', lineHeight: 1.35 }}>
+                      {referralError}
+                    </Typography>
+                  ) : null}
+                </Stack>
+              </Stack>
+            </Box>
+          ) : null}
+
           <Box
             sx={{
               display: 'grid',
@@ -6220,78 +6310,6 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         </Typography>
                       </Button>
                     ))}
-
-                {isOwnProfile ? (
-                  <Box
-                    sx={{
-                      mt: 0.35,
-                      p: 1.15,
-                      borderRadius: '8px',
-                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, transparent)',
-                    }}
-                  >
-                    <Stack spacing={0.9}>
-                      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.94rem', fontWeight: 900 }}>
-                          Пригласи друга
-                        </Typography>
-                        <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.78rem', fontWeight: 900 }}>
-                          +500
-                        </Typography>
-                      </Stack>
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.35 }}>
-                        Друг получит <SoulAmount amount="+500" iconSize={15} fontSize="0.78rem" /> после первой покупки, и ты тоже получишь <SoulAmount amount="+500" iconSize={15} fontSize="0.78rem" />.
-                      </Typography>
-                      {isReferralSummaryLoading && !referralSummary ? (
-                        <Skeleton variant="rounded" height={34} sx={{ borderRadius: '8px', bgcolor: 'rgba(184, 201, 226, 0.16)' }} />
-                      ) : (
-                        <Button
-                          onClick={() => void handleCopyReferralLink()}
-                          disabled={!referralLink}
-                          sx={{
-                            minHeight: 34,
-                            px: 1,
-                            borderRadius: '8px',
-                            justifyContent: 'flex-start',
-                            gap: 0.75,
-                            textTransform: 'none',
-                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                            backgroundColor: 'var(--morius-elevated-bg)',
-                            color: 'var(--morius-text-primary)',
-                            fontWeight: 800,
-                            '&:hover': {
-                              backgroundColor: 'var(--morius-button-hover)',
-                            },
-                          }}
-                        >
-                          <Box component="img" src={icons.communityShare} alt="" sx={{ width: 15, height: 15, flexShrink: 0 }} />
-                          <Typography
-                            component="span"
-                            sx={{
-                              minWidth: 0,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              fontSize: '0.78rem',
-                              fontWeight: 800,
-                            }}
-                          >
-                            {isReferralCopied ? 'Ссылка скопирована' : 'Скопировать ссылку'}
-                          </Typography>
-                        </Button>
-                      )}
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem', lineHeight: 1.25 }}>
-                        Оплаченных приглашений: {Math.max(0, referralSummary?.paid_referrals_count ?? 0)}
-                      </Typography>
-                      {referralError ? (
-                        <Typography sx={{ color: 'var(--morius-danger, #ef6c6c)', fontSize: '0.74rem', lineHeight: 1.25 }}>
-                          {referralError}
-                        </Typography>
-                      ) : null}
-                    </Stack>
-                  </Box>
-                ) : null}
 
                 {profileSidebarSubscriptions.length > 0 ? (
                   <Stack spacing={0.8} sx={{ pt: 0.5 }}>

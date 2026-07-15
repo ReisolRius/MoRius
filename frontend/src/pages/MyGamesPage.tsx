@@ -895,7 +895,6 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         })}
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
-          { key: 'games-my', label: 'Мои игры', isActive: mode === 'my', onClick: () => onNavigate('/games') },
           {
             key: 'games-publications',
             label: 'Мои публикации',
@@ -1714,6 +1713,5 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
 }
 
 export default MyGamesPage
-
 
 

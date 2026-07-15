@@ -524,13 +524,12 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
       {
         id: 'my-games-create',
         chapterId: 'world',
-        path: '/games',
-        selectors: ['[data-tour-id="my-games-create-button"]'],
+        path: '/profile',
+        selectors: ['.morius-app-shell'],
         title: 'Создание игры',
         description: 'Здесь вы можете создать свою первую игру самостоятельно. Давайте перейдем к заполнению.',
         padding: 12,
-        menuAction: 'open',
-        secondarySelectors: ['[data-tour-id="sidebar-item-games-my"]'],
+        menuAction: 'close',
         beforeNext: async () => {
           routeStepDelayUntilRef.current = Date.now() + ROUTE_SETTLE_DELAY_MS
           onNavigate('/worlds/new')

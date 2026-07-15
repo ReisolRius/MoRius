@@ -16,10 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import CoinPurchase, SavedPaymentMethod, Subscription, User
 from app.services.concurrency import grant_purchase_coins_once
-from app.services.referrals import (
-    ReferralRewardGrantResult,
-    grant_referral_rewards_after_purchase,
-)
+from app.services.referrals import grant_referral_rewards_after_purchase
 
 PAYMENT_PROVIDER = "yookassa"
 FINAL_PAYMENT_STATUSES = {"succeeded", "canceled"}
@@ -688,10 +685,14 @@ def grant_purchase_and_referral_rewards_once_for_purchase(
     purchase: CoinPurchase,
     user: User,
 ) -> PaymentSyncResult:
+    if purchase.status != "succeeded":
+        return PaymentSyncResult()
+
     purchase_coins_granted = grant_purchase_coins_once_for_purchase(db, purchase, user)
-    referral_result = ReferralRewardGrantResult(bonus_granted=False)
-    if purchase_coins_granted:
-        referral_result = grant_referral_rewards_after_purchase(db, purchase=purchase, user=user)
+    # Referral rewards have their own claimed marker and unique database constraints.
+    # Retry them for every successful purchase reconciliation even when the base
+    # purchase coins were already applied by an earlier webhook/sync attempt.
+    referral_result = grant_referral_rewards_after_purchase(db, purchase=purchase, user=user)
     return PaymentSyncResult(
         purchase_coins_granted=purchase_coins_granted,
         referral_bonus_granted=referral_result.bonus_granted,
@@ -730,18 +731,34 @@ def sync_user_pending_purchases(db: Session, user: User) -> None:
     if not is_payments_configured():
         return
 
+    needs_referral_reconciliation = bool(
+        getattr(user, "referred_by_user_id", None)
+        and getattr(user, "referral_bonus_claimed_at", None) is None
+    )
+    reconciliation_filters = [
+        CoinPurchase.status.notin_(FINAL_PAYMENT_STATUSES),
+        and_(CoinPurchase.status == "succeeded", CoinPurchase.coins_granted_at.is_(None)),
+    ]
+    if needs_referral_reconciliation:
+        # A previous attempt may have committed the base purchase coins while the
+        # referral savepoint failed. Keep the already verified successful purchase
+        # reachable so a later /auth/me reconciliation can finish the referral.
+        reconciliation_filters.append(CoinPurchase.status == "succeeded")
+
     purchases = db.scalars(
         select(CoinPurchase).where(
             CoinPurchase.user_id == user.id,
-            or_(
-                CoinPurchase.status.notin_(FINAL_PAYMENT_STATUSES),
-                and_(CoinPurchase.status == "succeeded", CoinPurchase.coins_granted_at.is_(None)),
-            ),
-        )
+            or_(*reconciliation_filters),
+        ).order_by(CoinPurchase.created_at.asc(), CoinPurchase.id.asc())
     ).all()
 
     for purchase in purchases:
         try:
+            if purchase.status == "succeeded" and purchase.coins_granted_at is not None:
+                grant_purchase_and_referral_rewards_once_for_purchase(db, purchase, user)
+                db.commit()
+                db.refresh(user)
+                continue
             provider_payment_payload = fetch_payment_from_provider(purchase.provider_payment_id)
             sync_purchase_status(
                 db=db,

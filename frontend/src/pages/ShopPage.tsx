@@ -143,6 +143,7 @@ type ShopPageProps = {
 type PreviewTarget = { kind: CosmeticItemKind; item: CosmeticItem }
 
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
+const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const SHOP_DIALOG_PAPER_SX = {
   borderRadius: '18px',
   border: 'var(--morius-border-width) solid var(--morius-card-border)',
@@ -481,6 +482,12 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
     setError('')
     try {
       const response = await createCoinTopUpPayment({ token: authToken, plan_id: plan.id })
+      try {
+        localStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, response.payment_id)
+      } catch {
+        // The webhook and /auth/me reconciliation still complete the purchase
+        // when storage is unavailable (for example, in a private browser mode).
+      }
       window.location.href = response.confirmation_url
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Не удалось создать оплату')
@@ -1136,7 +1143,6 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         menuItems={[
           { key: 'dashboard', label: 'Главная', onClick: () => onNavigate('/dashboard') },
           { key: 'games-all', label: 'Сообщество', onClick: () => onNavigate('/games/all') },
-          { key: 'games-my', label: 'Библиотека', onClick: () => onNavigate('/games') },
           { key: 'shop', label: 'Магазин', isActive: true, onClick: () => onNavigate('/shop') },
         ]}
         pageMenuLabels={{ expanded: 'Свернуть меню', collapsed: 'Открыть меню' }}
