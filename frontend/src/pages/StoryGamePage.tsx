@@ -1110,66 +1110,66 @@ const NARRATOR_STAT_FALLBACK_LABELS = ['Интеллект', 'Скорость',
 // fine-tune any value afterwards. Higher temperature/top_r = livelier; higher repetition penalty
 // helps the cheaper, repeat-prone models stay fresh. Note: storyTopK 0 means "do not constrain".
 const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, StoryNarratorSamplingDefaults>> = {
-  // Умная и тёплая: чуть выше живости при аккуратной связности.
+  // Инициативный профиль с высокой живостью и мягким штрафом повторов.
   'z-ai/glm-5': {
-    storyTemperature: 0.85,
-    storyRepetitionPenalty: 1.05,
-    storyTopK: 50,
-    storyTopR: 0.92,
-  },
-  // Склонна к повторам — выше штраф за повтор и температура для разнообразия.
-  'z-ai/glm-5.1': {
     storyTemperature: 0.9,
-    storyRepetitionPenalty: 1.08,
-    storyTopK: 50,
-    storyTopR: 0.93,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 60,
+    storyTopR: 0.95,
+  },
+  // Длинная дуга: максимум контекстной свободы при мягком штрафе повторов.
+  'z-ai/glm-5.1': {
+    storyTemperature: 0.95,
+    storyRepetitionPenalty: 1.03,
+    storyTopK: 80,
+    storyTopR: 0.97,
   },
   'z-ai/glm-5.2': {
     storyTemperature: 0.9,
-    storyRepetitionPenalty: 1.08,
-    storyTopK: 50,
-    storyTopR: 0.93,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 64,
+    storyTopR: 0.95,
   },
-  // Быстрая дешёвая: держим под контролем, сильнее боремся с зацикливанием.
+  // Плотный темп с усиленным контролем повторов.
   'z-ai/glm-4.7-flash': {
-    storyTemperature: 0.8,
-    storyRepetitionPenalty: 1.08,
-    storyTopK: 50,
-    storyTopR: 0.9,
-  },
-  // Мягче и медленнее: спокойная, но живая подача.
-  'z-ai/glm-4.7': {
-    storyTemperature: 0.82,
-    storyRepetitionPenalty: 1.06,
-    storyTopK: 50,
-    storyTopR: 0.9,
-  },
-  // Экономичная и быстрая, любит повторяться — выше штраф за повтор.
-  'deepseek/deepseek-v3.2': {
-    storyTemperature: 0.85,
-    storyRepetitionPenalty: 1.08,
-    storyTopK: 50,
-    storyTopR: 0.9,
-  },
-  // Энергичная (модель по умолчанию): живой, но дисциплинированный темп.
-  'deepseek/deepseek-chat-v3-0324': {
     storyTemperature: 0.9,
-    storyRepetitionPenalty: 1.06,
+    storyRepetitionPenalty: 1.1,
     storyTopK: 40,
-    storyTopR: 0.92,
+    storyTopR: 0.95,
   },
-  // Глубокая: больше свободы прозе при устойчивой причинности.
-  'deepseek/deepseek-v4-pro': {
+  // Психологичный диалог с устойчивой связностью.
+  'z-ai/glm-4.7': {
     storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.95,
+  },
+  // Сдержанная причинность и усиленный контроль повторов.
+  'deepseek/deepseek-v3.2': {
+    storyTemperature: 0.75,
+    storyRepetitionPenalty: 1.1,
+    storyTopK: 40,
+    storyTopR: 0.9,
+  },
+  // Тот же сдержанный профиль для второй версии семейства.
+  'deepseek/deepseek-chat-v3-0324': {
+    storyTemperature: 0.75,
+    storyRepetitionPenalty: 1.1,
+    storyTopK: 40,
+    storyTopR: 0.9,
+  },
+  // Reasoning-профиль: низкая температура, top-k отключён.
+  'deepseek/deepseek-v4-pro': {
+    storyTemperature: 0.7,
     storyRepetitionPenalty: 1.05,
     storyTopK: 0,
-    storyTopR: 0.92,
+    storyTopR: 0.9,
   },
   'deepseek/deepseek-r1-0528': {
-    storyTemperature: 0.85,
+    storyTemperature: 0.7,
     storyRepetitionPenalty: 1.05,
     storyTopK: 0,
-    storyTopR: 0.92,
+    storyTopR: 0.9,
   },
   // Бывает рыхлой — держим температуру ниже, штраф за повтор выше.
   'mistralai/mistral-nemo': {
@@ -1178,12 +1178,12 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 50,
     storyTopR: 0.9,
   },
-  // Логика и связность: ниже температура ради выверенной причинности.
+  // Консервативный баланс логики, страсти и повторяемости.
   'aion-labs/aion-2.0': {
-    storyTemperature: 0.78,
-    storyRepetitionPenalty: 1.05,
-    storyTopK: 0,
-    storyTopR: 0.9,
+    storyTemperature: 0.8,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.92,
   },
   // Ролевой специалист: самая выразительная и живая подача.
   'minimax/minimax-m2-her': {
@@ -1192,32 +1192,32 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 0,
     storyTopR: 0.95,
   },
-  // Ставка на ролевку: чуть выше температура ради выразительности, мягкий запас против самоповторов Flash Lite; топ-к выключен под Gemini.
+  // Высокая температура компенсирует сухость лёгкой модели; repetition не отправляется.
   'google/gemini-3.1-flash-lite': {
-    storyTemperature: 0.95,
-    storyRepetitionPenalty: 1.06,
-    storyTopK: 0,
+    storyTemperature: 1,
+    storyRepetitionPenalty: 1,
+    storyTopK: 64,
     storyTopR: 0.95,
   },
-  // Премиальная и тонкая: любит более высокую температуру, без лишних ограничителей.
+  // Claude получает только temperature; остальные числовые поля нейтральны и не отправляются.
   'anthropic/claude-sonnet-4.6': {
-    storyTemperature: 1.0,
+    storyTemperature: 0.9,
     storyRepetitionPenalty: 1.0,
     storyTopK: 0,
-    storyTopR: 0.98,
+    storyTopR: 1,
   },
-  // Большой контекст и аккуратность: живо, но собранно.
+  // Gemini Pro получает temperature/top-p/top-k без repetition penalty.
   'google/gemini-2.5-pro': {
-    storyTemperature: 0.9,
-    storyRepetitionPenalty: 1.05,
-    storyTopK: 0,
+    storyTemperature: 1.05,
+    storyRepetitionPenalty: 1,
+    storyTopK: 64,
     storyTopR: 0.95,
   },
   'google/gemini-3.1-pro-preview': {
-    storyTemperature: 0.9,
-    storyRepetitionPenalty: 1.05,
-    storyTopK: 0,
-    storyTopR: 0.95,
+    storyTemperature: 1.1,
+    storyRepetitionPenalty: 1,
+    storyTopK: 128,
+    storyTopR: 0.97,
   },
   'deepseek/deepseek-v4-flash': {
     storyTemperature: 0.85,

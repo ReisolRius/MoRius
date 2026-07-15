@@ -203,6 +203,7 @@ class StoryRuntimeDeps:
     story_assistant_role: str
     stream_persist_min_chars: int
     stream_persist_max_interval_seconds: float
+    normalize_generated_story_output: Callable[..., str] | None = None
 
 
 def _sse_event(event: str, payload: dict[str, Any]) -> str:
@@ -571,29 +572,63 @@ def _append_story_message_variant_log_entry(
     return combined[-STORY_MESSAGE_VARIANT_HISTORY_MAX:]
 
 
-def _sanitize_streamed_story_markup(value: Any) -> str:
+def _sanitize_streamed_story_markup(
+    value: Any,
+    *,
+    normalize_generated_story_output: Callable[..., str] | None = None,
+    world_cards: list[dict[str, Any]] | None = None,
+    model_name: str | None = None,
+    show_gg_thoughts: bool = False,
+    show_npc_thoughts: bool = False,
+) -> str:
     """Final safety net for the streamed reply.
 
     Delegates to the monolith markup sanitizer, which strips markdown noise and rewrites
-    invented speaker tags into canonical [[...]] markers. It is lossless for correctly
-    formatted replies, so this stays a no-op for well-behaved models (e.g. Gemini) while
-    repairing models that ignore the format protocol (e.g. DeepSeek V4 Pro). On any failure
-    we fall back to the raw provider text, so behaviour never regresses below today's.
+    invented speaker tags into canonical [[...]] markers. A strict, read-only validation pass
+    then routes only obvious unmarked speech through the existing model-assisted normalizer.
+    Correct canonical output and ordinary narration remain on the lossless path.
     """
     raw = _normalize_story_message_content(value)
     if not raw:
         return raw
+    cleaned = raw
+    strict_validator: Callable[[str], bool] | None = None
     try:
         from app import main as monolith_main
 
         sanitizer = getattr(monolith_main, "_sanitize_story_stream_markup_formatting", None)
         if callable(sanitizer):
-            cleaned = str(sanitizer(raw) or "").replace("\r\n", "\n").strip()
-            if cleaned:
-                return cleaned
+            sanitized = str(sanitizer(raw) or "").replace("\r\n", "\n").strip()
+            if sanitized:
+                cleaned = sanitized
+
+        strict_validator = getattr(monolith_main, "_is_story_strict_markup_output", None)
+        if not callable(strict_validator) or bool(strict_validator(cleaned)):
+            return cleaned
     except Exception:
         logger.exception("Failed to sanitize streamed story markup; using raw provider text")
-    return raw
+        return raw
+
+    if not callable(normalize_generated_story_output):
+        logger.warning("Unmarked story dialogue detected, but the markup normalizer is unavailable")
+        return cleaned
+
+    try:
+        repaired = normalize_generated_story_output(
+            text_value=cleaned,
+            world_cards=world_cards if isinstance(world_cards, list) else [],
+            model_name=model_name,
+            show_gg_thoughts=show_gg_thoughts,
+            show_npc_thoughts=show_npc_thoughts,
+        )
+        repaired_text = str(repaired or "").replace("\r\n", "\n").strip()
+        if repaired_text:
+            if callable(strict_validator) and not bool(strict_validator(repaired_text)):
+                logger.warning("Story markup repair returned output that still violates the strict contract")
+            return repaired_text
+    except Exception:
+        logger.exception("Failed to repair unmarked dialogue in streamed story output")
+    return cleaned
 
 
 def _should_use_english_memory_source(model_name: str | None) -> bool:
@@ -1857,12 +1892,17 @@ def _stream_story_response(
             _persist_cancelled_output()
             return
 
-    # Preserve the provider's final text, but run one lossless markup safety net first.
-    # The legacy post-generation normalizers fuzzy-matched speakers to cards and called the
-    # model again, which could break avatars/text; this sanitizer only strips markdown noise
-    # and rewrites invented speaker tags into canonical [[...]] markers, so a correctly
-    # formatted reply is unchanged while models that ignore the protocol get repaired.
-    normalized_output = _sanitize_streamed_story_markup(produced)
+    # Preserve correct provider output byte-for-byte apart from the lossless markup cleanup.
+    # Only an explicit strict-contract violation (obvious unmarked speech or a forbidden
+    # generic speaker label) enters the existing model-assisted repair path.
+    normalized_output = _sanitize_streamed_story_markup(
+        produced,
+        normalize_generated_story_output=getattr(deps, "normalize_generated_story_output", None),
+        world_cards=world_cards,
+        model_name=story_model_name,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
+    )
 
     try:
         assistant_message.content = normalized_output

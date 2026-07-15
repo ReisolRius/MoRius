@@ -261,6 +261,8 @@ def _select_story_repetition_penalty_value(
 ) -> float | None:
     if not _can_apply_story_sampling_to_model(model_name):
         return None
+    if _normalize_story_model_id(model_name) in STORY_REPETITION_PENALTY_DISABLED_MODEL_IDS:
+        return None
     if not math.isfinite(story_repetition_penalty):
         return None
     clamped_value = max(1.0, min(2.0, float(story_repetition_penalty)))

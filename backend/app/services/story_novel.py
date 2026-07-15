@@ -13,8 +13,6 @@ from app.schemas import StoryNovelBeatOut
 from app.services.media import resolve_media_display_url
 from app.services.story_emotions import (
     STORY_CHARACTER_DEFAULT_EMOTION,
-    STORY_CHARACTER_EMOTION_IDS,
-    STORY_CHARACTER_EMOTION_LABELS,
     deserialize_story_character_emotion_assets,
     normalize_story_character_emotion_id,
     normalize_story_novel_sprite_gender,
@@ -180,9 +178,17 @@ VN_MAX_BEATS_PER_MESSAGE = 48
 VN_MAX_BEAT_TEXT_CHARS = 1_400
 VN_NARRATION_PAGE_MAX_CHARS = 300
 
-# A spoken line looks like:  Имя [эмоция]: текст   or   Имя: текст
-_VN_SPEAKER_LINE = re.compile(
-    r"^\s*(?:[-–—]\s*)?(?P<name>[^:\n\[\]]{1,60}?)\s*(?:\[(?P<emotion>[^\]]{1,40})\])?\s*:\s+(?P<text>.+)$"
+# Visual Novel mode consumes the same canonical speaker protocol as every other story mode.
+_VN_CANONICAL_SPEAKER_LINE = re.compile(
+    r"^\s*\[\[\s*(?P<marker>NPC|GG|NPC_THOUGHT|GG_THOUGHT)\s*:\s*"
+    r"(?P<name>[^\]\n]{1,60}?)\s*\]\]\s+(?P<text>.+)$",
+    re.IGNORECASE,
+)
+# Read-only compatibility for replies produced before Visual Novel mode adopted the shared
+# marker contract. New narrator instructions never request this legacy shape.
+_VN_LEGACY_SPEAKER_LINE = re.compile(
+    r"^\s*(?:[-–—]\s*)?(?P<name>[^:\n\[\]]{1,60}?)\s*"
+    r"(?:\[(?P<emotion>[^\]]{1,40})\])?\s*:\s+(?P<text>.+)$"
 )
 _VN_SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+(?=[«\"A-ZА-ЯЁ0-9])")
 
@@ -190,22 +196,24 @@ _VN_SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+(?=[«\"A-ZА-ЯЁ0-9])")
 def build_story_novel_instruction_card() -> dict[str, str]:
     """The extra narrator instruction injected only for admin Visual Novel games.
 
-    It asks the base narrator to tag each character line with one of the 8 preset emotions so
-    the parser can split the answer into beats and the UI can show the matching sprite.
+    It reinforces the universal MoRius speaker markers so the parser can split the answer into
+    beats without introducing a competing Visual Novel-only dialogue syntax.
     """
-    emotion_labels = ", ".join(
-        STORY_CHARACTER_EMOTION_LABELS.get(emotion_id, emotion_id) for emotion_id in STORY_CHARACTER_EMOTION_IDS
-    )
     return {
         "title": "Формат визуальной новеллы",
         "content": (
             "[РЕЖИМ ВИЗУАЛЬНОЙ НОВЕЛЛЫ]\n"
-            "Оформляй ответ так, чтобы его можно было показывать по репликам.\n"
-            "Каждую реплику персонажа пиши отдельной строкой в формате: Имя [эмоция]: текст реплики.\n"
-            f"«эмоция» — ровно одно слово из списка: {emotion_labels}.\n"
-            "Мысли персонажа оформляй так: Имя [эмоция]: (текст мысли) — мысль в круглых скобках.\n"
-            "Описания сцены, действия и обстановку пиши обычными абзацами без имени и без пометок.\n"
-            "Всегда указывай эмоцию у реплик и мыслей. Не используй других служебных пометок."
+            "Оформляй ответ так, чтобы его можно было показывать по отдельным репликам.\n"
+            "Каждую реплику выноси в отдельный абзац и начинай только с [[NPC:Имя]] или [[GG:Имя]].\n"
+            "[[GG:Имя]] используй только для дословной цитаты речи, введённой игроком; не придумывай за него новые реплики.\n"
+            "Если активные инструкции разрешают показывать мысли, оформляй их отдельными абзацами с [[NPC_THOUGHT:Имя]] или [[GG_THOUGHT:Имя]].\n"
+            "Для известного персонажа всегда копируй точный title его карточки без сокращений и вариантов.\n"
+            "Новому или непрописанному NPC до первой реплики дай устойчивое естественное имя и дальше не меняй его.\n"
+            "Если имя по логике сцены пока нельзя раскрывать, используй конкретную устойчивую роль не длиннее четырёх слов; после раскрытия используй его имя.\n"
+            "Никогда не используй общие обозначения НПС, NPC, Голос, Незнакомец и Персонаж вместо имени или конкретной роли.\n"
+            "Любая произнесённая вслух реплика, включая шёпот, возглас из толпы и речь за кадром, обязана иметь маркер говорящего; не оставляй речь обычным текстом.\n"
+            "Описания сцены, действия и обстановку пиши обычными абзацами без маркера.\n"
+            "Не ставь двоеточие после имени, не добавляй эмоцию в имя и не используй других служебных пометок."
         ),
         "source_kind": "visual_novel",
     }
@@ -278,19 +286,36 @@ def parse_story_novel_beats(raw_response: str) -> list[_NormalizedNovelBeat]:
         if not line:
             flush_narration()
             continue
-        match = _VN_SPEAKER_LINE.match(line)
+        canonical_match = _VN_CANONICAL_SPEAKER_LINE.match(line)
+        legacy_match = None if canonical_match else _VN_LEGACY_SPEAKER_LINE.match(line)
+        match = canonical_match or legacy_match
         speaker_name = _normalize_novel_speaker_name(match.group("name")) if match else None
-        if match and speaker_name:
+        if canonical_match and speaker_name:
             flush_narration()
-            emotion = normalize_story_character_emotion_id(match.group("emotion"))
-            text = match.group("text").strip()
+            marker = str(canonical_match.group("marker") or "").strip().upper()
+            text = canonical_match.group("text").strip()
+            is_thought = marker in {"NPC_THOUGHT", "GG_THOUGHT"}
+            beats.append(
+                _NormalizedNovelBeat(
+                    kind=STORY_NOVEL_BEAT_THOUGHT if is_thought else STORY_NOVEL_BEAT_DIALOGUE,
+                    text=_normalize_novel_text(text),
+                    speaker_name=speaker_name,
+                    emotion=STORY_CHARACTER_DEFAULT_EMOTION,
+                )
+            )
+        elif legacy_match and speaker_name:
+            flush_narration()
+            text = legacy_match.group("text").strip()
             is_thought = text.startswith("(") and text.endswith(")")
             beats.append(
                 _NormalizedNovelBeat(
                     kind=STORY_NOVEL_BEAT_THOUGHT if is_thought else STORY_NOVEL_BEAT_DIALOGUE,
                     text=_normalize_novel_text(text.strip("()").strip() if is_thought else text),
                     speaker_name=speaker_name,
-                    emotion=emotion or STORY_CHARACTER_DEFAULT_EMOTION,
+                    emotion=(
+                        normalize_story_character_emotion_id(legacy_match.group("emotion"))
+                        or STORY_CHARACTER_DEFAULT_EMOTION
+                    ),
                 )
             )
         else:

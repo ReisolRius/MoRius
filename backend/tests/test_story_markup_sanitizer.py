@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
 from app import main
+from app.services import story_runtime
 
 
 def _sanitize(text: str) -> str:
@@ -50,3 +54,104 @@ def test_sanitizer_keeps_plain_narration_untouched() -> None:
 def test_sanitizer_returns_empty_for_empty_input() -> None:
     assert _sanitize("") == ""
     assert _sanitize("   \n  ") == ""
+
+
+SCREENSHOT_LIKE_UNMARKED_DIALOGUE = (
+    "Его лицо вытянулось, а напудренные щёки пошли красными пятнами. "
+    "Он явно не ожидал такого ответа.\n"
+    "Ты... ты хоть понимаешь, к кому обращаешься, грязная деревенщина?!\n"
+    "Его рука в светлой перчатке нервно легла на эфес кинжала."
+)
+
+
+def test_strict_guard_rejects_screenshot_like_bare_utterance_and_dash_speech() -> None:
+    assert main._story_paragraph_has_unformatted_dialogue(SCREENSHOT_LIKE_UNMARKED_DIALOGUE)
+    assert not main._is_story_strict_markup_output(SCREENSHOT_LIKE_UNMARKED_DIALOGUE)
+    assert not main._is_story_strict_markup_output("— Ты опоздал, — сказал аристократ.")
+
+
+def test_strict_guard_keeps_plain_narration_out_of_repair() -> None:
+    ordinary_narration = (
+        "Холодный ветер ворвался в комнату и качнул пламя свечи.\n\n"
+        "Над дверью висела вывеска «Заря», потемневшая от дождя.\n\n"
+        "Он ничего не сказал и молча вышел из комнаты.\n\n"
+        "Она посмотрела на тебя!"
+    )
+    normalizer = Mock(return_value="этот результат не должен использоваться")
+
+    assert main._is_story_strict_markup_output(ordinary_narration)
+    assert (
+        story_runtime._sanitize_streamed_story_markup(
+            ordinary_narration,
+            normalize_generated_story_output=normalizer,
+        )
+        == ordinary_narration
+    )
+    normalizer.assert_not_called()
+
+
+def test_streamed_guard_calls_existing_model_assisted_repair_for_bare_utterance() -> None:
+    repaired = (
+        "Его лицо вытянулось, а напудренные щёки пошли красными пятнами.\n\n"
+        "[[NPC:Аристократ]] Ты... ты хоть понимаешь, к кому обращаешься?!\n\n"
+        "Его рука легла на эфес кинжала."
+    )
+    normalizer = Mock(return_value=repaired)
+    world_cards = [{"kind": "npc", "title": "Лорд Эдвин", "content": "..."}]
+
+    result = story_runtime._sanitize_streamed_story_markup(
+        SCREENSHOT_LIKE_UNMARKED_DIALOGUE,
+        normalize_generated_story_output=normalizer,
+        world_cards=world_cards,
+        model_name="z-ai/glm-4.7-flash",
+        show_gg_thoughts=True,
+        show_npc_thoughts=False,
+    )
+
+    assert result == repaired
+    normalizer.assert_called_once()
+    call_kwargs = normalizer.call_args.kwargs
+    assert call_kwargs["world_cards"] == world_cards
+    assert call_kwargs["model_name"] == "z-ai/glm-4.7-flash"
+    assert call_kwargs["show_gg_thoughts"] is True
+    assert call_kwargs["show_npc_thoughts"] is False
+
+
+def test_generated_output_normalizer_reaches_markup_repair_for_bare_utterance() -> None:
+    repaired = "[[NPC:Аристократ]] Ты хоть понимаешь, к кому обращаешься?!"
+    with (
+        patch.object(main, "settings", SimpleNamespace(polza_api_key="test-key")),
+        patch.object(main, "_repair_story_markup_with_polza", return_value=repaired) as repair_mock,
+    ):
+        result = main._normalize_generated_story_output(
+            text_value=SCREENSHOT_LIKE_UNMARKED_DIALOGUE,
+            world_cards=[],
+            model_name="z-ai/glm-4.7-flash",
+        )
+
+    assert result == repaired
+    repair_mock.assert_called_once()
+
+
+def test_streamed_guard_is_idempotent_for_canonical_markers() -> None:
+    clean = "Дверь скрипнула.\n\n[[NPC:Акари]] Ты пришёл."
+    normalizer = Mock(return_value="не должно использоваться")
+
+    assert (
+        story_runtime._sanitize_streamed_story_markup(
+            clean,
+            normalize_generated_story_output=normalizer,
+        )
+        == clean
+    )
+    normalizer.assert_not_called()
+
+
+def test_strict_guard_repairs_only_forbidden_generic_speaker_labels() -> None:
+    for generic_label in ("НПС", "NPC", "Голос", "Незнакомец", "Персонаж"):
+        assert not main._is_story_strict_markup_output(
+            f"[[NPC:{generic_label}]] Ты опоздал."
+        )
+
+    assert main._is_story_strict_markup_output("[[NPC:Аристократ]] Ты опоздал.")
+    assert main._is_story_strict_markup_output("[[NPC:Лорд Эдвин]] Ты опоздал.")

@@ -29,6 +29,7 @@ from app.services.story_canonical_pipeline import (  # noqa: E402
     validate_canonical_state,
 )
 from app.services.story_output_contract import (  # noqa: E402
+    get_ai_output_contract_notes,
     parse_ai_output_to_ui_blocks,
     serialize_ui_blocks_to_existing_ai_output,
     validate_ai_output_contract,
@@ -36,6 +37,16 @@ from app.services.story_output_contract import (  # noqa: E402
 
 
 class StoryOutputContractTests(unittest.TestCase):
+    def test_contract_notes_require_stable_specific_speaker_labels(self) -> None:
+        notes = "\n".join(get_ai_output_contract_notes())
+
+        self.assertIn("точный title из его карточки", notes)
+        self.assertIn("перед первой репликой придумай устойчивое естественное имя", notes)
+        self.assertIn("конкретную роль длиной не более 4 слов", notes)
+        self.assertIn("всегда начинается с [[NPC:...]]", notes)
+        self.assertIn("неподписанная реплика обычным текстом запрещена", notes)
+        self.assertIn("НПС, NPC, Голос, Незнакомец, Персонаж", notes)
+
     def test_structured_npc_marker_survives_parse_and_serialize(self) -> None:
         raw = "Дверь тихо скрипнула.\n\n[[NPC:Мира]] Ты опять за свое?"
 
@@ -75,6 +86,24 @@ class StoryOutputContractTests(unittest.TestCase):
 
 
 class StoryCanonicalPipelineTests(unittest.TestCase):
+    def test_scene_plan_includes_unregistered_npc_speaker_contract(self) -> None:
+        state = CanonicalStateV1()
+        parsed = safe_parse_player_turn("Осматриваюсь.", state)
+
+        plan = build_scene_plan(
+            player_text="Осматриваюсь.",
+            state=state,
+            parsed_turn=parsed,
+            deltas=[],
+            validation=validate_canonical_state(state),
+        )
+        notes = "\n".join(plan.output_contract_notes)
+
+        self.assertIn("точный title из его карточки", notes)
+        self.assertIn("устойчивое естественное имя", notes)
+        self.assertIn("конкретную роль длиной не более 4 слов", notes)
+        self.assertIn("НПС, NPC, Голос, Незнакомец, Персонаж", notes)
+
     def test_canonical_state_payload_roundtrip_preserves_scene_facts(self) -> None:
         state = CanonicalStateV1()
         state.scene.location_name = "\u041a\u0443\u0445\u043d\u044f"

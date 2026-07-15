@@ -291,26 +291,25 @@ STORY_DEFAULT_TEMPERATURE = 0.75
 # This table is the backend mirror of the frontend STORY_NARRATOR_SAMPLING_DEFAULTS in
 # frontend/src/pages/StoryGamePage.tsx and MUST stay in sync with it: the UI sends these
 # values on model switch, while this copy covers game creation and any non-UI/API client.
-# top_k == 0 means "do not constrain by top_k" (nucleus sampling governs). The premium models
-# still keep a profile for the settings UI, but the provider never forwards sampling params to
-# the models in STORY_NON_SAMPLING_MODEL_HINTS, so those values stay display-only there.
+# top_k == 0 means "do not constrain by top_k" (nucleus sampling governs). Provider-specific
+# unsupported parameters are filtered independently when the request payload is assembled.
 STORY_MODEL_SAMPLING_PROFILES: dict[str, dict[str, float]] = {
-    STORY_LLM_MODEL_GLM5: {"temperature": 0.85, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.05},
-    STORY_LLM_MODEL_GLM51: {"temperature": 0.90, "top_r": 0.93, "top_k": 50, "repetition_penalty": 1.08},
-    STORY_LLM_MODEL_GLM52: {"temperature": 0.90, "top_r": 0.93, "top_k": 50, "repetition_penalty": 1.08},
-    STORY_LLM_MODEL_GLM47_FLASH: {"temperature": 0.80, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
-    STORY_LLM_MODEL_GLM47: {"temperature": 0.82, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.06},
-    STORY_LLM_MODEL_DEEPSEEK_V32: {"temperature": 0.85, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
-    STORY_LLM_MODEL_DEEPSEEK_V3: {"temperature": 0.90, "top_r": 0.92, "top_k": 40, "repetition_penalty": 1.06},
-    STORY_LLM_MODEL_DEEPSEEK_V4_PRO: {"temperature": 0.85, "top_r": 0.92, "top_k": 0, "repetition_penalty": 1.05},
-    STORY_LLM_MODEL_DEEPSEEK_R1: {"temperature": 0.85, "top_r": 0.92, "top_k": 0, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_GLM5: {"temperature": 0.90, "top_r": 0.95, "top_k": 60, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_GLM51: {"temperature": 0.95, "top_r": 0.97, "top_k": 80, "repetition_penalty": 1.03},
+    STORY_LLM_MODEL_GLM52: {"temperature": 0.90, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_GLM47_FLASH: {"temperature": 0.90, "top_r": 0.95, "top_k": 40, "repetition_penalty": 1.10},
+    STORY_LLM_MODEL_GLM47: {"temperature": 0.85, "top_r": 0.95, "top_k": 50, "repetition_penalty": 1.08},
+    STORY_LLM_MODEL_DEEPSEEK_V32: {"temperature": 0.75, "top_r": 0.90, "top_k": 40, "repetition_penalty": 1.10},
+    STORY_LLM_MODEL_DEEPSEEK_V3: {"temperature": 0.75, "top_r": 0.90, "top_k": 40, "repetition_penalty": 1.10},
+    STORY_LLM_MODEL_DEEPSEEK_V4_PRO: {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_DEEPSEEK_R1: {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_MISTRAL_NEMO: {"temperature": 0.78, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
-    STORY_LLM_MODEL_AION_2: {"temperature": 0.78, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_AION_2: {"temperature": 0.80, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_MINIMAX_M2_HER: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.05},
-    STORY_LLM_MODEL_GEMINI_31_FLASH_LITE: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.06},
-    STORY_LLM_MODEL_CLAUDE_SONNET_46: {"temperature": 1.00, "top_r": 0.98, "top_k": 0, "repetition_penalty": 1.00},
-    STORY_LLM_MODEL_GEMINI_25_PRO: {"temperature": 0.90, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.05},
-    STORY_LLM_MODEL_GEMINI_31_PRO: {"temperature": 0.90, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_GEMINI_31_FLASH_LITE: {"temperature": 1.00, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.00},
+    STORY_LLM_MODEL_CLAUDE_SONNET_46: {"temperature": 0.90, "top_r": 1.00, "top_k": 0, "repetition_penalty": 1.00},
+    STORY_LLM_MODEL_GEMINI_25_PRO: {"temperature": 1.05, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.00},
+    STORY_LLM_MODEL_GEMINI_31_PRO: {"temperature": 1.10, "top_r": 0.97, "top_k": 128, "repetition_penalty": 1.00},
     STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH: {"temperature": 0.85, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_SUB_GEMINI_25_FLASH_LITE: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.06},
     STORY_LLM_MODEL_SUB_GLM_45_AIR: {"temperature": 0.82, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.06},

@@ -1303,10 +1303,17 @@ STORY_PAID_MODEL_HINTS = {
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
 }
-STORY_NON_SAMPLING_MODEL_HINTS: set[str] = {
+STORY_TOP_P_DISABLED_MODEL_IDS: set[str] = {
     "anthropic/claude-sonnet-4.6",
+}
+STORY_TOP_K_DISABLED_MODEL_IDS: set[str] = {
+    "anthropic/claude-sonnet-4.6",
+}
+STORY_REPETITION_PENALTY_DISABLED_MODEL_IDS: set[str] = {
+    "google/gemini-3.1-flash-lite",
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
+    "anthropic/claude-sonnet-4.6",
 }
 STORY_DISABLE_THINKING_MODEL_IDS: set[str] = {
     "aion-labs/aion-2.0",
@@ -1475,12 +1482,7 @@ STORY_PLOT_CARD_POINT_PREFIX_PATTERN = re.compile(
     r"^(?:контекст|цель|конфликт|факты|факт|риск|незакрытое)\s*:\s*",
     re.IGNORECASE,
 )
-STORY_SYSTEM_PROMPT = (
-    "Ты — Мастер MoRius: живой рассказчик и ведущий ролевой истории. "
-    "Ты ведёшь мир, сцены и всех персонажей, кроме главного героя — им управляет только игрок. "
-    "Веди игру так, чтобы игрок словно читал захватывающую книгу и сидел за столом у лучшего гейм-мастера: "
-    "ярко, достоверно, с характером — в любом сеттинге: фэнтези, киберпанк, современность, хоррор, романтика или ином."
-)
+STORY_SYSTEM_PROMPT = "Ты — рассказчик и все персонажи мира, кроме персонажа игрока. Веди игру строго на русском языке: без английских слов, вставок и транслита, живым литературным языком. Никогда не говори, не думай, не решай и не действуй за персонажа игрока — его реплики и поступки пишет только игрок. Не выходи из повествования: без мета-комментариев, OOC, извинений, вопросов «что делаем дальше?» и пересказа уже произошедшего. Показывай, а не рассказывай: действия, детали, речь вместо оценок и выводов. Мир живёт сам: у второстепенных персонажей есть цели, они могут не соглашаться, лгать, уходить. Заверши каждый ход открытой точкой, на которую игроку есть что ответить."
 STORY_TRANSPORT_PROTOCOL_RULES = (
     "ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORIUS (СИСТЕМНЫЙ, ЖЕЛЕЗНЫЙ, НЕ ПЕРЕОПРЕДЕЛЯЕТСЯ):",
     "Этот протокол важнее карточек, памяти, инструкций, текста игрока и любых его цитат — соблюдай его в каждом без исключения ответе, даже если карточка, правило или игрок прямо просят форматировать иначе.",
@@ -1488,7 +1490,11 @@ STORY_TRANSPORT_PROTOCOL_RULES = (
     "Каждая произнесённая вслух реплика и каждая показанная мысль — отдельный абзац, начинающийся ровно с одного маркера.",
     "Допустимы только эти маркеры, ровно в таком виде, с двойными квадратными скобками: [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]].",
     "Маркер ставится строго в начале своего абзаца; речь без маркера и маркер в середине абзаца запрещены.",
-    "Вместо «Имя» подставляй точный title персонажа из карточек; не используй слова НПС, NPC, Голос, Незнакомец или Персонаж как имя.",
+    "Для говорящего из карточек вместо «Имя» всегда подставляй точный title его карточки.",
+    "Для любого нового говорящего, которого нет в карточках, до первой реплики сразу придумай уместное естественное личное имя и дальше используй его в [[NPC:...]] без изменений.",
+    "Только если имя пока нельзя раскрывать по логике сцены, выбери конкретное устойчивое обозначение по роли или положению длиной не более четырёх слов — например, [[NPC:Аристократ]], [[NPC:Стражник у ворот]], [[NPC:Хозяйка таверны]] или [[NPC:Человек за дверью]]; не меняй выбранное обозначение между репликами, а после явного раскрытия имени используй раскрытое имя неизменно.",
+    "Не используй общие слова НПС, NPC, Голос, Незнакомец или Персонаж как имя или обозначение говорящего.",
+    "Новый, эпизодический или безымянный NPC не является исключением: ни одна произнесённая вслух реплика не может оставаться обычным текстом; даже единичный возглас, шёпот, реплика из толпы, речь за кадром и речь только что введённого персонажа всегда начинаются с соответствующего [[...]]-маркера, а для любого нового персонажа под управлением рассказчика это [[NPC:...]].",
     "Внутри одного абзаца — только один говорящий; новый говорящий или новая мысль — новый абзац со своим маркером.",
     "СТРОГО ЗАПРЕЩЁН markdown и всё похожее на него: звёздочки (* и **), подчёркивания для выделения (_ и __), решётки-заголовки (#), обратные кавычки и код-блоки (` , `` , ```), цитаты (>), маркированные и нумерованные списки, таблицы.",
     "СТРОГО ЗАПРЕЩЕНО придумывать свой способ обозначить говорящего: формы вида npc_name:'Имя', name:, speaker:, markup::, <npc>, <NPC:Имя>, «Имя:» в начале строки и любые подобные недопустимы — для речи и мыслей существует только [[...]]-маркер.",
@@ -1592,6 +1598,24 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
     ),
 }
 STORY_MODEL_HINTS["z-ai/glm-5.2"] = STORY_MODEL_HINTS["z-ai/glm-5.1"]
+STORY_MODEL_UNIQUE_NARRATION_PROMPTS: dict[str, str] = {
+    "z-ai/glm-4.7-flash": "Твоя сила — темп. Пиши плотно: 2–4 абзаца за ход, но каждый абзац — конкретика, а не общие слова. Запрещены дежурные фразы («по спине пробежал холодок», «воздух сгустился») и повтор собственных формулировок из прошлых ходов. Одна сцена за ход, без перескоков во времени. Если нечего добавить к описанию — добавь действие или реплику. Диалог — короткий, характерный, без пояснений после каждой фразы. Держи факты сцены: кто где стоит, что держит в руках, что уже сказано.",
+    "deepseek/deepseek-v3.2": "Твоя яркость — оружие, но держи его в ножнах. Не больше одной метафоры на абзац. Запрещены: внезапная эскалация без причины, мелодрама, «безумные» повороты ради эффекта, описание запахов/дрожи/шёпота в каждом абзаце. Каждое событие вытекает из предыдущего — причина, затем следствие. Персонажи не меняют характер посреди сцены. Накал повышай медленно, ступенями, и давай сценам дышать: после напряжения — пауза, быт, тишина. Сдержанная фраза бьёт сильнее крика.",
+    "deepseek/deepseek-chat-v3-0324": "Твоя яркость — оружие, но держи его в ножнах. Не больше одной метафоры на абзац. Запрещены: внезапная эскалация без причины, мелодрама, «безумные» повороты ради эффекта, описание запахов/дрожи/шёпота в каждом абзаце. Каждое событие вытекает из предыдущего — причина, затем следствие. Персонажи не меняют характер посреди сцены. Накал повышай медленно, ступенями, и давай сценам дышать: после напряжения — пауза, быт, тишина. Сдержанная фраза бьёт сильнее крика.",
+    "deepseek/deepseek-v4-pro": "Используй свой интеллект как режиссёр, а не как аналитик. Внутри себя просчитывай интриги, мотивы и последствия на несколько ходов вперёд — но в тексте показывай только живую сцену. Никаких рассуждений, планов, списков и структурного анализа в ответе. Персонажи умны: они помнят сказанное, замечают ложь, строят собственные планы против игрока и друг друга. Чехов работает: введённая деталь стреляет позже. Пиши тёплой, телесной прозой — читатель не должен догадаться, что за текстом стоит логическая машина.",
+    "deepseek/deepseek-r1-0528": "Используй свой интеллект как режиссёр, а не как аналитик. Внутри себя просчитывай интриги, мотивы и последствия на несколько ходов вперёд — но в тексте показывай только живую сцену. Никаких рассуждений, планов, списков и структурного анализа в ответе. Персонажи умны: они помнят сказанное, замечают ложь, строят собственные планы против игрока и друг друга. Чехов работает: введённая деталь стреляет позже. Пиши тёплой, телесной прозой — читатель не должен догадаться, что за текстом стоит логическая машина.",
+    "z-ai/glm-4.7": "Твоя сила — психология. У каждого персонажа в сцене есть желание, страх и секрет — и они просвечивают в мелочах: в паузе, во взгляде мимо, в слишком быстром согласии. Диалог — главный двигатель: люди говорят не то, что думают, перебивают, недоговаривают. Не объясняй чувства словами автора («она разозлилась») — покажи жестом и репликой. Конфликт интересов есть в каждой сцене, даже мирной. Второстепенный персонаж имеет право украсть сцену, если это обогащает историю.",
+    "z-ai/glm-5": "Твоя сила — инициатива. Не жди, пока игрок принесёт сюжет: вводи события сам. Курьер с дурной вестью, старый долг, слух на рынке, погода, ломающая планы. Мир движется, пока игрок стоит: за кадром происходят вещи, следы которых игрок находит. Реакции мира на поступки игрока — отложенные и правдоподобные: сожжённый мост аукнется через три сцены. Раз в несколько ходов меняй локацию или состав сцены, чтобы история не застывала. Но инициатива — не хаос: каждое введённое событие обязано иметь корни в уже созданном мире.",
+    "aion-labs/aion-2.0": "Твоя задача — дисциплина и страсть одновременно. Держи железную консистентность: имена, даты, расстояния, ранее установленные факты лора — священны, сверяйся с ними перед каждым ходом. При этом эмоции передавай через действия и физику тела, а не через названия чувств. Строгий формат: 3–5 абзацев, диалог отбит отдельными строками, без списков и заголовков внутри повествования. Если сомневаешься между эффектным и логичным — выбирай логичное: доверие игрока дороже фейерверка.",
+    "google/gemini-3.1-flash-lite": "Твой враг — спешка. Категорически запрещено: ускорять сюжет, проматывать время («прошла неделя»), резюмировать сцену вместо того чтобы её прожить, закрывать конфликт в том же ходу, где он возник. Одна сцена за ход, в реальном темпе. Разворачивай момент: свет, звук, фактура, температура — минимум две сенсорные детали на сцену, каждый раз новые. Ответ не короче трёх полных абзацев. Если сцена «закончилась» — значит, ты пропустил то, что в ней ещё живёт: задержись и найди.",
+    "z-ai/glm-5.1": "Твоя сила — длинная дуга. Ты помнишь весь контекст — используй это как никто: возвращай детали из ранних сцен (обещание, шрам, оговорку) в новых значениях. Веди долгие арки: у сюжета есть далёкая цель, и каждый ход — шаг к ней или осмысленное отклонение. Персонажи растут и меняются от пережитого, отношения имеют историю: сегодняшний разговор помнит вчерашнюю ссору. Раз в 5–7 ходов делай тихий ход-эхо: сцена, где прошлое догоняет настоящее. Ничего не забывай — забытая деталь для тебя провал.",
+    "z-ai/glm-5.2": "Твоя сила — стиль. Работай ритмом: длинная текучая фраза — и короткий удар. Абзацы разной длины, монтаж как в кино: смена плана с общего на деталь, склейка сцен без «а тем временем». Каждая сцена имеет свою температуру и свой звук. Не используй одни и те же глаголы и эпитеты в соседних абзацах. Финальная строка хода — всегда сильная: образ, реплика или действие, но не вывод. Красота не ради красоты: каждый стилистический жест обязан работать на сцену.",
+    "google/gemini-2.5-pro": "Твой враг — сглаживание. Запрещено: смягчать конфликты, мирить персонажей в том же ходу, делать всех «в глубине души хорошими», заканчивать сцены нотой утешения. Персонажи имеют право злиться всерьёз, отказывать наотрез, ошибаться непоправимо, быть несправедливыми — и не извиняться. Плохое решение игрока приводит к плохим последствиям, мир их не отменяет. Убери и вербальные привычки сглаживания: «однако», «тем не менее», «стоит отметить» — в художественном тексте им не место. Напряжение держи до конца хода.",
+    "google/gemini-3.1-pro-preview": "Ты снимаешь кино. Каждая сцена имеет режиссуру: где источник света, откуда звук, что в кадре и что намеренно за кадром. Главный инструмент — подтекст: персонажи почти никогда не говорят главного прямо, оно живёт в паузах, в выборе слов, в том, о чём молчат. Одна точная деталь заменяет абзац описания — найди её. Недосказанность — норма: доверяй игроку достроить, не разжёвывай. Меняй планы: широкий мир — и вдруг крупно дрожащие пальцы. Тишина в твоих сценах должна быть слышной.",
+    "anthropic/claude-sonnet-4.6": "Твой враг — мягкость. Никакого морализаторства, уроков и заботливых оговорок внутри истории. Злодей остаётся злодеем весь ход — без проблесков раскаяния, которых игрок не заслужил сюжетом. Не резюмируй эмоции персонажей в конце абзаца и не объясняй, что сцена «значила». Не задавай игроку вопросов и не предлагай варианты действий. Пиши плотным литературным русским: конкретный глагол вместо трёх прилагательных. Твоя глубина — в точности удара, а не в количестве слов: если ход можно сократить на треть без потерь — сократи сам.",
+}
+for model_id, unique_prompt in STORY_MODEL_UNIQUE_NARRATION_PROMPTS.items():
+    STORY_MODEL_HINTS[model_id] = (unique_prompt, *STORY_MODEL_HINTS.get(model_id, ()))
 STORY_STRICT_ENGLISH_OUTPUT_RULES = (
     "LANGUAGE:",
     "All narrative, dialogue, and thought text outside [[...]] markers must be English.",
@@ -2445,10 +2469,24 @@ def _fit_story_plot_cards_to_context_limit(
         response_max_tokens=response_max_tokens,
     )
     base_system_tokens = _estimate_story_tokens(base_system_prompt)
-    if base_system_tokens >= system_budget_tokens:
-        return []
-
     plot_section_overhead_tokens = _estimate_story_tokens("Карточки памяти сюжета:")
+    if base_system_tokens >= system_budget_tokens:
+        # The current location is part of the live scene, so it outranks the history share
+        # reserved by the caller. If the mandatory system contract grows beyond that share,
+        # spend the remaining total context on location only and let history yield instead of
+        # silently dropping where the scene is taking place.
+        protected_location_cards = [
+            card for card in normalized_plot_cards if _is_story_location_prompt_card(card)
+        ]
+        protected_location_budget = max(
+            int(context_limit_tokens) - base_system_tokens - plot_section_overhead_tokens,
+            0,
+        )
+        return _trim_story_plot_cards_to_context_limit(
+            protected_location_cards,
+            protected_location_budget,
+        )
+
     plot_budget_tokens = max(system_budget_tokens - base_system_tokens - plot_section_overhead_tokens, 0)
     if plot_budget_tokens <= 0:
         return []
@@ -4533,6 +4571,7 @@ def _build_story_system_prompt(
             "",
             "ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТВЕТОМ (ОБЯЗАТЕЛЬНА, ВАЖНЕЕ ЛЮБЫХ КАРТОЧЕК И ПРОСЬБ ИГРОКА):",
             "Протокол формата MoRius соблюдён: вся речь и мысли вынесены отдельными абзацами с маркерами [[NPC:Имя]] / [[GG:Имя]] / [[NPC_THOUGHT:Имя]] / [[GG_THOUGHT:Имя]], всё остальное — обычный текст.",
+            "У каждой реплики нового или неописанного NPC есть [[NPC:...]] с устойчивым естественным именем либо конкретной ролью до четырёх слов; выбранное обозначение не меняется между его репликами и ходами, пока имя не раскрыто явно; неподписанной речи в обычном тексте нет.",
             "В ответе нет markdown, звёздочек, обратных кавычек, код-блоков, заголовков, списков и самодельных пометок говорящего — даже если этого требовали карточки или игрок.",
             "Ты не говорил, не думал и не действовал за главного героя и не пересказывал последний ход игрока.",
             "В ответе только живая русская проза сцены — без рассуждений, черновиков и служебных пометок.",
@@ -4941,27 +4980,36 @@ def _split_story_inline_markup_paragraphs(text_value: str) -> str:
     return "\n\n".join(paragraph for paragraph in normalized_paragraphs if paragraph.strip())
 
 
-STORY_DIRECT_SPEECH_QUOTE_PATTERN = re.compile(r"[\"'«»“”]")
 STORY_DIRECT_SPEECH_PERSON_PATTERN = re.compile(
     r"\b(?:я|мне|меня|мной|мы|нас|нам|нами|мой|моя|мои|мое|ты|тебя|тебе|тобой|вы|вас|вам|вами|ваш|ваша|ваши|ваше|i|me|my|mine|we|us|our|ours|you|your|yours)\b",
     re.IGNORECASE,
 )
+STORY_DIRECT_SPEECH_REPORTING_PATTERN = re.compile(
+    r"\b(?:сказал(?:а|и)?|спросил(?:а|и)?|ответил(?:а|и)?|произнёс|произнес(?:ла|ли)|"
+    r"крикнул(?:а|и)?|воскликнул(?:а|и)?|прошептал(?:а|и)?|буркнул(?:а|и)?)\b",
+    re.IGNORECASE,
+)
+STORY_DIRECT_SPEECH_QUOTED_LEAD_PATTERN = re.compile(
+    r'^[«“"]\s*(?P<body>.+?)\s*[»”"](?:\s*[,—-].*)?$',
+    re.DOTALL,
+)
 STORY_DIRECT_SPEECH_LEADING_TOKENS = {
-    "о",
     "эй",
+    "привет",
     "слушай",
     "послушай",
-    "ну",
-    "нет",
-    "да",
-    "ладно",
+    "алло",
+    "постой",
+    "простите",
     "please",
     "hey",
 }
-STORY_DIRECT_SPEECH_NEGATION_TOKENS = {
-    "не",
-    "don't",
-    "dont",
+STORY_FORBIDDEN_GENERIC_SPEAKER_LABELS = {
+    "нпс",
+    "npc",
+    "голос",
+    "незнакомец",
+    "персонаж",
 }
 
 
@@ -4971,9 +5019,32 @@ def _is_story_sentence_likely_unmarked_dialogue(sentence: str) -> bool:
         return False
     if _parse_story_plain_speaker_line_paragraph(compact) is not None:
         return True
-    if _is_story_dialogue_like_fragment(compact):
+
+    # A leading dialogue dash is unambiguous in story output. Do not use a generic
+    # "contains two dashes" test here: parenthetical narrative clauses commonly contain
+    # the same punctuation and must remain untouched.
+    if re.match(r"^(?:—|-)\s*\S", compact):
         return True
-    if STORY_DIRECT_SPEECH_QUOTE_PATTERN.search(compact):
+
+    # Quotation marks alone are not evidence of speech (book titles, signs and ironic
+    # quotes are ordinary narration). A leading, self-contained quote is considered speech
+    # only when its body carries a direct-address/utterance signal.
+    quoted_lead = STORY_DIRECT_SPEECH_QUOTED_LEAD_PATTERN.match(compact)
+    if quoted_lead is not None:
+        quoted_body = quoted_lead.group("body").strip()
+        if (
+            any(char in quoted_body for char in "!?\u2026")
+            or STORY_DIRECT_SPEECH_PERSON_PATTERN.match(quoted_body) is not None
+            or STORY_DIRECT_SPEECH_REPORTING_PATTERN.search(compact) is not None
+        ):
+            return True
+
+    # Explicit attribution plus a colon/quoted payload is a dialogue construction. Merely
+    # mentioning that somebody "said nothing" is not.
+    if STORY_DIRECT_SPEECH_REPORTING_PATTERN.search(compact) is not None and (
+        re.search(r":\s*[«“\"]", compact) is not None
+        or re.search(r"[!?…][»”\"]?\s*[,;]?\s*(?:—|-)\s*", compact) is not None
+    ):
         return True
 
     stripped = compact.lstrip("—-\"'«»“” ").strip()
@@ -4983,21 +5054,15 @@ def _is_story_sentence_likely_unmarked_dialogue(sentence: str) -> bool:
     words = re.findall(r"[A-Za-zА-Яа-яЁё'-]+", stripped)
     if not words:
         return False
+    if words[0].casefold() in STORY_DIRECT_SPEECH_LEADING_TOKENS:
+        return True
 
-    candidate_index = 0
-    lowered_words = [word.casefold() for word in words[:4]]
-    while candidate_index < len(lowered_words) and lowered_words[candidate_index] in STORY_DIRECT_SPEECH_LEADING_TOKENS:
-        candidate_index += 1
-    if candidate_index < len(lowered_words) and lowered_words[candidate_index] in STORY_DIRECT_SPEECH_NEGATION_TOKENS:
-        candidate_index += 1
-
-    if candidate_index < len(words):
-        imperative_candidate = words[candidate_index].casefold()
-        if re.fullmatch(r"[a-zа-яё-]+(?:й|йте)", imperative_candidate):
-            return True
-
+    # A question/exclamation that starts with first- or second-person address is a strong
+    # speech signal (including the real-world failure "Ты... ты хоть понимаешь...?!").
+    # Requiring the pronoun at the start avoids treating narration such as "Она посмотрела
+    # на тебя!" as dialogue.
     expressive_sentence = any(char in stripped for char in "!?")
-    if expressive_sentence and STORY_DIRECT_SPEECH_PERSON_PATTERN.search(stripped):
+    if expressive_sentence and STORY_DIRECT_SPEECH_PERSON_PATTERN.match(stripped):
         return True
 
     return False
@@ -5011,8 +5076,13 @@ def _story_paragraph_has_unformatted_dialogue(paragraph: str) -> bool:
         return False
     if _parse_story_plain_speaker_line_paragraph(paragraph_value) is not None:
         return True
-    if _is_story_dialogue_like_fragment(paragraph_value):
-        return True
+
+    # Keep physical line starts: sentence splitting intentionally strips ASCII bullet
+    # prefixes, while a provider may use either '-' or '—' for a standalone replica.
+    for raw_line in paragraph_value.splitlines():
+        compact_line = re.sub(r"\s+", " ", raw_line).strip()
+        if compact_line and _is_story_sentence_likely_unmarked_dialogue(compact_line):
+            return True
 
     sentences = _split_story_text_into_sentences(paragraph_value)
     if not sentences:
@@ -5029,9 +5099,18 @@ def _is_story_strict_markup_output(text_value: str) -> bool:
     if not paragraphs:
         return True
     for paragraph in paragraphs:
-        if _parse_story_markup_paragraph(paragraph) is not None:
+        parsed_paragraph = _parse_story_markup_paragraph(paragraph)
+        if parsed_paragraph is not None:
+            speaker_name = str(parsed_paragraph.get("speaker", "")).strip().casefold()
+            if (
+                parsed_paragraph.get("kind") in {"speech", "thought"}
+                and speaker_name in STORY_FORBIDDEN_GENERIC_SPEAKER_LABELS
+            ):
+                return False
             continue
         if "[[" not in paragraph:
+            if _story_paragraph_has_unformatted_dialogue(paragraph):
+                return False
             continue
         coerced_paragraph = _coerce_story_markup_paragraph(paragraph)
         if coerced_paragraph is None:
@@ -5376,6 +5455,11 @@ def _build_story_markup_repair_messages(
             "content": (
                 "Ты чинишь MoRius-разметку ответа RPG. Верни только текст: без JSON, markdown, reasoning и комментариев. "
                 "Речь/мысль = один маркер в начале абзаца: [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]]. "
+                "Каждой прямой речи обязательно назначь говорящего. Для нового или непрописанного персонажа выбери "
+                "естественное устойчивое имя; если имя нельзя раскрывать по логике сцены — конкретное устойчивое "
+                "обозначение роли или положения, например Аристократ, Стражник или Хозяйка таверны. Повторяй "
+                "выбранное имя или обозначение без изменений во всех последующих маркерах. Запрещены общие подписи "
+                "[[NPC:НПС]], [[NPC:NPC]], [[NPC:Голос]], [[NPC:Незнакомец]] и [[NPC:Персонаж]]. "
                 "Нарратив без речи/мысли оставь без маркера. Сохрани факты, порядок и стиль."
             ),
         },
@@ -5386,7 +5470,8 @@ def _build_story_markup_repair_messages(
                 f"Имена, явно встречающиеся в текущем тексте: {scene_names_preview}\n\n"
                 f"Текст для нормализации:\n{text_value}\n\n"
                 "Прямая речь -> [[NPC:...]]/[[GG:...]]. Мысли -> [[NPC_THOUGHT:...]]/[[GG_THOUGHT:...]]. "
-                "Если имя явно указано, используй его; не заменяй новое имя старым."
+                "Если имя явно указано, используй его; не заменяй новое имя старым. Любую неподписанную реплику "
+                "подпиши устойчивым естественным именем либо конкретной ролью и повторяй эту подпись без изменений."
             ),
         },
     ]
@@ -5882,9 +5967,7 @@ def _apply_polza_story_reasoning_preferences(
 
 def _can_apply_story_sampling_to_model(model_name: str | None) -> bool:
     normalized_model = _normalize_story_model_id(model_name)
-    if not normalized_model:
-        return False
-    return all(model_hint not in normalized_model for model_hint in STORY_NON_SAMPLING_MODEL_HINTS)
+    return bool(normalized_model)
 
 
 def _is_story_paid_model(model_name: str | None) -> bool:
@@ -5956,8 +6039,17 @@ def _select_story_sampling_values(
 ) -> tuple[int | None, float | None]:
     if not _can_apply_story_sampling_to_model(model_name):
         return (None, None)
-    top_k_value = story_top_k if story_top_k > 0 else None
-    top_p_value = story_top_r if story_top_r < 0.999 else None
+    normalized_model_name = _normalize_story_model_id(model_name)
+    top_k_value = (
+        story_top_k
+        if story_top_k > 0 and normalized_model_name not in STORY_TOP_K_DISABLED_MODEL_IDS
+        else None
+    )
+    top_p_value = (
+        story_top_r
+        if story_top_r < 0.999 and normalized_model_name not in STORY_TOP_P_DISABLED_MODEL_IDS
+        else None
+    )
     return (top_k_value, top_p_value)
 
 
@@ -13468,6 +13560,7 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         spend_user_tokens_if_sufficient=_spend_user_tokens_if_sufficient,
         add_user_tokens=_add_user_tokens,
         stream_story_provider_chunks=story_generation_provider._iter_story_provider_stream_chunks,
+        normalize_generated_story_output=_normalize_generated_story_output,
         upsert_story_plot_memory_card=_upsert_story_plot_memory_card,
         list_story_prompt_memory_cards=_list_story_prompt_memory_cards,
         list_story_memory_blocks=_list_story_memory_blocks,

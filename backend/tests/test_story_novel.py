@@ -59,11 +59,11 @@ class AdminGatingTests(unittest.TestCase):
 
 
 class ParseStoryNovelBeatsTests(unittest.TestCase):
-    def test_splits_narration_dialogue_and_thought_lines(self) -> None:
+    def test_splits_canonical_narration_dialogue_and_thought_paragraphs(self) -> None:
         raw = (
-            "Таверна встречает тебя запахом эля и дымом очага.\n"
-            "Мия [радость]: Наконец-то! Я думала, ты не придёшь.\n"
-            "Мия [страх]: (Только бы он не заметил, как я нервничаю.)\n"
+            "Таверна встречает тебя запахом эля и дымом очага.\n\n"
+            "[[NPC:Мия]] Наконец-то! Я думала, ты не придёшь.\n\n"
+            "[[NPC_THOUGHT:Мия]] Только бы он не заметил, как я нервничаю.\n\n"
             "Дверь скрипит, впуская сквозняк с улицы."
         )
         beats = parse_story_novel_beats(raw)
@@ -75,19 +75,29 @@ class ParseStoryNovelBeatsTests(unittest.TestCase):
 
         dialogue_beat = next(beat for beat in beats if beat.kind == STORY_NOVEL_BEAT_DIALOGUE)
         self.assertEqual(dialogue_beat.speaker_name, "Мия")
-        self.assertEqual(dialogue_beat.emotion, "happy")
+        self.assertEqual(dialogue_beat.emotion, "neutral")
         self.assertIn("Наконец-то", dialogue_beat.text)
 
         thought_beat = next(beat for beat in beats if beat.kind == STORY_NOVEL_BEAT_THOUGHT)
         self.assertEqual(thought_beat.speaker_name, "Мия")
-        self.assertEqual(thought_beat.emotion, "scared")
-        self.assertNotIn("(", thought_beat.text)
-        self.assertNotIn(")", thought_beat.text)
+        self.assertEqual(thought_beat.emotion, "neutral")
+        self.assertIn("Только бы", thought_beat.text)
 
-    def test_defaults_emotion_to_neutral_when_missing(self) -> None:
-        beats = parse_story_novel_beats("Мия: Здравствуй, путник.")
+    def test_parses_canonical_gg_speech_with_neutral_emotion(self) -> None:
+        beats = parse_story_novel_beats("[[GG:Алисия]] Здравствуй, путник.")
         dialogue_beat = next(beat for beat in beats if beat.kind == STORY_NOVEL_BEAT_DIALOGUE)
+        self.assertEqual(dialogue_beat.speaker_name, "Алисия")
         self.assertEqual(dialogue_beat.emotion, "neutral")
+
+    def test_keeps_legacy_speaker_lines_readable_without_requesting_them(self) -> None:
+        beats = parse_story_novel_beats(
+            "Мия [радость]: Наконец-то!\n"
+            "Мия [страх]: (Только бы он не заметил.)"
+        )
+        self.assertEqual(beats[0].kind, STORY_NOVEL_BEAT_DIALOGUE)
+        self.assertEqual(beats[0].emotion, "happy")
+        self.assertEqual(beats[1].kind, STORY_NOVEL_BEAT_THOUGHT)
+        self.assertEqual(beats[1].emotion, "scared")
 
     def test_falls_back_to_single_narration_beat_for_unparsable_text(self) -> None:
         beats = parse_story_novel_beats("   ")
@@ -137,11 +147,18 @@ class ResolveStoryNovelSpriteTests(unittest.TestCase):
 
 
 class BuildStoryNovelInstructionCardTests(unittest.TestCase):
-    def test_card_lists_all_eight_emotions(self) -> None:
+    def test_card_reinforces_the_shared_canonical_speaker_contract(self) -> None:
         card = build_story_novel_instruction_card()
         self.assertEqual(card["source_kind"], "visual_novel")
-        for label in ("Нейтральная", "Радость", "Грусть", "Злость", "Удивление", "Смущение", "Страх", "Ухмылка"):
-            self.assertIn(label, card["content"])
+        content = card["content"]
+        for marker in ("[[NPC:Имя]]", "[[GG:Имя]]", "[[NPC_THOUGHT:Имя]]", "[[GG_THOUGHT:Имя]]"):
+            self.assertIn(marker, content)
+        self.assertIn("точный title", content)
+        self.assertIn("устойчивое естественное имя", content)
+        self.assertIn("не длиннее четырёх слов", content)
+        self.assertIn("НПС, NPC, Голос, Незнакомец и Персонаж", content)
+        self.assertIn("не оставляй речь обычным текстом", content)
+        self.assertNotIn("Имя [эмоция]:", content)
 
 
 if __name__ == "__main__":

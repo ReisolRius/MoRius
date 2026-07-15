@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.schemas import StoryGameCreateRequest, StoryGameSettingsUpdateRequest  # noqa: E402
 from app.models import StoryMessage  # noqa: E402
 from app import main as monolith_main  # noqa: E402
+from app.services import story_generation_provider  # noqa: E402
 from app.services.story_games import (  # noqa: E402
     STORY_DEFAULT_LLM_MODEL,
     STORY_DEFAULT_REPETITION_PENALTY,
@@ -237,21 +238,83 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
                     round(profile["repetition_penalty"], 2),
                 )
 
+    def test_requested_narrator_sampling_profiles_match_approved_defaults(self) -> None:
+        expected_profiles = {
+            "z-ai/glm-4.7-flash": {"temperature": 0.90, "top_r": 0.95, "top_k": 40, "repetition_penalty": 1.10},
+            "deepseek/deepseek-v3.2": {"temperature": 0.75, "top_r": 0.90, "top_k": 40, "repetition_penalty": 1.10},
+            "deepseek/deepseek-chat-v3-0324": {"temperature": 0.75, "top_r": 0.90, "top_k": 40, "repetition_penalty": 1.10},
+            "deepseek/deepseek-v4-pro": {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
+            "deepseek/deepseek-r1-0528": {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
+            "z-ai/glm-4.7": {"temperature": 0.85, "top_r": 0.95, "top_k": 50, "repetition_penalty": 1.08},
+            "z-ai/glm-5": {"temperature": 0.90, "top_r": 0.95, "top_k": 60, "repetition_penalty": 1.05},
+            "aion-labs/aion-2.0": {"temperature": 0.80, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.08},
+            "google/gemini-3.1-flash-lite": {"temperature": 1.00, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.00},
+            "z-ai/glm-5.1": {"temperature": 0.95, "top_r": 0.97, "top_k": 80, "repetition_penalty": 1.03},
+            "z-ai/glm-5.2": {"temperature": 0.90, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.05},
+            "google/gemini-2.5-pro": {"temperature": 1.05, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.00},
+            "google/gemini-3.1-pro-preview": {"temperature": 1.10, "top_r": 0.97, "top_k": 128, "repetition_penalty": 1.00},
+            "anthropic/claude-sonnet-4.6": {"temperature": 0.90, "top_r": 1.00, "top_k": 0, "repetition_penalty": 1.00},
+        }
+
+        for model_name, expected_profile in expected_profiles.items():
+            with self.subTest(model_name=model_name):
+                self.assertEqual(STORY_MODEL_SAMPLING_PROFILES[model_name], expected_profile)
+
     def test_deepseek_v4_pro_gets_tuned_sampling_defaults(self) -> None:
         # The problem model: keep top_k unconstrained and a calm repetition penalty; the
         # formatting discipline is enforced by the prompt + sanitizer, not by clamping prose.
         model_name = "deepseek/deepseek-v4-pro"
-        self.assertEqual(normalize_story_temperature(None, model_name=model_name), 0.85)
-        self.assertEqual(normalize_story_top_r(None, model_name=model_name), 0.92)
+        self.assertEqual(normalize_story_temperature(None, model_name=model_name), 0.70)
+        self.assertEqual(normalize_story_top_r(None, model_name=model_name), 0.90)
         self.assertEqual(normalize_story_top_k(None, model_name=model_name), 0)
         self.assertEqual(normalize_story_repetition_penalty(None, model_name=model_name), 1.05)
 
     def test_deepseek_r1_gets_v4_pro_sampling_defaults(self) -> None:
         model_name = "deepseek/deepseek-r1-0528"
-        self.assertEqual(normalize_story_temperature(None, model_name=model_name), 0.85)
-        self.assertEqual(normalize_story_top_r(None, model_name=model_name), 0.92)
+        self.assertEqual(normalize_story_temperature(None, model_name=model_name), 0.70)
+        self.assertEqual(normalize_story_top_r(None, model_name=model_name), 0.90)
         self.assertEqual(normalize_story_top_k(None, model_name=model_name), 0)
         self.assertEqual(normalize_story_repetition_penalty(None, model_name=model_name), 1.05)
+
+    def test_provider_applies_only_supported_sampling_parameters(self) -> None:
+        expected_policy = {
+            "google/gemini-3.1-flash-lite": (1.00, (64, 0.95), None),
+            "google/gemini-2.5-pro": (1.05, (64, 0.95), None),
+            "google/gemini-3.1-pro-preview": (1.10, (128, 0.97), None),
+            "anthropic/claude-sonnet-4.6": (0.90, (None, None), None),
+        }
+
+        for model_name, (temperature, sampling, repetition_penalty) in expected_policy.items():
+            profile = STORY_MODEL_SAMPLING_PROFILES[model_name]
+            with self.subTest(model_name=model_name):
+                self.assertEqual(
+                    monolith_main._select_story_temperature_value(
+                        model_name=model_name,
+                        story_temperature=profile["temperature"],
+                    ),
+                    temperature,
+                )
+                self.assertEqual(
+                    monolith_main._select_story_sampling_values(
+                        model_name=model_name,
+                        story_top_k=int(profile["top_k"]),
+                        story_top_r=profile["top_r"],
+                    ),
+                    sampling,
+                )
+                self.assertEqual(
+                    story_generation_provider._select_story_repetition_penalty_value(
+                        model_name=model_name,
+                        story_repetition_penalty=1.5,
+                    ),
+                    repetition_penalty,
+                )
+                self.assertIsNone(
+                    story_generation_provider._select_story_frequency_penalty_value(model_name=model_name)
+                )
+                self.assertIsNone(
+                    story_generation_provider._select_story_presence_penalty_value(model_name=model_name)
+                )
 
     def test_unknown_model_falls_back_to_global_sampling_defaults(self) -> None:
         # An unprofiled / unknown model id keeps the global defaults.
