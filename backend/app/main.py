@@ -5011,6 +5011,21 @@ STORY_FORBIDDEN_GENERIC_SPEAKER_LABELS = {
     "незнакомец",
     "персонаж",
 }
+STORY_LOCAL_SPEAKER_ROLE_PATTERN = re.compile(
+    r"\b(?:дворянин|дворянка|аристократ|аристократка|стражник|стражница|охранник|охранница|"
+    r"на[её]мник|на[её]мница|солдат|воин|воительница|офицер|капитан|командир|торговец|торговка|"
+    r"купец|купчиха|трактирщик|трактирщица|хозяин|хозяйка|слуга|служанка|лакей|дворецкий|"
+    r"мужчина|женщина|девушка|юноша|парень|старик|старуха|мальчик|девочка|ведьма|колдун|"
+    r"волшебник|волшебница|маг|жрец|жрица|священник|священница|профессор|профессорша|"
+    r"учитель|учительница|врач|лекарь|целитель|целительница|детектив|инспектор|агент|агентка)\b",
+    re.IGNORECASE,
+)
+STORY_LOCAL_SPEAKER_DESCRIPTOR_PATTERN = re.compile(
+    r"\b(?:юный|юная|молодой|молодая|пожилой|пожилая|старый|старая|седой|седая|высокий|"
+    r"высокая|низкий|низкая|раненый|раненая|богатый|богатая|знатный|знатная)\s*$",
+    re.IGNORECASE,
+)
+STORY_LOCAL_FALLBACK_SPEAKER_LABEL = "Человек напротив"
 
 
 def _is_story_sentence_likely_unmarked_dialogue(sentence: str) -> bool:
@@ -5088,6 +5103,144 @@ def _story_paragraph_has_unformatted_dialogue(paragraph: str) -> bool:
     if not sentences:
         return False
     return any(_is_story_sentence_likely_unmarked_dialogue(sentence) for sentence in sentences)
+
+
+def _extract_story_local_speaker_role_label(text_value: str) -> str:
+    plain_text = _normalize_story_markup_to_plain_text(text_value)
+    if not plain_text:
+        return ""
+
+    role_matches = list(STORY_LOCAL_SPEAKER_ROLE_PATTERN.finditer(plain_text))
+    if not role_matches:
+        return ""
+
+    role_match = role_matches[-1]
+    role_value = role_match.group(0).casefold()
+    prefix = plain_text[max(0, role_match.start() - 32) : role_match.start()]
+    descriptor_match = STORY_LOCAL_SPEAKER_DESCRIPTOR_PATTERN.search(prefix)
+    if descriptor_match is not None:
+        role_value = f"{descriptor_match.group(0).strip().casefold()} {role_value}"
+    return role_value[:1].upper() + role_value[1:]
+
+
+def _split_story_local_markup_repair_units(text_value: str) -> list[str]:
+    normalized_text = _normalize_story_message_content(text_value)
+    if not normalized_text:
+        return []
+
+    units: list[str] = []
+    for paragraph in re.split(r"\n{2,}", normalized_text):
+        paragraph_value = paragraph.strip()
+        if not paragraph_value:
+            continue
+        if _parse_story_markup_paragraph(paragraph_value) is not None:
+            units.append(paragraph_value)
+            continue
+
+        physical_lines = [line.strip() for line in paragraph_value.splitlines() if line.strip()]
+        if len(physical_lines) > 1:
+            units.extend(physical_lines)
+        else:
+            units.append(paragraph_value)
+    return units
+
+
+def _resolve_story_local_fallback_speaker(
+    *,
+    unit_index: int,
+    units: list[str],
+    world_cards: list[dict[str, Any]],
+    previous_speaker: str,
+) -> str:
+    neighboring_texts: list[str] = []
+    for distance in (1, 2):
+        previous_index = unit_index - distance
+        if previous_index >= 0:
+            previous_parsed = _parse_story_markup_paragraph(units[previous_index])
+            if previous_parsed is None or previous_parsed.get("kind") == "narration":
+                neighboring_texts.append(units[previous_index])
+        next_index = unit_index + distance
+        if next_index < len(units):
+            next_parsed = _parse_story_markup_paragraph(units[next_index])
+            if next_parsed is None or next_parsed.get("kind") == "narration":
+                neighboring_texts.append(units[next_index])
+
+    for neighboring_text in neighboring_texts:
+        card_title = _resolve_story_contextual_speaker_name_from_text([neighboring_text], world_cards)
+        if card_title:
+            return card_title
+
+        role_label = _extract_story_local_speaker_role_label(neighboring_text)
+        if role_label:
+            return role_label
+
+        explicit_names = _extract_story_explicit_person_names_from_text(neighboring_text)
+        if explicit_names:
+            return explicit_names[-1]
+
+    if previous_speaker and previous_speaker.casefold() not in STORY_FORBIDDEN_GENERIC_SPEAKER_LABELS:
+        return previous_speaker
+    return STORY_LOCAL_FALLBACK_SPEAKER_LABEL
+
+
+def _repair_story_markup_locally(
+    text_value: str,
+    world_cards: list[dict[str, Any]],
+) -> str:
+    """Lossless last-resort repair for obvious speech the provider left unmarked.
+
+    The model-assisted repair remains the preferred path because it can invent a fitting
+    personal name. This guard exists for provider errors and invalid repair replies: it derives
+    an exact card title, nearby proper name, or concrete scene role and guarantees that an
+    obvious spoken line cannot be persisted as narration.
+    """
+    units = _split_story_local_markup_repair_units(text_value)
+    if not units:
+        return _normalize_story_message_content(text_value)
+
+    repaired_units: list[str] = []
+    previous_speaker = ""
+    generic_replacements: dict[str, str] = {}
+    for unit_index, unit in enumerate(units):
+        parsed = _parse_story_markup_paragraph(unit)
+        if parsed is not None and parsed.get("kind") in {"speech", "thought"}:
+            speaker_name = str(parsed.get("speaker", "") or "").strip()
+            if speaker_name.casefold() in STORY_FORBIDDEN_GENERIC_SPEAKER_LABELS:
+                replacement = generic_replacements.get(speaker_name.casefold())
+                if not replacement:
+                    replacement = _resolve_story_local_fallback_speaker(
+                        unit_index=unit_index,
+                        units=units,
+                        world_cards=world_cards,
+                        previous_speaker=previous_speaker,
+                    )
+                    generic_replacements[speaker_name.casefold()] = replacement
+                marker_match = STORY_MARKUP_PARAGRAPH_PATTERN.match(unit)
+                marker_token = "NPC_THOUGHT" if parsed.get("kind") == "thought" else "NPC"
+                paragraph_text = str(parsed.get("text", "") or "").strip()
+                if marker_match is not None and paragraph_text:
+                    repaired_units.append(f"[[{marker_token}:{replacement}]] {paragraph_text}")
+                    previous_speaker = replacement
+                    continue
+            elif speaker_name:
+                previous_speaker = speaker_name
+            repaired_units.append(unit)
+            continue
+
+        if parsed is None and _story_paragraph_has_unformatted_dialogue(unit):
+            speaker_name = _resolve_story_local_fallback_speaker(
+                unit_index=unit_index,
+                units=units,
+                world_cards=world_cards,
+                previous_speaker=previous_speaker,
+            )
+            repaired_units.append(f"[[NPC:{speaker_name}]] {unit}")
+            previous_speaker = speaker_name
+            continue
+
+        repaired_units.append(unit)
+
+    return "\n\n".join(repaired_units).strip()
 
 
 def _is_story_strict_markup_output(text_value: str) -> bool:
@@ -5495,7 +5648,10 @@ def _repair_story_markup_with_polza(
     )
 
     repair_messages = _build_story_markup_repair_messages(text_value, world_cards)
-    estimated_response_tokens = max(min(_estimate_story_tokens(text_value) + 220, 1_400), 320)
+    estimated_response_tokens = max(
+        min(_estimate_story_tokens(text_value) + 320, STORY_RESPONSE_MAX_TOKENS_MAX),
+        320,
+    )
     repaired_text = _request_polza_story_text(
         repair_messages,
         model_name=repair_model_name,
@@ -5727,6 +5883,10 @@ def _normalize_generated_story_output(
     )
     fallback_output = _normalize_story_output_markup_paragraphs(fallback_output)
     fallback_output = _align_story_markup_speaker_names_to_world_cards(fallback_output, world_cards)
+    if not _is_story_strict_markup_output(fallback_output):
+        fallback_output = _repair_story_markup_locally(fallback_output, world_cards)
+        fallback_output = _normalize_story_output_markup_paragraphs(fallback_output)
+        fallback_output = _align_story_markup_speaker_names_to_world_cards(fallback_output, world_cards)
     fallback_output = _filter_story_gg_roleplay_paragraphs(fallback_output, model_name=model_name)
     return _filter_story_disabled_thought_paragraphs(
         fallback_output,

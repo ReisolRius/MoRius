@@ -63,6 +63,13 @@ SCREENSHOT_LIKE_UNMARKED_DIALOGUE = (
     "Его рука в светлой перчатке нервно легла на эфес кинжала."
 )
 
+SCREENSHOT_EXACT_UNMARKED_DIALOGUE = (
+    "Юный дворянин в расшитом золотом камзоле замер на месте, словно налетев на каменную стену. "
+    "Его лицо пошло красными пятнами, а губы задрожали от возмущения.\n\n"
+    "Ты... смерд! Да как ты смеешь открывать свою пасть?! Стража, высечь его немедленно!\n\n"
+    "Двое закованных в броню наёмников за его спиной шагнули вперёд."
+)
+
 
 def test_strict_guard_rejects_screenshot_like_bare_utterance_and_dash_speech() -> None:
     assert main._story_paragraph_has_unformatted_dialogue(SCREENSHOT_LIKE_UNMARKED_DIALOGUE)
@@ -131,6 +138,50 @@ def test_generated_output_normalizer_reaches_markup_repair_for_bare_utterance() 
 
     assert result == repaired
     repair_mock.assert_called_once()
+
+
+def test_local_last_resort_marks_exact_screenshot_replica_with_nearby_role() -> None:
+    repaired = main._repair_story_markup_locally(
+        SCREENSHOT_EXACT_UNMARKED_DIALOGUE,
+        [],
+    )
+
+    assert "[[NPC:Юный дворянин]] Ты... смерд!" in repaired
+    assert main._is_story_strict_markup_output(repaired)
+
+
+def test_generated_output_normalizer_uses_local_guard_when_model_repair_is_still_invalid() -> None:
+    with (
+        patch.object(main, "settings", SimpleNamespace(polza_api_key="test-key")),
+        patch.object(
+            main,
+            "_repair_story_markup_with_polza",
+            return_value=SCREENSHOT_EXACT_UNMARKED_DIALOGUE,
+        ) as repair_mock,
+    ):
+        result = main._normalize_generated_story_output(
+            text_value=SCREENSHOT_EXACT_UNMARKED_DIALOGUE,
+            world_cards=[],
+            model_name="google/gemini-3.1-pro-preview",
+        )
+
+    assert "[[NPC:Юный дворянин]] Ты... смерд!" in result
+    assert main._is_story_strict_markup_output(result)
+    repair_mock.assert_called_once()
+
+
+def test_local_last_resort_replaces_forbidden_generic_speaker_consistently() -> None:
+    broken = (
+        "Юный дворянин побагровел и шагнул ближе.\n\n"
+        "[[NPC:Незнакомец]] Ты ответишь за дерзость!\n\n"
+        "[[NPC:Незнакомец]] Стража, взять его!"
+    )
+
+    repaired = main._repair_story_markup_locally(broken, [])
+
+    assert repaired.count("[[NPC:Юный дворянин]]") == 2
+    assert "[[NPC:Незнакомец]]" not in repaired
+    assert main._is_story_strict_markup_output(repaired)
 
 
 def test_streamed_guard_is_idempotent_for_canonical_markers() -> None:
