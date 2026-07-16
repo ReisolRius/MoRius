@@ -228,6 +228,8 @@ def _load_media_storage_source_value(db: Any, payload: dict[str, Any]) -> Any | 
         DashboardNewsCard,
         StoryCharacter,
         StoryGame,
+        StoryPlaceTemplate,
+        StorySceneBackground,
         StoryTurnImage,
         StoryWorldCard,
         StoryWorldCardTemplate,
@@ -241,6 +243,14 @@ def _load_media_storage_source_value(db: Any, payload: dict[str, Any]) -> Any | 
         "story-game-cover": (StoryGame, lambda record, _: getattr(record, "cover_image_url", None)),
         "story-character-avatar": (StoryCharacter, lambda record, _: getattr(record, "avatar_url", None)),
         "story-character-avatar-original": (StoryCharacter, lambda record, _: getattr(record, "avatar_original_url", None)),
+        "story-scene-background": (
+            StorySceneBackground,
+            lambda record, _: getattr(record, "image_url", None) or getattr(record, "image_data_url", None),
+        ),
+        "story-place-template": (
+            StoryPlaceTemplate,
+            lambda record, _: getattr(record, "image_url", None) or getattr(record, "image_data_url", None),
+        ),
         "story-character-emotion-asset": (
             StoryCharacter,
             lambda record, source_payload: deserialize_story_character_emotion_assets(

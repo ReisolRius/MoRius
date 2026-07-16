@@ -84,11 +84,36 @@ from app.services.story_novel import (
     is_story_visual_novel_enabled,
     persist_story_novel_beats_for_message,
     serialize_story_novel_beats_for_stream,
+    strip_story_novel_scene_cast_metadata,
 )
 from app.services.story_novel_backgrounds import (
     apply_story_scene_background_memory_for_turn,
     story_scene_background_to_out,
 )
+
+
+def _resolve_story_turn_scene_background(
+    deps: "StoryRuntimeDeps",
+    db: Session,
+    *,
+    game: StoryGame,
+    location_label: str | None,
+    scene_text: str | None,
+    latest_user_text: str | None,
+):
+    """Prefer the VN-only GLM place analysis; fall back to literal trigger memory when unwired."""
+    resolver = getattr(deps, "resolve_story_novel_scene_background", None)
+    if resolver is not None:
+        return resolver(
+            db,
+            game=game,
+            location_label=location_label,
+            scene_text=scene_text,
+            latest_user_text=latest_user_text,
+        )
+    return apply_story_scene_background_memory_for_turn(
+        db, game=game, location_label=location_label, scene_text=scene_text
+    )
 
 logger = logging.getLogger(__name__)
 STORY_MEMORY_SOURCE_EN_MODEL_IDS: set[str] = set()
@@ -207,6 +232,9 @@ class StoryRuntimeDeps:
     stream_persist_min_chars: int
     stream_persist_max_interval_seconds: float
     normalize_generated_story_output: Callable[..., str] | None = None
+    # Visual-novel-only: smarter per-turn scene-background resolution via the under-the-hood
+    # GLM model. Falls back to literal trigger memory when unset.
+    resolve_story_novel_scene_background: Callable[..., Any] | None = None
 
 
 def _sse_event(event: str, payload: dict[str, Any]) -> str:
@@ -1848,7 +1876,8 @@ def _stream_story_response(
                         else:
                             persisted_length = len(produced)
                             last_persisted_at = current_time
-                    yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": chunk})
+                    if not visual_novel_enabled:
+                        yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": chunk})
                 break
             except (GeneratorExit, StoryGenerationCancelled):
                 raise
@@ -1931,6 +1960,17 @@ def _stream_story_response(
         _restore_discarded_assistant_steps("provider_failed")
         yield _sse_event("error", {"detail": error_detail})
         return
+
+    if visual_novel_enabled and produced and not aborted:
+        public_stream_text = strip_story_novel_scene_cast_metadata(produced)
+        if public_stream_text:
+            # VN cast metadata can be split across arbitrary provider chunks.  Buffer the
+            # admin-only VN response and emit one clean public chunk once the provider finishes
+            # instead of ever leaking a partial ``{{VN_CAST...}}`` marker to the client.
+            yield _sse_event(
+                "chunk",
+                {"assistant_message_id": assistant_message.id, "delta": public_stream_text},
+            )
 
     if not aborted and _stop_requested("provider_complete"):
         aborted = True
@@ -2523,11 +2563,14 @@ def _stream_story_response(
                 "id": assistant_message.id,
                 "game_id": assistant_message.game_id,
                 "role": assistant_message.role,
-                "content": assistant_message.content,
+                "content": strip_story_novel_scene_cast_metadata(assistant_message.content),
                 "created_at": assistant_message.created_at.isoformat(),
                 "updated_at": assistant_message.updated_at.isoformat(),
                 "variant_history": [
-                    {"content": variant["content"], "created_at": variant.get("created_at") or None}
+                    {
+                        "content": strip_story_novel_scene_cast_metadata(variant["content"]),
+                        "created_at": variant.get("created_at") or None,
+                    }
                     for variant in parse_story_message_variant_history(
                         getattr(assistant_message, "variant_history_json", None)
                     )
@@ -2571,16 +2614,22 @@ def _stream_story_response(
                 game_payload["current_location_label"] = resolved_current_location_label
             if visual_novel_enabled:
                 try:
-                    current_background = apply_story_scene_background_memory_for_turn(
+                    current_background = _resolve_story_turn_scene_background(
+                        deps,
                         db,
                         game=game,
                         location_label=resolved_current_location_label,
+                        scene_text=str(getattr(assistant_message, "content", "") or ""),
+                        latest_user_text=prompt,
                     )
                     commit_with_retry(db)
-                    if current_background is not None:
-                        done_payload["current_scene_background"] = _safe_dump_stream_item(
-                            story_scene_background_to_out(current_background)
-                        )
+                    # Always report the resolved background (or None) so the client can drop to
+                    # the neutral gradient when the scene has moved to an unremembered location.
+                    done_payload["current_scene_background"] = (
+                        _safe_dump_stream_item(story_scene_background_to_out(current_background))
+                        if current_background is not None
+                        else None
+                    )
                 except Exception:
                     logger.exception(
                         "Story scene background memory match failed: game_id=%s assistant_message_id=%s",
@@ -2608,11 +2657,14 @@ def _stream_story_response(
             "id": assistant_message.id,
             "game_id": assistant_message.game_id,
             "role": assistant_message.role,
-            "content": assistant_message.content,
+            "content": strip_story_novel_scene_cast_metadata(assistant_message.content),
             "created_at": assistant_message.created_at.isoformat(),
             "updated_at": assistant_message.updated_at.isoformat(),
             "variant_history": [
-                {"content": variant["content"], "created_at": variant.get("created_at") or None}
+                {
+                    "content": strip_story_novel_scene_cast_metadata(variant["content"]),
+                    "created_at": variant.get("created_at") or None,
+                }
                 for variant in parse_story_message_variant_history(
                     getattr(assistant_message, "variant_history_json", None)
                 )
@@ -2650,16 +2702,22 @@ def _stream_story_response(
             game_payload["current_location_label"] = resolved_current_location_label
         if visual_novel_enabled:
             try:
-                current_background = apply_story_scene_background_memory_for_turn(
+                current_background = _resolve_story_turn_scene_background(
+                    deps,
                     db,
                     game=game,
                     location_label=resolved_current_location_label,
+                    scene_text=str(getattr(assistant_message, "content", "") or ""),
+                    latest_user_text=prompt,
                 )
                 commit_with_retry(db)
-                if current_background is not None:
-                    done_payload["current_scene_background"] = _safe_dump_stream_item(
-                        story_scene_background_to_out(current_background)
-                    )
+                # Always report the resolved background (or None) so the client can drop to the
+                # neutral gradient when the scene has moved to an unremembered location.
+                done_payload["current_scene_background"] = (
+                    _safe_dump_stream_item(story_scene_background_to_out(current_background))
+                    if current_background is not None
+                    else None
+                )
             except Exception:
                 logger.exception(
                     "Story scene background memory match failed: game_id=%s assistant_message_id=%s",

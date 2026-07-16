@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.database import Base  # noqa: E402
-from app.models import StoryGame, StoryMessage, StoryNovelBeat, User  # noqa: E402
+from app.models import StoryGame, StoryMessage, StoryNovelBeat, StorySceneBackground, User  # noqa: E402
 from app.routers.story_games import clone_story_game  # noqa: E402
 from app.schemas import StoryGameCloneRequest  # noqa: E402
 
@@ -54,6 +54,14 @@ class StoryGameCloneNovelBeatTests(unittest.TestCase):
             )
             db.add_all([user_message, assistant_message])
             db.flush()
+            source_place = StorySceneBackground(
+                game_id=source_game.id,
+                title="Зал",
+                triggers='["зал"]',
+                image_url="https://example.com/hall.webp",
+                is_current=True,
+            )
+            db.add(source_place)
             db.add_all(
                 [
                     StoryNovelBeat(
@@ -64,6 +72,7 @@ class StoryGameCloneNovelBeatTests(unittest.TestCase):
                         speaker_name=None,
                         speaker_character_id=None,
                         emotion=None,
+                        scene_characters_json='[{"name":"Мия","emotion":"scared","character_id":321}]',
                         text="Тишина.",
                     ),
                     StoryNovelBeat(
@@ -86,7 +95,7 @@ class StoryGameCloneNovelBeatTests(unittest.TestCase):
                     payload=StoryGameCloneRequest(
                         copy_instructions=False,
                         copy_plot=False,
-                        copy_world=False,
+                        copy_world=True,
                         copy_main_hero=False,
                         copy_history=True,
                     ),
@@ -108,6 +117,11 @@ class StoryGameCloneNovelBeatTests(unittest.TestCase):
                     .order_by(StoryNovelBeat.order_index.asc())
                 ).all()
             )
+            cloned_places = list(
+                db.scalars(
+                    select(StorySceneBackground).where(StorySceneBackground.game_id == cloned_summary.id)
+                ).all()
+            )
 
             self.assertEqual([message.role for message in cloned_messages], ["user", "assistant"])
             self.assertEqual(len(cloned_beats), 2)
@@ -118,6 +132,14 @@ class StoryGameCloneNovelBeatTests(unittest.TestCase):
             self.assertEqual(cloned_beats[1].speaker_name, "Мия")
             self.assertEqual(cloned_beats[1].speaker_character_id, 321)
             self.assertEqual(cloned_beats[1].emotion, "happy")
+            self.assertEqual(
+                cloned_beats[0].scene_characters_json,
+                '[{"name":"Мия","emotion":"scared","character_id":321}]',
+            )
+            self.assertEqual(len(cloned_places), 1)
+            self.assertEqual(cloned_places[0].title, "Зал")
+            self.assertEqual(cloned_places[0].triggers, '["зал"]')
+            self.assertTrue(cloned_places[0].is_current)
 
 
 if __name__ == "__main__":

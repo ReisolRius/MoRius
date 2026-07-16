@@ -3,21 +3,31 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.database import Base  # noqa: E402
-from app.models import StorySceneBackground  # noqa: E402
+from app.models import StoryGame, StoryPlaceTemplate, StorySceneBackground, User  # noqa: E402
 from app.services.story_novel_backgrounds import (  # noqa: E402
     _normalize_story_scene_background_triggers,
+    _parse_story_novel_scene_background_decision,
+    analyze_and_apply_story_novel_scene_background,
     apply_story_scene_background_memory_for_turn,
+    create_story_place_template_impl,
+    create_story_scene_background_impl,
     find_matching_story_scene_background,
+    generate_story_novel_background_impl,
     get_current_story_scene_background,
+    import_story_place_template_impl,
     story_scene_background_to_out,
+    update_story_scene_background_impl,
 )
+from app.services.story_games import delete_story_game_with_relations  # noqa: E402
 
 
 class NormalizeStorySceneBackgroundTriggersTests(unittest.TestCase):
@@ -99,6 +109,69 @@ class StorySceneBackgroundDbTests(unittest.TestCase):
             find_matching_story_scene_background(db, game_id=self.game_id, location_label=None)
         )
 
+    def test_title_without_trigger_does_not_auto_activate(self) -> None:
+        db = self.Session()
+        self._add_background(db, title="Дом Айри", triggers=[])
+        db.commit()
+
+        self.assertIsNone(
+            find_matching_story_scene_background(
+                db,
+                game_id=self.game_id,
+                location_label="Дом Айри",
+                scene_text="Они вернулись в Дом Айри.",
+            )
+        )
+
+    def test_scene_text_trigger_switches_to_another_place(self) -> None:
+        db = self.Session()
+        tavern = self._add_background(db, title="Таверна", triggers=["таверна"], is_current=True)
+        forest = self._add_background(db, title="Лес", triggers=["тёмный лес"], is_current=False)
+        db.commit()
+
+        game = type("Game", (), {"id": self.game_id})()
+        current = apply_story_scene_background_memory_for_turn(
+            db,
+            game=game,
+            location_label="Таверна",
+            scene_text="К вечеру путники вошли в тёмный лес.",
+        )
+        db.commit()
+
+        self.assertEqual(current.id, forest.id)
+        db.refresh(tavern)
+        self.assertFalse(tavern.is_current)
+
+    def test_scene_text_trigger_uses_word_boundaries(self) -> None:
+        db = self.Session()
+        tavern = self._add_background(db, title="Таверна", triggers=[], is_current=True)
+        self._add_background(db, title="Лес", triggers=["лес"], is_current=False)
+        db.commit()
+
+        game = type("Game", (), {"id": self.game_id})()
+        current = apply_story_scene_background_memory_for_turn(
+            db,
+            game=game,
+            location_label="",
+            scene_text="У телеги треснуло колесо.",
+        )
+
+        self.assertEqual(current.id, tavern.id)
+
+    def test_location_label_partial_match_uses_word_boundaries(self) -> None:
+        db = self.Session()
+        self._add_background(db, title="Лес", triggers=["лес"])
+        db.commit()
+
+        self.assertIsNone(
+            find_matching_story_scene_background(
+                db,
+                game_id=self.game_id,
+                location_label="Колесо",
+                scene_text="",
+            )
+        )
+
     def test_apply_memory_switches_current_background_for_free(self) -> None:
         db = self.Session()
         tavern = self._add_background(db, title="Таверна", triggers=[], is_current=True)
@@ -117,7 +190,7 @@ class StorySceneBackgroundDbTests(unittest.TestCase):
         self.assertFalse(tavern.is_current)
         self.assertTrue(market.is_current)
 
-    def test_apply_memory_keeps_current_background_when_no_match(self) -> None:
+    def test_apply_memory_clears_generated_background_when_location_changes(self) -> None:
         db = self.Session()
         tavern = self._add_background(db, title="Таверна", triggers=[], is_current=True)
         db.commit()
@@ -128,8 +201,149 @@ class StorySceneBackgroundDbTests(unittest.TestCase):
         )
         db.commit()
 
+        self.assertIsNone(current)
+        db.refresh(tavern)
+        self.assertFalse(tavern.is_current)
+
+    def test_apply_memory_clears_trigger_place_when_scene_leaves(self) -> None:
+        db = self.Session()
+        street = self._add_background(db, title="Улица", triggers=["улица"], is_current=True)
+        db.commit()
+
+        game = type("Game", (), {"id": self.game_id})()
+        current = apply_story_scene_background_memory_for_turn(
+            db,
+            game=game,
+            location_label="Библиотека",
+            scene_text="Она вошла в тихую библиотеку.",
+        )
+        db.commit()
+
+        # No saved place matches the new location, and the current trigger-based place no longer
+        # corresponds to it, so the scene drops to the neutral gradient instead of stranding the
+        # street background.
+        self.assertIsNone(current)
+        db.refresh(street)
+        self.assertFalse(street.is_current)
+
+    def test_apply_memory_keeps_trigger_place_while_location_still_matches(self) -> None:
+        db = self.Session()
+        street = self._add_background(db, title="Улица", triggers=["улица"], is_current=True)
+        db.commit()
+
+        game = type("Game", (), {"id": self.game_id})()
+        current = apply_story_scene_background_memory_for_turn(
+            db,
+            game=game,
+            location_label="Улица",
+            scene_text="Они всё ещё стоят на шумной улице.",
+        )
+        db.commit()
+
         self.assertIsNotNone(current)
-        self.assertEqual(current.id, tavern.id)
+        self.assertEqual(current.id, street.id)
+
+    def test_llm_analysis_switches_to_contextual_place(self) -> None:
+        db = self.Session()
+        street = self._add_background(db, title="Улица", triggers=["улица"], is_current=True)
+        airi_home = self._add_background(db, title="Дом Айри", triggers=["дом айри"], is_current=False)
+        db.commit()
+
+        game = type("Game", (), {"id": self.game_id})()
+
+        def fake_request(_messages: list[dict[str, str]]) -> str:
+            # The model picks Airi's home from imprecise contextual wording.
+            return f'{{"place_id": {airi_home.id}}}'
+
+        current = analyze_and_apply_story_novel_scene_background(
+            db,
+            game=game,
+            location_label="дом",
+            scene_text="Они наконец пошли домой к Айри.",
+            latest_user_text="Пойдём к Айри домой",
+            request_text=fake_request,
+        )
+        db.commit()
+
+        self.assertIsNotNone(current)
+        self.assertEqual(current.id, airi_home.id)
+        db.refresh(street)
+        self.assertFalse(street.is_current)
+
+    def test_llm_analysis_clears_to_neutral_when_no_place(self) -> None:
+        db = self.Session()
+        street = self._add_background(db, title="Улица", triggers=["улица"], is_current=True)
+        db.commit()
+
+        game = type("Game", (), {"id": self.game_id})()
+        current = analyze_and_apply_story_novel_scene_background(
+            db,
+            game=game,
+            location_label="Заброшенный маяк",
+            scene_text="Они поднялись на вершину заброшенного маяка.",
+            latest_user_text="Идём к маяку",
+            request_text=lambda _messages: '{"place_id": 0}',
+        )
+        db.commit()
+
+        self.assertIsNone(current)
+        db.refresh(street)
+        self.assertFalse(street.is_current)
+
+    def test_llm_analysis_keeps_current_when_model_returns_current_id(self) -> None:
+        db = self.Session()
+        street = self._add_background(db, title="Улица", triggers=["улица"], is_current=True)
+        db.commit()
+
+        game = type("Game", (), {"id": self.game_id})()
+        current = analyze_and_apply_story_novel_scene_background(
+            db,
+            game=game,
+            location_label="улица",
+            scene_text="Они всё ещё на шумной улице.",
+            latest_user_text="осмотреться",
+            request_text=lambda _messages: f'{{"place_id": {street.id}}}',
+        )
+        db.commit()
+
+        self.assertIsNotNone(current)
+        self.assertEqual(current.id, street.id)
+        db.refresh(street)
+        self.assertTrue(street.is_current)
+
+    def test_llm_analysis_falls_back_to_trigger_memory_on_error(self) -> None:
+        db = self.Session()
+        street = self._add_background(db, title="Улица", triggers=["улица"], is_current=True)
+        market = self._add_background(db, title="Рынок", triggers=["рынок"], is_current=False)
+        db.commit()
+
+        def boom(_messages: list[dict[str, str]]) -> str:
+            raise RuntimeError("service unavailable")
+
+        game = type("Game", (), {"id": self.game_id})()
+        current = analyze_and_apply_story_novel_scene_background(
+            db,
+            game=game,
+            location_label="Рынок",
+            scene_text="Они пришли на шумный рынок.",
+            latest_user_text="идём на рынок",
+            request_text=boom,
+        )
+        db.commit()
+
+        # Literal trigger memory still switches to the market on LLM failure.
+        self.assertIsNotNone(current)
+        self.assertEqual(current.id, market.id)
+
+    def test_parse_decision_rejects_hallucinated_id(self) -> None:
+        self.assertIsNone(_parse_story_novel_scene_background_decision('{"place_id": 999}', {1, 2}))
+        self.assertEqual(_parse_story_novel_scene_background_decision('{"place_id": 2}', {1, 2}), 2)
+        self.assertEqual(_parse_story_novel_scene_background_decision('{"place_id": 0}', {1, 2}), 0)
+        self.assertEqual(
+            _parse_story_novel_scene_background_decision('reasoning... {"place_id": 1} done', {1}),
+            1,
+        )
+        self.assertIsNone(_parse_story_novel_scene_background_decision("no json here", {1}))
 
     def test_story_scene_background_to_out_resolves_triggers_and_current_flag(self) -> None:
         db = self.Session()
@@ -149,6 +363,200 @@ class StorySceneBackgroundDbTests(unittest.TestCase):
         db.commit()
 
         self.assertIsNone(get_current_story_scene_background(db, self.game_id))
+
+
+class StoryPlaceCrudAndGenerationTests(unittest.TestCase):
+    DATA_IMAGE = "data:image/png;base64,aGVsbG8="
+
+    def setUp(self) -> None:
+        self.engine = create_engine("sqlite:///:memory:", future=True)
+        Base.metadata.create_all(self.engine)
+        self.Session = sessionmaker(bind=self.engine, future=True, expire_on_commit=False)
+
+    def tearDown(self) -> None:
+        Base.metadata.drop_all(self.engine)
+        self.engine.dispose()
+
+    @staticmethod
+    def _seed(db):
+        user = User(email="places-admin@example.com", password_hash="test", role="administrator")
+        db.add(user)
+        db.flush()
+        game = StoryGame(user_id=user.id, title="VN places", game_mode="visual_novel")
+        db.add(game)
+        db.commit()
+        return user, game
+
+    def test_profile_place_import_is_independent_and_manual_data_image_is_resolved(self) -> None:
+        with self.Session() as db:
+            user, game = self._seed(db)
+            template_out = create_story_place_template_impl(
+                db=db,
+                user=user,
+                title="Дом Айри",
+                triggers=["дом айри"],
+                image_url=self.DATA_IMAGE,
+            )
+            self.assertTrue(str(template_out.image_url).startswith("/api/media/"))
+
+            place_out = import_story_place_template_impl(
+                db=db,
+                game=game,
+                user=user,
+                library_place_id=template_out.id,
+                make_current=True,
+            )
+            self.assertEqual(place_out.triggers, ["дом айри"])
+            self.assertTrue(place_out.is_current)
+            self.assertTrue(str(place_out.image_url).startswith("/api/media/"))
+
+            update_story_scene_background_impl(
+                db=db,
+                game=game,
+                user=user,
+                background_id=place_out.id,
+                fields={"title", "triggers"},
+                title="Гостиная Айри",
+                triggers=["гостиная"],
+            )
+            template = db.get(StoryPlaceTemplate, template_out.id)
+            self.assertEqual(template.title, "Дом Айри")
+            self.assertEqual(place_out.game_id, game.id)
+
+    def test_manual_game_place_create_does_not_activate_unless_requested(self) -> None:
+        with self.Session() as db:
+            user, game = self._seed(db)
+            place_out = create_story_scene_background_impl(
+                db=db,
+                game=game,
+                user=user,
+                title="Поляна",
+                triggers=["поляна"],
+                image_url=self.DATA_IMAGE,
+            )
+
+            self.assertFalse(place_out.is_current)
+            self.assertIsNone(get_current_story_scene_background(db, game.id))
+
+            delete_story_game_with_relations(db, game_id=game.id)
+            db.commit()
+            self.assertIsNone(db.get(StoryGame, game.id))
+
+    def test_regeneration_replaces_current_place_instead_of_creating_another(self) -> None:
+        with self.Session() as db:
+            user, game = self._seed(db)
+            game.image_style_prompt = "Hand-painted watercolor storybook style"
+            db.flush()
+            place_out = create_story_scene_background_impl(
+                db=db,
+                game=game,
+                user=user,
+                title="Таверна",
+                triggers=["таверна"],
+                image_url=self.DATA_IMAGE,
+                make_current=True,
+            )
+
+            scene_payload = SimpleNamespace(
+                prompt="An empty medieval tavern interior",
+                location_title="Другая подпись от модели",
+                has_people=False,
+            )
+            generation_payload = {
+                "model": "test-image-model",
+                "image_url": "https://example.com/new-tavern.webp",
+                "image_data_url": None,
+            }
+            with (
+                patch(
+                    "app.services.story_novel_backgrounds.generate_story_scene_background_prompt",
+                    return_value=scene_payload,
+                ),
+                patch(
+                    "app.services.story_novel_backgrounds.spend_user_tokens_if_sufficient",
+                    return_value=True,
+                ),
+                patch("app.services.story_visuals._get_story_turn_image_cost_tokens", return_value=1),
+                patch("app.services.story_visuals._limit_story_turn_image_request_prompt", side_effect=lambda value, **_: value),
+                patch("app.services.story_visuals._request_story_turn_image", return_value=generation_payload),
+            ):
+                regenerated = generate_story_novel_background_impl(
+                    db=db,
+                    game=game,
+                    user=user,
+                    world_cards=[],
+                    location_label="Таверна",
+                    latest_user_prompt="",
+                    latest_assistant_text="",
+                    place_id=place_out.id,
+                )
+
+            self.assertEqual(regenerated.id, place_out.id)
+            self.assertEqual(regenerated.title, "Таверна")
+            self.assertEqual(regenerated.triggers, ["таверна"])
+            self.assertEqual(
+                db.scalar(select(func.count()).select_from(StorySceneBackground)),
+                1,
+            )
+            persisted = db.get(StorySceneBackground, place_out.id)
+            self.assertEqual(persisted.image_url, "https://example.com/new-tavern.webp")
+            self.assertIn("Completely empty of people and characters", persisted.prompt)
+            self.assertIn("Hand-painted watercolor storybook style", persisted.prompt)
+
+    def test_generation_replaces_only_within_same_assistant_turn(self) -> None:
+        with self.Session() as db:
+            user, game = self._seed(db)
+            scene_payload = SimpleNamespace(
+                prompt="An empty moonlit railway platform",
+                location_title="Платформа",
+                has_people=False,
+            )
+            generated_urls = iter(
+                [
+                    "https://example.com/platform-v1.webp",
+                    "https://example.com/platform-v2.webp",
+                    "https://example.com/forest.webp",
+                ]
+            )
+
+            def fake_generate(**_kwargs):
+                return {
+                    "model": "test-image-model",
+                    "image_url": next(generated_urls),
+                    "image_data_url": None,
+                }
+
+            with (
+                patch(
+                    "app.services.story_novel_backgrounds.generate_story_scene_background_prompt",
+                    return_value=scene_payload,
+                ),
+                patch(
+                    "app.services.story_novel_backgrounds.spend_user_tokens_if_sufficient",
+                    return_value=True,
+                ),
+                patch("app.services.story_visuals._get_story_turn_image_cost_tokens", return_value=1),
+                patch("app.services.story_visuals._limit_story_turn_image_request_prompt", side_effect=lambda value, **_: value),
+                patch("app.services.story_visuals._request_story_turn_image", side_effect=fake_generate),
+            ):
+                first = generate_story_novel_background_impl(
+                    db=db, game=game, user=user, world_cards=[], location_label="Платформа",
+                    latest_user_prompt="", latest_assistant_text="", assistant_message_id=101,
+                )
+                same_turn = generate_story_novel_background_impl(
+                    db=db, game=game, user=user, world_cards=[], location_label="Платформа",
+                    latest_user_prompt="", latest_assistant_text="", assistant_message_id=101,
+                )
+                next_turn = generate_story_novel_background_impl(
+                    db=db, game=game, user=user, world_cards=[], location_label="Лес",
+                    latest_user_prompt="", latest_assistant_text="", assistant_message_id=202,
+                )
+
+            self.assertEqual(same_turn.id, first.id)
+            self.assertNotEqual(next_turn.id, first.id)
+            self.assertEqual(db.scalar(select(func.count()).select_from(StorySceneBackground)), 2)
+            self.assertEqual(db.get(StorySceneBackground, first.id).image_url, "https://example.com/platform-v2.webp")
+            self.assertEqual(db.get(StorySceneBackground, next_turn.id).generated_for_assistant_message_id, 202)
 
 
 if __name__ == "__main__":

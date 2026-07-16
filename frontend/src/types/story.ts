@@ -178,6 +178,15 @@ export type StoryMessage = {
 
 export type StoryNovelBeatKind = 'narration' | 'dialogue' | 'thought'
 
+export type StoryNovelSceneCharacter = {
+  character_id: number | null
+  name: string
+  emotion: StoryCharacterEmotionId
+  sprite_url: string | null
+  incognito: boolean
+  gender: StoryNovelSpriteGender | null
+}
+
 // One Visual Novel "page" the player advances through with the "Далее" button.
 export type StoryNovelBeat = {
   id: number
@@ -194,6 +203,12 @@ export type StoryNovelBeat = {
   sprite_url: string | null
   sprite_incognito: boolean
   sprite_gender: StoryNovelSpriteGender | null
+  // Up to three characters present in the beat. The narrator fills this for narration too,
+  // so the stage is not limited to the character who is currently speaking.
+  scene_characters: StoryNovelSceneCharacter[]
+  // Client-only marker for a synthetic "your move" divider beat inserted before a generated
+  // turn. Never sent by the API; used purely to render the player's action as its own page.
+  is_player_move?: boolean
   created_at: string
   updated_at: string
 }
@@ -203,9 +218,25 @@ export type StorySceneBackground = {
   id: number
   game_id: number
   title: string
+  prompt: string
   image_url: string | null
   triggers: string[]
+  theme: string
+  style: string
+  model: string
   is_current: boolean
+  created_at: string
+  updated_at: string
+}
+
+// A reusable Visual Novel place kept in the administrator's profile library.
+// Importing it into a game creates an independent scene-place card server-side.
+export type StoryPlaceTemplate = {
+  id: number
+  user_id: number
+  title: string
+  image_url: string | null
+  triggers: string[]
   created_at: string
   updated_at: string
 }

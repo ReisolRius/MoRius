@@ -38,6 +38,7 @@ _PREFIX_TO_ROUTER_MODULES: dict[str, tuple[str, ...]] = {
         "app.routers.story_map",
         "app.routers.story_memory",
         "app.routers.story_messages",
+        "app.routers.story_novel",
         "app.routers.story_read",
         "app.routers.story_summary",
         "app.routers.story_turn_audio",

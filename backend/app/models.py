@@ -857,6 +857,15 @@ class StoryNovelBeat(Base):
     speaker_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     speaker_character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     emotion: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    # Ordered cast visible during this beat. Stored as compact JSON objects with
+    # ``name``, ``emotion`` and an optional ``character_id`` so late card linking can
+    # still resolve historical beats without reparsing narrator prose.
+    scene_characters_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+        server_default="[]",
+    )
     text: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -869,9 +878,9 @@ class StoryNovelBeat(Base):
 class StorySceneBackground(Base):
     """A saved Visual Novel scene background (admin-only) with trigger-based memory.
 
-    Generated on demand via the internal service model (prompt) + the image pipeline. Once created it
-    is remembered with trigger keywords, so re-entering the same location swaps to the saved
-    background with a smooth cross-fade instead of regenerating (free, instant).
+    Generated on demand via the internal service model (prompt) + the image pipeline. Once the
+    administrator adds explicit trigger keywords, re-entering the same location swaps to the saved
+    background instead of regenerating it (free, instant).
     """
 
     __tablename__ = "story_scene_backgrounds"
@@ -886,7 +895,34 @@ class StorySceneBackground(Base):
     model: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The assistant turn this image was generated for. A second generation on the same
+    # turn replaces this card; generation after another turn creates a new place card.
+    generated_for_assistant_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryPlaceTemplate(Base):
+    """A user-owned Visual Novel place kept in the profile library.
+
+    Place templates deliberately contain only the activation metadata and image. Importing
+    one into a game creates an independent ``StorySceneBackground`` copy, so later edits do
+    not unexpectedly mutate an active game scene.
+    """
+
+    __tablename__ = "story_place_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
+    triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

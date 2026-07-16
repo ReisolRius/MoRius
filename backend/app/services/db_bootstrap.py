@@ -47,6 +47,7 @@ from app.models import (
     StoryMemoryBlock,
     StoryMessage,
     StoryNovelBeat,
+    StoryPlaceTemplate,
     StorySceneBackground,
     StoryTurnImage,
     StoryPlotCard,
@@ -1386,6 +1387,41 @@ def _ensure_story_visual_novel_legacy_tables_dropped() -> None:
             _execute_schema_statement(connection, f"DROP TABLE IF EXISTS {legacy_table_name}")
 
 
+def _ensure_story_novel_beat_scene_cast_schema() -> None:
+    """Add per-beat Visual Novel cast metadata to databases created before this feature."""
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryNovelBeat.__tablename__):
+        return
+    columns = {
+        column["name"]
+        for column in inspector.get_columns(StoryNovelBeat.__tablename__)
+    }
+    if "scene_characters_json" in columns:
+        return
+    with engine.begin() as connection:
+        _execute_schema_statement(
+            connection,
+            f"ALTER TABLE {StoryNovelBeat.__tablename__} "
+            "ADD COLUMN scene_characters_json TEXT NOT NULL DEFAULT '[]'",
+        )
+
+
+def _ensure_story_scene_background_generation_turn_schema() -> None:
+    """Track the story turn that owns each generated Visual Novel place image."""
+    inspector = inspect(engine)
+    if not inspector.has_table(StorySceneBackground.__tablename__):
+        return
+    columns = {column["name"] for column in inspector.get_columns(StorySceneBackground.__tablename__)}
+    if "generated_for_assistant_message_id" in columns:
+        return
+    with engine.begin() as connection:
+        _execute_schema_statement(
+            connection,
+            f"ALTER TABLE {StorySceneBackground.__tablename__} "
+            "ADD COLUMN generated_for_assistant_message_id INTEGER",
+        )
+
+
 def _ensure_story_soft_undo_columns_exist() -> None:
     inspector = inspect(engine)
     alter_statements: list[str] = []
@@ -1553,6 +1589,8 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryNovelBeat.__tablename__} (message_id, order_index)",
         "CREATE INDEX IF NOT EXISTS ix_story_scene_backgrounds_game_current "
         f"ON {StorySceneBackground.__tablename__} (game_id, is_current, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_place_templates_user_updated_id "
+        f"ON {StoryPlaceTemplate.__tablename__} (user_id, updated_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_turn_images_game_assistant_id "
         f"ON {StoryTurnImage.__tablename__} (game_id, assistant_message_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_turn_images_game_undone_id "
@@ -1950,6 +1988,8 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     _ensure_community_rating_timestamp_columns_exist()
     _ensure_story_turn_image_history_schema()
     _ensure_story_visual_novel_legacy_tables_dropped()
+    _ensure_story_novel_beat_scene_cast_schema()
+    _ensure_story_scene_background_generation_turn_schema()
     _ensure_dashboard_news_schema()
     _ensure_shop_schema_columns_exist()
     _ensure_subscription_schema()

@@ -391,6 +391,75 @@ class StoryGenerationLockingTests(unittest.TestCase):
         finally:
             mark_story_generation_finished(game_id, generation_id)
 
+    def test_visual_novel_stream_never_exposes_split_scene_cast_marker(self) -> None:
+        game_id = 9_104
+        generation_id = "generation-vn-cast-redaction"
+        db = _StreamingSession()
+        game = SimpleNamespace(id=game_id)
+        user = SimpleNamespace(id=504)
+        deps = SimpleNamespace(
+            stream_persist_min_chars=10_000,
+            stream_persist_max_interval_seconds=60.0,
+            story_assistant_role="assistant",
+            touch_story_game=lambda _game: None,
+            stream_story_provider_chunks=lambda **_kwargs: iter(
+                ["Мия вошла. {{VN_", "CAST|Мия|Страх}}"]
+            ),
+            spend_user_tokens_if_sufficient=lambda *_args, **_kwargs: self.fail(
+                "Billing must not run after finalizing-stage cancellation"
+            ),
+            resolve_story_turn_postprocess_payload=lambda **_kwargs: self.fail(
+                "Post-process must not run after finalizing-stage cancellation"
+            ),
+        )
+
+        mark_story_generation_started(game_id, generation_id)
+        try:
+            stream = story_runtime._stream_story_response(
+                deps=deps,
+                db=db,
+                game=game,
+                user=user,
+                turn_cost_tokens=10,
+                source_user_message=None,
+                prompt="turn",
+                turn_index=1,
+                context_messages=[],
+                instruction_cards=[],
+                plot_cards=[],
+                world_cards=[],
+                all_world_cards=[],
+                context_limit_chars=10_000,
+                story_model_name=None,
+                story_response_max_tokens=None,
+                story_temperature=0.7,
+                story_repetition_penalty=1.0,
+                story_top_k=40,
+                story_top_r=0.9,
+                memory_optimization_enabled=True,
+                reroll_discarded_assistant_text=None,
+                ambient_enabled=False,
+                visual_novel_enabled=True,
+                show_gg_thoughts=False,
+                show_npc_thoughts=False,
+                story_generation_id=generation_id,
+            )
+
+            self.assertIn("event: start", next(stream))
+            public_chunk = next(stream)
+            self.assertIn("event: chunk", public_chunk)
+            self.assertIn("Мия вошла.", public_chunk)
+            self.assertNotIn("VN_CAST", public_chunk)
+            self.assertNotIn("{{VN_", public_chunk)
+
+            finalizing_event = next(stream)
+            self.assertIn('"stage": "finalizing"', finalizing_event)
+            self.assertTrue(cancel_story_generation(game_id))
+            with self.assertRaises(StopIteration):
+                next(stream)
+        finally:
+            mark_story_generation_finished(game_id, generation_id)
+
     def test_cancel_after_finalizing_progress_skips_billing_and_postprocess(self) -> None:
         game_id = 9_101
         generation_id = "generation-finalizing-cancel"

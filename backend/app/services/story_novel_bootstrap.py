@@ -6,7 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import StoryGame, StoryMessage, StoryNovelBeat, StoryWorldCard
-from app.services.story_novel import is_story_visual_novel_game, persist_story_novel_beats_for_message
+from app.services.story_novel import (
+    STORY_NOVEL_BEAT_NARRATION,
+    has_story_novel_scene_cast_metadata,
+    is_story_visual_novel_game,
+    normalize_story_novel_beat_kind,
+    persist_story_novel_beats_for_message,
+    story_novel_exact_mention_start,
+)
 
 
 @dataclass(frozen=True)
@@ -96,13 +103,6 @@ def ensure_story_novel_opening_scene_beats(
             .order_by(StoryNovelBeat.order_index.asc())
         ).all()
     )
-    if existing_beats and not changed:
-        return StoryNovelOpeningBootstrapResult(
-            changed=False,
-            message_id=int(opening_message.id),
-            beat_count=len(existing_beats),
-        )
-
     resolved_world_cards = world_cards
     if resolved_world_cards is None:
         resolved_world_cards = list(
@@ -112,12 +112,39 @@ def ensure_story_novel_opening_scene_beats(
                 .order_by(StoryWorldCard.id.asc())
             ).all()
         )
+    if existing_beats and not changed:
+        # Games opened once by an earlier VN build already have beat rows, but their opening
+        # narration predates VN_CAST. Rebuild exactly once when that prose mentions a linked card;
+        # the resulting non-empty scene_characters_json makes subsequent reads idempotent.
+        has_empty_narration_cast = any(
+            normalize_story_novel_beat_kind(getattr(beat, "kind", None)) == STORY_NOVEL_BEAT_NARRATION
+            and str(getattr(beat, "scene_characters_json", "") or "").strip() in {"", "[]"}
+            for beat in existing_beats
+        )
+        opening_has_cast_metadata = has_story_novel_scene_cast_metadata(opening_scene)
+        has_exact_linked_card_mention = any(
+            bool(getattr(card, "character_id", None))
+            and story_novel_exact_mention_start(opening_scene, str(getattr(card, "title", "") or "")) is not None
+            for card in resolved_world_cards
+        )
+        if not (
+            has_empty_narration_cast
+            and not opening_has_cast_metadata
+            and has_exact_linked_card_mention
+        ):
+            return StoryNovelOpeningBootstrapResult(
+                changed=False,
+                message_id=int(opening_message.id),
+                beat_count=len(existing_beats),
+            )
+
     beats = persist_story_novel_beats_for_message(
         db=db,
         game=game,
         assistant_message=opening_message,
         raw_response=opening_scene,
         world_cards=resolved_world_cards,
+        infer_narration_scene_characters=True,
     )
     return StoryNovelOpeningBootstrapResult(
         changed=True,

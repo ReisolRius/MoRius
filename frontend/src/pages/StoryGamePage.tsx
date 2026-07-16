@@ -76,6 +76,7 @@ import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import ImageCropper from '../components/ImageCropper'
 import AdvancedRegenerationDialog from '../components/story/AdvancedRegenerationDialog'
+import NovelPlacesPanel, { type NovelPlaceSavePayload } from '../components/story/NovelPlacesPanel'
 import StorySummaryDialog from '../components/story/StorySummaryDialog'
 import WorldCardBannerPreview from '../components/story/WorldCardBannerPreview'
 import WorldCardTemplatePickerDialog from '../components/story/WorldCardTemplatePickerDialog'
@@ -114,11 +115,13 @@ import {
   createStoryMemoryBlock,
   createStoryGame,
   createStoryNpcFromCharacter,
+  createStoryNovelPlace,
   createStoryPlotCard,
   createStoryWorldCard,
   deleteStoryCharacter,
   deleteStoryInstructionCard,
   deleteStoryMemoryBlock,
+  deleteStoryNovelPlace,
   deleteStoryPlotCard,
   deleteStoryWorldCard,
   cancelStoryGeneration,
@@ -127,12 +130,16 @@ import {
   generateStoryTurnImage,
   getCommunityCharacter,
   getStoryGame,
+  importStoryNovelPlace,
   listCommunityCharacters,
   listStoryCharacterRaces,
   listStoryCharacters,
   listStoryGames,
+  listStoryNovelPlaces,
+  listStoryPlaceTemplates,
   regenerateStoryEnvironmentWeather,
   selectStoryMainHero,
+  selectStoryNovelPlace,
   syncStoryCharacterEmotionAssets,
   updateStoryCharacter,
   updateStoryGameMeta,
@@ -145,6 +152,7 @@ import {
   updateStoryInstructionCard,
   updateStoryInstructionCardActive,
   updateStoryMemoryBlock,
+  updateStoryNovelPlace,
   updateStoryWorldCardAiEdit,
   updateStoryWorldCardAvatar,
   updateStoryWorldCard,
@@ -183,6 +191,8 @@ import {
   type StoryMessage,
   type StoryNarratorModelId,
   type StoryNovelBeat,
+  type StoryNovelSceneCharacter,
+  type StoryPlaceTemplate,
   type StorySceneBackground,
   type StoryPlotCard,
   type StoryPlotCardEvent,
@@ -280,7 +290,7 @@ type RightPanelMode = 'ai' | 'world'
 type AiPanelTab = 'instructions' | 'settings'
 type WorldPanelTab = 'story' | 'world'
 type CardsPanelTab = 'characters' | 'world' | 'instructions' | 'plot'
-type RightPanelSection = 'narrator' | CardsPanelTab | 'engine' | 'appearance'
+type RightPanelSection = 'narrator' | CardsPanelTab | 'places' | 'engine' | 'appearance'
 type NpcPanelSortMode = 'recent' | 'alphabetical_asc' | 'alphabetical_desc' | 'active_first'
 type EnvironmentModuleCardId = 'place' | 'time' | 'weather'
 type EnvironmentModuleCardPosition = {
@@ -2040,10 +2050,26 @@ function NovelIncognitoSilhouette({ gender }: { gender: 'male' | 'female' | null
   )
 }
 
+function NovelSceneBackdropIcon() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 19, height: 19 }}>
+      <g fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="18" height="16" rx="3" />
+        <path d="m6.5 16 3.7-4 2.7 2.7 2.3-2.5 2.8 3.8" />
+        <path d="M15.5 8.1h.01" />
+      </g>
+    </SvgIcon>
+  )
+}
+
 function VisualNovelStage({
   beats,
   beatIndex,
   currentBeat,
+  spriteBeat,
+  stepCount,
+  isInputStep,
+  techDemoEnabled,
   background,
   isAdmin,
   onPrevious,
@@ -2059,12 +2085,16 @@ function VisualNovelStage({
   beats: StoryNovelBeat[]
   beatIndex: number
   currentBeat: StoryNovelBeat | null
+  spriteBeat: StoryNovelBeat | null
+  stepCount: number
+  isInputStep: boolean
+  techDemoEnabled: boolean
   background: StorySceneBackground | null
   isAdmin: boolean
   onPrevious: () => void
   onNext: () => void
   onJumpToEnd: () => void
-  onGenerateBackground: () => void
+  onGenerateBackground: () => void | Promise<void>
   canGenerateBackground: boolean
   isGeneratingBackground: boolean
   backgroundError: string
@@ -2073,10 +2103,6 @@ function VisualNovelStage({
 }) {
   const rawBackgroundUrl = background?.image_url ?? null
   const backgroundUrl = resolveApiResourceUrl(rawBackgroundUrl)
-  const rawSpriteUrl = !currentBeat?.sprite_incognito ? currentBeat?.sprite_url ?? null : null
-  const spriteUrl = resolveApiResourceUrl(rawSpriteUrl)
-  const showIncognitoSilhouette = Boolean(currentBeat) && (currentBeat?.sprite_incognito || !spriteUrl) && Boolean(currentBeat?.speaker_name)
-  const incognitoGender = currentBeat?.sprite_gender === 'male' || currentBeat?.sprite_gender === 'female' ? currentBeat.sprite_gender : null
   const speakerName = currentBeat?.speaker_name?.trim() || ''
   const normalizedSpeakerAlias = speakerName
     .toLowerCase()
@@ -2090,19 +2116,88 @@ function VisualNovelStage({
     currentBeat?.emotion && STORY_CHARACTER_EMOTION_LABELS[currentBeat.emotion]
       ? STORY_CHARACTER_EMOTION_LABELS[currentBeat.emotion]
       : null
-  const beatCount = beats.length
+  const beatCount = techDemoEnabled ? stepCount : beats.length
   const isFirstBeat = beatIndex <= 0
   const isLastBeat = beatIndex >= beatCount - 1
+  const isPlayerMoveBeat = Boolean(currentBeat?.is_player_move)
+  const sourceSpriteBeat = spriteBeat ?? currentBeat
+  const fallbackSceneCharacter = sourceSpriteBeat?.speaker_name
+    ? [{
+        character_id: sourceSpriteBeat.speaker_character_id,
+        name: sourceSpriteBeat.speaker_name,
+        emotion: sourceSpriteBeat.emotion ?? ('neutral' as StoryCharacterEmotionId),
+        sprite_url: sourceSpriteBeat.sprite_url,
+        incognito: sourceSpriteBeat.sprite_incognito,
+        gender: sourceSpriteBeat.sprite_gender,
+      }]
+    : []
+  const activeSpeakerKey = (currentBeat?.speaker_name ?? '').trim().toLocaleLowerCase('ru-RU')
+  let sceneCharacters: StoryNovelSceneCharacter[]
+  if (techDemoEnabled) {
+    // Persistent stage: keep up to three freshest active characters on screen — even during
+    // narration or the player's own move — each in the emotion state they were last shown with.
+    const spriteBeatIndex = isInputStep ? beats.length - 1 : beatIndex
+    const persistentCast = resolveNovelStageCast(beats, spriteBeatIndex, 3)
+    sceneCharacters = persistentCast.length > 0 ? persistentCast : fallbackSceneCharacter.slice(0, 3)
+  } else {
+    // Non-admin shell is unchanged: only the character who is actually speaking is shown.
+    sceneCharacters = (
+      activeSpeakerKey
+        ? fallbackSceneCharacter.filter(
+            (character) => character.name.trim().toLocaleLowerCase('ru-RU') === activeSpeakerKey,
+          )
+        : fallbackSceneCharacter
+    ).slice(0, 1)
+  }
+  const sceneCastCount = sceneCharacters.length
+  // Shared step-nav button styling. Kept identical to the composer's nav so the controls do not
+  // shift position when the player crosses from reading beats into their own turn.
+  const stepNavButtonSx = {
+    width: { xs: 28, md: 30 },
+    height: { xs: 28, md: 30 },
+    minWidth: { xs: 28, md: 30 },
+    minHeight: { xs: 28, md: 30 },
+    p: 0,
+    borderRadius: '10px',
+    fontSize: '1.2rem',
+    lineHeight: 1,
+    fontWeight: 700,
+    color: 'var(--morius-title-text)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    transition: 'background-color 160ms ease, opacity 160ms ease, transform 160ms ease',
+    '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)', transform: 'translateY(-1px)' },
+    '&:active': { transform: 'translateY(1px)' },
+    '&:disabled': {
+      opacity: 0.32,
+      color: 'var(--morius-text-secondary)',
+      backgroundColor: 'rgba(255,255,255,0.03)',
+    },
+  }
 
   return (
     <Box
       sx={{
-        position: 'relative',
-        minHeight: { xs: 'calc(100vh - 238px)', md: 'min(680px, calc(100vh - 214px))' },
-        height: { xs: 'calc(100vh - 238px)', md: 'min(680px, calc(100vh - 214px))' },
+        // Tech-demo VN is anchored straight to the viewport (like the composer) so it always
+        // fills the screen from just under the header to the bottom edge — independent of the
+        // surrounding flex/scroll chain. Sprites float above the dialogue box, which sits flush
+        // at the bottom next to the "Ваш ход" composer.
+        position: techDemoEnabled ? 'fixed' : 'relative',
+        ...(techDemoEnabled
+          ? { top: 'var(--morius-header-menu-top)', left: 0, right: 0, bottom: 0, zIndex: 1 }
+          : {}),
+        width: techDemoEnabled ? 'auto' : '100%',
+        minHeight: techDemoEnabled
+          ? undefined
+          : { xs: 'calc(100vh - 238px)', md: 'min(680px, calc(100vh - 214px))' },
+        height: techDemoEnabled
+          ? undefined
+          : { xs: 'calc(100vh - 238px)', md: 'min(680px, calc(100vh - 214px))' },
         overflow: 'hidden',
-        borderRadius: '8px',
-        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+        borderRadius: techDemoEnabled ? 0 : '8px',
+        border: techDemoEnabled
+          ? 'none'
+          : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
         background:
           'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 86%, #050506 14%) 0%, color-mix(in srgb, var(--morius-app-bg) 94%, #000 6%) 100%)',
       }}
@@ -2126,7 +2221,7 @@ function VisualNovelStage({
             inset: 0,
             width: '100%',
             height: '100%',
-            filter: 'saturate(0.94) contrast(1.02)',
+            filter: techDemoEnabled ? 'saturate(0.96) contrast(1.03)' : 'saturate(0.94) contrast(1.02)',
           }}
         />
       ) : (
@@ -2144,53 +2239,91 @@ function VisualNovelStage({
           position: 'absolute',
           inset: 0,
           background:
-            'linear-gradient(180deg, rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.08) 46%, rgba(0,0,0,0.66) 100%)',
+            techDemoEnabled
+              ? 'linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.02) 42%, rgba(0,0,0,0.76) 100%)'
+              : 'linear-gradient(180deg, rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.08) 46%, rgba(0,0,0,0.66) 100%)',
         }}
       />
 
-      <Box
-        sx={{
-          position: 'absolute',
-          left: { xs: '50%', md: '56%' },
-          bottom: { xs: 118, md: 126 },
-          width: { xs: '72%', sm: '58%', md: '46%' },
-          height: { xs: '58%', md: '66%' },
-          transform: 'translateX(-50%)',
-          display: 'flex',
-          alignItems: 'flex-end',
-          justifyContent: 'center',
-          pointerEvents: 'none',
-        }}
-      >
-        {spriteUrl ? (
-          <ProgressiveImage
-            src={spriteUrl}
-            alt={speakerLabel}
-            loading="eager"
-            fetchPriority="high"
-            objectFit="contain"
-            objectPosition="center bottom"
-            loaderSize={28}
-            containerSx={{ width: '100%', height: '100%' }}
-            imgSx={{
-              transform: { xs: 'translateY(6%) scale(1.12)', md: 'translateY(7%) scale(1.2)' },
-              userSelect: 'none',
-            }}
-          />
-        ) : showIncognitoSilhouette ? (
+      {sceneCharacters.map((character, index) => {
+        const spriteUrl = resolveApiResourceUrl(!character.incognito ? character.sprite_url : null)
+        const normalizedName = character.name.trim().toLocaleLowerCase('ru-RU')
+        const isActiveSpeaker = !activeSpeakerKey || normalizedName === activeSpeakerKey
+        const desktopPositions = sceneCastCount === 1
+          ? ['50%']
+          : sceneCastCount === 2
+            ? ['34%', '66%']
+            : ['20%', '50%', '80%']
+        const mobilePositions = sceneCastCount === 1
+          ? ['50%']
+          : sceneCastCount === 2
+            ? ['29%', '71%']
+            : ['17%', '50%', '83%']
+        const isCenterCharacter = sceneCastCount === 1 || (sceneCastCount === 3 && index === 1)
+        return (
           <Box
+            key={`${character.character_id ?? character.name}-${index}`}
             sx={{
-              width: { xs: 168, md: 230 },
-              height: { xs: 270, md: 370 },
-              filter: 'drop-shadow(0 18px 30px rgba(0,0,0,0.5))',
+              position: 'absolute',
+              left: {
+                xs: mobilePositions[index] ?? '50%',
+                md: desktopPositions[index] ?? '50%',
+              },
+              bottom: techDemoEnabled ? { xs: 150, sm: 170, md: 188 } : { xs: 118, md: 126 },
+              width: techDemoEnabled
+                ? {
+                    xs: sceneCastCount === 1 ? '92vw' : sceneCastCount === 2 ? '68vw' : '56vw',
+                    sm: sceneCastCount === 1 ? '66vw' : sceneCastCount === 2 ? '49vw' : '42vw',
+                    md: sceneCastCount === 1 ? 'min(46vw, 620px)' : sceneCastCount === 2 ? 'min(38vw, 530px)' : 'min(32vw, 470px)',
+                  }
+                : { xs: '72%', sm: '58%', md: '46%' },
+              height: techDemoEnabled ? { xs: '64%', sm: '70%', md: '76%' } : { xs: '58%', md: '66%' },
+              transform: `translateX(-50%) scale(${techDemoEnabled && !isCenterCharacter ? 0.94 : 1})`,
+              transformOrigin: 'center bottom',
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+              opacity: techDemoEnabled && activeSpeakerKey && !isActiveSpeaker ? 0.78 : 1,
+              filter: techDemoEnabled && activeSpeakerKey && !isActiveSpeaker ? 'saturate(0.78) brightness(0.82)' : 'none',
+              transition: 'left 220ms ease, opacity 180ms ease, filter 180ms ease, transform 220ms ease',
+              pointerEvents: 'none',
+              zIndex: isActiveSpeaker ? 3 : isCenterCharacter ? 2 : 1,
             }}
           >
-            <NovelIncognitoSilhouette gender={incognitoGender} />
+            {spriteUrl ? (
+              <ProgressiveImage
+                src={spriteUrl}
+                alt={character.name}
+                loading="eager"
+                fetchPriority="high"
+                objectFit="contain"
+                objectPosition="center bottom"
+                loaderSize={28}
+                containerSx={{ width: '100%', height: '100%' }}
+                imgSx={{
+                  transform: techDemoEnabled
+                    ? { xs: 'translateY(5%) scale(1.08)', md: 'translateY(5%) scale(1.12)' }
+                    : { xs: 'translateY(6%) scale(1.12)', md: 'translateY(7%) scale(1.2)' },
+                  filter: 'drop-shadow(0 22px 32px rgba(0,0,0,0.46))',
+                  userSelect: 'none',
+                }}
+              />
+            ) : character.incognito || character.name ? (
+              <Box
+                sx={{
+                  width: techDemoEnabled ? { xs: 178, md: 250 } : { xs: 168, md: 230 },
+                  height: techDemoEnabled ? { xs: 286, md: 405 } : { xs: 270, md: 370 },
+                  filter: 'drop-shadow(0 18px 30px rgba(0,0,0,0.5))',
+                }}
+              >
+                <NovelIncognitoSilhouette gender={character.gender === 'male' || character.gender === 'female' ? character.gender : null} />
+              </Box>
+            ) : null}
           </Box>
-        ) : null}
-      </Box>
+        )
+      })}
 
-      {isAdmin ? (
+      {isAdmin && (!techDemoEnabled || !isInputStep) ? (
         <Stack
           direction="row"
           spacing={0.65}
@@ -2201,31 +2334,61 @@ function VisualNovelStage({
             zIndex: 3,
           }}
         >
-          <Tooltip arrow disableInteractive placement="bottom" title="Сгенерировать фон сцены">
+          <Tooltip arrow disableInteractive placement="bottom" title="Сгенерировать фон">
             <span>
-              <Button
-                onClick={onGenerateBackground}
+              <IconButton
+                aria-label="Сгенерировать фон"
+                onClick={() => {
+                  void Promise.resolve(onGenerateBackground()).catch(() => undefined)
+                }}
                 disabled={!canGenerateBackground}
-                startIcon={isGeneratingBackground ? <CircularProgress size={15} sx={{ color: 'var(--morius-accent)' }} /> : undefined}
                 sx={{
-                  minHeight: 38,
-                  borderRadius: '999px',
-                  px: 1.2,
-                  textTransform: 'none',
+                  width: 42,
+                  height: 42,
+                  borderRadius: '14px',
                   color: 'var(--morius-title-text)',
                   backgroundColor: 'rgba(0,0,0,0.32)',
                   border: 'var(--morius-border-width) solid rgba(255,255,255,0.18)',
                   backdropFilter: 'blur(10px)',
                 }}
               >
-                {background ? 'Обновить фон' : 'Сгенерировать фон'}
-              </Button>
+                {isGeneratingBackground
+                  ? <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
+                  : <NovelSceneBackdropIcon />}
+              </IconButton>
             </span>
           </Tooltip>
         </Stack>
       ) : null}
 
-      {backgroundError ? (
+      {isGeneratingBackground ? (
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={0.85}
+          sx={{
+            position: 'absolute',
+            top: 14,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 5,
+            px: 1.35,
+            py: 0.7,
+            borderRadius: '999px',
+            backgroundColor: 'rgba(6, 8, 14, 0.72)',
+            border: '1px solid rgba(255,255,255,0.16)',
+            backdropFilter: 'blur(12px)',
+            maxWidth: '86%',
+          }}
+        >
+          <CircularProgress size={15} thickness={5} sx={{ color: 'var(--morius-accent)' }} />
+          <Typography sx={{ color: 'rgba(255,255,255,0.94)', fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
+            Генерирую фон сцены…
+          </Typography>
+        </Stack>
+      ) : null}
+
+      {backgroundError && !isGeneratingBackground ? (
         <Box
           sx={{
             position: 'absolute',
@@ -2248,18 +2411,22 @@ function VisualNovelStage({
         </Box>
       ) : null}
 
-      <Box
+      {!isInputStep ? <Box
         sx={{
           position: 'absolute',
-          left: { xs: 10, md: 18 },
-          right: { xs: 10, md: 18 },
-          bottom: { xs: 10, md: 14 },
+          left: techDemoEnabled ? { xs: 10, sm: 18, md: 'max(24px, calc((100% - 1180px) / 2))' } : { xs: 10, md: 18 },
+          right: techDemoEnabled ? { xs: 10, sm: 18, md: 'max(24px, calc((100% - 1180px) / 2))' } : { xs: 10, md: 18 },
+          bottom: techDemoEnabled ? { xs: 10, sm: 16, md: 22 } : { xs: 10, md: 14 },
           zIndex: 4,
-          borderRadius: '8px',
-          border: 'var(--morius-border-width) solid rgba(255,255,255,0.16)',
-          background: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)',
-          backdropFilter: 'blur(18px)',
-          p: { xs: 1.15, md: 1.35 },
+          // Match the composer footprint so the step nav sits in the exact same spot whether
+          // the player is reading a beat or on their own turn.
+          minHeight: techDemoEnabled ? { xs: 198, md: 226 } : undefined,
+          borderRadius: techDemoEnabled ? { xs: '18px', md: '22px' } : '8px',
+          border: techDemoEnabled ? '1px solid rgba(255,255,255,0.12)' : 'var(--morius-border-width) solid rgba(255,255,255,0.16)',
+          background: techDemoEnabled ? 'rgba(9, 10, 15, 0.76)' : 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)',
+          boxShadow: techDemoEnabled ? '0 22px 70px rgba(0,0,0,0.36)' : 'none',
+          backdropFilter: techDemoEnabled ? 'blur(22px) saturate(116%)' : 'blur(18px)',
+          p: techDemoEnabled ? { xs: 1.4, sm: 1.65, md: 2 } : { xs: 1.15, md: 1.35 },
         }}
       >
         <Stack spacing={0.85}>
@@ -2268,7 +2435,7 @@ function VisualNovelStage({
               <Typography
                 sx={{
                   minWidth: 0,
-                  color: 'var(--morius-title-text)',
+                  color: isPlayerMoveBeat ? 'var(--morius-accent)' : 'var(--morius-title-text)',
                   fontSize: { xs: '0.92rem', md: '1rem' },
                   lineHeight: 1.15,
                   fontWeight: 900,
@@ -2277,9 +2444,9 @@ function VisualNovelStage({
                   textOverflow: 'ellipsis',
                 }}
               >
-                {speakerLabel}
+                {isPlayerMoveBeat ? 'Ваш ход' : speakerLabel}
               </Typography>
-              {emotionLabel ? (
+              {emotionLabel && !isPlayerMoveBeat ? (
                 <Typography
                   sx={{
                     color: 'var(--morius-text-secondary)',
@@ -2293,9 +2460,32 @@ function VisualNovelStage({
                 </Typography>
               ) : null}
             </Stack>
-            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', fontWeight: 800, flexShrink: 0 }}>
-              {beatCount > 0 ? `${beatIndex + 1}/${beatCount}` : '0/0'}
-            </Typography>
+            {techDemoEnabled ? (
+              <Stack direction="row" alignItems="center" spacing={0.45} sx={{ flexShrink: 0 }}>
+                <IconButton aria-label="Назад" onClick={onPrevious} disabled={isFirstBeat} sx={stepNavButtonSx}>
+                  {'‹'}
+                </IconButton>
+                <Typography
+                  sx={{
+                    minWidth: 38,
+                    textAlign: 'center',
+                    color: 'var(--morius-text-secondary)',
+                    fontSize: '0.76rem',
+                    fontWeight: 800,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {beatCount > 0 ? `${beatIndex + 1}/${beatCount}` : '1/1'}
+                </Typography>
+                <IconButton aria-label="Вперед" onClick={onNext} disabled={isLastBeat} sx={stepNavButtonSx}>
+                  {'›'}
+                </IconButton>
+              </Stack>
+            ) : (
+              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', fontWeight: 800, flexShrink: 0 }}>
+                {beatCount > 0 ? `${beatIndex + 1}/${beatCount}` : '0/0'}
+              </Typography>
+            )}
           </Stack>
           <Typography
             sx={{
@@ -2303,68 +2493,71 @@ function VisualNovelStage({
               fontSize: { xs: '1rem', md: '1.1rem' },
               lineHeight: 1.48,
               whiteSpace: 'pre-wrap',
-              minHeight: { xs: 72, md: 84 },
-              maxHeight: { xs: 132, md: 150 },
+              fontStyle: isPlayerMoveBeat ? 'italic' : 'normal',
+              minHeight: techDemoEnabled ? { xs: 80, md: 98 } : { xs: 72, md: 84 },
+              maxHeight: techDemoEnabled ? { xs: 148, md: 180 } : { xs: 132, md: 150 },
               overflowY: 'auto',
             }}
           >
             {currentBeat ? replaceMainHeroInlineTags(currentBeat.text, mainHeroName) : emptyText}
           </Typography>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-            <Stack direction="row" spacing={0.65}>
-              <Tooltip arrow disableInteractive placement="top" title="Назад">
-                <span>
-                  <IconButton
-                    aria-label="Назад"
-                    onClick={onPrevious}
-                    disabled={isFirstBeat}
-                    sx={{
-                      width: 36,
-                      height: 36,
-                      color: 'var(--morius-title-text)',
-                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
-                    }}
-                  >
-                    {'‹'}
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip arrow disableInteractive placement="top" title="Вперед">
-                <span>
-                  <IconButton
-                    aria-label="Вперед"
-                    onClick={onNext}
-                    disabled={isLastBeat}
-                    sx={{
-                      width: 36,
-                      height: 36,
-                      color: 'var(--morius-title-text)',
-                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
-                    }}
-                  >
-                    {'›'}
-                  </IconButton>
-                </span>
-              </Tooltip>
+          {!techDemoEnabled ? (
+            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+              <Stack direction="row" spacing={0.65}>
+                <Tooltip arrow disableInteractive placement="top" title="Назад">
+                  <span>
+                    <IconButton
+                      aria-label="Назад"
+                      onClick={onPrevious}
+                      disabled={isFirstBeat}
+                      sx={{
+                        width: 36,
+                        height: 36,
+                        color: 'var(--morius-title-text)',
+                        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
+                      }}
+                    >
+                      {'‹'}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip arrow disableInteractive placement="top" title="Вперед">
+                  <span>
+                    <IconButton
+                      aria-label="Вперед"
+                      onClick={onNext}
+                      disabled={isLastBeat}
+                      sx={{
+                        width: 36,
+                        height: 36,
+                        color: 'var(--morius-title-text)',
+                        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
+                      }}
+                    >
+                      {'›'}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
+              {!isLastBeat ? (
+                <Button
+                  onClick={onJumpToEnd}
+                  sx={{
+                    minHeight: 34,
+                    borderRadius: '8px',
+                    px: 1.1,
+                    textTransform: 'none',
+                    color: 'var(--morius-title-text)',
+                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+                  }}
+                >
+                  Конец
+                </Button>
+              ) : null}
             </Stack>
-            {!isLastBeat ? (
-              <Button
-                onClick={onJumpToEnd}
-                sx={{
-                  minHeight: 34,
-                  borderRadius: '8px',
-                  px: 1.1,
-                  textTransform: 'none',
-                  color: 'var(--morius-title-text)',
-                  border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
-                }}
-              >
-                Конец
-              </Button>
-            ) : null}
-          </Stack>
+          ) : null}
         </Stack>
-      </Box>
+      </Box> : null}
     </Box>
   )
 }
@@ -2861,6 +3054,32 @@ function normalizeStoryVNBeatItem(beat: StoryNovelBeat): StoryNovelBeat {
     sprite_url: typeof beat.sprite_url === 'string' && beat.sprite_url.trim() ? beat.sprite_url.trim() : null,
     sprite_incognito: Boolean(beat.sprite_incognito),
     sprite_gender: beat.sprite_gender ?? null,
+    scene_characters: Array.isArray(beat.scene_characters)
+      ? beat.scene_characters
+          .filter((character) => Boolean(character) && typeof character === 'object')
+          .map((character) => {
+            const rawCharacterEmotion = typeof character.emotion === 'string' ? character.emotion : 'neutral'
+            const rawCharacterGender = typeof character.gender === 'string' ? character.gender : ''
+            return {
+              character_id:
+                typeof character.character_id === 'number' && Number.isFinite(character.character_id)
+                  ? Math.trunc(character.character_id)
+                  : null,
+              name: typeof character.name === 'string' ? character.name.trim() : '',
+              emotion: STORY_CHARACTER_EMOTION_IDS.includes(rawCharacterEmotion as StoryCharacterEmotionId)
+                ? (rawCharacterEmotion as StoryCharacterEmotionId)
+                : 'neutral',
+              sprite_url:
+                typeof character.sprite_url === 'string' && character.sprite_url.trim()
+                  ? character.sprite_url.trim()
+                  : null,
+              incognito: Boolean(character.incognito),
+              gender: rawCharacterGender === 'male' || rawCharacterGender === 'female' ? rawCharacterGender : null,
+            }
+          })
+          .filter((character) => character.name.length > 0)
+          .slice(0, 3)
+      : [],
     created_at: typeof beat.created_at === 'string' ? beat.created_at : new Date(0).toISOString(),
     updated_at: typeof beat.updated_at === 'string' ? beat.updated_at : new Date(0).toISOString(),
   }
@@ -2875,6 +3094,54 @@ function normalizeStoryVNBeats(items: StoryNovelBeat[] | null | undefined): Stor
     : []
 }
 
+const VN_SCENE_CAST_FALLBACK_SUFFIX = /\s*\{\{\s*(?:VN_CAST|SCENE_CAST)\s*\|\s*([^}\n]{1,600})\}\}\s*$/i
+
+function parseOpeningFallbackSceneCast(text: string): {
+  text: string
+  characters: StoryNovelBeat['scene_characters']
+} {
+  const match = VN_SCENE_CAST_FALLBACK_SUFFIX.exec(text)
+  if (!match) {
+    return { text, characters: [] }
+  }
+  const normalizedText = text.slice(0, match.index).trim()
+  const rawCast = match[1]?.trim() ?? ''
+  if (!rawCast || ['-', 'нет', 'none', 'empty'].includes(rawCast.toLocaleLowerCase('ru-RU'))) {
+    return { text: normalizedText, characters: [] }
+  }
+  const labelToEmotion = new Map<string, StoryCharacterEmotionId>(
+    STORY_CHARACTER_EMOTION_IDS.flatMap((emotionId) => [
+      [emotionId.toLocaleLowerCase('ru-RU'), emotionId] as const,
+      [STORY_CHARACTER_EMOTION_LABELS[emotionId].toLocaleLowerCase('ru-RU'), emotionId] as const,
+    ]),
+  )
+  const seenNames = new Set<string>()
+  const characters: StoryNovelBeat['scene_characters'] = []
+  for (const item of rawCast.split(';')) {
+    const separatorIndex = item.lastIndexOf('|')
+    const rawName = separatorIndex >= 0 ? item.slice(0, separatorIndex) : item
+    const rawEmotion = separatorIndex >= 0 ? item.slice(separatorIndex + 1) : 'neutral'
+    const name = rawName.trim()
+    const normalizedName = name.toLocaleLowerCase('ru-RU')
+    if (!name || seenNames.has(normalizedName)) {
+      continue
+    }
+    seenNames.add(normalizedName)
+    characters.push({
+      character_id: null,
+      name,
+      emotion: labelToEmotion.get(rawEmotion.trim().toLocaleLowerCase('ru-RU')) ?? 'neutral',
+      sprite_url: null,
+      incognito: true,
+      gender: null,
+    })
+    if (characters.length >= 3) {
+      break
+    }
+  }
+  return { text: normalizedText, characters }
+}
+
 function buildOpeningSceneFallbackVNBeats(
   blocks: AssistantMessageBlock[],
   game: StoryGameSummary | null,
@@ -2885,6 +3152,25 @@ function buildOpeningSceneFallbackVNBeats(
   const timestamp = game.updated_at || game.created_at || new Date(0).toISOString()
   return blocks.map((block, index) => {
     const isCharacterBeat = block.type === 'character'
+    const parsedScene = parseOpeningFallbackSceneCast(block.text)
+    const speakerSceneCharacter = isCharacterBeat
+      ? {
+          character_id: null,
+          name: block.speakerName,
+          emotion: 'neutral' as StoryCharacterEmotionId,
+          sprite_url: null,
+          incognito: true,
+          gender: null,
+        }
+      : null
+    const hasSpeakerInScene = speakerSceneCharacter
+      ? parsedScene.characters.some(
+          (character) => character.name.toLocaleLowerCase('ru-RU') === speakerSceneCharacter.name.toLocaleLowerCase('ru-RU'),
+        )
+      : true
+    const fallbackSceneCharacters = speakerSceneCharacter && !hasSpeakerInScene
+      ? [...parsedScene.characters.slice(0, 2), speakerSceneCharacter]
+      : parsedScene.characters
     return {
       // Negative local IDs keep this compatibility fallback out of persisted/merged beat state.
       id: -(index + 1),
@@ -2895,14 +3181,194 @@ function buildOpeningSceneFallbackVNBeats(
       speaker_name: isCharacterBeat ? block.speakerName : null,
       speaker_character_id: null,
       emotion: isCharacterBeat ? 'neutral' : null,
-      text: block.text,
+      text: parsedScene.text,
       sprite_url: null,
       sprite_incognito: isCharacterBeat,
       sprite_gender: null,
+      scene_characters: fallbackSceneCharacters,
       created_at: timestamp,
       updated_at: timestamp,
     }
   })
+}
+
+function normalizeStoryVNCharacterKey(character: StoryNovelSceneCharacter): string {
+  if (character.character_id != null && Number.isFinite(character.character_id)) {
+    return `id:${character.character_id}`
+  }
+  const name = character.name.trim().toLocaleLowerCase('ru-RU').replace(/ё/g, 'е')
+  return name ? `name:${name}` : ''
+}
+
+// True when `character` is the one actually speaking/thinking in `beat` — i.e. the beat's own
+// emotion belongs to them. Their scene_characters entry then carries the authoritative sprite.
+function beatSpeakerMatchesCharacter(beat: StoryNovelBeat, character: StoryNovelSceneCharacter): boolean {
+  if (beat.kind !== 'dialogue' && beat.kind !== 'thought') {
+    return false
+  }
+  if (beat.speaker_character_id != null && character.character_id != null) {
+    return beat.speaker_character_id === character.character_id
+  }
+  const speaker = (beat.speaker_name ?? '').trim().toLocaleLowerCase('ru-RU').replace(/ё/g, 'е')
+  if (!speaker) {
+    return false
+  }
+  const name = character.name.trim().toLocaleLowerCase('ru-RU').replace(/ё/g, 'е')
+  return speaker === name
+}
+
+// Persistent Visual Novel stage cast. Keeps up to `maxCount` freshest active characters on
+// screen — including during narration beats and the player's own move — and, critically, sticks
+// each character to the emotion of the last line they actually SPOKE or THOUGHT. A narration
+// paragraph keeps a character on stage and can set the emotion of someone who has never spoken,
+// but it must never revert an expressed emotion (e.g. a character who just reacted happily must
+// stay happy through the following narration instead of snapping back to an older guess).
+function resolveNovelStageCast(
+  beats: StoryNovelBeat[],
+  index: number,
+  maxCount: number,
+): StoryNovelSceneCharacter[] {
+  if (maxCount <= 0 || beats.length === 0) {
+    return []
+  }
+  const clampedIndex = Math.min(Math.max(index, 0), beats.length - 1)
+  // Most recent appearance of each character (presence + fallback emotion) and, separately, the
+  // most recent appearance where they were the one speaking (authoritative emotion + sprite).
+  const presenceByKey = new Map<string, StoryNovelSceneCharacter>()
+  const spokenByKey = new Map<string, StoryNovelSceneCharacter>()
+  const recencyKeys: string[] = []
+  for (let cursor = clampedIndex; cursor >= 0; cursor -= 1) {
+    const beat = beats[cursor]
+    if (!beat) {
+      continue
+    }
+    for (const character of beat.scene_characters ?? []) {
+      const key = normalizeStoryVNCharacterKey(character)
+      if (!key) {
+        continue
+      }
+      if (!presenceByKey.has(key)) {
+        presenceByKey.set(key, character)
+        recencyKeys.push(key)
+      }
+      if (!spokenByKey.has(key) && beatSpeakerMatchesCharacter(beat, character)) {
+        spokenByKey.set(key, character)
+      }
+    }
+  }
+  if (recencyKeys.length === 0) {
+    return []
+  }
+  const selectedKeys = new Set(recencyKeys.slice(0, maxCount))
+  const resolvedByKey = new Map<string, StoryNovelSceneCharacter>()
+  for (const key of selectedKeys) {
+    resolvedByKey.set(key, spokenByKey.get(key) ?? presenceByKey.get(key)!)
+  }
+  // Order by earliest appearance so a long-present sprite keeps its side of the stage while
+  // newcomers slide in beside it, instead of everyone reshuffling each beat.
+  const ordered: StoryNovelSceneCharacter[] = []
+  const placed = new Set<string>()
+  for (let cursor = 0; cursor <= clampedIndex && ordered.length < selectedKeys.size; cursor += 1) {
+    const beat = beats[cursor]
+    if (!beat) {
+      continue
+    }
+    for (const character of beat.scene_characters ?? []) {
+      const key = normalizeStoryVNCharacterKey(character)
+      if (!key || !selectedKeys.has(key) || placed.has(key)) {
+        continue
+      }
+      placed.add(key)
+      ordered.push(resolvedByKey.get(key)!)
+    }
+  }
+  return ordered
+}
+
+type VnPlayerMove = { content: string }
+
+// Map every generated assistant turn to the player's action that preceded it, so it can be
+// rendered as its own "your move" page. Hidden "continue" turns never get a divider.
+function buildVnPlayerMoveMap(
+  messages: StoryMessage[],
+  hiddenUserMessageIds: number[],
+): Map<number, VnPlayerMove> {
+  const hidden = new Set(hiddenUserMessageIds)
+  const map = new Map<number, VnPlayerMove>()
+  let pendingUserMove: VnPlayerMove | null = null
+  for (const message of messages) {
+    if (message.role === 'user') {
+      const content = toStoryText(message.content).replace(/\r\n/g, '\n').trim()
+      pendingUserMove =
+        !content || content === STORY_CONTINUE_PROMPT || hidden.has(message.id) ? null : { content }
+    } else if (message.role === 'assistant') {
+      if (message.id > 0 && pendingUserMove) {
+        map.set(message.id, pendingUserMove)
+      }
+      pendingUserMove = null
+    }
+  }
+  return map
+}
+
+const VN_PLAYER_MOVE_BEAT_ID_BASE = -2_000_000
+
+function makeVnPlayerMoveBeat(referenceBeat: StoryNovelBeat, move: VnPlayerMove): StoryNovelBeat {
+  return {
+    id: VN_PLAYER_MOVE_BEAT_ID_BASE - Math.abs(referenceBeat.message_id),
+    game_id: referenceBeat.game_id,
+    message_id: referenceBeat.message_id,
+    // Negative order keeps the divider ahead of the turn's narrator beats.
+    order_index: -1,
+    kind: 'narration',
+    speaker_name: null,
+    speaker_character_id: null,
+    emotion: null,
+    text: move.content,
+    sprite_url: null,
+    sprite_incognito: false,
+    sprite_gender: null,
+    scene_characters: [],
+    is_player_move: true,
+    created_at: referenceBeat.created_at,
+    updated_at: referenceBeat.updated_at,
+  }
+}
+
+// Interleave synthetic "your move" divider beats before each generated turn's beats. Input is
+// expected already grouped by message_id (normalizeStoryVNBeats / mergeStoryVNBeatsById sort it).
+function applyVnPlayerMoves(
+  beats: StoryNovelBeat[],
+  playerMoveByMessageId: Map<number, VnPlayerMove>,
+): StoryNovelBeat[] {
+  if (playerMoveByMessageId.size === 0) {
+    return beats
+  }
+  const result: StoryNovelBeat[] = []
+  let lastMessageId: number | null = null
+  for (const beat of beats) {
+    if (beat.message_id !== lastMessageId) {
+      lastMessageId = beat.message_id
+      const move = playerMoveByMessageId.get(beat.message_id)
+      if (move) {
+        result.push(makeVnPlayerMoveBeat(beat, move))
+      }
+    }
+    result.push(beat)
+  }
+  return result
+}
+
+function buildVnDisplayBeats(
+  baseBeats: StoryNovelBeat[],
+  messages: StoryMessage[],
+  hiddenUserMessageIds: number[],
+  withPlayerMoves: boolean,
+): StoryNovelBeat[] {
+  if (!withPlayerMoves || baseBeats.length === 0) {
+    return baseBeats
+  }
+  return applyVnPlayerMoves(baseBeats, buildVnPlayerMoveMap(messages, hiddenUserMessageIds))
 }
 
 function isOpeningOnlyVisualNovelSnapshot(
@@ -6207,55 +6673,6 @@ function StoryRightPanelLoadingSkeleton() {
   )
 }
 
-function StoryTurnProgressIndicator({
-  label,
-  mobile,
-}: {
-  label: string
-  mobile: boolean
-}) {
-  return (
-    <Stack
-      direction="row"
-      alignItems="center"
-      spacing={0.65}
-      sx={{
-        display: mobile ? { xs: 'flex', sm: 'none' } : { xs: 'none', sm: 'flex' },
-        alignSelf: mobile ? 'auto' : 'center',
-        flex: mobile ? '0 1 auto' : '0 0 auto',
-        width: 'auto',
-        maxWidth: mobile ? 'calc(100% - 72px)' : 'min(34vw, 240px)',
-        minWidth: 0,
-        mr: mobile ? 0 : 0.3,
-        px: 0.85,
-        py: 0.32,
-        borderRadius: '999px',
-        color: 'var(--morius-text-secondary)',
-        border: '1px solid color-mix(in srgb, var(--morius-accent) 20%, transparent)',
-        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
-      }}
-    >
-      <Box
-        className="morius-generating-pulse-dot"
-        sx={{ width: '6px !important', height: '6px !important', flex: '0 0 auto' }}
-      />
-      <Typography
-        sx={{
-          minWidth: 0,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          fontSize: { xs: '0.68rem', sm: '0.72rem' },
-          lineHeight: 1.1,
-          fontWeight: 700,
-        }}
-      >
-        {label}
-      </Typography>
-    </Stack>
-  )
-}
-
 function ComposerStatusIndicator({
   label,
   isBusy,
@@ -6384,6 +6801,33 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       opacity: 0.46,
       color: options?.highlighted ? 'var(--morius-accent)' : secondaryGameButtonColor,
       backgroundColor: 'transparent !important',
+    },
+  })
+  const getVnStepNavButtonSx = () => ({
+    width: { xs: 28, md: 30 },
+    height: { xs: 28, md: 30 },
+    minWidth: { xs: 28, md: 30 },
+    minHeight: { xs: 28, md: 30 },
+    p: 0,
+    borderRadius: '10px',
+    fontSize: '1.2rem',
+    lineHeight: 1,
+    fontWeight: 700,
+    color: 'var(--morius-title-text)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    transition: 'background-color 160ms ease, opacity 160ms ease, transform 160ms ease',
+    '&:hover': {
+      backgroundColor: 'rgba(255,255,255,0.1)',
+      transform: 'translateY(-1px)',
+    },
+    '&:active': {
+      transform: 'translateY(1px)',
+    },
+    '&:disabled': {
+      opacity: 0.32,
+      color: 'var(--morius-text-secondary)',
+      backgroundColor: 'rgba(255,255,255,0.03)',
     },
   })
   const composerActionImageSx = {
@@ -6940,7 +7384,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [vnBeats, setVnBeats] = useState<StoryNovelBeat[]>([])
   const [vnBeatIndex, setVnBeatIndex] = useState(0)
   const [pendingVnFocusMessageId, setPendingVnFocusMessageId] = useState<number | null>(null)
+  // Deferred initial VN placement resolved against the interleaved display beats: 'opening'
+  // pins the first page, 'latest' jumps to the freshest step (admin's "Ваш ход" or last beat).
+  const [pendingVnInitialFocus, setPendingVnInitialFocus] = useState<'opening' | 'latest' | null>(null)
   const [currentSceneBackground, setCurrentSceneBackground] = useState<StorySceneBackground | null>(null)
+  const [novelPlaces, setNovelPlaces] = useState<StorySceneBackground[]>([])
+  const [novelPlaceTemplates, setNovelPlaceTemplates] = useState<StoryPlaceTemplate[]>([])
+  const [isNovelPlacesLoading, setIsNovelPlacesLoading] = useState(false)
+  const [isNovelPlaceSaving, setIsNovelPlaceSaving] = useState(false)
+  const [novelPlacesError, setNovelPlacesError] = useState('')
   const [isGeneratingSceneBackground, setIsGeneratingSceneBackground] = useState(false)
   const [sceneBackgroundError, setSceneBackgroundError] = useState('')
   const [canonicalStatePipelineEnabled, setCanonicalStatePipelineEnabled] = useState(true)
@@ -7276,26 +7728,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
   }, [messages])
 
-  useEffect(() => {
-    if (pendingVnFocusMessageId === null) {
-      return
-    }
-    const targetIndex = vnBeats.findIndex((beat) => beat.message_id === pendingVnFocusMessageId)
-    if (targetIndex < 0) {
-      return
-    }
-    setVnBeatIndex(targetIndex)
-    setPendingVnFocusMessageId(null)
-  }, [pendingVnFocusMessageId, vnBeats])
-
-  useEffect(() => {
-    setVnBeatIndex((previousIndex) => {
-      if (vnBeats.length <= 0) {
-        return 0
-      }
-      return Math.min(Math.max(previousIndex, 0), vnBeats.length - 1)
-    })
-  }, [vnBeats.length])
+  // VN beat-index positioning effects live after the display beat array is derived (search for
+  // "VN positioning effects"), since they must resolve indices against the interleaved beats.
 
   const activeAmbientProfile = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -7733,6 +8167,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const canUseStoryGraph = isAdministrator || user.role.trim().toLowerCase() === 'moderator'
   const effectiveAmbientEnabled = isAdministrator && ambientEnabled
   const isVisualNovelMode = activeGameSummary?.game_mode === 'visual_novel'
+  // The rebuilt VN tech demo remains administrator-only until the product owner
+  // explicitly opens it to players. Non-admins keep the established VN shell.
+  const isVisualNovelTechDemoEnabled = isVisualNovelMode && isAdministrator
   const visualNovelOpeningFallbackBlocks = useMemo(
     () => (isVisualNovelMode ? parseAssistantMessageBlocks(quickStartIntro) : []),
     [isVisualNovelMode, quickStartIntro],
@@ -7746,15 +8183,43 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [activeGameSummary, isVisualNovelMode, visualNovelOpeningFallbackBlocks, vnBeats.length],
   )
   const visualNovelBeats = useMemo(
-    () => (isVisualNovelMode ? (vnBeats.length > 0 ? vnBeats : visualNovelOpeningFallbackBeats) : []),
-    [isVisualNovelMode, visualNovelOpeningFallbackBeats, vnBeats],
+    () => {
+      if (!isVisualNovelMode) {
+        return []
+      }
+      const baseBeats = vnBeats.length > 0 ? vnBeats : visualNovelOpeningFallbackBeats
+      // Interleave a "your move" divider before every generated turn so the player's action is
+      // its own readable page. The opening fallback has no preceding move, so it stays untouched.
+      return buildVnDisplayBeats(
+        baseBeats,
+        messages,
+        hiddenUserMessageIds,
+        isVisualNovelTechDemoEnabled && vnBeats.length > 0,
+      )
+    },
+    [
+      isVisualNovelMode,
+      isVisualNovelTechDemoEnabled,
+      visualNovelOpeningFallbackBeats,
+      vnBeats,
+      messages,
+      hiddenUserMessageIds,
+    ],
   )
-  const currentVnBeatIndex = visualNovelBeats.length > 0
-    ? Math.min(Math.max(vnBeatIndex, 0), visualNovelBeats.length - 1)
-    : 0
-  const currentVnBeat = visualNovelBeats[currentVnBeatIndex] ?? null
-  const isVisualNovelInputLocked =
-    isVisualNovelMode && visualNovelBeats.length > 0 && currentVnBeatIndex < visualNovelBeats.length - 1
+  const visualNovelStepCount = isVisualNovelTechDemoEnabled
+    ? visualNovelBeats.length + 1
+    : visualNovelBeats.length
+  const visualNovelMaxStepIndex = isVisualNovelTechDemoEnabled
+    ? visualNovelBeats.length
+    : Math.max(visualNovelBeats.length - 1, 0)
+  const currentVnBeatIndex = Math.min(Math.max(vnBeatIndex, 0), visualNovelMaxStepIndex)
+  const isVisualNovelTurnInputStep =
+    isVisualNovelTechDemoEnabled && currentVnBeatIndex === visualNovelBeats.length
+  const currentVnBeat = isVisualNovelTurnInputStep ? null : visualNovelBeats[currentVnBeatIndex] ?? null
+  const currentVnSpriteBeat = currentVnBeat ?? visualNovelBeats.at(-1) ?? null
+  const isVisualNovelInputLocked = isVisualNovelTechDemoEnabled
+    ? !isVisualNovelTurnInputStep
+    : isVisualNovelMode && visualNovelBeats.length > 0 && currentVnBeatIndex < visualNovelBeats.length - 1
   // Mode selection controls the shell. Beats control only its current page; an empty/new VN
   // must never fall back to the legacy RPG transcript while the opening is being bootstrapped.
   const shouldShowVisualNovelStage = isVisualNovelMode
@@ -7773,11 +8238,39 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setVnBeatIndex((previousIndex) => Math.max(0, previousIndex - 1))
   }, [])
   const goToNextVnBeat = useCallback(() => {
-    setVnBeatIndex((previousIndex) => Math.min(Math.max(visualNovelBeats.length - 1, 0), previousIndex + 1))
-  }, [visualNovelBeats.length])
+    setVnBeatIndex((previousIndex) => Math.min(visualNovelMaxStepIndex, previousIndex + 1))
+  }, [visualNovelMaxStepIndex])
   const jumpToLatestVnBeat = useCallback(() => {
-    setVnBeatIndex(Math.max(0, visualNovelBeats.length - 1))
-  }, [visualNovelBeats.length])
+    setVnBeatIndex(visualNovelMaxStepIndex)
+  }, [visualNovelMaxStepIndex])
+
+  // VN positioning effects. These resolve against `visualNovelBeats` (the interleaved display
+  // array) so that focusing a just-generated turn lands on its "your move" divider — the start
+  // of that turn — rather than the end of the game or a raw beat index.
+  useEffect(() => {
+    if (pendingVnFocusMessageId === null) {
+      return
+    }
+    const targetIndex = visualNovelBeats.findIndex((beat) => beat.message_id === pendingVnFocusMessageId)
+    if (targetIndex < 0) {
+      return
+    }
+    setVnBeatIndex(targetIndex)
+    setPendingVnFocusMessageId(null)
+  }, [pendingVnFocusMessageId, visualNovelBeats])
+
+  useEffect(() => {
+    if (pendingVnInitialFocus === null) {
+      return
+    }
+    setVnBeatIndex(pendingVnInitialFocus === 'opening' ? 0 : visualNovelMaxStepIndex)
+    setPendingVnInitialFocus(null)
+  }, [pendingVnInitialFocus, visualNovelMaxStepIndex, visualNovelBeats])
+
+  useEffect(() => {
+    // Keep the persisted index in bounds when beats grow or shrink (undo/redo, reroll).
+    setVnBeatIndex((previousIndex) => Math.min(Math.max(previousIndex, 0), visualNovelMaxStepIndex))
+  }, [visualNovelMaxStepIndex])
   const canUndoAssistantStep =
     !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
@@ -7820,11 +8313,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     world: { title: 'Мир' },
     instructions: { title: 'Правила' },
     plot: { title: 'Сюжет и память' },
+    places: { title: 'Места', eyebrow: 'Фоны сцены' },
     engine: { title: 'Движок', eyebrow: 'Продвинутое' },
     appearance: { title: 'Оформление', eyebrow: 'Фон · шрифт' },
   }
   const rightPanelModeMeta = rightPanelSectionMeta[rightPanelSection]
   const rightPanelContentKey = `${rightPanelSection}-${rightPanelMode}-${activeAiPanelTab}-${activeWorldPanelTab}-${cardsPanelTab}`
+  useEffect(() => {
+    if (isVisualNovelTechDemoEnabled || rightPanelSection !== 'places') {
+      return
+    }
+    setRightPanelSection('narrator')
+    setRightPanelMode('ai')
+  }, [isVisualNovelTechDemoEnabled, rightPanelSection])
   const environmentTimeEnabled = Boolean(
     activeGameSummary?.environment_time_enabled ?? activeGameSummary?.environment_enabled,
   )
@@ -11108,8 +11609,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setVnBeats([])
     setVnBeatIndex(0)
     setCurrentSceneBackground(null)
+    setNovelPlaces([])
+    setNovelPlaceTemplates([])
+    setNovelPlacesError('')
     setSceneBackgroundError('')
     setPendingVnFocusMessageId(null)
+    setPendingVnInitialFocus(null)
     setHasOlderStoryMessages(false)
     setTurnImageByAssistantMessageId({})
     setAmbientByAssistantMessageId({})
@@ -11191,11 +11696,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         if (!appendOlderMessages) {
           setCurrentSceneBackground(payload.current_scene_background ?? null)
         }
-        if (!appendOlderMessages) {
-          setVnBeatIndex(
-            isOpeningOnlyVisualNovelSnapshot(payload.game, normalizedMessages)
-              ? 0
-              : Math.max(0, normalizedVnBeats.length - 1),
+        if (!appendOlderMessages && !silent) {
+          // Only a user-facing (non-silent) load repositions the VN page. Silent reconcile /
+          // sync reloads after a turn must NOT yank the reader to the latest step — the post-turn
+          // focus already placed them at the START of the generated turn. Defer the actual index
+          // to the positioning effect so it resolves against the interleaved display beats.
+          setPendingVnFocusMessageId(null)
+          setPendingVnInitialFocus(
+            isOpeningOnlyVisualNovelSnapshot(payload.game, normalizedMessages) ? 'opening' : 'latest',
           )
         }
         if (appendOlderMessages && normalizedMessages.length > 0) {
@@ -11295,7 +11803,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       }
     },
-    [applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken],
+    [applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, user.role],
   )
 
   useEffect(() => {
@@ -12043,9 +12551,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           assistantTurnsLimit: Math.max(visibleAssistantTurns, STORY_VISIBLE_ASSISTANT_TURNS_INITIAL),
         })
         const nextBeats = normalizeStoryVNBeats(snapshot.novel_beats)
-        const targetBeatIndex = nextBeats.findIndex((beat) => beat.message_id === messageId)
+        const hasTargetBeat = nextBeats.some((beat) => beat.message_id === messageId)
         setVnBeats(nextBeats)
-        setVnBeatIndex(targetBeatIndex >= 0 ? targetBeatIndex : Math.max(0, nextBeats.length - 1))
+        // Defer positioning to the effects so indices resolve against the interleaved display
+        // beats: focus the mutated turn's first page, or fall back to the latest step.
+        if (hasTargetBeat) {
+          setPendingVnInitialFocus(null)
+          setPendingVnFocusMessageId(messageId)
+        } else {
+          setPendingVnFocusMessageId(null)
+          setPendingVnInitialFocus('latest')
+        }
         return true
       } catch {
         return false
@@ -13819,6 +14335,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (section === 'appearance') {
         setIsAppearanceSettingsExpanded(true)
       }
+      return
+    }
+
+    if (section === 'places') {
+      setRightPanelMode('world')
       return
     }
 
@@ -15935,25 +16456,175 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isUndoingAssistantStep,
   ])
 
+  const mergeNovelPlace = useCallback((place: StorySceneBackground) => {
+    setNovelPlaces((previousPlaces) => {
+      const hasPlace = previousPlaces.some((item) => item.id === place.id)
+      const nextPlaces = hasPlace
+        ? previousPlaces.map((item) => (item.id === place.id ? place : item))
+        : [place, ...previousPlaces]
+      return place.is_current
+        ? nextPlaces.map((item) => ({ ...item, is_current: item.id === place.id }))
+        : nextPlaces
+    })
+    if (place.is_current) {
+      setCurrentSceneBackground(place)
+    }
+  }, [])
 
-  const handleGenerateSceneBackground = useCallback(() => {
+  const loadNovelPlaces = useCallback(async () => {
+    if (!activeGameId || !isVisualNovelTechDemoEnabled) {
+      setNovelPlaces([])
+      setNovelPlaceTemplates([])
+      return
+    }
+    setIsNovelPlacesLoading(true)
+    setNovelPlacesError('')
+    try {
+      const [places, templates] = await Promise.all([
+        listStoryNovelPlaces({ token: authToken, gameId: activeGameId }),
+        listStoryPlaceTemplates({ token: authToken }),
+      ])
+      setNovelPlaces(places)
+      setNovelPlaceTemplates(templates)
+      const currentPlace = places.find((place) => place.is_current) ?? null
+      if (currentPlace) {
+        setCurrentSceneBackground(currentPlace)
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить места'
+      setNovelPlacesError(detail)
+    } finally {
+      setIsNovelPlacesLoading(false)
+    }
+  }, [activeGameId, authToken, isVisualNovelTechDemoEnabled])
+
+  useEffect(() => {
+    void loadNovelPlaces()
+  }, [loadNovelPlaces])
+
+  const handleGenerateSceneBackground = useCallback(async (placeId?: number) => {
     if (!activeGameId || isGeneratingSceneBackground || isStoryTurnBusy || isCreatingGame || isUndoingAssistantStep) {
       return
     }
     setSceneBackgroundError('')
+    setNovelPlacesError('')
     setIsGeneratingSceneBackground(true)
-    void generateStoryNovelBackground({ token: authToken, gameId: activeGameId })
-      .then((background) => {
-        setCurrentSceneBackground(background)
+    try {
+      const background = await generateStoryNovelBackground({
+        token: authToken,
+        gameId: activeGameId,
+        placeId,
       })
-      .catch((error) => {
-        const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать фон сцены'
-        setSceneBackgroundError(detail)
+      mergeNovelPlace(background)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать фон сцены'
+      setSceneBackgroundError(detail)
+      setNovelPlacesError(detail)
+      throw error
+    } finally {
+      setIsGeneratingSceneBackground(false)
+    }
+  }, [
+    activeGameId,
+    authToken,
+    isCreatingGame,
+    isGeneratingSceneBackground,
+    isStoryTurnBusy,
+    isUndoingAssistantStep,
+    mergeNovelPlace,
+  ])
+
+  const handleSaveNovelPlace = useCallback(async (place: NovelPlaceSavePayload) => {
+    if (!activeGameId || isNovelPlaceSaving || !isVisualNovelTechDemoEnabled) {
+      return
+    }
+    setIsNovelPlaceSaving(true)
+    setNovelPlacesError('')
+    try {
+      const savedPlace = place.id
+        ? await updateStoryNovelPlace({
+            token: authToken,
+            gameId: activeGameId,
+            placeId: place.id,
+            title: place.title,
+            triggers: place.triggers,
+            imageUrl: place.imageUrl,
+          })
+        : await createStoryNovelPlace({
+            token: authToken,
+            gameId: activeGameId,
+            title: place.title,
+            triggers: place.triggers,
+            imageUrl: place.imageUrl,
+          })
+      mergeNovelPlace(savedPlace)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить место'
+      setNovelPlacesError(detail)
+      throw error
+    } finally {
+      setIsNovelPlaceSaving(false)
+    }
+  }, [activeGameId, authToken, isNovelPlaceSaving, isVisualNovelTechDemoEnabled, mergeNovelPlace])
+
+  const handleSelectNovelPlace = useCallback(async (placeId: number) => {
+    if (!activeGameId || isNovelPlaceSaving || !isVisualNovelTechDemoEnabled) {
+      return
+    }
+    setIsNovelPlaceSaving(true)
+    setNovelPlacesError('')
+    try {
+      const selectedPlace = await selectStoryNovelPlace({ token: authToken, gameId: activeGameId, placeId })
+      mergeNovelPlace(selectedPlace)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось выбрать место'
+      setNovelPlacesError(detail)
+      throw error
+    } finally {
+      setIsNovelPlaceSaving(false)
+    }
+  }, [activeGameId, authToken, isNovelPlaceSaving, isVisualNovelTechDemoEnabled, mergeNovelPlace])
+
+  const handleDeleteNovelPlace = useCallback(async (placeId: number) => {
+    if (!activeGameId || isNovelPlaceSaving || !isVisualNovelTechDemoEnabled) {
+      return
+    }
+    setIsNovelPlaceSaving(true)
+    setNovelPlacesError('')
+    try {
+      await deleteStoryNovelPlace({ token: authToken, gameId: activeGameId, placeId })
+      setNovelPlaces((previousPlaces) => previousPlaces.filter((place) => place.id !== placeId))
+      setCurrentSceneBackground((currentPlace) => currentPlace?.id === placeId ? null : currentPlace)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось удалить место'
+      setNovelPlacesError(detail)
+      throw error
+    } finally {
+      setIsNovelPlaceSaving(false)
+    }
+  }, [activeGameId, authToken, isNovelPlaceSaving, isVisualNovelTechDemoEnabled])
+
+  const handleImportNovelPlace = useCallback(async (templateId: number) => {
+    if (!activeGameId || isNovelPlaceSaving || !isVisualNovelTechDemoEnabled) {
+      return
+    }
+    setIsNovelPlaceSaving(true)
+    setNovelPlacesError('')
+    try {
+      const importedPlace = await importStoryNovelPlace({
+        token: authToken,
+        gameId: activeGameId,
+        libraryPlaceId: templateId,
       })
-      .finally(() => {
-        setIsGeneratingSceneBackground(false)
-      })
-  }, [activeGameId, authToken, isCreatingGame, isGeneratingSceneBackground, isStoryTurnBusy, isUndoingAssistantStep])
+      mergeNovelPlace(importedPlace)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось добавить место из библиотеки'
+      setNovelPlacesError(detail)
+      throw error
+    } finally {
+      setIsNovelPlaceSaving(false)
+    }
+  }, [activeGameId, authToken, isNovelPlaceSaving, isVisualNovelTechDemoEnabled, mergeNovelPlace])
 
   const handleSaveTurnImageToGallery = useCallback(
     async (turnImage: StoryTurnImageEntry) => {
@@ -16354,6 +17025,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             }
             if (payload.current_scene_background !== undefined) {
               setCurrentSceneBackground(payload.current_scene_background)
+              if (payload.current_scene_background) {
+                mergeNovelPlace(payload.current_scene_background)
+              } else {
+                // Scene moved to an unremembered location: no place is current anymore, so the
+                // stage drops to the neutral gradient and the places panel clears its marker.
+                setNovelPlaces((previousPlaces) =>
+                  previousPlaces.some((place) => place.is_current)
+                    ? previousPlaces.map((place) => ({ ...place, is_current: false }))
+                    : previousPlaces,
+                )
+              }
             }
             if (payload.ambient) {
               const normalizedAmbient = normalizeStoryAmbientProfile(payload.ambient)
@@ -16575,6 +17257,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       authToken,
       loadGameById,
       memoryOptimizationEnabled,
+      mergeNovelPlace,
+      onNavigate,
       onUserUpdate,
       responseMaxTokensEnabled,
       responseMaxTokens,
@@ -17544,8 +18228,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           ? `Карточки · ${activeInstructionCardsCount}/${instructionCards.length}`
           : rightPanelSection === 'plot'
             ? `Карточки · ${plotCards.length}/${importantMemoryBlocks.length}`
+            : rightPanelSection === 'places'
+              ? `Фоны · ${novelPlaces.length}`
             : rightPanelModeMeta.eyebrow
-  const rightPanelPrimarySections: RightPanelSection[] = ['narrator', 'characters', 'world', 'instructions', 'plot']
+  const rightPanelPrimarySections: RightPanelSection[] = [
+    'narrator',
+    'characters',
+    'world',
+    'instructions',
+    'plot',
+    ...(isVisualNovelTechDemoEnabled ? (['places'] as const) : []),
+  ]
   const rightPanelUtilitySections: RightPanelSection[] = ['engine', 'appearance']
   const getRightPanelSectionLabel = (section: RightPanelSection) => rightPanelSectionMeta[section].title
   const renderRightPanelSectionIcon = (section: RightPanelSection) => {
@@ -17563,6 +18256,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     if (section === 'plot') {
       return <ThemedSvgIcon markup={cardsPlotTabIconMarkup} size={20} sx={{ color: 'inherit' }} />
+    }
+    if (section === 'places') {
+      return (
+        <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
+          <g fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 21s6-5.1 6-11a6 6 0 1 0-12 0c0 5.9 6 11 6 11Z" />
+            <circle cx="12" cy="10" r="2.2" />
+          </g>
+        </SvgIcon>
+      )
     }
     if (section === 'engine') {
       return (
@@ -18868,7 +19571,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           >
           {shouldShowRightPanelLoadingSkeleton ? <StoryRightPanelLoadingSkeleton /> : null}
 
-          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' ? (
+          {!shouldShowRightPanelLoadingSkeleton && rightPanelSection === 'places' && isVisualNovelTechDemoEnabled ? (
+            <NovelPlacesPanel
+              places={novelPlaces}
+              currentPlace={currentSceneBackground}
+              profileTemplates={novelPlaceTemplates}
+              loading={isNovelPlacesLoading}
+              saving={isNovelPlaceSaving}
+              generating={isGeneratingSceneBackground}
+              error={novelPlacesError || sceneBackgroundError}
+              onRefresh={loadNovelPlaces}
+              onGenerate={handleGenerateSceneBackground}
+              onSelect={handleSelectNovelPlace}
+              onSave={handleSaveNovelPlace}
+              onDelete={handleDeleteNovelPlace}
+              onImport={handleImportNovelPlace}
+            />
+          ) : null}
+
+          {!shouldShowRightPanelLoadingSkeleton && rightPanelSection !== 'places' && rightPanelMode === 'world' ? (
             <Stack data-tour-id="story-world-cards-panel" spacing={1.35} sx={{ minHeight: 0, flex: 1 }}>
               <Box
                 sx={{
@@ -25199,12 +25920,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           top: 'var(--morius-header-menu-top)',
           left: 0,
           right: 0,
-          bottom: `${STORY_MESSAGES_VIEWPORT_FALLBACK_BOTTOM}px`,
-          px: 'var(--morius-interface-gap)',
-          pb: 'var(--morius-interface-gap)',
+          bottom: isVisualNovelTechDemoEnabled ? 0 : `${STORY_MESSAGES_VIEWPORT_FALLBACK_BOTTOM}px`,
+          px: isVisualNovelTechDemoEnabled ? 0 : 'var(--morius-interface-gap)',
+          pb: isVisualNovelTechDemoEnabled ? 0 : 'var(--morius-interface-gap)',
           display: 'flex',
           justifyContent: 'center',
-          overflowY: 'auto',
+          overflowY: isVisualNovelTechDemoEnabled ? 'hidden' : 'auto',
           overflowX: 'hidden',
           overscrollBehavior: 'contain',
           zIndex: 1,
@@ -25213,6 +25934,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         <Box
           sx={[
             storyStageSx,
+            isVisualNovelTechDemoEnabled
+              ? {
+                  maxWidth: 'none',
+                  height: '100%',
+                  minHeight: '100%',
+                  pt: 0,
+                }
+              : null,
             shouldUseStoryIntroLayout
               ? {
                   minHeight: '100%',
@@ -25295,11 +26024,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
           <Box
             sx={{
-              px: { xs: 0.3, md: 0.8 },
-              pb: { xs: 1.5, md: 1.8 },
+              px: isVisualNovelTechDemoEnabled ? 0 : { xs: 0.3, md: 0.8 },
+              pb: isVisualNovelTechDemoEnabled ? 0 : { xs: 1.5, md: 1.8 },
               display: 'flex',
               flexDirection: 'column',
               alignItems: shouldUseStoryIntroLayout ? 'center' : 'stretch',
+              flex: isVisualNovelTechDemoEnabled ? 1 : undefined,
+              minHeight: isVisualNovelTechDemoEnabled ? 0 : undefined,
             }}
           >
             {shouldShowStoryMessagesLoadingSkeleton ? (
@@ -25313,11 +26044,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             ) : null}
 
             {!shouldShowStoryMessagesLoadingSkeleton && !isLoadingGameMessages && shouldShowVisualNovelStage ? (
-              <Box sx={{ mb: 'var(--morius-story-message-gap)' }}>
+              <Box
+                sx={{
+                  mb: isVisualNovelTechDemoEnabled ? 0 : 'var(--morius-story-message-gap)',
+                  flex: isVisualNovelTechDemoEnabled ? 1 : undefined,
+                  minHeight: 0,
+                  ...(isVisualNovelTechDemoEnabled ? { display: 'flex', flexDirection: 'column' } : {}),
+                }}
+              >
                 <VisualNovelStage
                   beats={visualNovelBeats}
                   beatIndex={currentVnBeatIndex}
                   currentBeat={currentVnBeat}
+                  spriteBeat={currentVnSpriteBeat}
+                  stepCount={visualNovelStepCount}
+                  isInputStep={isVisualNovelTurnInputStep}
+                  techDemoEnabled={isVisualNovelTechDemoEnabled}
                   background={currentSceneBackground}
                   isAdmin={isAdministrator}
                   onPrevious={goToPreviousVnBeat}
@@ -26624,15 +27366,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           position: 'fixed',
           left: '50%',
           transform: 'translateX(-50%)',
-          bottom: 'var(--morius-interface-gap)',
-          width: 'calc(100% - var(--morius-interface-gap) - var(--morius-interface-gap))',
-          maxWidth: STORY_STAGE_MAX_WIDTH,
+          bottom: isVisualNovelTechDemoEnabled ? { xs: 10, sm: 16, md: 22 } : 'var(--morius-interface-gap)',
+          width: isVisualNovelTechDemoEnabled
+            ? { xs: 'calc(100% - 20px)', sm: 'calc(100% - 36px)', md: 'min(1180px, calc(100% - 48px))' }
+            : 'calc(100% - var(--morius-interface-gap) - var(--morius-interface-gap))',
+          maxWidth: isVisualNovelTechDemoEnabled ? 1180 : STORY_STAGE_MAX_WIDTH,
           zIndex: 20,
           visibility: isVisualNovelInputLocked ? 'hidden' : 'visible',
           opacity: isVisualNovelInputLocked ? 0 : 1,
           pointerEvents: isVisualNovelInputLocked ? 'none' : 'auto',
           transition: 'opacity 160ms ease, visibility 160ms ease',
-          ...(composerAmbientVisual
+          ...(composerAmbientVisual && !isVisualNovelTechDemoEnabled
             ? {
                 isolation: 'isolate',
                 '@keyframes morius-composer-ambient-pulse': {
@@ -26699,12 +27443,79 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }}
       >
         <Stack
-          spacing={0.72}
+          spacing={isVisualNovelTechDemoEnabled ? 0.85 : 0.72}
           sx={{
             position: 'relative',
             zIndex: 1,
+            ...(isVisualNovelTechDemoEnabled
+              ? {
+                  minHeight: { xs: 198, md: 226 },
+                  p: { xs: 1.15, sm: 1.4, md: 1.7 },
+                  borderRadius: { xs: '18px', md: '22px' },
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'rgba(9, 10, 15, 0.8)',
+                  boxShadow: '0 22px 70px rgba(0,0,0,0.38)',
+                  backdropFilter: 'blur(22px) saturate(116%)',
+                }
+              : {}),
           }}
         >
+          {isVisualNovelTechDemoEnabled ? (
+            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+              <Typography
+                sx={{
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  color: 'var(--morius-title-text)',
+                  fontSize: { xs: '0.98rem', md: '1.08rem' },
+                  lineHeight: 1.15,
+                  fontWeight: 900,
+                }}
+              >
+                Ваш ход
+              </Typography>
+              <Stack direction="row" alignItems="center" spacing={{ xs: 0.3, md: 0.45 }} sx={{ flexShrink: 0 }}>
+                <Tooltip arrow disableInteractive placement="top" title="Предыдущий шаг">
+                  <span>
+                    <IconButton
+                      aria-label="Предыдущий шаг"
+                      onClick={goToPreviousVnBeat}
+                      disabled={currentVnBeatIndex <= 0}
+                      sx={getVnStepNavButtonSx()}
+                    >
+                      {'‹'}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Typography
+                  sx={{
+                    minWidth: 38,
+                    textAlign: 'center',
+                    color: 'var(--morius-text-secondary)',
+                    fontSize: '0.76rem',
+                    fontWeight: 800,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {visualNovelStepCount > 0 ? `${currentVnBeatIndex + 1}/${visualNovelStepCount}` : '1/1'}
+                </Typography>
+                <Tooltip arrow disableInteractive placement="top" title="Следующий шаг">
+                  <span>
+                    <IconButton
+                      aria-label="Следующий шаг"
+                      onClick={goToNextVnBeat}
+                      disabled={currentVnBeatIndex >= visualNovelMaxStepIndex}
+                      sx={getVnStepNavButtonSx()}
+                    >
+                      {'›'}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
+            </Stack>
+          ) : null}
           <Box
             data-tour-id="story-composer-controls"
             sx={{
@@ -26836,16 +27647,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   arrow
                   disableInteractive
                   placement="top"
-                  title={hasLatestTurnImage ? 'Перегенерировать картинку' : 'Сгенерировать картинку'}
+                  title={isVisualNovelTechDemoEnabled
+                    ? currentSceneBackground ? 'Перегенерировать фон' : 'Сгенерировать фон'
+                    : hasLatestTurnImage ? 'Перегенерировать картинку' : 'Сгенерировать картинку'}
                 >
                   <span>
                     <IconButton
-                      aria-label={hasLatestTurnImage ? 'Перегенерировать картинку' : 'Сгенерировать картинку'}
-                      onClick={handleGenerateLatestTurnImage}
-                      disabled={!canGenerateLatestTurnImage}
+                      aria-label={isVisualNovelTechDemoEnabled
+                        ? currentSceneBackground ? 'Перегенерировать фон' : 'Сгенерировать фон'
+                        : hasLatestTurnImage ? 'Перегенерировать картинку' : 'Сгенерировать картинку'}
+                      onClick={isVisualNovelTechDemoEnabled
+                        ? () => {
+                            void handleGenerateSceneBackground().catch(() => undefined)
+                          }
+                        : handleGenerateLatestTurnImage}
+                      disabled={isVisualNovelTechDemoEnabled ? !canGenerateSceneBackground : !canGenerateLatestTurnImage}
                       sx={getComposerTopActionButtonSx()}
                     >
-                      {isLatestTurnImageLoading ? (
+                      {isVisualNovelTechDemoEnabled && isGeneratingSceneBackground ? (
+                        <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
+                      ) : isVisualNovelTechDemoEnabled ? (
+                        <NovelSceneBackdropIcon />
+                      ) : isLatestTurnImageLoading ? (
                         <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
                       ) : (
                         <AssetMaskIcon
@@ -26898,32 +27721,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Tooltip>
               </Stack>
             </Box>
-            {false && isFinalizingStoryTurn ? (
-              <Box
-                sx={{
-                  display: { xs: 'none', sm: 'block' },
-                  position: 'absolute',
-                  top: '50%',
-                  right: 0,
-                  transform: 'translateY(-50%)',
-                  zIndex: 2,
-                  pointerEvents: 'none',
-                  maxWidth: 'min(34vw, 240px)',
-                }}
-              >
-                <StoryTurnProgressIndicator label={storyPostprocessLabel} mobile={false} />
-              </Box>
-            ) : null}
           </Box>
           <Box
             data-tour-id="story-composer-input"
             className={isFinalizingStoryTurn ? 'morius-composer-waiting' : undefined}
             sx={{
               width: '100%',
-              borderRadius: '18px',
-              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
-              background:
-                'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 96%, #000 4%) 0%, color-mix(in srgb, var(--morius-card-bg) 98%, #000 2%) 100%)',
+              borderRadius: isVisualNovelTechDemoEnabled ? '14px' : '18px',
+              border: isVisualNovelTechDemoEnabled
+                ? '1px solid rgba(255,255,255,0.09)'
+                : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
+              background: isVisualNovelTechDemoEnabled
+                ? 'rgba(2,3,7,0.32)'
+                : 'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 96%, #000 4%) 0%, color-mix(in srgb, var(--morius-card-bg) 98%, #000 2%) 100%)',
               position: 'relative',
               overflow: 'hidden',
               transition: 'border-color 160ms ease, box-shadow 160ms ease, background 160ms ease',
@@ -26947,8 +27757,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   sx={{
                     position: 'absolute',
                     left: { xs: 12, sm: 14 },
-                    top: '50%',
-                    transform: 'translateY(-50%)',
+                    top: isVisualNovelTechDemoEnabled ? { xs: 16, md: 18 } : '50%',
+                    transform: isVisualNovelTechDemoEnabled ? 'none' : 'translateY(-50%)',
                     width: 42,
                     height: 42,
                     minWidth: 42,
@@ -27088,8 +27898,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               sx={{
                 display: 'block',
                 width: '100%',
-                minHeight: `${COMPOSER_INPUT_MIN_HEIGHT}px !important`,
-                maxHeight: COMPOSER_INPUT_MAX_HEIGHT,
+                minHeight: isVisualNovelTechDemoEnabled
+                  ? { xs: '104px !important', md: '122px !important' }
+                  : `${COMPOSER_INPUT_MIN_HEIGHT}px !important`,
+                maxHeight: isVisualNovelTechDemoEnabled ? { xs: 136, md: 166 } : COMPOSER_INPUT_MAX_HEIGHT,
                 resize: 'none',
                 border: 'none',
                 outline: 'none',
@@ -27101,8 +27913,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 boxSizing: 'border-box',
                 px: { xs: 2.05, sm: 2.3 },
                 pl: { xs: 7.7, sm: 8.05 },
-                pt: { xs: '14px', sm: '15px' },
-                pb: { xs: '14px', sm: '15px' },
+                pt: isVisualNovelTechDemoEnabled ? { xs: '18px', sm: '20px' } : { xs: '14px', sm: '15px' },
+                pb: isVisualNovelTechDemoEnabled ? { xs: '40px', sm: '42px' } : { xs: '14px', sm: '15px' },
                 pr: { xs: 6.35, sm: 6.55 },
                 overflowY: 'hidden',
                 '&::placeholder': {

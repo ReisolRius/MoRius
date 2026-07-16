@@ -1456,6 +1456,17 @@ class StoryMessageOut(BaseModel):
     active_variant_index: int = 0
 
 
+class StoryNovelSceneCharacterOut(BaseModel):
+    """One character sprite visible during a Visual Novel beat."""
+
+    character_id: int | None = None
+    name: str
+    emotion: str
+    sprite_url: str | None = None
+    incognito: bool = False
+    gender: str | None = None
+
+
 class StoryNovelBeatOut(BaseModel):
     """One Visual Novel "page" the player advances through with the "Далее" button."""
 
@@ -1476,6 +1487,9 @@ class StoryNovelBeatOut(BaseModel):
     sprite_url: str | None = None
     sprite_incognito: bool = False
     sprite_gender: str | None = None
+    # Up to three characters participating in the whole scene beat. Unlike the
+    # top-level speaker sprite this is populated for narration as well as dialogue.
+    scene_characters: list[StoryNovelSceneCharacterOut] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -1488,8 +1502,12 @@ class StorySceneBackgroundOut(BaseModel):
     id: int
     game_id: int
     title: str
+    prompt: str = ""
     image_url: str | None = None
     triggers: list[str] = Field(default_factory=list)
+    theme: str = ""
+    style: str = ""
+    model: str = ""
     is_current: bool = False
     created_at: datetime
     updated_at: datetime
@@ -1497,10 +1515,45 @@ class StorySceneBackgroundOut(BaseModel):
 
 class StoryNovelBackgroundGenerateRequest(BaseModel):
     title: str | None = Field(default=None, max_length=160)
+    place_id: int | None = Field(default=None, ge=1)
 
 
 class StoryNovelBackgroundSelectRequest(BaseModel):
     background_id: int = Field(ge=1)
+
+
+class StoryPlaceCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    triggers: list[str] = Field(default_factory=list, max_length=12)
+    image_url: str | None = Field(default=None, max_length=12_000_000)
+    make_current: bool = False
+
+
+class StoryPlaceUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    triggers: list[str] | None = Field(default=None, max_length=12)
+    image_url: str | None = Field(default=None, max_length=12_000_000)
+
+
+class StoryPlaceImageUpdateRequest(BaseModel):
+    image_url: str | None = Field(default=None, max_length=12_000_000)
+
+
+class StoryPlaceImportRequest(BaseModel):
+    library_place_id: int = Field(ge=1)
+    make_current: bool = False
+
+
+class StoryPlaceTemplateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    title: str
+    image_url: str | None = None
+    triggers: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
 
 
 class StoryTurnImageOut(BaseModel):

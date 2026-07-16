@@ -7265,6 +7265,54 @@ def _infer_story_ambient_profile_from_text(
     return dict(STORY_AMBIENT_DEFAULT_PROFILE)
 
 
+# Generous enough that a chatty GLM reply still contains the closing JSON (the parser extracts
+# the object from anywhere in the text; too small a cap risks truncating before it appears).
+STORY_NOVEL_SCENE_BACKGROUND_ANALYSIS_MAX_TOKENS = 512
+
+
+def _resolve_story_novel_scene_background(
+    db: Session,
+    *,
+    game: Any,
+    location_label: str | None,
+    scene_text: str | None,
+    latest_user_text: str | None,
+):
+    """Visual-novel-only per-turn scene-background analysis backed by the GLM 4.7 service model.
+
+    Wires the under-the-hood text model into the place-matching logic that lives in the
+    story_novel_backgrounds service. On any failure the service itself falls back to literal
+    trigger memory, so this never blocks a turn.
+    """
+    from app.services.story_novel_backgrounds import (
+        STORY_NOVEL_SCENE_BACKGROUND_ANALYSIS_MODEL,
+        analyze_and_apply_story_novel_scene_background,
+    )
+
+    def _request_text(messages_payload: list[dict[str, str]]) -> str:
+        return _request_polza_story_text(
+            messages_payload,
+            model_name=STORY_NOVEL_SCENE_BACKGROUND_ANALYSIS_MODEL,
+            allow_service_fallback=False,
+            translate_input=False,
+            temperature=0.0,
+            max_tokens=STORY_NOVEL_SCENE_BACKGROUND_ANALYSIS_MAX_TOKENS,
+            request_timeout=(
+                STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+            ),
+        )
+
+    return analyze_and_apply_story_novel_scene_background(
+        db,
+        game=game,
+        location_label=location_label,
+        scene_text=scene_text,
+        latest_user_text=latest_user_text,
+        request_text=_request_text,
+    )
+
+
 def _resolve_story_ambient_profile(
     *,
     latest_assistant_text: str,
@@ -13730,6 +13778,7 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         world_card_to_out=_story_world_card_to_out,
         resolve_story_ambient_profile=_resolve_story_ambient_profile,
         resolve_story_turn_postprocess_payload=_resolve_story_turn_postprocess_payload,
+        resolve_story_novel_scene_background=_resolve_story_novel_scene_background,
         serialize_story_ambient_profile=_serialize_story_ambient_profile,
         story_game_summary_to_out=_story_game_summary_to_out,
         story_default_title=STORY_DEFAULT_TITLE,

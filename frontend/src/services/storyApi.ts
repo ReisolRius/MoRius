@@ -47,6 +47,7 @@ import type {
   StorySummaryJobPayload,
   StoryTurnImageGenerationPayload,
   StoryNovelBeat,
+  StoryPlaceTemplate,
   StorySceneBackground,
   StoryWorldCard,
   StoryWorldCardTemplate,
@@ -641,6 +642,30 @@ function normalizeStoryNovelBeatPayload(rawBeat: StoryNovelBeat): StoryNovelBeat
     sprite_url: typeof beat.sprite_url === 'string' ? beat.sprite_url : null,
     sprite_incognito: Boolean(beat.sprite_incognito),
     sprite_gender: rawSpriteGender === 'male' || rawSpriteGender === 'female' ? rawSpriteGender : null,
+    scene_characters: Array.isArray(beat.scene_characters)
+      ? beat.scene_characters
+          .filter((item) => Boolean(item) && typeof item === 'object')
+          .map((item) => {
+            const character = item as StoryNovelBeat['scene_characters'][number]
+            const rawCharacterEmotion = typeof character.emotion === 'string' ? character.emotion : 'neutral'
+            const rawCharacterGender = typeof character.gender === 'string' ? character.gender : ''
+            return {
+              character_id:
+                typeof character.character_id === 'number' && Number.isFinite(character.character_id)
+                  ? Math.trunc(character.character_id)
+                  : null,
+              name: typeof character.name === 'string' ? character.name.trim() : '',
+              emotion: STORY_CHARACTER_EMOTION_IDS.includes(rawCharacterEmotion as StoryCharacterEmotionId)
+                ? (rawCharacterEmotion as StoryCharacterEmotionId)
+                : 'neutral',
+              sprite_url: typeof character.sprite_url === 'string' ? character.sprite_url : null,
+              incognito: Boolean(character.incognito),
+              gender: rawCharacterGender === 'male' || rawCharacterGender === 'female' ? rawCharacterGender : null,
+            }
+          })
+          .filter((item) => item.name.length > 0)
+          .slice(0, 3)
+      : [],
     created_at: typeof beat.created_at === 'string' ? beat.created_at : new Date(0).toISOString(),
     updated_at: typeof beat.updated_at === 'string' ? beat.updated_at : new Date(0).toISOString(),
   }
@@ -656,11 +681,32 @@ function normalizeStorySceneBackgroundPayload(rawBackground: StorySceneBackgroun
         ? Math.trunc(background.game_id)
         : 0,
     title: typeof background.title === 'string' ? background.title : '',
+    prompt: typeof background.prompt === 'string' ? background.prompt : '',
     image_url: typeof background.image_url === 'string' ? background.image_url : null,
     triggers: normalizeStoryStringArray(background.triggers),
+    theme: typeof background.theme === 'string' ? background.theme : '',
+    style: typeof background.style === 'string' ? background.style : '',
+    model: typeof background.model === 'string' ? background.model : '',
     is_current: Boolean(background.is_current),
     created_at: typeof background.created_at === 'string' ? background.created_at : new Date(0).toISOString(),
     updated_at: typeof background.updated_at === 'string' ? background.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStoryPlaceTemplatePayload(rawTemplate: StoryPlaceTemplate): StoryPlaceTemplate {
+  const template = rawTemplate as Partial<StoryPlaceTemplate>
+  return {
+    ...rawTemplate,
+    id: typeof template.id === 'number' && Number.isFinite(template.id) ? Math.trunc(template.id) : 0,
+    user_id:
+      typeof template.user_id === 'number' && Number.isFinite(template.user_id)
+        ? Math.trunc(template.user_id)
+        : 0,
+    title: typeof template.title === 'string' ? template.title : '',
+    image_url: typeof template.image_url === 'string' ? template.image_url : null,
+    triggers: normalizeStoryStringArray(template.triggers),
+    created_at: typeof template.created_at === 'string' ? template.created_at : new Date(0).toISOString(),
+    updated_at: typeof template.updated_at === 'string' ? template.updated_at : new Date(0).toISOString(),
   }
 }
 
@@ -2790,6 +2836,7 @@ export async function generateStoryNovelBackground(payload: {
   token: string
   gameId: number
   title?: string
+  placeId?: number
   signal?: AbortSignal
 }): Promise<StorySceneBackground> {
   const response = await request<StorySceneBackground>(`/api/story/games/${payload.gameId}/novel/background/generate`, {
@@ -2798,7 +2845,7 @@ export async function generateStoryNovelBackground(payload: {
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
-    body: JSON.stringify({ title: payload.title ?? null }),
+    body: JSON.stringify({ title: payload.title ?? null, place_id: payload.placeId ?? null }),
   })
   return normalizeStorySceneBackgroundPayload(response)
 }
@@ -2830,6 +2877,178 @@ export async function selectStoryNovelBackground(payload: {
     body: JSON.stringify({ background_id: payload.backgroundId }),
   })
   return normalizeStorySceneBackgroundPayload(response)
+}
+
+export async function listStoryNovelPlaces(payload: {
+  token: string
+  gameId: number
+}): Promise<StorySceneBackground[]> {
+  const response = await request<StorySceneBackground[]>(`/api/story/games/${payload.gameId}/novel/places`, {
+    method: 'GET',
+    cache: 'no-store',
+    headers: { Authorization: `Bearer ${payload.token}` },
+  })
+  return Array.isArray(response) ? response.map((item) => normalizeStorySceneBackgroundPayload(item)) : []
+}
+
+export async function createStoryNovelPlace(payload: {
+  token: string
+  gameId: number
+  title: string
+  triggers?: string[]
+  imageUrl?: string | null
+  makeCurrent?: boolean
+}): Promise<StorySceneBackground> {
+  const response = await request<StorySceneBackground>(`/api/story/games/${payload.gameId}/novel/places`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({
+      title: payload.title,
+      triggers: payload.triggers ?? [],
+      image_url: payload.imageUrl ?? null,
+      make_current: Boolean(payload.makeCurrent),
+    }),
+  })
+  return normalizeStorySceneBackgroundPayload(response)
+}
+
+export async function updateStoryNovelPlace(payload: {
+  token: string
+  gameId: number
+  placeId: number
+  title?: string
+  triggers?: string[]
+  imageUrl?: string | null
+}): Promise<StorySceneBackground> {
+  const requestPayload: Record<string, unknown> = {}
+  if (typeof payload.title === 'string') {
+    requestPayload.title = payload.title
+  }
+  if (Array.isArray(payload.triggers)) {
+    requestPayload.triggers = payload.triggers
+  }
+  if (payload.imageUrl === null || typeof payload.imageUrl === 'string') {
+    requestPayload.image_url = payload.imageUrl
+  }
+  const response = await request<StorySceneBackground>(
+    `/api/story/games/${payload.gameId}/novel/places/${payload.placeId}`,
+    {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${payload.token}` },
+      body: JSON.stringify(requestPayload),
+    },
+  )
+  return normalizeStorySceneBackgroundPayload(response)
+}
+
+export async function deleteStoryNovelPlace(payload: {
+  token: string
+  gameId: number
+  placeId: number
+}): Promise<void> {
+  await request<{ message: string }>(`/api/story/games/${payload.gameId}/novel/places/${payload.placeId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${payload.token}` },
+  })
+}
+
+export async function selectStoryNovelPlace(payload: {
+  token: string
+  gameId: number
+  placeId: number
+}): Promise<StorySceneBackground> {
+  const response = await request<StorySceneBackground>(
+    `/api/story/games/${payload.gameId}/novel/places/${payload.placeId}/select`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${payload.token}` },
+    },
+  )
+  return normalizeStorySceneBackgroundPayload(response)
+}
+
+export async function importStoryNovelPlace(payload: {
+  token: string
+  gameId: number
+  libraryPlaceId: number
+  makeCurrent?: boolean
+}): Promise<StorySceneBackground> {
+  const response = await request<StorySceneBackground>(`/api/story/games/${payload.gameId}/novel/places/import`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({
+      library_place_id: payload.libraryPlaceId,
+      make_current: Boolean(payload.makeCurrent),
+    }),
+  })
+  return normalizeStorySceneBackgroundPayload(response)
+}
+
+export async function listStoryPlaceTemplates(payload: { token: string }): Promise<StoryPlaceTemplate[]> {
+  const response = await request<StoryPlaceTemplate[]>('/api/story/novel/place-templates', {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+  return Array.isArray(response) ? response.map((item) => normalizeStoryPlaceTemplatePayload(item)) : []
+}
+
+export async function createStoryPlaceTemplate(payload: {
+  token: string
+  title: string
+  triggers?: string[]
+  imageUrl?: string | null
+}): Promise<StoryPlaceTemplate> {
+  const response = await request<StoryPlaceTemplate>('/api/story/novel/place-templates', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      triggers: payload.triggers ?? [],
+      image_url: payload.imageUrl ?? null,
+    }),
+  })
+  return normalizeStoryPlaceTemplatePayload(response)
+}
+
+export async function updateStoryPlaceTemplate(payload: {
+  token: string
+  templateId: number
+  title?: string
+  triggers?: string[]
+  imageUrl?: string | null
+}): Promise<StoryPlaceTemplate> {
+  const requestPayload: Record<string, unknown> = {}
+  if (typeof payload.title === 'string') {
+    requestPayload.title = payload.title
+  }
+  if (Array.isArray(payload.triggers)) {
+    requestPayload.triggers = payload.triggers
+  }
+  if (payload.imageUrl === null || typeof payload.imageUrl === 'string') {
+    requestPayload.image_url = payload.imageUrl
+  }
+  const response = await request<StoryPlaceTemplate>(`/api/story/novel/place-templates/${payload.templateId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify(requestPayload),
+  })
+  return normalizeStoryPlaceTemplatePayload(response)
+}
+
+export async function deleteStoryPlaceTemplate(payload: { token: string; templateId: number }): Promise<void> {
+  await request<{ message: string }>(`/api/story/novel/place-templates/${payload.templateId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
 }
 
 export async function queueStorySummaryJob(payload: {

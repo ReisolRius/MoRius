@@ -48,6 +48,16 @@ class StoryNovelBootstrapMigrationTests(unittest.TestCase):
                     seed_connection.execute(
                         "CREATE TABLE story_message_segments (id INTEGER PRIMARY KEY)"
                     )
+                    # Simulate the first VN beat schema, before per-paragraph scene casts.
+                    seed_connection.execute(
+                        "CREATE TABLE story_novel_beats ("
+                        "id INTEGER PRIMARY KEY, game_id INTEGER NOT NULL, "
+                        "message_id INTEGER NOT NULL, order_index INTEGER NOT NULL, "
+                        "kind VARCHAR(16) NOT NULL DEFAULT 'narration', "
+                        "speaker_name VARCHAR(160), speaker_character_id INTEGER, "
+                        "emotion VARCHAR(24), text TEXT NOT NULL DEFAULT '', "
+                        "created_at TIMESTAMP, updated_at TIMESTAMP)"
+                    )
                     seed_connection.commit()
                 finally:
                     seed_connection.close()
@@ -89,8 +99,13 @@ class StoryNovelBootstrapMigrationTests(unittest.TestCase):
                     }
                     assert "story_novel_beats" in table_names, table_names
                     assert "story_scene_backgrounds" in table_names, table_names
+                    assert "story_place_templates" in table_names, table_names
                     assert "story_character_emotion_generation_jobs" not in table_names, table_names
                     assert "story_message_segments" not in table_names, table_names
+                    novel_beat_columns = {
+                        row[1] for row in connection.execute("PRAGMA table_info(story_novel_beats)")
+                    }
+                    assert "scene_characters_json" in novel_beat_columns, novel_beat_columns
                 finally:
                     connection.close()
                 """

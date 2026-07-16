@@ -14,6 +14,8 @@ from app.models import (
     DashboardNewsCard,
     StoryCharacter,
     StoryGame,
+    StoryPlaceTemplate,
+    StorySceneBackground,
     StoryTurnImage,
     StoryWorldCard,
     StoryWorldCardTemplate,
@@ -53,6 +55,16 @@ MEDIA_KIND_SPECS: dict[str, tuple[type[Any], Callable[[Any, dict[str, Any]], Any
     "story-character-avatar-original": (
         StoryCharacter,
         lambda record, _: getattr(record, "avatar_original_url", None),
+        lambda record: getattr(record, "updated_at", None),
+    ),
+    "story-scene-background": (
+        StorySceneBackground,
+        lambda record, _: getattr(record, "image_url", None) or getattr(record, "image_data_url", None),
+        lambda record: getattr(record, "updated_at", None),
+    ),
+    "story-place-template": (
+        StoryPlaceTemplate,
+        lambda record, _: getattr(record, "image_url", None) or getattr(record, "image_data_url", None),
         lambda record: getattr(record, "updated_at", None),
     ),
     "story-character-emotion-asset": (

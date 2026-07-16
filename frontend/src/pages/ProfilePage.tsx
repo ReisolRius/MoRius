@@ -88,15 +88,19 @@ import {
 import { buildReferralLink } from '../utils/referrals'
 import {
   cloneStoryGame,
+  createStoryPlaceTemplate,
   deleteStoryCharacter,
   deleteStoryGame,
   deleteStoryInstructionTemplate,
+  deleteStoryPlaceTemplate,
   favoriteCommunityWorld,
   listStoryGames,
   listFavoriteCommunityWorlds,
   listStoryCharacters,
   listStoryInstructionTemplates,
+  listStoryPlaceTemplates,
   unfavoriteCommunityWorld,
+  updateStoryPlaceTemplate,
 } from '../services/storyApi'
 import type { AuthUser } from '../types/auth'
 import { getDisplayedTagLabel } from '../types/auth'
@@ -108,6 +112,7 @@ import type {
   StoryCommunityWorldSummary,
   StoryGameSummary,
   StoryInstructionTemplate,
+  StoryPlaceTemplate,
 } from '../types/story'
 import { moriusThemeTokens } from '../theme'
 import { getProfileBannerPreset, normalizeProfileBannerId } from '../constants/profileBanners'
@@ -135,7 +140,7 @@ type ProfilePageProps = {
   viewedUserId?: number | null
 }
 
-type TabId = 'games' | 'characters' | 'world_cards' | 'instructions' | 'gallery' | 'favorites' | 'notifications' | 'plots' | 'subscriptions' | 'publications'
+type TabId = 'games' | 'characters' | 'world_cards' | 'instructions' | 'gallery' | 'places' | 'favorites' | 'notifications' | 'plots' | 'subscriptions' | 'publications'
 type ProfileMainSection = 'library' | 'publications'
 type NotificationSortMode = 'newest' | 'oldest'
 type ProfileContentSortMode = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'popular_desc' | 'rating_desc'
@@ -155,6 +160,8 @@ const PROFILE_CARD_BATCH_SIZE = 12
 const PROFILE_SERVER_REQUEST_SIZE = PROFILE_CARD_BATCH_SIZE + 1
 const PROFILE_NOTIFICATION_PAGE_SIZE = 12
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const PLACE_IMAGE_MAX_BYTES = 8 * 1024 * 1024
+const PLACE_TRIGGER_MAX_COUNT = 12
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const PROFILE_AVATAR_SIZE = 128
 const CARD_MIN_HEIGHT = 174
@@ -237,6 +244,7 @@ const BASE_PROFILE_TABS: Array<{ id: TabId; label: string }> = [
   { id: 'instructions', label: 'Правила' },
   { id: 'gallery', label: 'Галерея' },
 ]
+const ADMIN_PLACE_PROFILE_TAB: { id: TabId; label: string } = { id: 'places', label: 'Места' }
 
 const PROFILE_PUBLICATION_TABS: Array<{ id: PublicationSection; label: string; iconTab: TabId }> = [
   { id: 'worlds', label: 'Игры', iconTab: 'games' },
@@ -251,6 +259,7 @@ const PROFILE_TAB_LABELS: Record<Exclude<TabId, 'notifications'>, string> = {
   world_cards: 'Миры',
   instructions: 'Правила',
   gallery: 'Галерея',
+  places: 'Места',
   favorites: 'Любимое',
   plots: 'Сюжеты',
   subscriptions: 'Подписки',
@@ -628,6 +637,23 @@ function matchesProfileSearch(query: string, fields: Array<string | null | undef
   return fields.some((field) => normalizeProfileSearchValue(field ?? '').includes(query))
 }
 
+function parsePlaceTriggersDraft(value: string): string[] {
+  const seen = new Set<string>()
+  const triggers: string[] = []
+  value
+    .split(/[\n,;]/g)
+    .map((item) => item.replace(/\s+/g, ' ').trim())
+    .forEach((item) => {
+      const key = item.toLocaleLowerCase('ru-RU')
+      if (!item || seen.has(key)) {
+        return
+      }
+      seen.add(key)
+      triggers.push(item)
+    })
+  return triggers
+}
+
 function mergeNotificationsById(previous: UserNotification[], nextItems: UserNotification[]): UserNotification[] {
   const nextById = new Map<number, UserNotification>()
   previous.forEach((item) => {
@@ -742,6 +768,19 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [instructionDialogOpen, setInstructionDialogOpen] = useState(false)
   const [instructionDialogMode, setInstructionDialogMode] = useState<'list' | 'create'>('list')
   const [instructionEditId, setInstructionEditId] = useState<number | null>(null)
+  const [placeTemplates, setPlaceTemplates] = useState<StoryPlaceTemplate[]>([])
+  const [hasLoadedPlaceTemplates, setHasLoadedPlaceTemplates] = useState(false)
+  const [isPlaceTemplatesLoading, setIsPlaceTemplatesLoading] = useState(false)
+  const [placeTemplatesError, setPlaceTemplatesError] = useState('')
+  const [placeDialogOpen, setPlaceDialogOpen] = useState(false)
+  const [placeDialogTemplateId, setPlaceDialogTemplateId] = useState<number | null>(null)
+  const [placeTitleDraft, setPlaceTitleDraft] = useState('')
+  const [placeTriggersDraft, setPlaceTriggersDraft] = useState('')
+  const [placeImageDraft, setPlaceImageDraft] = useState<string | null>(null)
+  const [isPlaceImageDirty, setIsPlaceImageDirty] = useState(false)
+  const [placeDialogError, setPlaceDialogError] = useState('')
+  const [isPlaceTemplateSaving, setIsPlaceTemplateSaving] = useState(false)
+  const [deletingPlaceTemplateId, setDeletingPlaceTemplateId] = useState<number | null>(null)
   const [contentCardMenuAnchorEl, setContentCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [contentCardMenuType, setContentCardMenuType] = useState<'character' | 'instruction' | null>(null)
   const [contentCardMenuItemId, setContentCardMenuItemId] = useState<number | null>(null)
@@ -774,6 +813,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [adminInitialTarget, setAdminInitialTarget] = useState<AdminPanelInitialTarget | null>(null)
 
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const placeImageInputRef = useRef<HTMLInputElement | null>(null)
   const lastContentTabRef = useRef<TabId>('characters')
   const notificationsLoadMoreTriggeredRef = useRef(0)
 
@@ -781,6 +821,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const profileDescription = user.profile_description || ''
   const coins = Math.max(0, Math.trunc(user.coins || 0))
   const canOpenAdmin = user.role === 'administrator' || user.role === 'moderator'
+  const canManagePlaceTemplates = isOwnProfile && user.role === 'administrator'
   const isProfileNarrowMobile = useMediaQuery('(max-width:550px)')
 
   const fallbackOwnProfileUser = {
@@ -955,6 +996,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     (tab === 'games' && isOwnProfile && isOwnGamesLoading && ownGames.length === 0) ||
     (tab === 'characters' && isOwnProfile && isLoadingContent && characters.length === 0) ||
     (tab === 'instructions' && isOwnProfile && isLoadingContent && templates.length === 0) ||
+    (tab === 'places' && canManagePlaceTemplates && isPlaceTemplatesLoading && placeTemplates.length === 0) ||
     (tab === 'favorites' && isOwnProfile && isFavoriteWorldsLoading && !hasLoadedFavoriteWorlds) ||
     (tab === 'notifications' && isOwnProfile && isNotificationsLoading && !hasLoadedNotifications)
   const isProfileShellBlocked = !isOwnProfile && isProfileBootstrapLoading && !profileView
@@ -964,14 +1006,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     (!isOwnProfile || tab === 'publications' || tab === 'subscriptions' || tab === 'gallery')
   const tabs = useMemo(() => {
     if (isOwnProfile) {
-      return BASE_PROFILE_TABS
+      return canManagePlaceTemplates ? [...BASE_PROFILE_TABS, ADMIN_PLACE_PROFILE_TAB] : BASE_PROFILE_TABS
     }
     return [
       { id: 'publications' as TabId, label: 'Миры' },
       { id: 'characters' as TabId, label: 'Персонажи' },
       { id: 'instructions' as TabId, label: 'Правила' },
     ]
-  }, [isOwnProfile])
+  }, [canManagePlaceTemplates, isOwnProfile])
 
   const managedCharacters = useMemo(
     () =>
@@ -1088,6 +1130,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         instructionSortMode,
       ),
     [instructionSortMode, sortedTemplates],
+  )
+  const filteredPlaceTemplates = useMemo(
+    () =>
+      [...placeTemplates]
+        .filter((item) =>
+          matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.triggers.join(' ')]),
+        )
+        .sort((left, right) => parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id),
+    [normalizedContentSearchQuery, placeTemplates],
   )
   const filteredFavoriteWorlds = useMemo(
     () =>
@@ -1617,15 +1668,20 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         { id: 'instructions', label: PROFILE_TAB_LABELS.instructions, count: instructionsTotal },
         { id: 'gallery', label: PROFILE_TAB_LABELS.gallery, count: galleryTotal },
       )
+      if (canManagePlaceTemplates) {
+        items.push({ id: 'places', label: PROFILE_TAB_LABELS.places, count: placeTemplates.length })
+      }
     }
     return items
   }, [
     canViewPrivateWorlds,
+    canManagePlaceTemplates,
     isOwnProfile,
     managedCharacters.length,
     ownGames.length,
     profileView,
     profileGalleryImages.length,
+    placeTemplates.length,
     sortedTemplates.length,
     visiblePublicationCharacters.length,
     visiblePublicationTemplates.length,
@@ -1639,12 +1695,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       characters: Math.max(profileView?.characters_count ?? 0, managedCharacters.length),
       instructions: Math.max(profileView?.instruction_templates_count ?? 0, sortedTemplates.length),
       gallery: Math.max(profileView?.gallery_images_count ?? 0, profileGalleryImages.length),
+      places: placeTemplates.length,
     }),
-    [managedCharacters.length, ownGames.length, profileGalleryImages.length, profileView, sortedTemplates.length, worldCardTemplateCount],
+    [managedCharacters.length, ownGames.length, placeTemplates.length, profileGalleryImages.length, profileView, sortedTemplates.length, worldCardTemplateCount],
   )
   const libraryTotalCount = useMemo(
-    () => BASE_PROFILE_TABS.reduce((sum, item) => sum + (libraryTabCounts[item.id] ?? 0), 0),
-    [libraryTabCounts],
+    () =>
+      BASE_PROFILE_TABS.reduce((sum, item) => sum + (libraryTabCounts[item.id] ?? 0), 0)
+      + (canManagePlaceTemplates ? libraryTabCounts.places ?? 0 : 0),
+    [canManagePlaceTemplates, libraryTabCounts],
   )
   const activeProfileItemCount =
     tab === 'notifications'
@@ -1672,6 +1731,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       { id: 'characters' as TabId, label: 'Персонажи' },
       { id: 'instructions' as TabId, label: 'Правила' },
       { id: 'gallery' as TabId, label: 'Галерея' },
+      { id: 'places' as TabId, label: 'Места' },
     ].filter((item) => tabs.some((tabItem) => tabItem.id === item.id)),
     [tabs],
   )
@@ -2163,6 +2223,29 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     }
   }, [hasLoadedNotifications, isNotificationsLoading, loadNotifications])
 
+  const loadPlaceTemplates = useCallback(async () => {
+    if (!canManagePlaceTemplates) {
+      setPlaceTemplates([])
+      setHasLoadedPlaceTemplates(false)
+      setIsPlaceTemplatesLoading(false)
+      return
+    }
+    setIsPlaceTemplatesLoading(true)
+    setPlaceTemplatesError('')
+    try {
+      const loadedTemplates = await listStoryPlaceTemplates({ token: authToken })
+      setPlaceTemplates(loadedTemplates)
+      setHasLoadedPlaceTemplates(true)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить места'
+      setPlaceTemplates([])
+      setHasLoadedPlaceTemplates(true)
+      setPlaceTemplatesError(detail)
+    } finally {
+      setIsPlaceTemplatesLoading(false)
+    }
+  }, [authToken, canManagePlaceTemplates])
+
   const loadProfileView = useCallback(async () => {
     setIsProfileViewLoading(true)
     setError('')
@@ -2213,6 +2296,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setIsNotificationsLoadingMore(false)
     setGalleryPreviewImage(null)
     setDeletingGalleryImageIds(new Set())
+    setPlaceTemplates([])
+    setHasLoadedPlaceTemplates(false)
+    setIsPlaceTemplatesLoading(false)
+    setPlaceTemplatesError('')
+    setPlaceDialogOpen(false)
+    setPlaceDialogTemplateId(null)
+    setDeletingPlaceTemplateId(null)
     notificationsLoadMoreTriggeredRef.current = 0
   }, [normalizedViewedUserId])
 
@@ -2227,6 +2317,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   useEffect(() => {
     void loadProfileView()
   }, [loadProfileView])
+
+  useEffect(() => {
+    if (!canManagePlaceTemplates || hasLoadedPlaceTemplates || isPlaceTemplatesLoading) {
+      return
+    }
+    void loadPlaceTemplates()
+  }, [canManagePlaceTemplates, hasLoadedPlaceTemplates, isPlaceTemplatesLoading, loadPlaceTemplates])
 
   useEffect(() => {
     if (!isOwnProfile || !profileView || normalizedContentSearchQuery) {
@@ -2919,6 +3016,169 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     void loadProfileView()
   }, [loadProfileView, loadTemplatesOnly])
 
+  const openPlaceCreate = useCallback(() => {
+    if (!canManagePlaceTemplates) {
+      return
+    }
+    setPlaceDialogTemplateId(null)
+    setPlaceTitleDraft('')
+    setPlaceTriggersDraft('')
+    setPlaceImageDraft(null)
+    setIsPlaceImageDirty(false)
+    setPlaceDialogError('')
+    setPlaceDialogOpen(true)
+  }, [canManagePlaceTemplates])
+
+  const openPlaceEdit = useCallback(
+    (templateId: number) => {
+      if (!canManagePlaceTemplates) {
+        return
+      }
+      const template = placeTemplates.find((item) => item.id === templateId)
+      if (!template) {
+        return
+      }
+      setPlaceDialogTemplateId(template.id)
+      setPlaceTitleDraft(template.title)
+      setPlaceTriggersDraft(template.triggers.join('\n'))
+      setPlaceImageDraft(template.image_url)
+      setIsPlaceImageDirty(false)
+      setPlaceDialogError('')
+      setPlaceDialogOpen(true)
+    },
+    [canManagePlaceTemplates, placeTemplates],
+  )
+
+  const closePlaceDialog = useCallback(() => {
+    if (isPlaceTemplateSaving) {
+      return
+    }
+    setPlaceDialogOpen(false)
+    setPlaceDialogTemplateId(null)
+    setPlaceDialogError('')
+  }, [isPlaceTemplateSaving])
+
+  const handlePlaceImageChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) {
+      return
+    }
+    if (!file.type.startsWith('image/')) {
+      setPlaceDialogError('Выберите файл изображения')
+      return
+    }
+    if (file.size > PLACE_IMAGE_MAX_BYTES) {
+      setPlaceDialogError('Максимальный размер фона: 8 МБ')
+      return
+    }
+    setPlaceDialogError('')
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      setPlaceImageDraft(dataUrl)
+      setIsPlaceImageDirty(true)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось подготовить изображение'
+      setPlaceDialogError(detail)
+    }
+  }, [])
+
+  const savePlaceTemplate = useCallback(async () => {
+    if (!canManagePlaceTemplates || isPlaceTemplateSaving) {
+      return
+    }
+    const title = placeTitleDraft.replace(/\s+/g, ' ').trim()
+    const triggers = parsePlaceTriggersDraft(placeTriggersDraft)
+    if (!title) {
+      setPlaceDialogError('Укажите короткое название места')
+      return
+    }
+    if (triggers.length > PLACE_TRIGGER_MAX_COUNT) {
+      setPlaceDialogError(`Можно добавить не больше ${PLACE_TRIGGER_MAX_COUNT} триггеров`)
+      return
+    }
+
+    setIsPlaceTemplateSaving(true)
+    setPlaceDialogError('')
+    setPlaceTemplatesError('')
+    try {
+      const savedTemplate = placeDialogTemplateId === null
+        ? await createStoryPlaceTemplate({
+            token: authToken,
+            title,
+            triggers,
+            imageUrl: placeImageDraft,
+          })
+        : await updateStoryPlaceTemplate({
+            token: authToken,
+            templateId: placeDialogTemplateId,
+            title,
+            triggers,
+            ...(isPlaceImageDirty ? { imageUrl: placeImageDraft } : {}),
+          })
+      setPlaceTemplates((currentTemplates) =>
+        [savedTemplate, ...currentTemplates.filter((item) => item.id !== savedTemplate.id)]
+          .sort((left, right) => parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id),
+      )
+      setHasLoadedPlaceTemplates(true)
+      setPlaceTemplatesError('')
+      setPlaceDialogOpen(false)
+      setPlaceDialogTemplateId(null)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось сохранить место'
+      setPlaceDialogError(detail)
+    } finally {
+      setIsPlaceTemplateSaving(false)
+    }
+  }, [
+    authToken,
+    canManagePlaceTemplates,
+    isPlaceImageDirty,
+    isPlaceTemplateSaving,
+    placeDialogTemplateId,
+    placeImageDraft,
+    placeTitleDraft,
+    placeTriggersDraft,
+  ])
+
+  const handleDeletePlaceTemplate = useCallback(
+    async (templateId: number, event?: ReactMouseEvent<HTMLElement>) => {
+      event?.preventDefault()
+      event?.stopPropagation()
+      if (!canManagePlaceTemplates || deletingPlaceTemplateId !== null) {
+        return
+      }
+      if (typeof window !== 'undefined' && !window.confirm('Удалить это место из библиотеки?')) {
+        return
+      }
+      const isDeletingFromOpenDialog = placeDialogOpen && placeDialogTemplateId === templateId
+      setDeletingPlaceTemplateId(templateId)
+      setPlaceTemplatesError('')
+      if (isDeletingFromOpenDialog) {
+        setPlaceDialogError('')
+      }
+      try {
+        await deleteStoryPlaceTemplate({ token: authToken, templateId })
+        setPlaceTemplates((currentTemplates) => currentTemplates.filter((item) => item.id !== templateId))
+        setPlaceTemplatesError('')
+        if (placeDialogTemplateId === templateId) {
+          setPlaceDialogOpen(false)
+          setPlaceDialogTemplateId(null)
+        }
+      } catch (requestError) {
+        const detail = requestError instanceof Error ? requestError.message : 'Не удалось удалить место'
+        if (isDeletingFromOpenDialog) {
+          setPlaceDialogError(detail)
+        } else {
+          setPlaceTemplatesError(detail)
+        }
+      } finally {
+        setDeletingPlaceTemplateId(null)
+      }
+    },
+    [authToken, canManagePlaceTemplates, deletingPlaceTemplateId, placeDialogOpen, placeDialogTemplateId],
+  )
+
   const handleOpenContentCardMenu = useCallback(
     (event: ReactMouseEvent<HTMLElement>, type: 'character' | 'instruction', itemId: number) => {
       event.preventDefault()
@@ -3295,6 +3555,16 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         </SvgIcon>
       )
     }
+    if (tabId === 'places') {
+      return (
+        <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+          <path
+            fill="currentColor"
+            d="M12 2.5a7 7 0 0 0-7 7c0 5.15 5.9 11.12 6.15 11.37a1.2 1.2 0 0 0 1.7 0C13.1 20.62 19 14.65 19 9.5a7 7 0 0 0-7-7Zm0 9.7a2.7 2.7 0 1 1 0-5.4 2.7 2.7 0 0 1 0 5.4Z"
+          />
+        </SvgIcon>
+      )
+    }
     if (tabId === 'gallery') {
       return (
         <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
@@ -3438,6 +3708,216 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             ) : null}
             {hasMoreTemplates ? <Box ref={loadMoreTemplatesRef} sx={{ height: 1, width: '100%' }} /> : null}
           </>
+        )}
+      </Stack>
+    )
+  }
+
+  const renderPlaces = () => {
+    if (!canManagePlaceTemplates) {
+      return null
+    }
+
+    return (
+      <Stack spacing={1.2} sx={{ width: '100%', minWidth: 0 }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={0.7}
+          alignItems={{ xs: 'flex-start', sm: 'flex-end' }}
+          justifyContent="space-between"
+        >
+          <Box>
+            <Typography sx={{ fontSize: { xs: '1.03rem', md: '1.14rem' }, fontWeight: 800 }}>
+              Мои места
+            </Typography>
+            <Typography sx={{ mt: 0.25, color: 'var(--morius-text-secondary)', fontSize: '0.82rem' }}>
+              Заготовки фонов для визуальных новелл. Триггеры автоматически активируют место в сцене.
+            </Typography>
+          </Box>
+          <Button
+            onClick={openPlaceCreate}
+            startIcon={<Box component="span" sx={{ fontSize: '1.15rem', lineHeight: 1 }}>+</Box>}
+            sx={{
+              flexShrink: 0,
+              minHeight: 38,
+              px: 1.5,
+              borderRadius: '9px',
+              textTransform: 'none',
+              fontWeight: 800,
+              color: 'var(--morius-title-text)',
+              backgroundColor: 'var(--morius-button-active)',
+              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+            }}
+          >
+            Добавить место
+          </Button>
+        </Stack>
+
+        {placeTemplatesError ? (
+          <Alert
+            severity="error"
+            action={(
+              <Button color="inherit" size="small" onClick={() => void loadPlaceTemplates()}>
+                Повторить
+              </Button>
+            )}
+            sx={{ borderRadius: '10px' }}
+          >
+            {placeTemplatesError}
+          </Alert>
+        ) : null}
+
+        {!filteredPlaceTemplates.length && !isPlaceTemplatesLoading ? (
+          <Box
+            sx={{
+              py: { xs: 4, sm: 5 },
+              px: 2,
+              borderRadius: '12px',
+              border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 76%, transparent)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 74%, transparent)',
+              textAlign: 'center',
+            }}
+          >
+            <Typography sx={{ color: 'var(--morius-title-text)', fontWeight: 800 }}>
+              {placeTemplates.length ? 'По запросу ничего не найдено' : 'Библиотека мест пока пуста'}
+            </Typography>
+            <Typography sx={{ mt: 0.45, color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
+              {placeTemplates.length
+                ? 'Попробуйте другое название или триггер.'
+                : 'Загрузите фон и укажите слова, по которым рассказчик сможет узнать это место.'}
+            </Typography>
+          </Box>
+        ) : (
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: '1fr',
+                sm: 'repeat(2, minmax(0, 1fr))',
+                xl: 'repeat(3, minmax(0, 1fr))',
+              },
+              gap: 1.2,
+              width: '100%',
+              minWidth: 0,
+            }}
+          >
+            {filteredPlaceTemplates.map((item) => (
+              <Box
+                key={item.id}
+                sx={{
+                  position: 'relative',
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  borderRadius: '12px',
+                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                  backgroundColor: 'var(--morius-card-bg)',
+                  transition: 'transform 180ms ease, border-color 180ms ease',
+                  '&:hover': {
+                    transform: 'translateY(-2px)',
+                    borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, var(--morius-card-border))',
+                  },
+                }}
+              >
+                <ButtonBase
+                  onClick={() => openPlaceEdit(item.id)}
+                  aria-label={`Редактировать место ${item.title}`}
+                  sx={{ display: 'block', width: '100%', textAlign: 'left', color: 'inherit' }}
+                >
+                  <ProgressiveImage
+                    src={item.image_url}
+                    alt={item.title}
+                    objectFit="cover"
+                    containerSx={{
+                      aspectRatio: '16 / 9',
+                      minHeight: 156,
+                      background:
+                        'radial-gradient(circle at 72% 24%, rgba(80, 112, 160, 0.22), transparent 42%), linear-gradient(145deg, rgba(24, 31, 43, 0.96), rgba(9, 12, 18, 0.98))',
+                    }}
+                    fallback={(
+                      <Stack spacing={0.6} alignItems="center" sx={{ color: 'var(--morius-text-secondary)' }}>
+                        <SvgIcon viewBox="0 0 24 24" sx={{ width: 34, height: 34, opacity: 0.78 }}>
+                          <path fill="currentColor" d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 13 4.1-4.1 2.7 2.7 3.7-4.7 3.5 4.3V6H5v11Zm3.5-7a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4Z" />
+                        </SvgIcon>
+                        <Typography sx={{ fontSize: '0.78rem', fontWeight: 700 }}>Фон не загружен</Typography>
+                      </Stack>
+                    )}
+                  />
+                  <Stack spacing={0.8} sx={{ p: 1.25, minHeight: 112 }}>
+                    <Typography
+                      sx={{
+                        pr: 4,
+                        color: 'var(--morius-title-text)',
+                        fontSize: '0.98rem',
+                        fontWeight: 800,
+                        lineHeight: 1.25,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {item.title}
+                    </Typography>
+                    {item.triggers.length ? (
+                      <Stack direction="row" spacing={0.55} useFlexGap flexWrap="wrap">
+                        {item.triggers.slice(0, 3).map((trigger) => (
+                          <Chip
+                            key={`${item.id}-${trigger}`}
+                            label={trigger}
+                            size="small"
+                            sx={{
+                              maxWidth: 150,
+                              height: 25,
+                              color: 'var(--morius-text-secondary)',
+                              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                              backgroundColor: 'var(--morius-elevated-bg)',
+                              '& .MuiChip-label': { px: 0.9, overflow: 'hidden', textOverflow: 'ellipsis' },
+                            }}
+                          />
+                        ))}
+                        {item.triggers.length > 3 ? (
+                          <Chip
+                            label={`+${item.triggers.length - 3}`}
+                            size="small"
+                            sx={{ height: 25, color: 'var(--morius-text-secondary)', backgroundColor: 'var(--morius-elevated-bg)' }}
+                          />
+                        ) : null}
+                      </Stack>
+                    ) : (
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>
+                        Триггеры ещё не указаны
+                      </Typography>
+                    )}
+                  </Stack>
+                </ButtonBase>
+                <IconButton
+                  onClick={(event) => void handleDeletePlaceTemplate(item.id, event)}
+                  disabled={deletingPlaceTemplateId === item.id}
+                  aria-label={`Удалить место ${item.title}`}
+                  sx={{
+                    position: 'absolute',
+                    right: 9,
+                    bottom: 78,
+                    zIndex: 2,
+                    width: 31,
+                    height: 31,
+                    color: 'rgba(238, 244, 251, 0.84)',
+                    backgroundColor: 'rgba(7, 10, 15, 0.72) !important',
+                    border: 'var(--morius-border-width) solid rgba(225, 233, 243, 0.14)',
+                    backdropFilter: 'blur(8px)',
+                    '&:hover': { color: 'rgba(255, 190, 190, 0.96)', backgroundColor: 'rgba(24, 10, 13, 0.86) !important' },
+                  }}
+                >
+                  {deletingPlaceTemplateId === item.id ? (
+                    <CircularProgress size={15} color="inherit" />
+                  ) : (
+                    <SvgIcon viewBox="0 0 24 24" sx={{ width: 17, height: 17 }}>
+                      <path fill="currentColor" d="M8 3h8l1 2h4v2H3V5h4l1-2Zm1 6v8h2V9H9Zm4 0v8h2V9h-2ZM6 9h2v9h8V9h2v10a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V9Z" />
+                    </SvgIcon>
+                  )}
+                </IconButton>
+              </Box>
+            ))}
+          </Box>
         )}
       </Stack>
     )
@@ -4309,6 +4789,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Раздел доступен только владельцу профиля.</Typography>
       }
       return renderInstructions()
+    }
+    if (tab === 'places') {
+      if (!canManagePlaceTemplates) {
+        return null
+      }
+      return renderPlaces()
     }
     if (tab === 'favorites') {
       if (!isOwnProfile) {
@@ -7154,6 +7640,155 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         includePublicationCopies
         onClose={closeInstructionDialog}
       />
+
+      <Dialog
+        open={placeDialogOpen && canManagePlaceTemplates}
+        onClose={closePlaceDialog}
+        fullWidth
+        maxWidth="sm"
+        fullScreen={isProfileNarrowMobile}
+        PaperProps={{
+          sx: {
+            borderRadius: { xs: 0, sm: '14px' },
+            border: { xs: 'none', sm: 'var(--morius-border-width) solid var(--morius-card-border)' },
+            backgroundColor: 'var(--morius-dialog-bg)',
+            backgroundImage: 'none',
+          },
+        }}
+      >
+        <DialogTitle sx={{ color: 'var(--morius-title-text)', fontWeight: 800, pb: 1 }}>
+          {placeDialogTemplateId === null ? 'Новое место' : 'Редактирование места'}
+        </DialogTitle>
+        <DialogContent dividers sx={{ borderColor: 'var(--morius-card-border)', px: { xs: 1.5, sm: 2.4 } }}>
+          <Stack spacing={1.5} sx={{ pt: 0.3 }}>
+            {placeDialogError ? <Alert severity="error" sx={{ borderRadius: '10px' }}>{placeDialogError}</Alert> : null}
+
+            <TextField
+              autoFocus
+              label="Название"
+              placeholder="Например, Дом Айри"
+              value={placeTitleDraft}
+              onChange={(event) => setPlaceTitleDraft(event.target.value.slice(0, 160))}
+              inputProps={{ maxLength: 160 }}
+              fullWidth
+              disabled={isPlaceTemplateSaving}
+            />
+
+            <Box>
+              <Typography sx={{ mb: 0.7, color: 'var(--morius-title-text)', fontSize: '0.84rem', fontWeight: 800 }}>
+                Фон места
+              </Typography>
+              <ProgressiveImage
+                src={placeImageDraft}
+                alt={placeTitleDraft || 'Фон места'}
+                objectFit="cover"
+                loading="eager"
+                containerSx={{
+                  aspectRatio: '16 / 9',
+                  minHeight: { xs: 188, sm: 260 },
+                  borderRadius: '11px',
+                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                  background:
+                    'radial-gradient(circle at 70% 20%, rgba(85, 119, 172, 0.24), transparent 40%), linear-gradient(145deg, rgba(23, 30, 42, 0.98), rgba(8, 11, 17, 0.98))',
+                }}
+                fallback={(
+                  <Stack spacing={0.75} alignItems="center" sx={{ px: 2, color: 'var(--morius-text-secondary)', textAlign: 'center' }}>
+                    <SvgIcon viewBox="0 0 24 24" sx={{ width: 40, height: 40, opacity: 0.72 }}>
+                      <path fill="currentColor" d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 13 4.1-4.1 2.7 2.7 3.7-4.7 3.5 4.3V6H5v11Zm3.5-7a1.7 1.7 0 1 0 0-3.4 1.7 1.7 0 0 0 0 3.4Z" />
+                    </SvgIcon>
+                    <Typography sx={{ fontSize: '0.82rem', fontWeight: 700 }}>
+                      Загрузите изображение окружения без персонажей на переднем плане
+                    </Typography>
+                  </Stack>
+                )}
+              />
+              <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.85 }}>
+                <Button
+                  onClick={() => placeImageInputRef.current?.click()}
+                  disabled={isPlaceTemplateSaving}
+                  sx={{
+                    minHeight: 36,
+                    borderRadius: '8px',
+                    textTransform: 'none',
+                    fontWeight: 800,
+                    color: 'var(--morius-title-text)',
+                    backgroundColor: 'var(--morius-button-active)',
+                  }}
+                >
+                  {placeImageDraft ? 'Заменить фон' : 'Загрузить фон'}
+                </Button>
+                {placeImageDraft ? (
+                  <Button
+                    onClick={() => {
+                      setPlaceImageDraft(null)
+                      setIsPlaceImageDirty(true)
+                    }}
+                    disabled={isPlaceTemplateSaving}
+                    sx={{ textTransform: 'none', color: 'rgba(248, 176, 176, 0.94)' }}
+                  >
+                    Удалить фон
+                  </Button>
+                ) : null}
+              </Stack>
+              <input
+                ref={placeImageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={(event) => void handlePlaceImageChange(event)}
+                style={{ display: 'none' }}
+              />
+            </Box>
+
+            <TextField
+              label="Триггеры активации"
+              placeholder={'лес\nполяна\nопушка'}
+              value={placeTriggersDraft}
+              onChange={(event) => setPlaceTriggersDraft(event.target.value)}
+              minRows={3}
+              maxRows={6}
+              multiline
+              fullWidth
+              disabled={isPlaceTemplateSaving}
+              error={parsePlaceTriggersDraft(placeTriggersDraft).length > PLACE_TRIGGER_MAX_COUNT}
+              helperText={`${parsePlaceTriggersDraft(placeTriggersDraft).length}/${PLACE_TRIGGER_MAX_COUNT} · Разделяйте запятой или новой строкой`}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: { xs: 1.5, sm: 2.4 }, py: 1.4, gap: 0.8 }}>
+          {placeDialogTemplateId !== null ? (
+            <Button
+              onClick={(event) => void handleDeletePlaceTemplate(placeDialogTemplateId, event)}
+              disabled={isPlaceTemplateSaving || deletingPlaceTemplateId !== null}
+              sx={{ mr: 'auto', textTransform: 'none', color: 'rgba(248, 176, 176, 0.94)' }}
+            >
+              Удалить
+            </Button>
+          ) : null}
+          <Button
+            onClick={closePlaceDialog}
+            disabled={isPlaceTemplateSaving}
+            sx={{ textTransform: 'none', color: 'var(--morius-text-secondary)' }}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={() => void savePlaceTemplate()}
+            disabled={isPlaceTemplateSaving}
+            sx={{
+              minWidth: 116,
+              minHeight: 38,
+              borderRadius: '8px',
+              textTransform: 'none',
+              fontWeight: 800,
+              color: 'var(--morius-title-text)',
+              backgroundColor: 'var(--morius-button-active)',
+              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+            }}
+          >
+            {isPlaceTemplateSaving ? <CircularProgress size={18} color="inherit" /> : 'Сохранить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <ConfirmLogoutDialog
         open={logoutOpen}

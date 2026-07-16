@@ -27,6 +27,7 @@ from app.models import (
     StoryMemoryBlock,
     StoryMessage,
     StoryNovelBeat,
+    StorySceneBackground,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
     StoryTurnImage,
@@ -1209,6 +1210,7 @@ def delete_story_game_with_relations(db: Session, *, game_id: int) -> StoryGame 
     db.execute(sa_delete(StoryWorldCardChangeEvent).where(StoryWorldCardChangeEvent.game_id == game_id))
     db.execute(sa_delete(StoryPlotCardChangeEvent).where(StoryPlotCardChangeEvent.game_id == game_id))
     db.execute(sa_delete(StoryNovelBeat).where(StoryNovelBeat.game_id == game_id))
+    db.execute(sa_delete(StorySceneBackground).where(StorySceneBackground.game_id == game_id))
     db.execute(sa_delete(StoryTurnImage).where(StoryTurnImage.game_id == game_id))
     db.execute(sa_delete(StoryMapImage).where(StoryMapImage.game_id == game_id))
     db.execute(sa_delete(StoryMemoryBlock).where(StoryMemoryBlock.game_id == game_id))

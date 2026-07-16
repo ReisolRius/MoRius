@@ -4,6 +4,7 @@ import json
 
 from app.models import StoryMessage
 from app.schemas import StoryMessageOut, StoryMessageVariantOut
+from app.services.story_novel import strip_story_novel_scene_cast_metadata
 from app.services.text_encoding import sanitize_likely_utf8_mojibake
 
 
@@ -32,6 +33,7 @@ def parse_story_message_variant_history(raw_json: object) -> list[dict[str, str]
 
 def story_message_to_out(message: StoryMessage) -> StoryMessageOut:
     variant_history = parse_story_message_variant_history(getattr(message, "variant_history_json", None))
+    is_assistant_message = str(getattr(message, "role", "") or "").strip().lower() == "assistant"
     active_variant_index = int(getattr(message, "active_variant_index", 0) or 0)
     if variant_history:
         active_variant_index = max(0, min(active_variant_index, len(variant_history) - 1))
@@ -41,12 +43,20 @@ def story_message_to_out(message: StoryMessage) -> StoryMessageOut:
         id=message.id,
         game_id=message.game_id,
         role=message.role,
-        content=sanitize_likely_utf8_mojibake(message.content),
+        content=sanitize_likely_utf8_mojibake(
+            strip_story_novel_scene_cast_metadata(message.content)
+            if is_assistant_message
+            else message.content
+        ),
         created_at=message.created_at,
         updated_at=message.updated_at,
         variant_history=[
             StoryMessageVariantOut(
-                content=sanitize_likely_utf8_mojibake(variant["content"]),
+                content=sanitize_likely_utf8_mojibake(
+                    strip_story_novel_scene_cast_metadata(variant["content"])
+                    if is_assistant_message
+                    else variant["content"]
+                ),
                 created_at=variant.get("created_at") or None,
             )
             for variant in variant_history

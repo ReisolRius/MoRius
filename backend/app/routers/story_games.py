@@ -28,6 +28,7 @@ from app.models import (
     StoryMemoryBlock,
     StoryMessage,
     StoryNovelBeat,
+    StorySceneBackground,
     StoryTurnImage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
@@ -3026,6 +3027,28 @@ def clone_story_game(
         copy_main_hero=payload.copy_main_hero,
     )
 
+    if payload.copy_world and normalize_story_game_mode(cloned_game.game_mode) == STORY_GAME_MODE_VISUAL_NOVEL:
+        source_places = db.scalars(
+            select(StorySceneBackground)
+            .where(StorySceneBackground.game_id == int(source_game.id))
+            .order_by(StorySceneBackground.id.asc())
+        ).all()
+        for place in source_places:
+            db.add(
+                StorySceneBackground(
+                    game_id=int(cloned_game.id),
+                    title=str(place.title or ""),
+                    prompt=str(place.prompt or ""),
+                    triggers=str(place.triggers or "[]"),
+                    theme=str(place.theme or ""),
+                    style=str(place.style or ""),
+                    model=str(place.model or ""),
+                    image_url=place.image_url,
+                    image_data_url=place.image_data_url,
+                    is_current=bool(place.is_current),
+                )
+            )
+
     if payload.copy_history:
         source_messages = list_story_messages(db, source_game.id)
         message_id_map: dict[int, int] = {}
@@ -3059,6 +3082,7 @@ def clone_story_game(
                     speaker_name=beat.speaker_name,
                     speaker_character_id=beat.speaker_character_id,
                     emotion=beat.emotion,
+                    scene_characters_json=getattr(beat, "scene_characters_json", "[]") or "[]",
                     text=beat.text,
                 )
             )
