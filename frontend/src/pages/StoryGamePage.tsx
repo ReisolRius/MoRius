@@ -2053,6 +2053,8 @@ function VisualNovelStage({
   canGenerateBackground,
   isGeneratingBackground,
   backgroundError,
+  emptyText,
+  mainHeroName,
 }: {
   beats: StoryNovelBeat[]
   beatIndex: number
@@ -2066,6 +2068,8 @@ function VisualNovelStage({
   canGenerateBackground: boolean
   isGeneratingBackground: boolean
   backgroundError: string
+  emptyText: string
+  mainHeroName: string
 }) {
   const rawBackgroundUrl = background?.image_url ?? null
   const backgroundUrl = resolveApiResourceUrl(rawBackgroundUrl)
@@ -2074,7 +2078,14 @@ function VisualNovelStage({
   const showIncognitoSilhouette = Boolean(currentBeat) && (currentBeat?.sprite_incognito || !spriteUrl) && Boolean(currentBeat?.speaker_name)
   const incognitoGender = currentBeat?.sprite_gender === 'male' || currentBeat?.sprite_gender === 'female' ? currentBeat.sprite_gender : null
   const speakerName = currentBeat?.speaker_name?.trim() || ''
-  const speakerLabel = speakerName || 'Рассказчик'
+  const normalizedSpeakerAlias = speakerName
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const isMainHeroSpeakerAlias = ['главный герой', 'гг', 'main hero', 'mainhero', 'mc'].includes(normalizedSpeakerAlias)
+  const speakerLabel = (isMainHeroSpeakerAlias ? mainHeroName : speakerName) || 'Рассказчик'
   const emotionLabel =
     currentBeat?.emotion && STORY_CHARACTER_EMOTION_LABELS[currentBeat.emotion]
       ? STORY_CHARACTER_EMOTION_LABELS[currentBeat.emotion]
@@ -2297,7 +2308,7 @@ function VisualNovelStage({
               overflowY: 'auto',
             }}
           >
-            {currentBeat?.text ?? ''}
+            {currentBeat ? replaceMainHeroInlineTags(currentBeat.text, mainHeroName) : emptyText}
           </Typography>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
             <Stack direction="row" spacing={0.65}>
@@ -2862,6 +2873,50 @@ function normalizeStoryVNBeats(items: StoryNovelBeat[] | null | undefined): Stor
         .filter((item) => item.id > 0 && item.message_id > 0 && item.text.trim().length > 0)
         .sort((left, right) => left.message_id - right.message_id || left.order_index - right.order_index || left.id - right.id)
     : []
+}
+
+function buildOpeningSceneFallbackVNBeats(
+  blocks: AssistantMessageBlock[],
+  game: StoryGameSummary | null,
+): StoryNovelBeat[] {
+  if (!game || blocks.length === 0) {
+    return []
+  }
+  const timestamp = game.updated_at || game.created_at || new Date(0).toISOString()
+  return blocks.map((block, index) => {
+    const isCharacterBeat = block.type === 'character'
+    return {
+      // Negative local IDs keep this compatibility fallback out of persisted/merged beat state.
+      id: -(index + 1),
+      game_id: game.id,
+      message_id: -1,
+      order_index: index,
+      kind: isCharacterBeat ? (block.delivery === 'thought' ? 'thought' : 'dialogue') : 'narration',
+      speaker_name: isCharacterBeat ? block.speakerName : null,
+      speaker_character_id: null,
+      emotion: isCharacterBeat ? 'neutral' : null,
+      text: block.text,
+      sprite_url: null,
+      sprite_incognito: isCharacterBeat,
+      sprite_gender: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    }
+  })
+}
+
+function isOpeningOnlyVisualNovelSnapshot(
+  game: StoryGameSummary,
+  messages: StoryMessage[],
+): boolean {
+  if (game.game_mode !== 'visual_novel') {
+    return false
+  }
+  const openingScene = toStoryText(game.opening_scene).replace(/\r\n/g, '\n').trim()
+  if (!openingScene || messages.length !== 1 || messages[0]?.role !== 'assistant') {
+    return false
+  }
+  return toStoryText(messages[0]?.content).replace(/\r\n/g, '\n').trim() === openingScene
 }
 
 function mergeStoryVNBeatsById(existingBeats: StoryNovelBeat[], incomingBeats: StoryNovelBeat[]): StoryNovelBeat[] {
@@ -7678,14 +7733,31 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const canUseStoryGraph = isAdministrator || user.role.trim().toLowerCase() === 'moderator'
   const effectiveAmbientEnabled = isAdministrator && ambientEnabled
   const isVisualNovelMode = activeGameSummary?.game_mode === 'visual_novel'
-  const visualNovelBeats = useMemo(() => (isVisualNovelMode ? vnBeats : []), [isVisualNovelMode, vnBeats])
+  const visualNovelOpeningFallbackBlocks = useMemo(
+    () => (isVisualNovelMode ? parseAssistantMessageBlocks(quickStartIntro) : []),
+    [isVisualNovelMode, quickStartIntro],
+  )
+  const visualNovelOpeningFallbackBeats = useMemo(
+    () => (
+      isVisualNovelMode && vnBeats.length === 0
+        ? buildOpeningSceneFallbackVNBeats(visualNovelOpeningFallbackBlocks, activeGameSummary)
+        : []
+    ),
+    [activeGameSummary, isVisualNovelMode, visualNovelOpeningFallbackBlocks, vnBeats.length],
+  )
+  const visualNovelBeats = useMemo(
+    () => (isVisualNovelMode ? (vnBeats.length > 0 ? vnBeats : visualNovelOpeningFallbackBeats) : []),
+    [isVisualNovelMode, visualNovelOpeningFallbackBeats, vnBeats],
+  )
   const currentVnBeatIndex = visualNovelBeats.length > 0
     ? Math.min(Math.max(vnBeatIndex, 0), visualNovelBeats.length - 1)
     : 0
   const currentVnBeat = visualNovelBeats[currentVnBeatIndex] ?? null
   const isVisualNovelInputLocked =
     isVisualNovelMode && visualNovelBeats.length > 0 && currentVnBeatIndex < visualNovelBeats.length - 1
-  const shouldShowVisualNovelStage = isVisualNovelMode && visualNovelBeats.length > 0
+  // Mode selection controls the shell. Beats control only its current page; an empty/new VN
+  // must never fall back to the legacy RPG transcript while the opening is being bootstrapped.
+  const shouldShowVisualNovelStage = isVisualNovelMode
   const shouldShowPendingStoryGenerationIndicator =
     isGenerating &&
     activeAssistantMessageId === null &&
@@ -11120,7 +11192,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setCurrentSceneBackground(payload.current_scene_background ?? null)
         }
         if (!appendOlderMessages) {
-          setVnBeatIndex(Math.max(0, normalizedVnBeats.length - 1))
+          setVnBeatIndex(
+            isOpeningOnlyVisualNovelSnapshot(payload.game, normalizedMessages)
+              ? 0
+              : Math.max(0, normalizedVnBeats.length - 1),
+          )
         }
         if (appendOlderMessages && normalizedMessages.length > 0) {
           setVisibleAssistantTurns((previousTurns) => previousTurns + assistantTurnsLimit)
@@ -11955,6 +12031,29 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setIsSavingMessage(false)
   }
 
+  const refreshVisualNovelBeatsAfterMessageMutation = useCallback(
+    async (gameId: number, messageId: number): Promise<boolean> => {
+      if (!isVisualNovelMode) {
+        return true
+      }
+      try {
+        const snapshot = await getStoryGame({
+          token: authToken,
+          gameId,
+          assistantTurnsLimit: Math.max(visibleAssistantTurns, STORY_VISIBLE_ASSISTANT_TURNS_INITIAL),
+        })
+        const nextBeats = normalizeStoryVNBeats(snapshot.novel_beats)
+        const targetBeatIndex = nextBeats.findIndex((beat) => beat.message_id === messageId)
+        setVnBeats(nextBeats)
+        setVnBeatIndex(targetBeatIndex >= 0 ? targetBeatIndex : Math.max(0, nextBeats.length - 1))
+        return true
+      } catch {
+        return false
+      }
+    },
+    [authToken, isVisualNovelMode, visibleAssistantTurns],
+  )
+
   const handleSaveEditedMessage = useCallback(async () => {
     if (editingMessageId === null || isSavingMessage) {
       return
@@ -11994,6 +12093,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           message.id === updatedMessage.id ? normalizeStoryMessageItem(updatedMessage) : message,
         ),
       )
+      if (
+        updatedMessage.role === 'assistant' &&
+        !(await refreshVisualNovelBeatsAfterMessageMutation(activeGameId, updatedMessage.id))
+      ) {
+        setErrorMessage('Текст сохранён, но страницы новеллы не обновились. Перезагрузите игру.')
+      }
       setEditingMessageId(null)
       setMessageDraft('')
     } catch (error) {
@@ -12002,7 +12107,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     } finally {
       setIsSavingMessage(false)
     }
-  }, [activeGameId, authToken, editingMessageId, isSavingMessage, messageDraft, messages])
+  }, [activeGameId, authToken, editingMessageId, isSavingMessage, messageDraft, messages, refreshVisualNovelBeatsAfterMessageMutation])
 
   const handleSwitchMessageVariant = useCallback(
     async (message: StoryMessage, direction: 'prev' | 'next') => {
@@ -12030,6 +12135,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             existingMessage.id === updatedMessage.id ? normalizeStoryMessageItem(updatedMessage) : existingMessage,
           ),
         )
+        if (!(await refreshVisualNovelBeatsAfterMessageMutation(activeGameId, updatedMessage.id))) {
+          setErrorMessage('Вариант выбран, но страницы новеллы не обновились. Перезагрузите игру.')
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось переключить вариант ответа'
         setErrorMessage(detail)
@@ -12037,7 +12145,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setSwitchingVariantMessageId(null)
       }
     },
-    [activeGameId, authToken, isGenerating, switchingVariantMessageId],
+    [activeGameId, authToken, isGenerating, refreshVisualNovelBeatsAfterMessageMutation, switchingVariantMessageId],
   )
 
   const handleSaveMessageInline = useCallback(
@@ -12132,6 +12240,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               message.id === updatedMessage.id ? normalizeStoryMessageItem(updatedMessage) : message,
             ),
           )
+          if (
+            updatedMessage.role === 'assistant' &&
+            !(await refreshVisualNovelBeatsAfterMessageMutation(activeGameId, updatedMessage.id))
+          ) {
+            setErrorMessage('Текст сохранён, но страницы новеллы не обновились. Перезагрузите игру.')
+          }
         }
       } catch (error) {
         if (inlineMessageSaveRevisionRef.current.get(messageId) === nextRevision) {
@@ -12150,6 +12264,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingMessage,
       mainHeroDisplayNameForTags,
       messages,
+      refreshVisualNovelBeatsAfterMessageMutation,
     ],
   )
 
@@ -25212,6 +25327,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   canGenerateBackground={canGenerateSceneBackground}
                   isGeneratingBackground={isGeneratingSceneBackground}
                   backgroundError={sceneBackgroundError}
+                  emptyText={
+                    isGenerating
+                      ? 'Рассказчик готовит первую сцену…'
+                      : 'Опишите первое действие — рассказчик откроет сцену.'
+                  }
+                  mainHeroName={mainHeroDisplayNameForTags}
                 />
               </Box>
             ) : null}

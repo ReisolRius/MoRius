@@ -27,6 +27,7 @@ from app.models import (
     StoryInstructionCard,
     StoryMemoryBlock,
     StoryMessage,
+    StoryNovelBeat,
     StoryTurnImage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
@@ -139,6 +140,7 @@ from app.services.story_novel import (
     can_user_use_story_visual_novel,
     normalize_story_game_mode,
 )
+from app.services.story_novel_bootstrap import ensure_story_novel_opening_scene_beats
 from app.services.story_cards import story_plot_card_to_out
 from app.services.story_character_state_fields import (
     apply_story_character_state_payload_to_world_cards,
@@ -163,6 +165,7 @@ from app.services.story_queries import (
     list_story_instruction_cards,
     list_story_memory_blocks,
     list_story_messages,
+    list_story_novel_beats,
     list_story_plot_cards,
     touch_story_game,
     list_story_turn_images,
@@ -3036,6 +3039,30 @@ def clone_story_game(
             db.flush()
             message_id_map[int(message.id)] = int(cloned_message.id)
 
+        # Visual Novel pages are persisted separately from their assistant messages. Keep
+        # them aligned with the cloned history instead of leaving a VN clone with text turns
+        # that the stage cannot render.
+        for beat in list_story_novel_beats(
+            db,
+            source_game.id,
+            message_ids=list(message_id_map),
+        ):
+            cloned_message_id = message_id_map.get(int(beat.message_id))
+            if cloned_message_id is None:
+                continue
+            db.add(
+                StoryNovelBeat(
+                    game_id=cloned_game.id,
+                    message_id=cloned_message_id,
+                    order_index=int(beat.order_index),
+                    kind=beat.kind,
+                    speaker_name=beat.speaker_name,
+                    speaker_character_id=beat.speaker_character_id,
+                    emotion=beat.emotion,
+                    text=beat.text,
+                )
+            )
+
         source_memory_blocks = list_story_memory_blocks(db, source_game.id)
         for block in source_memory_blocks:
             block_layer = normalize_story_memory_layer(getattr(block, "layer", None))
@@ -4247,6 +4274,16 @@ def update_story_game_meta(
             )
         )
         refresh_story_game_public_card_snapshots(db, game)
+
+    # WorldCreate saves the character/world cards before its final metadata patch.  At this
+    # point the VN opening can be materialized with the complete speaker map, so the very
+    # first screen after navigation already uses VisualNovelStage instead of the RPG intro.
+    if normalize_story_game_mode(getattr(game, "game_mode", None)) == STORY_GAME_MODE_VISUAL_NOVEL:
+        ensure_story_novel_opening_scene_beats(
+            db=db,
+            game=game,
+            world_cards=list_story_world_cards(db, int(game.id)),
+        )
 
     touch_story_game(game)
     db.commit()

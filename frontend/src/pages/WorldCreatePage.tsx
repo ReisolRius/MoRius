@@ -157,7 +157,7 @@ const WORLD_PROFILE_CONTENT_MAX_LENGTH = 8000
 const AGE_RATING_OPTIONS = ['6+', '16+', '18+'] as const
 const MAX_WORLD_GENRES = 3
 const OPENING_SCENE_MAX_LENGTH = 4_000
-const OPENING_SCENE_NPC_NAME_MAX_LENGTH = 120
+const OPENING_SCENE_NPC_NAME_MAX_LENGTH = 60
 const OPENING_SCENE_NPC_FALLBACK_NAME = 'NPC'
 const OPENING_SCENE_GG_FALLBACK_NAME = 'Главный Герой'
 const STORY_TRIGGER_INPUT_MAX_LENGTH = 600
@@ -1688,24 +1688,26 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
   const buildOpeningSceneTag = useCallback(
     (kind: 'gg_name' | 'gg_speech' | 'gg_thought' | 'npc_speech' | 'npc_thought'): string => {
+      const normalizedMainHeroName = normalizeMainHeroInlineFallbackName(mainHero?.name)
+        .slice(0, OPENING_SCENE_NPC_NAME_MAX_LENGTH)
       const normalizedNpcName =
         openingSceneNpcName.replace(/\r\n/g, ' ').replace(/\s+/g, ' ').trim().slice(0, OPENING_SCENE_NPC_NAME_MAX_LENGTH) ||
         OPENING_SCENE_NPC_FALLBACK_NAME
       if (kind === 'gg_name') {
-        return `[[GG:${OPENING_SCENE_GG_FALLBACK_NAME}]] `
+        return `[[GG:${normalizedMainHeroName}]] `
       }
       if (kind === 'gg_speech') {
-        return `[[GG_REPLICK:${OPENING_SCENE_GG_FALLBACK_NAME}]] `
+        return `[[GG:${normalizedMainHeroName}]] `
       }
       if (kind === 'gg_thought') {
-        return `[[GG_THOUGHT:${OPENING_SCENE_GG_FALLBACK_NAME}]] `
+        return `[[GG_THOUGHT:${normalizedMainHeroName}]] `
       }
       if (kind === 'npc_speech') {
         return `[[NPC:${normalizedNpcName}]] `
       }
       return `[[NPC_THOUGHT:${normalizedNpcName}]] `
     },
-    [openingSceneNpcName],
+    [mainHero?.name, openingSceneNpcName],
   )
 
   const insertOpeningSceneTag = useCallback(

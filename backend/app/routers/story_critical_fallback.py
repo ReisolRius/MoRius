@@ -14,6 +14,7 @@ from app.services.story_novel import (
     is_story_visual_novel_game,
     resolve_story_novel_beats_for_read,
 )
+from app.services.story_novel_bootstrap import ensure_story_novel_opening_scene_beats
 from app.services.story_novel_backgrounds import (
     get_current_story_scene_background,
     story_scene_background_to_out,
@@ -348,6 +349,19 @@ def get_story_game_fallback_router(
     _apply_no_store_headers(response)
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
+    is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+    if is_administrator and is_story_visual_novel_game(game):
+        try:
+            opening_bootstrap = ensure_story_novel_opening_scene_beats(db=db, game=game)
+            if opening_bootstrap.changed:
+                db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception(
+                "Story fallback read VN opening bootstrap failed; continuing without backfill: game_id=%s",
+                game_id,
+            )
+            game = get_user_story_game_or_404(db, user.id, game_id)
     messages = list_story_messages(db, game.id)
     turn_images = list_story_turn_images(db, game.id)
     instruction_cards = list_story_instruction_cards(db, game.id)
@@ -362,7 +376,6 @@ def get_story_game_fallback_router(
     world_cards = list_story_world_cards(db, game.id)
     can_redo_assistant_step = has_story_assistant_redo_step(db, game.id)
     game_summary = story_game_summary_to_out(game, turn_count=count_story_completed_turns(messages))
-    is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
     if not is_administrator:
         game_summary = game_summary.model_copy(update={"game_mode": STORY_GAME_MODE_RPG})
     resolved_current_location_label = resolve_story_current_location_label(

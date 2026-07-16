@@ -29,6 +29,10 @@ from app.services.story_game_operation_lock import (
     acquire_story_game_operation_lock,
 )
 from app.services.story_messages import parse_story_message_variant_history, story_message_to_out
+from app.services.story_novel import (
+    is_story_visual_novel_enabled,
+    persist_story_novel_beats_for_message,
+)
 from app.services.story_queries import get_user_story_game_or_404, touch_story_game
 from app.services.story_text import normalize_story_text
 
@@ -297,6 +301,41 @@ def _sync_turn_raw_memory_after_message_update(
         )
 
 
+def _sync_story_novel_beats_after_assistant_message_update(
+    *,
+    db: Session,
+    game,
+    user,
+    message: StoryMessage,
+) -> None:
+    """Keep persisted VN pages aligned with an edited/selected assistant variant.
+
+    RPG games retain the historical cleanup behavior.  In an enabled admin Visual Novel game,
+    ``persist_story_novel_beats_for_message`` atomically replaces the old rows with a parse of
+    the message's newly canonical content and relinks speakers against current world cards.
+    """
+    if message.role != "assistant":
+        return
+    if not is_story_visual_novel_enabled(game, user):
+        db.execute(sa_delete(StoryNovelBeat).where(StoryNovelBeat.message_id == message.id))
+        return
+
+    world_cards = list(
+        db.scalars(
+            select(StoryWorldCard)
+            .where(StoryWorldCard.game_id == int(game.id))
+            .order_by(StoryWorldCard.id.asc())
+        ).all()
+    )
+    persist_story_novel_beats_for_message(
+        db=db,
+        game=game,
+        assistant_message=message,
+        raw_response=str(message.content or ""),
+        world_cards=world_cards,
+    )
+
+
 @router.patch("/api/story/games/{game_id}/messages/{message_id}", response_model=StoryMessageOut)
 def update_story_message(
     game_id: int,
@@ -337,7 +376,12 @@ def update_story_message(
             # reroll variant log rather than leave it pointing at now-stale text.
             message.variant_history_json = "[]"
             message.active_variant_index = 0
-            db.execute(sa_delete(StoryNovelBeat).where(StoryNovelBeat.message_id == message.id))
+            _sync_story_novel_beats_after_assistant_message_update(
+                db=db,
+                game=game,
+                user=user,
+                message=message,
+            )
 
         _sync_turn_raw_memory_after_message_update(db=db, game=game, message=message)
         touch_story_game(game)
@@ -406,7 +450,12 @@ def select_story_message_variant(
         selected = variant_log[payload.variant_index]
         message.content = selected["content"]
         message.active_variant_index = payload.variant_index
-        db.execute(sa_delete(StoryNovelBeat).where(StoryNovelBeat.message_id == message.id))
+        _sync_story_novel_beats_after_assistant_message_update(
+            db=db,
+            game=game,
+            user=user,
+            message=message,
+        )
 
         _sync_turn_raw_memory_after_message_update(db=db, game=game, message=message)
         touch_story_game(game)
@@ -435,5 +484,4 @@ def select_story_message_variant(
             ) from exc
         db.refresh(message)
         return story_message_to_out(message)
-
 

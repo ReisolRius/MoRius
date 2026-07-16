@@ -44,6 +44,7 @@ from app.services.story_novel import (
     is_story_visual_novel_game,
     resolve_story_novel_beats_for_read,
 )
+from app.services.story_novel_bootstrap import ensure_story_novel_opening_scene_beats
 from app.services.story_novel_backgrounds import (
     get_current_story_scene_background,
     story_scene_background_to_out,
@@ -582,6 +583,21 @@ def get_story_game(
     user = get_current_user(db, authorization)
     try:
         game = get_user_story_game_or_404(db, user.id, game_id)
+        if (
+            str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+            and is_story_visual_novel_game(game)
+        ):
+            try:
+                opening_bootstrap = ensure_story_novel_opening_scene_beats(db=db, game=game)
+                if opening_bootstrap.changed:
+                    db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception(
+                    "Story read VN opening bootstrap failed; continuing without backfill: game_id=%s",
+                    game_id,
+                )
+                game = get_user_story_game_or_404(db, user.id, game_id)
         messages, has_older_messages = list_story_messages_window(
             db,
             int(getattr(game, "id", 0) or 0),
@@ -607,6 +623,7 @@ def get_story_game(
         return _build_story_game_out_resilient(
             db=db,
             game=game,
+            user=user,
             requested_game_id=game_id,
             messages=list(messages),
             has_older_messages=False,

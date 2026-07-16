@@ -101,6 +101,9 @@ STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 20.0
 STORY_GENERATE_LOCK_POLL_SECONDS = 0.75
 STORY_PROVIDER_HEARTBEAT_SECONDS = 8.0
 STORY_STREAM_RELAY_HEARTBEAT_SECONDS = 1.0
+STORY_VISUAL_NOVEL_MATERIALIZATION_ERROR_DETAIL = (
+    "Не удалось подготовить страницы визуальной новеллы. Повторите ход."
+)
 # Max discarded reroll variants kept alongside the current assistant message (oldest dropped first).
 STORY_MESSAGE_VARIANT_HISTORY_MAX = 8
 # Жёсткий потолок на ВСЕ Gemini-вызовы пост-обработки одного хода (единый общий бюджет на
@@ -355,6 +358,71 @@ def _public_story_error_detail(exc: Exception) -> str:
     ) and "{" in detail:
         detail = detail.split("{", 1)[0].rstrip(" .:,")
     return detail[:500]
+
+
+def _materialize_story_novel_beats_for_stream(
+    *,
+    db: Session,
+    game: StoryGame,
+    assistant_message: StoryMessage,
+    raw_response: str,
+    world_cards: list[StoryWorldCard],
+    touch_story_game: Callable[[StoryGame], None],
+) -> list[dict[str, Any]]:
+    """Persist and serialize non-empty VN pages with one transaction-safe recovery attempt.
+
+    A serialization failure can happen after the beat rows were already committed.  On retry,
+    reload those rows instead of blindly replacing them again.  If persistence failed before
+    commit, the clean transaction retries the deterministic parser/persist step once.
+    """
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            novel_beats: list[StoryNovelBeat] = []
+            if attempt > 0:
+                novel_beats = list(
+                    db.scalars(
+                        select(StoryNovelBeat)
+                        .where(StoryNovelBeat.message_id == int(assistant_message.id))
+                        .order_by(StoryNovelBeat.order_index.asc())
+                    ).all()
+                )
+            if not novel_beats:
+                novel_beats = persist_story_novel_beats_for_message(
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    raw_response=raw_response,
+                    world_cards=world_cards,
+                )
+                if not novel_beats:
+                    raise RuntimeError("Visual Novel parser produced no pages for a non-empty response")
+                touch_story_game(game)
+                commit_with_retry(db)
+            db.refresh(assistant_message)
+            for beat in novel_beats:
+                try:
+                    db.refresh(beat)
+                except Exception:
+                    # Serialization resolves current characters independently; a refresh miss
+                    # is recoverable and should not discard otherwise committed pages.
+                    pass
+            payload = serialize_story_novel_beats_for_stream(db, novel_beats)
+            if not payload:
+                raise RuntimeError("Visual Novel page serialization returned an empty payload")
+            return payload
+        except Exception as exc:
+            last_error = exc
+            db.rollback()
+            logger.warning(
+                "Visual Novel page materialization attempt failed: game_id=%s "
+                "assistant_message_id=%s attempt=%s",
+                getattr(game, "id", None),
+                getattr(assistant_message, "id", None),
+                attempt + 1,
+                exc_info=True,
+            )
+    raise RuntimeError(STORY_VISUAL_NOVEL_MATERIALIZATION_ERROR_DETAIL) from last_error
 
 
 def _attach_story_operation_lease_release(
@@ -1945,32 +2013,58 @@ def _stream_story_response(
         if _stop_requested("visual_novel"):
             return
         try:
-            novel_beats = persist_story_novel_beats_for_message(
+            novel_beats_payload = _materialize_story_novel_beats_for_stream(
                 db=db,
                 game=game,
                 assistant_message=assistant_message,
                 raw_response=normalized_output,
                 world_cards=[card for card in all_world_cards if isinstance(card, StoryWorldCard)],
+                touch_story_game=deps.touch_story_game,
             )
-            if _stop_requested("visual_novel_persist", rollback=True):
-                return
-            deps.touch_story_game(game)
-            commit_with_retry(db)
-            db.refresh(assistant_message)
-            for beat in novel_beats:
-                try:
-                    db.refresh(beat)
-                except Exception:
-                    pass
-            novel_beats_payload = serialize_story_novel_beats_for_stream(db, novel_beats)
             normalized_output = str(getattr(assistant_message, "content", "") or "").replace("\r\n", "\n").strip()
-        except Exception:
+        except Exception as exc:
             logger.exception(
-                "Failed to persist visual novel beats: game_id=%s assistant_message_id=%s",
+                "Failed to materialize visual novel beats: game_id=%s assistant_message_id=%s",
                 game.id,
                 assistant_message.id,
             )
             db.rollback()
+            try:
+                db.execute(sa_delete(StoryNovelBeat).where(StoryNovelBeat.message_id == assistant_message.id))
+                db.delete(assistant_message)
+                deps.touch_story_game(game)
+                commit_with_retry(db)
+            except Exception:
+                logger.exception(
+                    "Failed to clean up assistant after Visual Novel materialization failure: "
+                    "game_id=%s assistant_message_id=%s",
+                    game.id,
+                    assistant_message.id,
+                )
+                db.rollback()
+            _restore_discarded_assistant_steps("visual_novel_materialization_failed")
+            yield _sse_event(
+                "error",
+                {"detail": STORY_VISUAL_NOVEL_MATERIALIZATION_ERROR_DETAIL},
+            )
+            return
+
+        if not novel_beats_payload:
+            # Defensive invariant: a non-empty VN response must never reach either done path
+            # without at least one renderable page, even if a future helper regresses silently.
+            logger.error(
+                "Visual Novel materialization returned no pages: game_id=%s assistant_message_id=%s",
+                game.id,
+                assistant_message.id,
+            )
+            yield _sse_event(
+                "error",
+                {"detail": STORY_VISUAL_NOVEL_MATERIALIZATION_ERROR_DETAIL},
+            )
+            return
+
+        if _stop_requested("visual_novel_persist", rollback=True):
+            return
 
     if _stop_requested("before_billing"):
         return
