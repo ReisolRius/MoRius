@@ -24,6 +24,7 @@ type ProgressiveImageProps = {
   containerSx?: SxProps<Theme>
   imgSx?: SxProps<Theme>
   fallback?: ReactNode
+  onLoad?: () => void
 }
 
 function buildImageRequestSrc(src: string | null, retryNonce: number): string | null {
@@ -45,6 +46,7 @@ export default function ProgressiveImage({
   containerSx,
   imgSx,
   fallback = null,
+  onLoad,
 }: ProgressiveImageProps) {
   const resolvedSrc = resolveApiResourceUrl(src)
   const [imageState, setImageState] = useState<ProgressiveImageState>({
@@ -134,7 +136,10 @@ export default function ProgressiveImage({
             fetchPriority={fetchPriority}
             decoding="async"
             referrerPolicy="no-referrer"
-            onLoad={() => setImageState({ src: resolvedSrc, retryNonce, loadStatus: 'loaded' })}
+            onLoad={() => {
+              setImageState({ src: resolvedSrc, retryNonce, loadStatus: 'loaded' })
+              onLoad?.()
+            }}
             onError={() => {
               setImageState((currentState) => {
                 const currentRetryNonce = currentState.src === resolvedSrc ? currentState.retryNonce : retryNonce

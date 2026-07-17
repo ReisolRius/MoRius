@@ -88,6 +88,13 @@ export const STORY_CHARACTER_EMOTION_LABELS: Record<StoryCharacterEmotionId, str
 }
 export type StoryCharacterEmotionAssets = Partial<Record<StoryCharacterEmotionId, string>>
 export type StoryNovelSpriteGender = '' | 'male' | 'female'
+export const STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER: Record<
+  Exclude<StoryNovelSpriteGender, ''>,
+  string
+> = {
+  female: '/visual-novel/incognito-female.png',
+  male: '/visual-novel/incognito-male.png',
+}
 
 export type StoryGameSummary = {
   id: number
@@ -198,8 +205,8 @@ export type StoryNovelBeat = {
   speaker_character_id: number | null
   emotion: StoryCharacterEmotionId | null
   text: string
-  // Resolved server-side: sprite for the speaker's emotion, or a gender incognito silhouette
-  // fallback when no matching sprite has been manually uploaded.
+  // Resolved server-side: exact emotion, then the character's neutral sprite, then the shared
+  // gender-specific incognito sprite when neither player-owned slot is available.
   sprite_url: string | null
   sprite_incognito: boolean
   sprite_gender: StoryNovelSpriteGender | null

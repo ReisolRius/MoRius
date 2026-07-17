@@ -544,70 +544,51 @@ def _select_story_history_source(
     if not use_plot_memory:
         return history
 
-    # When plot-memory optimization is enabled, do not send dialogue history.
-    # Keep only the latest user turn, except turn 1 where opening scene context
-    # (seeded as the first assistant message) must be preserved.
+    # Compressed memory is intentionally lossy and may still be queued when the next
+    # request arrives. Keep a bounded exact window for immediate scene continuity.
     latest_user_index: int | None = None
-    latest_user_content = ""
-    user_turn_count = 0
     for index, item in enumerate(history):
         role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
         content = str(item.get("content", "")).strip()
         if role != STORY_USER_ROLE or not content:
             continue
-        user_turn_count += 1
         latest_user_index = index
-        latest_user_content = content
 
     if latest_user_index is None:
         return []
 
-    latest_user_turn = {"role": STORY_USER_ROLE, "content": latest_user_content}
+    normalized_history: list[dict[str, str]] = []
+    for index, item in enumerate(history[: latest_user_index + 1]):
+        role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
+        content = str(item.get("content", "")).strip()
+        if role not in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE} or not content:
+            continue
+        if index == latest_user_index and _is_story_continue_prompt(content):
+            content = STORY_CONTINUE_PROMPT_REPLACEMENT
+        normalized_history.append({"role": role, "content": content})
 
-    if _is_story_continue_prompt(latest_user_content):
-        latest_user_turn = {"role": STORY_USER_ROLE, "content": STORY_CONTINUE_PROMPT_REPLACEMENT}
-        previous_assistant_turn: dict[str, str] | None = None
-        previous_user_turn: dict[str, str] | None = None
-        previous_assistant_index: int | None = None
-        for index in range(latest_user_index - 1, -1, -1):
-            item = history[index]
-            role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
-            content = str(item.get("content", "")).strip()
-            if role != STORY_ASSISTANT_ROLE or not content:
-                continue
-            previous_assistant_turn = {"role": STORY_ASSISTANT_ROLE, "content": content}
-            previous_assistant_index = index
+    selected_reversed: list[dict[str, str]] = []
+    consumed_tokens = 0
+    for item in reversed(normalized_history):
+        if len(selected_reversed) >= STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES:
             break
-        if previous_assistant_index is not None:
-            for item in reversed(history[:previous_assistant_index]):
-                role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
-                content = str(item.get("content", "")).strip()
-                if role != STORY_USER_ROLE or not content:
-                    continue
-                previous_user_turn = {"role": STORY_USER_ROLE, "content": content}
-                break
-        selected_turns = [
-            item
-            for item in (previous_user_turn, previous_assistant_turn, latest_user_turn)
-            if item is not None
-        ]
-        if selected_turns:
-            return selected_turns
+        content = item["content"]
+        entry_cost = _estimate_story_tokens(content) + 4
+        if consumed_tokens + entry_cost <= STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS:
+            selected_reversed.append(item)
+            consumed_tokens += entry_cost
+            continue
+        if not selected_reversed:
+            trimmed = _trim_story_text_tail_by_tokens(
+                content,
+                max(STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS - 4, 1),
+            )
+            if trimmed:
+                selected_reversed.append({**item, "content": trimmed})
+        break
 
-    # Ensure the opening scene is present for the very first user turn.
-    # Runtime seeds opening_scene as the first assistant message before turn 1.
-    if user_turn_count == 1:
-        for item in reversed(history[:latest_user_index]):
-            role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
-            content = str(item.get("content", "")).strip()
-            if role != STORY_ASSISTANT_ROLE or not content:
-                continue
-            return [
-                {"role": STORY_ASSISTANT_ROLE, "content": content},
-                latest_user_turn,
-            ]
-
-    return [latest_user_turn]
+    selected_reversed.reverse()
+    return selected_reversed
 
 
 def _extract_story_character_state_prompt_cards_for_guidance(

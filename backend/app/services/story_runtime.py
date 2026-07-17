@@ -139,6 +139,8 @@ STORY_MESSAGE_VARIANT_HISTORY_MAX = 8
 STORY_TURN_MAX_SERVICE_REQUESTS = 5
 STORY_MEMORY_POSTPROCESS_MAX_SERVICE_REQUESTS = 5
 STORY_GRAPH_MAX_SERVICE_REQUESTS = 5
+STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES = 7
+STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 1_800
 STORY_ENVIRONMENT_TIME_TURN_SURCHARGE_TOKENS = 1
 STORY_CHARACTER_AUTOMATION_TURN_SURCHARGE_TOKENS = 1
 STORY_STREAM_RETRY_DELAYS_SECONDS = (1.0, 2.5, 5.0, 8.0)
@@ -859,37 +861,28 @@ def _estimate_story_context_usage_tokens(
             return eligible_messages
 
         latest_user_index: int | None = None
-        user_message_count = 0
         for index, message in enumerate(eligible_messages):
             if message.role != "user":
                 continue
-            user_message_count += 1
             latest_user_index = index
         if latest_user_index is None:
             return []
 
-        selected: list[StoryMessage] = []
-        latest_user_message = eligible_messages[latest_user_index]
-        latest_user_content = _normalize_story_message_content(getattr(latest_user_message, "content", None))
-        if latest_user_content == STORY_CONTINUE_MODEL_PROMPT:
-            previous_assistant_index: int | None = None
-            for index in range(latest_user_index - 1, -1, -1):
-                if eligible_messages[index].role == "assistant":
-                    previous_assistant_index = index
-                    break
-            if previous_assistant_index is not None:
-                for index in range(previous_assistant_index - 1, -1, -1):
-                    if eligible_messages[index].role == "user":
-                        selected.append(eligible_messages[index])
-                        break
-                selected.append(eligible_messages[previous_assistant_index])
-        elif user_message_count == 1:
-            for index in range(latest_user_index - 1, -1, -1):
-                if eligible_messages[index].role == "assistant":
-                    selected.append(eligible_messages[index])
-                    break
-        selected.append(latest_user_message)
-        return selected
+        selected_reversed: list[StoryMessage] = []
+        consumed_tokens = 0
+        for message in reversed(eligible_messages[: latest_user_index + 1]):
+            if len(selected_reversed) >= STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES:
+                break
+            content = _normalize_story_message_content(getattr(message, "content", None))
+            entry_cost = _estimate_story_tokens(content) + 4
+            if consumed_tokens + entry_cost > STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS:
+                if not selected_reversed:
+                    selected_reversed.append(message)
+                break
+            selected_reversed.append(message)
+            consumed_tokens += entry_cost
+        selected_reversed.reverse()
+        return selected_reversed
 
     def _estimate_history_tokens_within_budget(messages_for_billing: list[StoryMessage], token_budget: int) -> int:
         budget = max(int(token_budget), 0)

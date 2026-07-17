@@ -158,6 +158,45 @@ class StoryCanonicalPipelineTests(unittest.TestCase):
         self.assertEqual(loaded.npcs["npc_1"].distance_to_player, "near")
         self.assertIn("inventory_1_1", loaded.objects)
 
+    def test_active_npc_card_does_not_imply_current_scene_presence(self) -> None:
+        game = SimpleNamespace(
+            canonical_state_payload="",
+            current_location_label="Таверна",
+            environment_current_datetime="",
+            environment_current_weather="",
+        )
+
+        loaded = load_or_init_canonical_state(
+            game=game,
+            world_cards=[{"id": 7, "kind": "npc", "title": "Лира"}],
+            context_messages=[],
+        )
+
+        self.assertIsNone(loaded.npcs["npc_7"].zone_id)
+
+    def test_latest_speaker_is_present_unless_scene_shows_departure(self) -> None:
+        game = SimpleNamespace(
+            canonical_state_payload="",
+            current_location_label="Лазарет",
+            environment_current_datetime="",
+            environment_current_weather="",
+        )
+        cards = [{"id": 8, "kind": "npc", "title": "Мира"}]
+
+        present = load_or_init_canonical_state(
+            game=game,
+            world_cards=cards,
+            context_messages=[SimpleNamespace(role="assistant", content="[[NPC:Мира]] Подожди здесь.")],
+        )
+        departed = load_or_init_canonical_state(
+            game=game,
+            world_cards=cards,
+            context_messages=[SimpleNamespace(role="assistant", content="[[NPC:Мира]] Я вернусь позже.\n\nМира вышла из палаты.")],
+        )
+
+        self.assertEqual(present.npcs["npc_8"].zone_id, present.scene.zone_id)
+        self.assertIsNone(departed.npcs["npc_8"].zone_id)
+
     def test_persist_and_clear_canonical_state_payload_on_game(self) -> None:
         game = SimpleNamespace(canonical_state_payload="")
         state = CanonicalStateV1()

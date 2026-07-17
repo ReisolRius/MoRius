@@ -16,6 +16,7 @@ from app.services.story_emotions import serialize_story_character_emotion_assets
 from app.services.story_novel import (  # noqa: E402
     STORY_NOVEL_BEAT_DIALOGUE,
     STORY_NOVEL_BEAT_NARRATION,
+    STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER,
     STORY_NOVEL_MAX_SCENE_CHARACTERS,
     build_story_novel_instruction_card,
     parse_story_novel_beats,
@@ -33,9 +34,12 @@ class StoryNovelSceneCastContractTests(unittest.TestCase):
         content = build_story_novel_instruction_card()["content"]
 
         self.assertIn("Каждый абзац без исключения", content)
-        self.assertIn("{{VN_CAST|Точный title|Эмоция; Другой title|Эмоция}}", content)
+        self.assertIn("{{VN_CAST|Точный title|female|Эмоция; Другой title|male|Эмоция}}", content)
         self.assertIn("{{VN_CAST|-}}", content)
         self.assertIn("максимум три", content)
+        self.assertIn("Рассказчик", content)
+        self.assertIn("никогда не являются персонажами", content)
+        self.assertIn("Существует строго восемь эмоций", content)
         self.assertIn("обычное описание затрагивает", content)
         self.assertIn("[[NPC:Имя]]", content)
         self.assertIn("[[GG:Имя]]", content)
@@ -44,7 +48,8 @@ class StoryNovelSceneCastContractTests(unittest.TestCase):
     def test_parser_extracts_narration_cast_and_deduplicates_to_three(self) -> None:
         beats = parse_story_novel_beats(
             "Мия нервно переплела пальцы, а Алисия следила за дверью. "
-            "{{VN_CAST|Леди Мия|Страх; Алисия|Радость; Леди Мия|Злость; Страж|Нейтральная}}"
+            "{{VN_CAST|Леди Мия|female|Страх; Алисия|female|Радость; "
+            "Леди Мия|female|Злость; Страж|male|Нейтральная}}"
         )
 
         self.assertEqual(len(beats), 1)
@@ -53,7 +58,21 @@ class StoryNovelSceneCastContractTests(unittest.TestCase):
             beats[0].scene_characters,
             (("Леди Мия", "scared"), ("Алисия", "happy"), ("Страж", "neutral")),
         )
+        self.assertEqual(
+            beats[0].scene_character_genders,
+            (("Леди Мия", "female"), ("Алисия", "female"), ("Страж", "male")),
+        )
         self.assertNotIn("VN_CAST", beats[0].text)
+
+    def test_parser_never_turns_narrator_into_a_scene_character(self) -> None:
+        beat = parse_story_novel_beats(
+            "Леди Мия посмотрела на огонь. "
+            "{{VN_CAST|Рассказчик|male|Нейтральная; Леди Мия|female|Удивление; "
+            "Автор|male|Грусть}}"
+        )[0]
+
+        self.assertEqual(beat.kind, STORY_NOVEL_BEAT_NARRATION)
+        self.assertEqual(beat.scene_characters, (("Леди Мия", "surprised"),))
 
     def test_parser_guarantees_dialogue_speaker_inside_full_cast(self) -> None:
         beat = parse_story_novel_beats(
@@ -179,9 +198,10 @@ class StoryNovelSceneCastPersistenceTests(unittest.TestCase):
             game, characters, cards, message = self._seed(db)
             raw = (
                 "Мия замерла, а Алисия ободряюще улыбнулась. "
-                "{{VN_CAST|Леди Мия|Страх; Алисия|Радость}}\n\n"
+                "{{VN_CAST|Леди Мия|female|Страх; Алисия|female|Радость}}\n\n"
                 "[[NPC:Леди Мия]] (злость) Не приближайся. "
-                "{{VN_CAST|Леди Мия|Злость; Алисия|Страх; Страж|Нейтральная}}"
+                "{{VN_CAST|Леди Мия|female|Злость; Алисия|female|Страх; "
+                "Страж|male|Нейтральная}}"
             )
 
             rows = persist_story_novel_beats_for_message(
@@ -195,6 +215,7 @@ class StoryNovelSceneCastPersistenceTests(unittest.TestCase):
             persisted_narration_cast = json.loads(rows[0].scene_characters_json)
             self.assertEqual(len(persisted_narration_cast), 2)
             self.assertEqual(persisted_narration_cast[0]["character_id"], characters["Леди Мия"].id)
+            self.assertEqual(persisted_narration_cast[0]["gender"], "female")
 
             payload = serialize_story_novel_beats_for_stream(db, rows)
             narration = payload[0]
@@ -238,7 +259,7 @@ class StoryNovelSceneCastPersistenceTests(unittest.TestCase):
             self.assertEqual(output.scene_characters[0].emotion, "scared")
             self.assertFalse(output.scene_characters[0].incognito)
 
-    def test_opening_narration_exact_card_mention_gets_linked_sprite_fallback(self) -> None:
+    def test_opening_narration_without_neutral_slot_uses_gender_incognito(self) -> None:
         with self.Session() as db:
             game, characters, cards, message = self._seed(db)
             game.opening_scene = "Леди Мия замерла у двери."
@@ -273,7 +294,11 @@ class StoryNovelSceneCastPersistenceTests(unittest.TestCase):
             self.assertEqual(len(output.scene_characters), 1)
             self.assertEqual(output.scene_characters[0].character_id, characters["Леди Мия"].id)
             self.assertEqual(output.scene_characters[0].emotion, "neutral")
-            self.assertFalse(output.scene_characters[0].incognito)
+            self.assertEqual(
+                output.scene_characters[0].sprite_url,
+                STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER["female"],
+            )
+            self.assertTrue(output.scene_characters[0].incognito)
 
     def test_story_message_serializer_hides_cast_in_content_and_variants(self) -> None:
         with self.Session() as db:

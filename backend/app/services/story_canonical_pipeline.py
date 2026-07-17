@@ -498,6 +498,7 @@ def load_or_init_canonical_state(
     latest_assistant = _latest_message_content(context_messages or [], "assistant")
     latest_user = _latest_message_content(context_messages or [], "user")
     _hydrate_conversation_from_recent_text(state, latest_assistant=latest_assistant, latest_user=latest_user)
+    _refresh_recent_npc_presence(state, latest_assistant=latest_assistant)
     state.narrative_patterns = _merge_narrative_patterns(
         state.narrative_patterns,
         extract_narrative_patterns(latest_assistant),
@@ -545,7 +546,10 @@ def _merge_world_cards_into_state(state: CanonicalStateV1, world_cards: list[Any
             state.npcs[npc_id] = CanonicalNpc(
                 character_id=npc_id,
                 name=title,
-                zone_id=state.scene.zone_id,
+                # An active card means "available to the prompt", not "standing in the
+                # current room". Presence must come from persisted state or recent scene
+                # evidence; otherwise departed/off-screen NPCs are resurrected every turn.
+                zone_id=None,
                 distance_to_player="unknown",
                 clothing=_split_list_field(_get_value(card, "clothing")),
                 health=_split_list_field(_get_value(card, "health_status")),
@@ -553,8 +557,6 @@ def _merge_world_cards_into_state(state: CanonicalStateV1, world_cards: list[Any
         else:
             if not existing_npc.name:
                 existing_npc.name = title
-            if not existing_npc.zone_id:
-                existing_npc.zone_id = state.scene.zone_id
             if not existing_npc.clothing:
                 existing_npc.clothing = _split_list_field(_get_value(card, "clothing"))
             if not existing_npc.health:
@@ -597,6 +599,33 @@ def _hydrate_conversation_from_recent_text(
     addressee_id, _ = _find_npc_in_text(latest_user, state)
     if addressee_id:
         state.conversation.active_addressee_id = addressee_id
+
+
+def _refresh_recent_npc_presence(state: CanonicalStateV1, *, latest_assistant: str) -> None:
+    """Use the last rendered beat as narrow evidence of presence, never card activation."""
+    speaker_id = state.conversation.last_speaker_id
+    if not speaker_id or speaker_id not in state.npcs:
+        return
+    npc = state.npcs[speaker_id]
+    normalized_text = _normalize_text(latest_assistant).casefold()
+    normalized_name = _normalize_text(npc.name).casefold()
+    departure_pattern = re.compile(
+        r"\b(?:уш[её]л|ушла|ушли|выш[её]л|вышла|вышли|удалил(?:ся|ась|ись)|"
+        r"покинул(?:а|и)?|исчез(?:ла|ли)?|уехал(?:а|и)?|улетел(?:а|и)?|"
+        r"left|departed|walked away|flew away)\b",
+        flags=re.IGNORECASE,
+    )
+    name_index = normalized_text.rfind(normalized_name) if normalized_name else -1
+    evidence_tail = normalized_text[name_index : name_index + 320] if name_index >= 0 else normalized_text[-320:]
+    if departure_pattern.search(evidence_tail):
+        npc.zone_id = None
+        npc.distance_to_player = "unknown"
+        if state.conversation.active_addressee_id == speaker_id:
+            state.conversation.active_addressee_id = None
+        return
+    npc.zone_id = state.scene.zone_id
+    if npc.distance_to_player == "unknown":
+        npc.distance_to_player = "same_zone"
 
 
 def _merge_narrative_patterns(left: NarrativePatterns, right: NarrativePatterns) -> NarrativePatterns:
@@ -1107,7 +1136,12 @@ def build_canonical_generation_prompt(
 
 def _render_active_scene_facts(state: CanonicalStateV1) -> list[str]:
     facts: list[str] = []
-    for npc in list(state.npcs.values())[:6]:
+    present_npcs = [
+        npc
+        for npc in state.npcs.values()
+        if npc.zone_id and npc.zone_id == state.player.zone_id
+    ]
+    for npc in present_npcs[:6]:
         name = npc.name or npc.character_id
         distance = npc.distance_to_player if npc.distance_to_player != "unknown" else "дистанция не уточнена"
         posture = f", поза: {npc.posture}" if npc.posture and npc.posture != "unknown" else ""

@@ -5,6 +5,7 @@ import {
   Chip,
   CircularProgress,
   IconButton,
+  MenuItem,
   Skeleton,
   Stack,
   SvgIcon,
@@ -13,7 +14,11 @@ import {
   Typography,
 } from '@mui/material'
 import { useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import type { StorySceneBackground } from '../../types/story'
+import type { StoryImageModelId, StorySceneBackground } from '../../types/story'
+import {
+  DEFAULT_STORY_BACKGROUND_IMAGE_MODEL,
+  STORY_IMAGE_MODEL_OPTIONS_SHARED,
+} from '../../constants/storyImageModels'
 import BaseDialog from '../dialogs/BaseDialog'
 import ProgressiveImage from '../media/ProgressiveImage'
 
@@ -37,6 +42,17 @@ export type NovelPlaceSavePayload = {
 
 type AsyncCallbackResult = void | Promise<void>
 
+export type NovelPlaceGeneratePayload = {
+  placeId?: number
+  title?: string
+  description?: string
+  stylePrompt?: string
+  imageModel?: StoryImageModelId
+  triggers?: string[]
+  makeCurrent?: boolean
+  createNewPlace?: boolean
+}
+
 export type NovelPlacesPanelProps = {
   places: StorySceneBackground[]
   currentPlace?: StorySceneBackground | null
@@ -46,7 +62,11 @@ export type NovelPlacesPanelProps = {
   generating?: boolean
   error?: string | null
   onRefresh?: () => AsyncCallbackResult
-  onGenerate: (placeId?: number) => AsyncCallbackResult
+  defaultImageModel?: StoryImageModelId
+  defaultStylePrompt?: string
+  onGenerate: (
+    request?: number | NovelPlaceGeneratePayload,
+  ) => void | StorySceneBackground | Promise<void | StorySceneBackground>
   onSelect: (placeId: number) => AsyncCallbackResult
   onSave: (place: NovelPlaceSavePayload) => AsyncCallbackResult
   onDelete: (placeId: number) => AsyncCallbackResult
@@ -58,9 +78,15 @@ type PlaceEditorState = {
   title: string
   triggersText: string
   imageUrl: string | null
+  description: string
+  stylePrompt: string
+  imageModel: StoryImageModelId
   initialTitle: string
   initialTriggersText: string
   initialImageUrl: string | null
+  initialDescription: string
+  initialStylePrompt: string
+  initialImageModel: StoryImageModelId
 }
 
 type PanelIconName =
@@ -123,7 +149,11 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
-function createEditorState(place?: StorySceneBackground): PlaceEditorState {
+function createEditorState(
+  place: StorySceneBackground | undefined,
+  imageModel: StoryImageModelId,
+  stylePrompt: string,
+): PlaceEditorState {
   const title = place?.title ?? ''
   const triggersText = formatTriggers(place?.triggers ?? [])
   const imageUrl = place?.image_url ?? null
@@ -132,9 +162,15 @@ function createEditorState(place?: StorySceneBackground): PlaceEditorState {
     title,
     triggersText,
     imageUrl,
+    description: place?.prompt ?? '',
+    stylePrompt,
+    imageModel,
     initialTitle: title,
     initialTriggersText: triggersText,
     initialImageUrl: imageUrl,
+    initialDescription: place?.prompt ?? '',
+    initialStylePrompt: stylePrompt,
+    initialImageModel: imageModel,
   }
 }
 
@@ -168,6 +204,8 @@ function NovelPlacesPanel({
   saving = false,
   generating = false,
   error = null,
+  defaultImageModel = DEFAULT_STORY_BACKGROUND_IMAGE_MODEL,
+  defaultStylePrompt = '',
   onRefresh,
   onGenerate,
   onSelect,
@@ -196,19 +234,48 @@ function NovelPlacesPanel({
     editor &&
       (editor.title !== editor.initialTitle ||
         editor.triggersText !== editor.initialTriggersText ||
-        editor.imageUrl !== editor.initialImageUrl),
+        editor.imageUrl !== editor.initialImageUrl ||
+        editor.description !== editor.initialDescription ||
+        editor.stylePrompt !== editor.initialStylePrompt ||
+        editor.imageModel !== editor.initialImageModel),
   )
 
-  const runGenerate = async (placeId?: number) => {
+  const runGenerate = async (request?: number | NovelPlaceGeneratePayload) => {
+    const placeId = typeof request === 'number' ? request : request?.placeId
     setLocalError(null)
     setPendingGenerateId(placeId ?? null)
     try {
-      await onGenerate(placeId)
+      return await onGenerate(request)
     } catch (generateError) {
       setLocalError(getErrorMessage(generateError, 'Не удалось сгенерировать фон.'))
     } finally {
       setPendingGenerateId(undefined)
     }
+  }
+
+  const handleGenerateEditorBackground = async () => {
+    if (!editor) return
+    const title = editor.title.trim()
+    const description = editor.description.trim()
+    if (!title) {
+      setLocalError('Укажите название места.')
+      return
+    }
+    if (!description) {
+      setLocalError('Опишите, какой фон нужно сгенерировать.')
+      return
+    }
+    const result = await runGenerate({
+      placeId: editor.id,
+      title,
+      description,
+      stylePrompt: editor.stylePrompt.trim(),
+      imageModel: editor.imageModel,
+      triggers: editorTriggers,
+      makeCurrent: false,
+      createNewPlace: !editor.id,
+    })
+    if (result) setEditor(null)
   }
 
   const runSelect = async (placeId: number) => {
@@ -387,7 +454,7 @@ function NovelPlacesPanel({
                 disabled={isBusy}
                 onClick={() => {
                   setLocalError(null)
-                  setEditor(createEditorState())
+                  setEditor(createEditorState(undefined, defaultImageModel, defaultStylePrompt))
                 }}
                 sx={{
                   width: { xs: '100%', sm: 38 },
@@ -646,7 +713,7 @@ function NovelPlacesPanel({
                             disabled={isBusy}
                             onClick={() => {
                               setLocalError(null)
-                              setEditor(createEditorState(place))
+                              setEditor(createEditorState(place, defaultImageModel, defaultStylePrompt))
                             }}
                             sx={{
                               width: 31,
@@ -747,6 +814,29 @@ function NovelPlacesPanel({
               spacing={0.65}
               sx={{ position: 'absolute', right: 10, bottom: 10 }}
             >
+              <Tooltip title="Сгенерировать фон за солы">
+                <span>
+                  <IconButton
+                    aria-label="Сгенерировать фон места"
+                    disabled={isBusy || !editor?.title.trim() || !editor?.description.trim()}
+                    onClick={() => void handleGenerateEditorBackground()}
+                    sx={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '10px',
+                      color: '#fff',
+                      backgroundColor: 'rgba(12, 14, 18, 0.78)',
+                      backdropFilter: 'blur(12px)',
+                    }}
+                  >
+                    {generating && pendingGenerateId === (editor?.id ?? null) ? (
+                      <CircularProgress size={16} color="inherit" />
+                    ) : (
+                      <PanelIcon name="generate" size={18} />
+                    )}
+                  </IconButton>
+                </span>
+              </Tooltip>
               {editor?.imageUrl ? (
                 <Button
                   size="small"
@@ -805,6 +895,59 @@ function NovelPlacesPanel({
               setEditor((currentEditor) => (currentEditor ? { ...currentEditor, title: event.target.value } : null))
             }
           />
+
+          <TextField
+            fullWidth
+            multiline
+            minRows={3}
+            maxRows={7}
+            label="Что сгенерировать"
+            value={editor?.description ?? ''}
+            disabled={isBusy}
+            placeholder="Например, богатый кабинет аристократа с тёмным деревом, гербами и видом на зимний город"
+            inputProps={{ maxLength: 4000 }}
+            helperText="Опишите только место и атмосферу — персонажи на фон не попадут."
+            onChange={(event) =>
+              setEditor((currentEditor) =>
+                currentEditor ? { ...currentEditor, description: event.target.value } : null,
+              )
+            }
+          />
+
+          <TextField
+            fullWidth
+            label="Стиль"
+            value={editor?.stylePrompt ?? ''}
+            disabled={isBusy}
+            placeholder="Например, cinematic anime background, painterly lighting"
+            inputProps={{ maxLength: 1000 }}
+            onChange={(event) =>
+              setEditor((currentEditor) =>
+                currentEditor ? { ...currentEditor, stylePrompt: event.target.value } : null,
+              )
+            }
+          />
+
+          <TextField
+            select
+            fullWidth
+            label="Модель генерации"
+            value={editor?.imageModel ?? defaultImageModel}
+            disabled={isBusy}
+            onChange={(event) =>
+              setEditor((currentEditor) =>
+                currentEditor
+                  ? { ...currentEditor, imageModel: event.target.value as StoryImageModelId }
+                  : null,
+              )
+            }
+          >
+            {STORY_IMAGE_MODEL_OPTIONS_SHARED.map((option) => (
+              <MenuItem key={option.id} value={option.id}>
+                {option.title} · {option.cost} сол
+              </MenuItem>
+            ))}
+          </TextField>
 
           <Stack spacing={0.75}>
             <TextField

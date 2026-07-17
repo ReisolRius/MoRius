@@ -439,6 +439,18 @@ def _format_detailed_memory_content(payload: DetailedMemoryPayload) -> str:
     if payload.open_threads:
         lines.append("\nOpen threads:")
         lines.extend(f"- {item.strip()}" for item in payload.open_threads if item.strip())
+    if payload.scene_anchor:
+        lines.append("\nScene anchor:")
+        lines.extend(f"- {item.strip()}" for item in payload.scene_anchor if item.strip())
+    if payload.presence_changes:
+        lines.append("\nPresence changes:")
+        lines.extend(f"- {item.strip()}" for item in payload.presence_changes if item.strip())
+    if payload.character_knowledge:
+        lines.append("\nCharacter knowledge:")
+        lines.extend(f"- {item.strip()}" for item in payload.character_knowledge if item.strip())
+    if payload.active_plans:
+        lines.append("\nActive plans:")
+        lines.extend(f"- {item.strip()}" for item in payload.active_plans if item.strip())
     return "\n".join(line for line in lines if line is not None).strip()
 
 
@@ -450,6 +462,15 @@ def _format_compressed_memory_content(payload: CompressedMemoryPayload) -> str:
     if payload.open_threads:
         lines.append("\nOpen threads:")
         lines.extend(f"- {item.strip()}" for item in payload.open_threads if item.strip())
+    if payload.scene_state:
+        lines.append("\nScene state:")
+        lines.extend(f"- {item.strip()}" for item in payload.scene_state if item.strip())
+    if payload.character_knowledge:
+        lines.append("\nCharacter knowledge:")
+        lines.extend(f"- {item.strip()}" for item in payload.character_knowledge if item.strip())
+    if payload.active_plans:
+        lines.append("\nActive plans:")
+        lines.extend(f"- {item.strip()}" for item in payload.active_plans if item.strip())
     return "\n".join(lines).strip()
 
 
@@ -464,6 +485,12 @@ def _format_fact_memory_content(payload: FactMemoryPayload) -> str:
     if payload.open_threads:
         lines.append("\nOpen threads:")
         lines.extend(f"- {item.strip()}" for item in payload.open_threads if item.strip())
+    if payload.character_knowledge:
+        lines.append("\nCharacter knowledge:")
+        lines.extend(f"- {item.strip()}" for item in payload.character_knowledge if item.strip())
+    if payload.active_commitments:
+        lines.append("\nActive commitments:")
+        lines.extend(f"- {item.strip()}" for item in payload.active_commitments if item.strip())
     return "\n".join(lines).strip()
 
 

@@ -18,6 +18,8 @@ from app.services.story_games import coerce_story_image_model, deserialize_story
 from app.services.story_llm_modules import LlmModuleService, SceneBackgroundPromptPayload
 from app.services.story_novel import can_user_use_story_visual_novel, is_story_visual_novel_game
 from app.services.story_world_cards import (
+    STORY_WORLD_CARD_KIND_MAIN_HERO,
+    STORY_WORLD_CARD_KIND_NPC,
     STORY_WORLD_CARD_KIND_WORLD,
     STORY_WORLD_CARD_KIND_WORLD_PROFILE,
 )
@@ -719,6 +721,34 @@ def _collect_story_world_setting(world_cards: list[StoryWorldCard]) -> tuple[str
     return primary_title, "\n\n".join(sections)
 
 
+def _collect_story_active_character_context(world_cards: list[StoryWorldCard]) -> str:
+    """Compact enabled character cards for conditional environment inference."""
+    sections: list[str] = []
+    for card in world_cards:
+        kind = str(getattr(card, "kind", "") or "").strip().lower()
+        if kind not in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_NPC}:
+            continue
+        if kind == STORY_WORLD_CARD_KIND_NPC and getattr(card, "memory_turns", None) == 0:
+            continue
+        title = sanitize_likely_utf8_mojibake(str(getattr(card, "title", "") or "")).strip()
+        content = sanitize_likely_utf8_mojibake(str(getattr(card, "content", "") or "")).strip()
+        if not title or not content:
+            continue
+        details: list[str] = []
+        for label, field_name in (
+            ("race", "race"),
+            ("clothing", "clothing"),
+            ("inventory", "inventory"),
+            ("health", "health_status"),
+        ):
+            value = sanitize_likely_utf8_mojibake(str(getattr(card, field_name, "") or "")).strip()
+            if value:
+                details.append(f"{label}: {value[:320]}")
+        role = "player protagonist" if kind == STORY_WORLD_CARD_KIND_MAIN_HERO else "NPC"
+        sections.append("\n".join([f"{role}: {title}", content[:1_600], *details]))
+    return "\n\n".join(sections)
+
+
 def _build_scene_background_prompt_messages(
     *,
     world_title: str,
@@ -728,6 +758,8 @@ def _build_scene_background_prompt_messages(
     location_label: str,
     latest_user_prompt: str,
     latest_assistant_text: str,
+    active_character_context: str = "",
+    requested_description: str = "",
 ) -> list[dict[str, str]]:
     genre_line = ", ".join(genre for genre in genres if genre) or "не указан"
     system_content = (
@@ -744,6 +776,12 @@ def _build_scene_background_prompt_messages(
         "словами (distant anonymous crowd, silhouettes, background figures), без узнаваемых лиц и "
         "деталей. Если сцена уединённая, ночная пустая улица, чей-то дом и т.п. — людей не добавляй "
         "вообще.\n"
+        "КАРТОЧКИ ПЕРСОНАЖЕЙ — ТОЛЬКО УСЛОВНЫЙ КОНТЕКСТ МЕСТА: они не доказывают присутствие в кадре. "
+        "Используй достаток, культуру, профессию, класс, привычки или магическую/технологическую специализацию "
+        "персонажа только если фон явно является его домом, комнатой, владением, рабочим местом либо иначе прямо "
+        "связан с ним. Переводи свойства в детали окружения: материалы, мебель, инструменты, символы и следы образа "
+        "жизни. Если связь не подтверждена названием, описанием или сценой — полностью игнорируй карточку. Не смешивай "
+        "свойства разных персонажей, не придумывай владельца и никогда не изображай именованного персонажа.\n"
         'Return JSON only: {"prompt": string, "location_title": string, "has_people": boolean}. '
         "has_people=true только если нужна массовка. No markdown, no commentary, no reasoning, no extra keys."
     )
@@ -753,6 +791,8 @@ def _build_scene_background_prompt_messages(
         f"ЖАНРЫ: {genre_line}\n\n"
         f"ТЕКУЩАЯ ЛОКАЦИЯ (место внутри мира): {location_label or 'не указана'}\n\n"
         f"СТИЛЬ ИЗОБРАЖЕНИЯ: {image_style_prompt or 'не указан'}\n\n"
+        f"ОПИСАНИЕ ФОНА ОТ ИГРОКА (при наличии это главный запрос к месту):\n{requested_description or '(нет)'}\n\n"
+        f"АКТИВНЫЕ ПЕРСОНАЖИ (использовать только при доказанной связи с местом):\n{active_character_context or '(нет)'}\n\n"
         f"ПОСЛЕДНИЙ ХОД ИГРОКА (только для выбора места и наличия людей):\n{latest_user_prompt or '(нет)'}\n\n"
         f"ОТВЕТ РАССКАЗЧИКА (только для выбора места и наличия людей):\n{latest_assistant_text or '(нет)'}"
     )
@@ -785,10 +825,17 @@ def generate_story_scene_background_prompt(
     location_label: str,
     latest_user_prompt: str,
     latest_assistant_text: str,
+    requested_description: str = "",
+    requested_style_prompt: str | None = None,
 ) -> SceneBackgroundPromptPayload:
     world_title, world_content = _collect_story_world_setting(world_cards)
+    active_character_context = _collect_story_active_character_context(world_cards)
     genres = deserialize_story_game_genres(getattr(game, "genres", None))
-    image_style_prompt = str(getattr(game, "image_style_prompt", "") or "")
+    image_style_prompt = str(
+        requested_style_prompt
+        if requested_style_prompt is not None
+        else getattr(game, "image_style_prompt", "") or ""
+    )
 
     messages = _build_scene_background_prompt_messages(
         world_title=world_title,
@@ -798,6 +845,8 @@ def generate_story_scene_background_prompt(
         location_label=location_label,
         latest_user_prompt=sanitize_likely_utf8_mojibake(latest_user_prompt),
         latest_assistant_text=sanitize_likely_utf8_mojibake(latest_assistant_text),
+        active_character_context=active_character_context,
+        requested_description=sanitize_likely_utf8_mojibake(requested_description),
     )
     service = LlmModuleService(
         _request_scene_background_prompt_text,
@@ -865,6 +914,12 @@ def generate_story_novel_background_impl(
     assistant_message_id: int | None = None,
     requested_title: str | None = None,
     place_id: int | None = None,
+    requested_description: str | None = None,
+    requested_style_prompt: str | None = None,
+    requested_image_model: str | None = None,
+    requested_triggers: list[str] | None = None,
+    make_current: bool | None = None,
+    create_new_place: bool = False,
 ) -> StorySceneBackgroundOut:
     from app.services.story_visuals import (
         _get_story_turn_image_cost_tokens,
@@ -882,6 +937,8 @@ def generate_story_novel_background_impl(
             game_id=int(game.id),
             background_id=int(place_id),
         )
+    elif create_new_place:
+        target_background = None
     else:
         current_background = get_current_story_scene_background(db, int(game.id))
         generated_turn_id = (
@@ -899,20 +956,33 @@ def generate_story_novel_background_impl(
     if target_background is None:
         _ensure_story_scene_background_capacity(db, int(game.id))
 
+    composer_location_label = (
+        sanitize_likely_utf8_mojibake(str(requested_title or "")).strip()
+        if requested_description or create_new_place
+        else ""
+    ) or location_label
     scene_payload = generate_story_scene_background_prompt(
         game=game,
         world_cards=world_cards,
-        location_label=location_label,
+        location_label=composer_location_label,
         latest_user_prompt=latest_user_prompt,
         latest_assistant_text=latest_assistant_text,
+        requested_description=str(requested_description or ""),
+        requested_style_prompt=requested_style_prompt,
     )
-    image_style_prompt = str(getattr(game, "image_style_prompt", "") or "")
+    image_style_prompt = str(
+        requested_style_prompt
+        if requested_style_prompt is not None
+        else getattr(game, "image_style_prompt", "") or ""
+    )
     final_prompt = _build_final_scene_background_image_prompt(
-        scene_prompt=scene_payload.prompt or location_label or "Empty establishing background",
+        scene_prompt=scene_payload.prompt or composer_location_label or "Empty establishing background",
         image_style_prompt=image_style_prompt,
         allow_background_crowd=bool(scene_payload.has_people),
     )
-    selected_image_model = coerce_story_image_model(getattr(game, "image_model", None))
+    selected_image_model = coerce_story_image_model(
+        requested_image_model if requested_image_model else getattr(game, "image_model", None)
+    )
     final_prompt = _limit_story_turn_image_request_prompt(final_prompt, model_name=selected_image_model)
     if not final_prompt:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Scene context is empty")
@@ -950,9 +1020,11 @@ def generate_story_novel_background_impl(
         or generated_location_title
     )
 
-    existing_backgrounds = list_story_scene_backgrounds(db, int(game.id))
-    for background in existing_backgrounds:
-        background.is_current = False
+    effective_make_current = (not create_new_place) if make_current is None else bool(make_current)
+    if effective_make_current:
+        existing_backgrounds = list_story_scene_backgrounds(db, int(game.id))
+        for existing_background in existing_backgrounds:
+            existing_background.is_current = False
 
     background = target_background
     if background is None:
@@ -962,15 +1034,17 @@ def generate_story_novel_background_impl(
             game_id=int(game.id),
             title=_normalize_story_place_title(location_title),
             prompt="",
-            triggers="[]",
+            triggers=_serialize_story_scene_background_triggers(requested_triggers or []),
             theme="",
             style="",
             model="",
-            is_current=True,
+            is_current=effective_make_current,
         )
         db.add(background)
     elif requested_location_title:
         background.title = _normalize_story_place_title(requested_location_title)
+    if background is not None and requested_triggers is not None:
+        background.triggers = _serialize_story_scene_background_triggers(requested_triggers)
 
     background.prompt = final_prompt
     background.style = (
@@ -984,10 +1058,86 @@ def generate_story_novel_background_impl(
     background.image_url = generation_result.get("image_url")
     background.image_data_url = generation_result.get("image_data_url")
     background.generated_for_assistant_message_id = assistant_message_id
-    background.is_current = True
+    background.is_current = effective_make_current or bool(background.is_current)
     db.commit()
     db.refresh(background)
     return story_scene_background_to_out(background)
+
+
+def generate_story_place_template_background_impl(
+    *,
+    db: Session,
+    user: Any,
+    title: str,
+    description: str,
+    style_prompt: str | None,
+    image_model: str | None,
+    triggers: list[str],
+    template_id: int | None = None,
+) -> StoryPlaceTemplateOut:
+    from app.services.story_visuals import (
+        _get_story_turn_image_cost_tokens,
+        _limit_story_turn_image_request_prompt,
+        _request_story_turn_image,
+    )
+
+    require_story_visual_novel_profile_admin(user)
+    template = None
+    if template_id is not None:
+        template = db.scalar(
+            select(StoryPlaceTemplate).where(
+                StoryPlaceTemplate.id == int(template_id),
+                StoryPlaceTemplate.user_id == int(user.id),
+            )
+        )
+        if template is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Place template not found")
+    normalized_title = _normalize_story_place_title(title)
+    normalized_description = sanitize_likely_utf8_mojibake(str(description or "")).strip()
+    if not normalized_description:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Background description cannot be empty")
+    normalized_style = sanitize_likely_utf8_mojibake(str(style_prompt or "")).strip()
+    selected_image_model = coerce_story_image_model(image_model)
+    final_prompt = _build_final_scene_background_image_prompt(
+        scene_prompt=(
+            f"Location: {normalized_title}. {normalized_description}. "
+            "Environment-only visual novel background; express the requested place through architecture, materials, objects and atmosphere."
+        ),
+        image_style_prompt=normalized_style,
+        allow_background_crowd=False,
+    )
+    final_prompt = _limit_story_turn_image_request_prompt(final_prompt, model_name=selected_image_model)
+    generation_cost = _get_story_turn_image_cost_tokens(selected_image_model)
+    if not spend_user_tokens_if_sufficient(db, user_id=int(user.id), tokens=generation_cost):
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Not enough sols to generate background")
+    db.commit()
+
+    try:
+        generation_result = _request_story_turn_image(prompt=final_prompt, model_name=selected_image_model)
+    except Exception as exc:
+        try:
+            add_user_tokens(db, user_id=int(user.id), tokens=generation_cost)
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("Story place template token refund failed: user_id=%s", user.id)
+        logger.exception("Story place template background generation failed: user_id=%s", user.id)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Background generation failed") from exc
+
+    if template is None:
+        template = StoryPlaceTemplate(user_id=int(user.id), title=normalized_title, triggers="[]")
+        db.add(template)
+    template.title = normalized_title
+    template.triggers = _serialize_story_scene_background_triggers(triggers)
+    _set_story_place_image(
+        db,
+        template,
+        generation_result.get("image_data_url") or generation_result.get("image_url"),
+    )
+    db.commit()
+    db.refresh(template)
+    return story_place_template_to_out(template)
 
 
 def select_story_scene_background_impl(

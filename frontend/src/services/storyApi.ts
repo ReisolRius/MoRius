@@ -407,12 +407,6 @@ function normalizeStoryCharacterEmotionAssets(rawValue: unknown): StoryCharacter
   return normalizedAssets
 }
 
-function countStoryCharacterEmotionAssets(value: StoryCharacterEmotionAssets | undefined): number {
-  return STORY_CHARACTER_EMOTION_IDS.reduce((count, emotionId) => {
-    return count + ((value?.[emotionId] ?? '').trim().length > 0 ? 1 : 0)
-  }, 0)
-}
-
 function createStoryCharacterEmotionAssetUploadId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
@@ -426,33 +420,6 @@ function splitStoryCharacterEmotionAssetChunks(value: string): string[] {
     chunks.push(value.slice(cursor, cursor + STORY_CHARACTER_EMOTION_ASSET_CHUNK_CHARS))
   }
   return chunks.length > 0 ? chunks : ['']
-}
-
-function normalizeStoryCharacterLinkName(value: unknown): string {
-  if (typeof value !== 'string') {
-    return ''
-  }
-  return value
-    .toLocaleLowerCase()
-    .replace(/[.,!?()[\]{}"'`]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function normalizeStoryCharacterLinkAvatar(value: unknown): string {
-  if (typeof value !== 'string') {
-    return ''
-  }
-  return value.trim()
-}
-
-function buildStoryCharacterLinkSignature(character: Pick<StoryCharacter, 'name' | 'avatar_url' | 'avatar_original_url'>): string {
-  const normalizedName = normalizeStoryCharacterLinkName(character.name)
-  const normalizedAvatar = normalizeStoryCharacterLinkAvatar(character.avatar_original_url ?? character.avatar_url)
-  if (!normalizedName) {
-    return ''
-  }
-  return `${normalizedName}|${normalizedAvatar}`
 }
 
 function normalizeStoryPublicationState(rawValue: unknown): StoryPublicationState {
@@ -936,68 +903,10 @@ function normalizeStoryCharacterListPayload(rawCharacters: StoryCharacter[]): St
   if (!Array.isArray(rawCharacters)) {
     return []
   }
-  const normalizedCharacters = rawCharacters
+  return rawCharacters
     .filter((item): item is StoryCharacter => Boolean(item) && typeof item === 'object')
     .map((item) => normalizeStoryCharacterPayload(item))
     .filter((item) => item.id > 0)
-
-  const donorById = new Map<number, StoryCharacter>()
-  const donorsBySignature = new Map<string, StoryCharacter[]>()
-  const donorsByName = new Map<string, StoryCharacter[]>()
-
-  normalizedCharacters.forEach((character) => {
-    if (countStoryCharacterEmotionAssets(character.emotion_assets) <= 0) {
-      return
-    }
-    donorById.set(character.id, character)
-
-    const signature = buildStoryCharacterLinkSignature(character)
-    if (signature) {
-      const signatureDonors = donorsBySignature.get(signature) ?? []
-      signatureDonors.push(character)
-      donorsBySignature.set(signature, signatureDonors)
-    }
-
-    const normalizedName = normalizeStoryCharacterLinkName(character.name)
-    if (normalizedName) {
-      const nameDonors = donorsByName.get(normalizedName) ?? []
-      nameDonors.push(character)
-      donorsByName.set(normalizedName, nameDonors)
-    }
-  })
-
-  return normalizedCharacters.map((character) => {
-    if (countStoryCharacterEmotionAssets(character.emotion_assets) > 0) {
-      return character
-    }
-
-    let donor: StoryCharacter | null = null
-    if (typeof character.source_character_id === 'number' && character.source_character_id > 0) {
-      donor = donorById.get(character.source_character_id) ?? null
-    }
-
-    if (!donor) {
-      const signatureDonors = donorsBySignature.get(buildStoryCharacterLinkSignature(character)) ?? []
-      donor = signatureDonors.find((candidate) => candidate.id !== character.id) ?? null
-    }
-
-    if (!donor) {
-      const nameDonors = donorsByName.get(normalizeStoryCharacterLinkName(character.name)) ?? []
-      if (nameDonors.length === 1 && nameDonors[0].id !== character.id) {
-        donor = nameDonors[0]
-      }
-    }
-
-    if (!donor) {
-      return character
-    }
-
-    return {
-      ...character,
-      emotion_assets: donor.emotion_assets,
-      novel_sprite_gender: character.novel_sprite_gender || donor.novel_sprite_gender,
-    }
-  })
 }
 
 function normalizeStoryCommunityCharacterSummaryPayload(
@@ -2837,6 +2746,12 @@ export async function generateStoryNovelBackground(payload: {
   gameId: number
   title?: string
   placeId?: number
+  description?: string
+  stylePrompt?: string
+  imageModel?: string
+  triggers?: string[]
+  makeCurrent?: boolean
+  createNewPlace?: boolean
   signal?: AbortSignal
 }): Promise<StorySceneBackground> {
   const response = await request<StorySceneBackground>(`/api/story/games/${payload.gameId}/novel/background/generate`, {
@@ -2845,7 +2760,16 @@ export async function generateStoryNovelBackground(payload: {
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
-    body: JSON.stringify({ title: payload.title ?? null, place_id: payload.placeId ?? null }),
+    body: JSON.stringify({
+      title: payload.title ?? null,
+      place_id: payload.placeId ?? null,
+      description: payload.description ?? null,
+      style_prompt: payload.stylePrompt ?? null,
+      image_model: payload.imageModel ?? null,
+      triggers: payload.triggers,
+      make_current: payload.makeCurrent,
+      create_new_place: Boolean(payload.createNewPlace),
+    }),
   })
   return normalizeStorySceneBackgroundPayload(response)
 }
@@ -3010,6 +2934,32 @@ export async function createStoryPlaceTemplate(payload: {
       title: payload.title,
       triggers: payload.triggers ?? [],
       image_url: payload.imageUrl ?? null,
+    }),
+  })
+  return normalizeStoryPlaceTemplatePayload(response)
+}
+
+export async function generateStoryPlaceTemplateBackground(payload: {
+  token: string
+  title: string
+  description: string
+  stylePrompt?: string
+  imageModel?: string
+  triggers?: string[]
+  templateId?: number
+}): Promise<StoryPlaceTemplate> {
+  const response = await request<StoryPlaceTemplate>('/api/story/novel/place-templates/background/generate', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      description: payload.description,
+      style_prompt: payload.stylePrompt ?? null,
+      image_model: payload.imageModel ?? null,
+      triggers: payload.triggers ?? [],
+      template_id: payload.templateId ?? null,
     }),
   })
   return normalizeStoryPlaceTemplatePayload(response)

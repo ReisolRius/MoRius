@@ -9,6 +9,7 @@ from app.schemas import (
     MessageResponse,
     StoryNovelBackgroundGenerateRequest,
     StoryNovelBackgroundSelectRequest,
+    StoryPlaceBackgroundGenerateRequest,
     StoryPlaceCreateRequest,
     StoryPlaceImageUpdateRequest,
     StoryPlaceImportRequest,
@@ -23,6 +24,7 @@ from app.services.story_novel_backgrounds import (
     delete_story_place_template_impl,
     delete_story_scene_background_impl,
     generate_story_novel_background_impl,
+    generate_story_place_template_background_impl,
     import_story_place_template_impl,
     list_story_place_templates_impl,
     list_story_scene_backgrounds_impl,
@@ -81,6 +83,12 @@ def generate_story_novel_background_route(
         assistant_message_id=latest_assistant_message_id,
         requested_title=payload.title,
         place_id=payload.place_id,
+        requested_description=payload.description,
+        requested_style_prompt=payload.style_prompt,
+        requested_image_model=payload.image_model,
+        requested_triggers=payload.triggers,
+        make_current=payload.make_current,
+        create_new_place=payload.create_new_place,
     )
 
 
@@ -262,6 +270,28 @@ def list_story_place_templates_route(
 ) -> list[StoryPlaceTemplateOut]:
     user = get_current_user(db, authorization)
     return list_story_place_templates_impl(db=db, user=user)
+
+
+@router.post(
+    "/api/story/novel/place-templates/background/generate",
+    response_model=StoryPlaceTemplateOut,
+)
+def generate_story_place_template_background_route(
+    payload: StoryPlaceBackgroundGenerateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryPlaceTemplateOut:
+    user = get_current_user(db, authorization)
+    return generate_story_place_template_background_impl(
+        db=db,
+        user=user,
+        title=payload.title,
+        description=payload.description,
+        style_prompt=payload.style_prompt,
+        image_model=payload.image_model,
+        triggers=payload.triggers,
+        template_id=payload.template_id,
+    )
 
 
 @router.post("/api/story/novel/place-templates", response_model=StoryPlaceTemplateOut)

@@ -37,6 +37,74 @@ STORY_NOVEL_BEAT_KINDS = {
 }
 STORY_NOVEL_SPEAKER_BEAT_KINDS = {STORY_NOVEL_BEAT_DIALOGUE, STORY_NOVEL_BEAT_THOUGHT}
 STORY_NOVEL_MAX_SCENE_CHARACTERS = 3
+STORY_NOVEL_SPRITE_SOURCE_MAX_DEPTH = 4
+STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER = {
+    "female": "/visual-novel/incognito-female.png",
+    "male": "/visual-novel/incognito-male.png",
+}
+# The narrator is required to emit gender, but already saved beats and occasional malformed
+# provider output predate that contract. Never turn such a cast member into an empty stage slot:
+# infer obvious Russian/English forms locally and use a deterministic last-resort sprite.
+STORY_NOVEL_DEFAULT_INCOGNITO_SPRITE_GENDER = "male"
+STORY_NOVEL_FEMALE_GENDER_HINTS: tuple[tuple[str, int], ...] = (
+    (r"\b(?:пол|gender|sex)\s*[:=\-]?\s*(?:жен\w*|female)\b", 20),
+    (
+        r"\b(?:женщин\w*|девушк\w*|девочк\w*|героин\w*|мать|мама|дочь|сестр\w*|жена|жены|"
+        r"королев\w*|принцесс\w*|герцогин\w*|графин\w*|баронесс\w*|леди|"
+        r"учительниц\w*|преподавательниц\w*|директрис\w*|наставниц\w*|хозяйк\w*|"
+        r"служанк\w*|горничн\w*|монахин\w*|жриц\w*|ведьм\w*|волшебниц\w*|колдунь\w*|"
+        r"female|woman|girl|mother|daughter|sister|queen|princess|duchess|lady|teacheress)\b",
+        8,
+    ),
+    (r"\b(?:она|е[её]|ей|she|her)\b", 1),
+)
+STORY_NOVEL_MALE_GENDER_HINTS: tuple[tuple[str, int], ...] = (
+    (r"\b(?:пол|gender|sex)\s*[:=\-]?\s*(?:муж\w*|male)\b", 20),
+    (
+        r"\b(?:мужчин\w*|парн\w*|юнош\w*|мальчик\w*|отец|папа|сын|брат|муж|"
+        r"король|принц|герцог|граф|барон|лорд|учитель|преподаватель|директор|наставник|"
+        r"хозяин|слуга|монах|жрец|колдун|волшебник|стражник|охранник|"
+        r"male|man|boy|father|son|brother|king|prince|duke|lord)\b",
+        8,
+    ),
+    (r"\b(?:он|его|ему|he|him|his)\b", 1),
+)
+STORY_NOVEL_MALE_NAME_ENDING_EXCEPTIONS = {
+    "илья",
+    "никита",
+    "лука",
+    "кузьма",
+    "фома",
+    "савва",
+    "данила",
+    "миша",
+    "саша",
+}
+STORY_NOVEL_NON_CHARACTER_NAMES = {
+    "narrator",
+    "рассказчик",
+    "автор",
+    "система",
+    "system",
+    "scene",
+    "сцена",
+    "повествователь",
+    "описание",
+}
+STORY_NOVEL_IDENTITY_STOP_TOKENS = STORY_NOVEL_NON_CHARACTER_NAMES | {
+    "npc",
+    "нпс",
+    "персонаж",
+    "незнакомец",
+    "незнакомка",
+    "голос",
+    "девушка",
+    "женщина",
+    "мужчина",
+    "парень",
+    "герой",
+    "героиня",
+}
 
 
 def normalize_story_game_mode(value: Any) -> str:
@@ -72,25 +140,78 @@ def normalize_story_novel_beat_kind(value: Any) -> str:
     return STORY_NOVEL_BEAT_NARRATION
 
 
+def _infer_story_novel_sprite_gender(*values: Any) -> str:
+    """Infer an incognito sprite gender when historical/provider metadata omitted it."""
+    normalized_values = [
+        sanitize_likely_utf8_mojibake(str(value or "")).casefold().replace("ё", "е")
+        for value in values
+        if str(value or "").strip()
+    ]
+    combined = "\n".join(normalized_values)
+    female_score = sum(
+        weight for pattern, weight in STORY_NOVEL_FEMALE_GENDER_HINTS if re.search(pattern, combined)
+    )
+    male_score = sum(
+        weight for pattern, weight in STORY_NOVEL_MALE_GENDER_HINTS if re.search(pattern, combined)
+    )
+    if female_score > male_score:
+        return "female"
+    if male_score > female_score:
+        return "male"
+
+    # A conservative name-ending fallback covers most Russian names while excluding common
+    # masculine -а/-я names. It is used only when neither the narrator nor profile text helped.
+    name_tokens = re.findall(r"[a-zа-я]+", normalized_values[0] if normalized_values else "")
+    if name_tokens:
+        given_name = name_tokens[-1]
+        if (
+            given_name not in STORY_NOVEL_MALE_NAME_ENDING_EXCEPTIONS
+            and given_name.endswith(("а", "я"))
+        ):
+            return "female"
+    return STORY_NOVEL_DEFAULT_INCOGNITO_SPRITE_GENDER
+
+
 def _resolve_story_novel_sprite(
     character: StoryCharacter | None,
     emotion: str | None,
+    *,
+    sprite_source_character: StoryCharacter | None = None,
+    fallback_gender: str | None = None,
+    fallback_name: str | None = None,
 ) -> tuple[str | None, bool, str | None]:
     """Return (sprite_url, is_incognito, gender) for a speaking character's emotion.
 
-    Falls back exact-emotion -> neutral -> any uploaded sprite; if the character has no
-    uploaded sprites at all, returns the incognito silhouette by gender.
+    Falls back exact-emotion -> the character's neutral sprite -> the shared gender-specific
+    incognito sprite. Cross-character and arbitrary-emotion fallback are never allowed.
     """
-    if character is None:
-        return None, True, None
+    asset_character = sprite_source_character or character
+    gender = (
+        normalize_story_novel_sprite_gender(getattr(character, "novel_sprite_gender", None))
+        or normalize_story_novel_sprite_gender(getattr(asset_character, "novel_sprite_gender", None))
+        or normalize_story_novel_sprite_gender(fallback_gender)
+        or _infer_story_novel_sprite_gender(
+            fallback_name,
+            getattr(character, "name", None),
+            getattr(character, "description", None),
+            getattr(character, "note", None),
+            getattr(character, "triggers", None),
+            getattr(asset_character, "name", None),
+            getattr(asset_character, "description", None),
+            getattr(asset_character, "note", None),
+            getattr(asset_character, "triggers", None),
+        )
+    )
+    incognito_sprite_url = STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER[gender]
+    if asset_character is None:
+        return incognito_sprite_url, True, gender
 
-    gender = normalize_story_novel_sprite_gender(getattr(character, "novel_sprite_gender", None)) or None
-    assets = deserialize_story_character_emotion_assets(getattr(character, "emotion_assets", None))
+    assets = deserialize_story_character_emotion_assets(getattr(asset_character, "emotion_assets", None))
     if not assets:
-        return None, True, gender
+        return incognito_sprite_url, True, gender
 
     resolved_emotion = normalize_story_character_emotion_id(emotion) or STORY_CHARACTER_DEFAULT_EMOTION
-    candidate_order = [resolved_emotion, STORY_CHARACTER_DEFAULT_EMOTION, *assets.keys()]
+    candidate_order = [resolved_emotion, STORY_CHARACTER_DEFAULT_EMOTION]
     seen: set[str] = set()
     for emotion_candidate in candidate_order:
         if not emotion_candidate or emotion_candidate in seen:
@@ -102,20 +223,21 @@ def _resolve_story_novel_sprite(
         sprite_url = resolve_media_display_url(
             raw_asset,
             kind="story-character-emotion-asset",
-            entity_id=int(character.id),
-            version=getattr(character, "updated_at", None),
+            entity_id=int(asset_character.id),
+            version=getattr(asset_character, "updated_at", None),
             asset_id=emotion_candidate,
         )
         if sprite_url:
             return sprite_url, False, gender
 
-    return None, True, gender
+    return incognito_sprite_url, True, gender
 
 
 def _story_novel_beat_to_out(
     beat: StoryNovelBeat,
     *,
     character: StoryCharacter | None = None,
+    sprite_source_character: StoryCharacter | None = None,
     scene_characters: list[StoryNovelSceneCharacterOut] | None = None,
 ) -> StoryNovelBeatOut:
     kind = normalize_story_novel_beat_kind(getattr(beat, "kind", None))
@@ -124,7 +246,34 @@ def _story_novel_beat_to_out(
     sprite_incognito = False
     sprite_gender: str | None = None
     if kind in STORY_NOVEL_SPEAKER_BEAT_KINDS:
-        sprite_url, sprite_incognito, sprite_gender = _resolve_story_novel_sprite(character, emotion)
+        sprite_url, sprite_incognito, sprite_gender = _resolve_story_novel_sprite(
+            character,
+            emotion,
+            sprite_source_character=sprite_source_character,
+            fallback_name=getattr(beat, "speaker_name", None),
+        )
+        speaker_name_key = _story_speaker_key(getattr(beat, "speaker_name", None))
+        matching_scene_character = next(
+            (
+                item
+                for item in scene_characters or []
+                if (
+                    character is not None
+                    and item.character_id == int(character.id)
+                )
+                or (
+                    speaker_name_key
+                    and _story_speaker_key(item.name) == speaker_name_key
+                )
+            ),
+            None,
+        )
+        if matching_scene_character is not None:
+            if sprite_url is None and matching_scene_character.sprite_url:
+                sprite_url = matching_scene_character.sprite_url
+                sprite_incognito = matching_scene_character.incognito
+            if sprite_gender is None:
+                sprite_gender = matching_scene_character.gender
     return StoryNovelBeatOut(
         id=int(beat.id),
         game_id=int(beat.game_id),
@@ -132,13 +281,7 @@ def _story_novel_beat_to_out(
         order_index=max(int(getattr(beat, "order_index", 0) or 0), 0),
         kind=kind,  # type: ignore[arg-type]
         speaker_name=(str(getattr(beat, "speaker_name", "") or "").strip() or None),
-        speaker_character_id=(
-            int(character.id)
-            if character is not None
-            else int(beat.speaker_character_id)
-            if getattr(beat, "speaker_character_id", None)
-            else None
-        ),
+        speaker_character_id=(int(character.id) if character is not None else None),
         emotion=emotion,
         text=str(getattr(beat, "text", "") or ""),
         sprite_url=sprite_url,
@@ -166,9 +309,10 @@ def _deserialize_story_novel_scene_characters(raw_value: Any) -> list[dict[str, 
         if not isinstance(item, dict):
             continue
         name = " ".join(str(item.get("name") or "").split()).strip(" .,:;!?\"'()[]«»")
-        if not name or len(name) > 160:
+        if not name or len(name) > 160 or _is_story_novel_non_character_name(name):
             continue
         emotion = normalize_story_character_emotion_id(item.get("emotion")) or STORY_CHARACTER_DEFAULT_EMOTION
+        gender = normalize_story_novel_sprite_gender(item.get("gender")) or None
         try:
             character_id = int(item.get("character_id") or 0)
         except (TypeError, ValueError):
@@ -185,6 +329,7 @@ def _deserialize_story_novel_scene_characters(raw_value: Any) -> list[dict[str, 
                 "name": name,
                 "emotion": emotion,
                 "character_id": character_id or None,
+                "gender": gender,
             }
         )
         if len(result) >= STORY_NOVEL_MAX_SCENE_CHARACTERS:
@@ -197,6 +342,7 @@ def _resolve_story_novel_scene_characters(
     *,
     speaker_map: dict[str, int],
     characters: dict[int, StoryCharacter],
+    sprite_sources: dict[int, StoryCharacter],
     speaker_character: StoryCharacter | None,
 ) -> list[StoryNovelSceneCharacterOut]:
     """Resolve the whole beat cast, including narration and legacy speaker-only rows."""
@@ -207,12 +353,15 @@ def _resolve_story_novel_scene_characters(
     seen_keys: set[str] = set()
 
     for item in persisted:
-        direct_character_id = int(item.get("character_id") or 0)
-        character = characters.get(direct_character_id) if direct_character_id > 0 else None
-        if character is None:
-            recovered_character_id = _resolve_novel_speaker_character_id(item["name"], speaker_map)
-            character = characters.get(recovered_character_id) if recovered_character_id else None
-        character_id = int(character.id) if character is not None else (direct_character_id or None)
+        character = _resolve_authorized_novel_character(
+            item["name"],
+            speaker_map=speaker_map,
+            characters=characters,
+        )
+        # Historical JSON is untrusted cache metadata.  If its id no longer agrees with the
+        # current, unambiguous game-card mapping, discard it instead of exposing another
+        # character's sprite (or even another user's private media).
+        character_id = int(character.id) if character is not None else None
         dedup_key = (
             f"id:{character_id}"
             if character_id is not None
@@ -222,7 +371,17 @@ def _resolve_story_novel_scene_characters(
             continue
         seen_keys.add(dedup_key)
         emotion = normalize_story_character_emotion_id(item.get("emotion")) or STORY_CHARACTER_DEFAULT_EMOTION
-        sprite_url, incognito, gender = _resolve_story_novel_sprite(character, emotion)
+        sprite_url, incognito, gender = _resolve_story_novel_sprite(
+            character,
+            emotion,
+            sprite_source_character=(
+                sprite_sources.get(int(character.id))
+                if character is not None
+                else None
+            ),
+            fallback_gender=item.get("gender"),
+            fallback_name=item.get("name"),
+        )
         resolved.append(
             StoryNovelSceneCharacterOut(
                 character_id=character_id,
@@ -237,18 +396,30 @@ def _resolve_story_novel_scene_characters(
     kind = normalize_story_novel_beat_kind(getattr(beat, "kind", None))
     speaker_name = str(getattr(beat, "speaker_name", "") or "").strip()
     if kind in STORY_NOVEL_SPEAKER_BEAT_KINDS and speaker_name:
-        speaker_character_id = (
-            int(speaker_character.id)
-            if speaker_character is not None
-            else int(getattr(beat, "speaker_character_id", 0) or 0) or None
-        )
+        speaker_character_id = int(speaker_character.id) if speaker_character is not None else None
         speaker_emotion = (
             normalize_story_character_emotion_id(getattr(beat, "emotion", None))
             or STORY_CHARACTER_DEFAULT_EMOTION
         )
+        speaker_name_key = _story_speaker_key(speaker_name)
+        speaker_fallback_gender = next(
+            (
+                item.get("gender")
+                for item in persisted
+                if _story_speaker_key(item.get("name")) == speaker_name_key
+            ),
+            None,
+        )
         speaker_sprite_url, speaker_incognito, speaker_gender = _resolve_story_novel_sprite(
             speaker_character,
             speaker_emotion,
+            sprite_source_character=(
+                sprite_sources.get(int(speaker_character.id))
+                if speaker_character is not None
+                else None
+            ),
+            fallback_gender=speaker_fallback_gender,
+            fallback_name=speaker_name,
         )
         match_index: int | None = None
         for index, item in enumerate(resolved):
@@ -284,9 +455,9 @@ def resolve_story_novel_beats_for_read(
     """Serialize beats and resolve current sprites, including legacy unlinked beats.
 
     Early Visual Novel builds persisted only ``speaker_name`` when a world card had not yet
-    been linked to its character.  Treat ``speaker_character_id`` as the fast path, then relink
-    read-only from the game's current cards.  This makes old turns and cards linked after the
-    turn immediately pick up their uploaded emotion sprites without rewriting history in a GET.
+    been linked to its character.  Relink read-only from the game's current cards and validate
+    historical ids against that mapping.  This makes old turns pick up current sprites without
+    allowing a stale or foreign id to become authoritative during a GET.
     """
     if not beats:
         return []
@@ -296,23 +467,6 @@ def resolve_story_novel_beats_for_read(
         for beat in beats
         if int(getattr(beat, "game_id", 0) or 0) > 0
     }
-    scene_characters_by_beat_identity = {
-        id(beat): _deserialize_story_novel_scene_characters(
-            getattr(beat, "scene_characters_json", None)
-        )
-        for beat in beats
-    }
-    direct_character_ids = {
-        int(beat.speaker_character_id)
-        for beat in beats
-        if getattr(beat, "speaker_character_id", None)
-    }
-    direct_character_ids.update(
-        int(item["character_id"])
-        for items in scene_characters_by_beat_identity.values()
-        for item in items
-        if item.get("character_id")
-    )
     games = {
         int(game.id): game
         for game in db.scalars(select(StoryGame).where(StoryGame.id.in_(game_ids))).all()
@@ -322,37 +476,42 @@ def resolve_story_novel_beats_for_read(
         for card in db.scalars(select(StoryWorldCard).where(StoryWorldCard.game_id.in_(game_ids))).all():
             cards_by_game.setdefault(int(card.game_id), []).append(card)
 
-    resolved_context_by_game: dict[int, tuple[dict[str, int], dict[int, StoryCharacter]]] = {}
+    resolved_context_by_game: dict[
+        int,
+        tuple[dict[str, int], dict[int, StoryCharacter], dict[int, StoryCharacter]],
+    ] = {}
     for game_id in game_ids:
         resolved_context_by_game[game_id] = _build_novel_speaker_character_context(
             db,
             game=games.get(game_id),
             world_cards=cards_by_game.get(game_id, []),
-            extra_character_ids=direct_character_ids,
         )
 
     output: list[StoryNovelBeatOut] = []
     for beat in beats:
         game_id = int(getattr(beat, "game_id", 0) or 0)
-        speaker_map, characters = resolved_context_by_game.get(game_id, ({}, {}))
-        direct_character_id = int(getattr(beat, "speaker_character_id", 0) or 0)
-        character = characters.get(direct_character_id) if direct_character_id > 0 else None
-        if character is None:
-            recovered_character_id = _resolve_novel_speaker_character_id(
-                getattr(beat, "speaker_name", None),
-                speaker_map,
-            )
-            character = characters.get(recovered_character_id) if recovered_character_id else None
+        speaker_map, characters, sprite_sources = resolved_context_by_game.get(game_id, ({}, {}, {}))
+        character = _resolve_authorized_novel_character(
+            getattr(beat, "speaker_name", None),
+            speaker_map=speaker_map,
+            characters=characters,
+        )
         scene_characters = _resolve_story_novel_scene_characters(
             beat,
             speaker_map=speaker_map,
             characters=characters,
+            sprite_sources=sprite_sources,
             speaker_character=character,
         )
         output.append(
             _story_novel_beat_to_out(
                 beat,
                 character=character,
+                sprite_source_character=(
+                    sprite_sources.get(int(character.id))
+                    if character is not None
+                    else None
+                ),
                 scene_characters=scene_characters,
             )
         )
@@ -498,15 +657,17 @@ def build_story_novel_instruction_card() -> dict[str, str]:
         "content": (
             "[РЕЖИМ ВИЗУАЛЬНОЙ НОВЕЛЛЫ]\n"
             "Оформляй ответ так, чтобы его можно было показывать по отдельным репликам.\n"
-            "Каждый абзац без исключения заканчивай служебным составом сцены: {{VN_CAST|Точный title|Эмоция; Другой title|Эмоция}}. Порядок персонажей — слева направо, максимум три.\n"
-            "Если в абзаце нет ни одного персонажа, закончи его {{VN_CAST|-}}. Для известного персонажа копируй точный title его карточки; для нового NPC используй его устойчивое имя.\n"
+            "Каждый абзац без исключения заканчивай служебным составом сцены: {{VN_CAST|Точный title|female|Эмоция; Другой title|male|Эмоция}}. Порядок персонажей — слева направо, максимум три.\n"
+            "VN_CAST содержит только видимых персонажей. Рассказчик, Автор, Система, Сцена и другие служебные роли никогда не являются персонажами и категорически запрещены внутри VN_CAST.\n"
+            "В нарративе сохраняй в VN_CAST до трёх уже находящихся в кадре активных персонажей, пока текст явно не показывает их уход; не схлопывай состав до одного только потому, что абзац описательный. Если в кадре действительно нет ни одного персонажа, закончи его {{VN_CAST|-}}. Для известного персонажа копируй точный title его карточки; для нового NPC используй его устойчивое имя.\n"
+            "У каждого персонажа в VN_CAST обязательно указывай пол строго служебным словом male или female между title и эмоцией. Определи его по карточке, описанию, имени и контексту; для нового или непрописанного NPC выбери пол сам при первом появлении и сохраняй неизменным в следующих абзацах.\n"
             "В состав включай не только говорящего: если обычное описание затрагивает, описывает или оставляет в кадре известного персонажа, обязательно укажи его и подходящую эмоцию. Не добавляй безымянную массовку без карточек.\n"
             "Каждую реплику выноси в отдельный абзац и начинай с неизменённого универсального маркера [[NPC:Имя]] или [[GG:Имя]].\n"
             "После маркера ставь эмоцию в круглых скобках, затем текст, а состав — строго в конце. Говорящий всегда обязан входить в состав.\n"
-            "Пример реплики: [[NPC:Леди Мия]] (злость) Текст реплики. {{VN_CAST|Леди Мия|Злость}}\n"
-            f"Эмоция — ровно одно слово из списка: {emotion_labels}. У каждой реплики и мысли эмоция обязательна.\n"
+            "Пример реплики: [[NPC:Леди Мия]] (злость) Текст реплики. {{VN_CAST|Леди Мия|female|Злость}}\n"
+            f"Существует строго восемь эмоций и никаких других: {emotion_labels}. Эмоция — ровно одно слово только из этого списка; составные, близкие по смыслу и придуманные эмоции запрещены. Если сомневаешься, используй Нейтральная. У каждой реплики и мысли эмоция обязательна.\n"
             "[[GG:Имя]] используй только для дословной цитаты речи, введённой игроком; не придумывай за него новые реплики.\n"
-            "Если активные инструкции разрешают показывать мысли, используй универсальный [[NPC_THOUGHT:Имя]] или [[GG_THOUGHT:Имя]], например: [[NPC_THOUGHT:Леди Мия]] (страх) Текст мысли. {{VN_CAST|Леди Мия|Страх}}\n"
+            "Если активные инструкции разрешают показывать мысли, используй универсальный [[NPC_THOUGHT:Имя]] или [[GG_THOUGHT:Имя]], например: [[NPC_THOUGHT:Леди Мия]] (страх) Текст мысли. {{VN_CAST|Леди Мия|female|Страх}}\n"
             "Для известного персонажа всегда копируй точный title его карточки без сокращений и вариантов.\n"
             "Новому или непрописанному NPC до первой реплики дай устойчивое естественное имя и дальше не меняй его.\n"
             "Если имя по логике сцены пока нельзя раскрывать, используй конкретную устойчивую роль не длиннее четырёх слов; после раскрытия используй его имя.\n"
@@ -526,6 +687,7 @@ class _NormalizedNovelBeat:
     speaker_name: str | None
     emotion: str | None
     scene_characters: tuple[tuple[str, str], ...] = ()
+    scene_character_genders: tuple[tuple[str, str], ...] = ()
 
 
 def _normalize_novel_text(value: Any, *, max_length: int = VN_MAX_BEAT_TEXT_CHARS) -> str:
@@ -539,7 +701,7 @@ def _normalize_novel_speaker_name(value: Any) -> str | None:
     normalized = " ".join(str(value or "").split()).strip(" .,:;!?\"'()[]«»")
     if not normalized or len(normalized) > 60:
         return None
-    if normalized.casefold() in {"narrator", "рассказчик", "автор", "система", "system", "scene", "сцена"}:
+    if _is_story_novel_non_character_name(normalized):
         return None
     return normalized
 
@@ -550,23 +712,45 @@ def _normalize_novel_scene_character_name(value: Any) -> str | None:
         return None
     if normalized.casefold() in {"-", "нет", "none", "empty", "пусто"}:
         return None
+    if _is_story_novel_non_character_name(normalized):
+        return None
     return normalized
 
 
-def _parse_story_novel_scene_cast(value: Any) -> tuple[tuple[str, str], ...]:
-    """Parse ``Title|Emotion; ...`` metadata, deduplicated and capped at three."""
+def _parse_story_novel_scene_cast_with_genders(
+    value: Any,
+) -> tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]:
+    """Parse current ``Title|Gender|Emotion`` and legacy ``Title|Emotion`` metadata."""
     raw_value = str(value or "").strip()
     if not raw_value or raw_value.casefold() in {"-", "нет", "none", "empty", "пусто"}:
-        return ()
+        return (), ()
 
     result: list[tuple[str, str]] = []
+    genders: list[tuple[str, str]] = []
     seen: set[str] = set()
     for raw_item in raw_value.split(";"):
         raw_item = raw_item.strip()
         if not raw_item:
             continue
-        raw_name, separator, raw_emotion = raw_item.rpartition("|")
-        if not separator:
+        parts = [part.strip() for part in raw_item.split("|")]
+        raw_gender = ""
+        if len(parts) >= 3:
+            raw_name = "|".join(parts[:-2]).strip()
+            first_tail, second_tail = parts[-2:]
+            if normalize_story_novel_sprite_gender(first_tail):
+                raw_gender = first_tail
+                raw_emotion = second_tail
+            elif normalize_story_novel_sprite_gender(second_tail):
+                # Read compatibility for providers that accidentally swap the last two fields.
+                raw_gender = second_tail
+                raw_emotion = first_tail
+            else:
+                # Keep accepting a name containing a stray pipe as legacy Title|Emotion data.
+                raw_name = "|".join(parts[:-1]).strip()
+                raw_emotion = parts[-1]
+        elif len(parts) == 2:
+            raw_name, raw_emotion = parts
+        else:
             # Tolerate a natural ``Title (Emotion)`` variant while requesting only the
             # unambiguous pipe form from the narrator.
             parenthetical = re.match(r"^(?P<name>.+?)\s*\((?P<emotion>[^)]+)\)\s*$", raw_item)
@@ -585,9 +769,18 @@ def _parse_story_novel_scene_cast(value: Any) -> tuple[tuple[str, str], ...]:
         seen.add(key)
         emotion = normalize_story_character_emotion_id(raw_emotion) or STORY_CHARACTER_DEFAULT_EMOTION
         result.append((name, emotion))
+        gender = normalize_story_novel_sprite_gender(raw_gender)
+        if gender:
+            genders.append((name, gender))
         if len(result) >= STORY_NOVEL_MAX_SCENE_CHARACTERS:
             break
-    return tuple(result)
+    return tuple(result), tuple(genders)
+
+
+def _parse_story_novel_scene_cast(value: Any) -> tuple[tuple[str, str], ...]:
+    """Backward-compatible cast view used by existing parser callers and tests."""
+    scene_characters, _ = _parse_story_novel_scene_cast_with_genders(value)
+    return scene_characters
 
 
 def _ensure_story_novel_speaker_in_scene_cast(
@@ -640,6 +833,7 @@ def parse_story_novel_beats(raw_response: str) -> list[_NormalizedNovelBeat]:
     beats: list[_NormalizedNovelBeat] = []
     narration_buffer: list[str] = []
     narration_scene_characters: list[tuple[str, str]] = []
+    narration_scene_character_genders: list[tuple[str, str]] = []
 
     def flush_narration() -> None:
         if not narration_buffer:
@@ -647,7 +841,9 @@ def parse_story_novel_beats(raw_response: str) -> list[_NormalizedNovelBeat]:
         merged = "\n".join(narration_buffer).strip()
         narration_buffer.clear()
         current_scene_characters = tuple(narration_scene_characters)
+        current_scene_character_genders = tuple(narration_scene_character_genders)
         narration_scene_characters.clear()
+        narration_scene_character_genders.clear()
         for page in _split_novel_narration_pages(merged):
             beats.append(
                 _NormalizedNovelBeat(
@@ -656,6 +852,7 @@ def parse_story_novel_beats(raw_response: str) -> list[_NormalizedNovelBeat]:
                     speaker_name=None,
                     emotion=None,
                     scene_characters=current_scene_characters,
+                    scene_character_genders=current_scene_character_genders,
                 )
             )
 
@@ -666,8 +863,11 @@ def parse_story_novel_beats(raw_response: str) -> list[_NormalizedNovelBeat]:
             cast_match = _VN_SCENE_CAST_PREFIX.match(line)
         has_scene_cast_metadata = cast_match is not None
         scene_characters: tuple[tuple[str, str], ...] = ()
+        scene_character_genders: tuple[tuple[str, str], ...] = ()
         if cast_match is not None:
-            scene_characters = _parse_story_novel_scene_cast(cast_match.group("cast"))
+            scene_characters, scene_character_genders = _parse_story_novel_scene_cast_with_genders(
+                cast_match.group("cast")
+            )
             line = str(cast_match.group("text") or "").strip()
             if narration_buffer:
                 # Every metadata prefix starts a new display paragraph even if the model
@@ -703,6 +903,7 @@ def parse_story_novel_beats(raw_response: str) -> list[_NormalizedNovelBeat]:
                     speaker_name=speaker_name,
                     emotion=emotion,
                     scene_characters=scene_characters,
+                    scene_character_genders=scene_character_genders,
                 )
             )
         elif legacy_match and speaker_name:
@@ -725,11 +926,13 @@ def parse_story_novel_beats(raw_response: str) -> list[_NormalizedNovelBeat]:
                     speaker_name=speaker_name,
                     emotion=emotion,
                     scene_characters=scene_characters,
+                    scene_character_genders=scene_character_genders,
                 )
             )
         else:
             if has_scene_cast_metadata:
                 narration_scene_characters.extend(scene_characters)
+                narration_scene_character_genders.extend(scene_character_genders)
             narration_buffer.append(line)
         if len(beats) >= VN_MAX_BEATS_PER_MESSAGE:
             break
@@ -752,6 +955,10 @@ def parse_story_novel_beats(raw_response: str) -> list[_NormalizedNovelBeat]:
 def _story_speaker_key(value: str | None) -> str:
     normalized = re.sub(r"\s+", " ", str(value or "").strip()).casefold().replace("ё", "е")
     return normalized.strip(" .,:;!?\"'()[]«»")
+
+
+def _is_story_novel_non_character_name(value: Any) -> bool:
+    return _story_speaker_key(str(value or "")) in STORY_NOVEL_NON_CHARACTER_NAMES
 
 
 def _deserialize_world_card_triggers(raw_value: str | None) -> list[str]:
@@ -790,11 +997,12 @@ def _story_world_card_lookup_keys(card: StoryWorldCard) -> set[str]:
     return {key for value in values if (key := _story_speaker_key(value))}
 
 
-def _story_character_sprite_priority(character: StoryCharacter) -> tuple[int, int]:
-    has_uploaded_sprite = bool(
-        deserialize_story_character_emotion_assets(getattr(character, "emotion_assets", None))
-    )
-    return (1 if has_uploaded_sprite else 0, int(getattr(character, "id", 0) or 0))
+def _story_media_identity_values(value: Any) -> set[str]:
+    return {
+        normalized
+        for raw_value in value
+        if (normalized := str(raw_value or "").strip())
+    }
 
 
 def _find_character_for_unlinked_card(
@@ -804,9 +1012,9 @@ def _find_character_for_unlinked_card(
     """Recover a card -> character link by stable title/trigger identity.
 
     This is intentionally exact (case/whitespace/``ё`` insensitive), never a broad SQL name
-    search.  If duplicate private characters share the identity, the newest one with an
-    uploaded sprite wins, which is the useful migration path for cards created before emotion
-    packs forced a persistent ``character_id``.
+    search.  Duplicate private characters are not interchangeable: use a matching avatar only
+    when it uniquely disambiguates the old card, otherwise leave the character unresolved.
+    Showing an incognito silhouette is always safer than borrowing another profile's sprites.
     """
     card_keys = _story_world_card_lookup_keys(card)
     if not card_keys:
@@ -818,15 +1026,83 @@ def _find_character_for_unlinked_card(
     ]
     if not candidates:
         return None
-    return max(candidates, key=_story_character_sprite_priority)
+    if len(candidates) == 1:
+        return candidates[0]
+
+    card_media = _story_media_identity_values(
+        (
+            getattr(card, "avatar_original_url", None),
+            getattr(card, "avatar_url", None),
+        )
+    )
+    if not card_media:
+        return None
+    avatar_matches = [
+        character
+        for character in candidates
+        if card_media.intersection(
+            _story_media_identity_values(
+                (
+                    getattr(character, "avatar_original_url", None),
+                    getattr(character, "avatar_url", None),
+                )
+            )
+        )
+    ]
+    return avatar_matches[0] if len(avatar_matches) == 1 else None
+
+
+def _story_character_has_emotion_assets(character: StoryCharacter | None) -> bool:
+    return bool(
+        character is not None
+        and deserialize_story_character_emotion_assets(getattr(character, "emotion_assets", None))
+    )
+
+
+def _resolve_story_novel_sprite_source(
+    db: Session,
+    character: StoryCharacter,
+    *,
+    owner_user_id: int,
+) -> StoryCharacter | None:
+    """Resolve sprites through explicit copy lineage, never through a name-based donor.
+
+    Some older publication/community-copy paths accidentally stored an empty emotion pack on
+    the clone. Existing rows can still render safely from their exact ``source_character_id``.
+    Private foreign profiles remain inaccessible; only the same owner's source or a public
+    source is allowed.
+    """
+    if _story_character_has_emotion_assets(character):
+        return character
+
+    current = character
+    visited = {int(character.id)}
+    for _depth in range(STORY_NOVEL_SPRITE_SOURCE_MAX_DEPTH):
+        source_character_id = int(getattr(current, "source_character_id", 0) or 0)
+        if source_character_id <= 0 or source_character_id in visited:
+            break
+        visited.add(source_character_id)
+        source = db.get(StoryCharacter, source_character_id)
+        if source is None:
+            break
+        source_user_id = int(getattr(source, "user_id", 0) or 0)
+        source_visibility = str(getattr(source, "visibility", "") or "").strip().lower()
+        if source_user_id != owner_user_id and source_visibility != "public":
+            break
+        if _story_character_has_emotion_assets(source):
+            return source
+        current = source
+    return None
 
 
 def _build_novel_speaker_character_map(
     world_cards: list[StoryWorldCard],
     *,
     resolved_character_id_by_card_id: dict[int, int] | None = None,
+    characters_by_id: dict[int, StoryCharacter] | None = None,
+    sprite_sources_by_character_id: dict[int, StoryCharacter] | None = None,
 ) -> dict[str, int]:
-    mapping: dict[str, int] = {}
+    candidates_by_key: dict[str, set[int]] = {}
     for card in world_cards:
         card_id = int(getattr(card, "id", 0) or 0)
         character_id = (
@@ -835,9 +1111,27 @@ def _build_novel_speaker_character_map(
         )
         if not character_id:
             continue
-        for key in _story_world_card_lookup_keys(card):
-            mapping.setdefault(key, int(character_id))
-    return mapping
+        # The world-card title is the canonical narrator contract, but the explicitly linked
+        # reusable character profile is the same identity. Models occasionally copy the
+        # profile name/trigger into VN_CAST instead of the card title. Accept those exact
+        # aliases too, while preserving the ambiguity guard below. This is deliberately not a
+        # fuzzy match and it never considers a character that is not linked to this game.
+        lookup_keys = set(_story_world_card_lookup_keys(card))
+        linked_character = (characters_by_id or {}).get(int(character_id))
+        if linked_character is not None:
+            lookup_keys.update(_story_character_lookup_keys(linked_character))
+        sprite_source = (sprite_sources_by_character_id or {}).get(int(character_id))
+        if sprite_source is not None:
+            lookup_keys.update(_story_character_lookup_keys(sprite_source))
+        for key in lookup_keys:
+            candidates_by_key.setdefault(key, set()).add(int(character_id))
+    # A shared trigger/name is ambiguous by definition.  Omitting it makes the caller render
+    # incognito rather than depending on database row order to pick somebody else's sprite.
+    return {
+        key: next(iter(character_ids))
+        for key, character_ids in candidates_by_key.items()
+        if len(character_ids) == 1
+    }
 
 
 def _build_novel_speaker_character_context(
@@ -845,26 +1139,27 @@ def _build_novel_speaker_character_context(
     *,
     game: StoryGame | None,
     world_cards: list[StoryWorldCard],
-    extra_character_ids: set[int] | None = None,
-) -> tuple[dict[str, int], dict[int, StoryCharacter]]:
-    """Return (speaker lookup, loaded characters) for persist, SSE and historical reads."""
+) -> tuple[dict[str, int], dict[int, StoryCharacter], dict[int, StoryCharacter]]:
+    """Return (speaker lookup, loaded characters, exact sprite sources)."""
+    owner_user_id = int(getattr(game, "user_id", 0) or 0) if game is not None else 0
     requested_character_ids = {
-        int(character_id)
-        for character_id in [
-            *(extra_character_ids or set()),
-            *(getattr(card, "character_id", None) for card in world_cards),
-        ]
-        if character_id
+        int(card.character_id)
+        for card in world_cards
+        if getattr(card, "character_id", None)
     }
     characters_by_id: dict[int, StoryCharacter] = {}
     if requested_character_ids:
-        for character in db.scalars(
-            select(StoryCharacter).where(StoryCharacter.id.in_(requested_character_ids))
-        ).all():
+        requested_characters_query = select(StoryCharacter).where(
+            StoryCharacter.id.in_(requested_character_ids)
+        )
+        if owner_user_id > 0:
+            requested_characters_query = requested_characters_query.where(
+                StoryCharacter.user_id == owner_user_id
+            )
+        for character in db.scalars(requested_characters_query).all():
             characters_by_id[int(character.id)] = character
 
     owner_characters: list[StoryCharacter] = []
-    owner_user_id = int(getattr(game, "user_id", 0) or 0) if game is not None else 0
     if owner_user_id > 0:
         # Emotion packs may contain large data URLs.  Scan only lightweight identity columns,
         # then hydrate the handful of characters that can actually match a card in this game.
@@ -907,9 +1202,23 @@ def _build_novel_speaker_character_context(
         if recovered_character is not None:
             resolved_character_id_by_card_id[card_id] = int(recovered_character.id)
 
+    sprite_sources_by_character_id = {
+        character_id: sprite_source
+        for character_id, character in characters_by_id.items()
+        if (
+            sprite_source := _resolve_story_novel_sprite_source(
+                db,
+                character,
+                owner_user_id=owner_user_id,
+            )
+        ) is not None
+    }
+
     speaker_map = _build_novel_speaker_character_map(
         world_cards,
         resolved_character_id_by_card_id=resolved_character_id_by_card_id,
+        characters_by_id=characters_by_id,
+        sprite_sources_by_character_id=sprite_sources_by_character_id,
     )
 
     # Old opening-scene builders used a generic GG label rather than the main hero card's
@@ -944,53 +1253,85 @@ def _build_novel_speaker_character_context(
             for alias in ("Главный Герой", "ГГ", "Main Hero"):
                 speaker_map[_story_speaker_key(alias)] = int(main_hero_character_id)
 
-    return speaker_map, characters_by_id
+    return speaker_map, characters_by_id, sprite_sources_by_character_id
 
 
 def _resolve_novel_speaker_character_id(speaker_name: str | None, speaker_map: dict[str, int]) -> int | None:
     key = _story_speaker_key(speaker_name)
-    if not key or not speaker_map:
+    if not key or not speaker_map or _is_story_novel_non_character_name(key):
         return None
-    if key in speaker_map:
-        return speaker_map[key]
-    # Legacy narrators sometimes shortened a multi-word title.  Accept only a unique
-    # token-boundary match; raw substring matching made "Анна" collide with "Марианна".
-    padded_key = f" {key} "
-    fuzzy_character_ids = {
-        character_id
-        for candidate_key, character_id in speaker_map.items()
-        if len(key) >= 3
-        and (
-            padded_key in f" {candidate_key} "
-            or f" {candidate_key} " in padded_key
-        )
+    exact_match = speaker_map.get(key)
+    if exact_match is not None:
+        return exact_match
+
+    # Models occasionally shorten a multi-word card title to its exact first name. Recover
+    # only by whole normalized tokens and only when the result is unambiguous. Substring
+    # matching is deliberately forbidden ("Анна" must never match "Марианна").
+    speaker_tokens = {
+        token
+        for token in re.findall(r"[0-9a-zа-яё]+", key, flags=re.IGNORECASE)
+        if len(token) >= 3 and token not in STORY_NOVEL_IDENTITY_STOP_TOKENS
     }
-    if len(fuzzy_character_ids) == 1:
-        return next(iter(fuzzy_character_ids))
-    return None
+    if not speaker_tokens:
+        return None
+    candidate_ids: set[int] = set()
+    for candidate_key, character_id in speaker_map.items():
+        candidate_tokens = {
+            token
+            for token in re.findall(r"[0-9a-zа-яё]+", candidate_key, flags=re.IGNORECASE)
+            if len(token) >= 3 and token not in STORY_NOVEL_IDENTITY_STOP_TOKENS
+        }
+        if not candidate_tokens:
+            continue
+        if speaker_tokens.issubset(candidate_tokens) or candidate_tokens.issubset(speaker_tokens):
+            candidate_ids.add(int(character_id))
+    return next(iter(candidate_ids)) if len(candidate_ids) == 1 else None
+
+
+def _resolve_authorized_novel_character(
+    speaker_name: str | None,
+    *,
+    speaker_map: dict[str, int],
+    characters: dict[int, StoryCharacter],
+) -> StoryCharacter | None:
+    """Resolve a sprite only through the current game's unambiguous identity mapping.
+
+    ``speaker_character_id`` and cast JSON are cached historical hints, not authorization and
+    not identity proof.  A sprite is returned only through the current exact card mapping.
+    """
+    mapped_character_id = _resolve_novel_speaker_character_id(speaker_name, speaker_map)
+    return characters.get(int(mapped_character_id)) if mapped_character_id is not None else None
 
 
 def _serialize_story_novel_scene_characters(
     scene_characters: tuple[tuple[str, str], ...],
     *,
     speaker_map: dict[str, int],
+    scene_character_genders: tuple[tuple[str, str], ...] = (),
 ) -> str:
     payload: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
+    gender_by_name_key = {
+        _story_speaker_key(name): gender
+        for name, raw_gender in scene_character_genders
+        if (gender := normalize_story_novel_sprite_gender(raw_gender))
+    }
     for name, raw_emotion in scene_characters:
         character_id = _resolve_novel_speaker_character_id(name, speaker_map)
-        dedup_key = f"id:{character_id}" if character_id is not None else f"name:{_story_speaker_key(name)}"
+        name_key = _story_speaker_key(name)
+        dedup_key = f"id:{character_id}" if character_id is not None else f"name:{name_key}"
         if dedup_key in seen_keys:
             continue
         seen_keys.add(dedup_key)
-        payload.append(
-            {
-                "name": name,
-                "emotion": normalize_story_character_emotion_id(raw_emotion)
-                or STORY_CHARACTER_DEFAULT_EMOTION,
-                "character_id": character_id,
-            }
-        )
+        item: dict[str, Any] = {
+            "name": name,
+            "emotion": normalize_story_character_emotion_id(raw_emotion)
+            or STORY_CHARACTER_DEFAULT_EMOTION,
+            "character_id": character_id,
+        }
+        gender = gender_by_name_key.get(name_key) or _infer_story_novel_sprite_gender(name)
+        item["gender"] = gender
+        payload.append(item)
         if len(payload) >= STORY_NOVEL_MAX_SCENE_CHARACTERS:
             break
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -1064,7 +1405,7 @@ def persist_story_novel_beats_for_message(
     parsed_beats = parse_story_novel_beats(raw_response)
     db.execute(sa_delete(StoryNovelBeat).where(StoryNovelBeat.message_id == assistant_message.id))
 
-    speaker_map, _ = _build_novel_speaker_character_context(
+    speaker_map, _, _ = _build_novel_speaker_character_context(
         db,
         game=game,
         world_cards=list(world_cards or []),
@@ -1097,6 +1438,7 @@ def persist_story_novel_beats_for_message(
             scene_characters_json=_serialize_story_novel_scene_characters(
                 scene_characters,
                 speaker_map=speaker_map,
+                scene_character_genders=beat.scene_character_genders,
             ),
             text=beat.text,
         )

@@ -2010,7 +2010,7 @@ function CharacterManagerDialog({
                       })}
                     </Box>
                     <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', lineHeight: 1.32 }}>
-                      Загрузите PNG для каждой эмоции вручную. Пустые слоты в новелле показываются как силуэт-инкогнито.
+                      Загрузите PNG для эмоций вручную. Если нужный слот пуст, новелла использует нейтральный спрайт персонажа; общий инкогнито-спрайт по полу появляется только при отсутствии обоих.
                     </Typography>
                     <input
                       ref={emotionSlotInputRef}

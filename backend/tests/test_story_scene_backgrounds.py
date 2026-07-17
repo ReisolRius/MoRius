@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.database import Base  # noqa: E402
 from app.models import StoryGame, StoryPlaceTemplate, StorySceneBackground, User  # noqa: E402
 from app.services.story_novel_backgrounds import (  # noqa: E402
+    _build_scene_background_prompt_messages,
+    _collect_story_active_character_context,
     _normalize_story_scene_background_triggers,
     _parse_story_novel_scene_background_decision,
     analyze_and_apply_story_novel_scene_background,
@@ -22,6 +24,7 @@ from app.services.story_novel_backgrounds import (  # noqa: E402
     create_story_scene_background_impl,
     find_matching_story_scene_background,
     generate_story_novel_background_impl,
+    generate_story_place_template_background_impl,
     get_current_story_scene_background,
     import_story_place_template_impl,
     story_scene_background_to_out,
@@ -40,6 +43,49 @@ class NormalizeStorySceneBackgroundTriggersTests(unittest.TestCase):
     def test_ignores_non_list_input(self) -> None:
         self.assertEqual(_normalize_story_scene_background_triggers("старая таверна"), [])
         self.assertEqual(_normalize_story_scene_background_triggers(None), [])
+
+    def test_background_composer_receives_active_characters_as_conditional_context(self) -> None:
+        cards = [
+            SimpleNamespace(
+                kind="main_hero",
+                title="Айри",
+                content="Бедная деревенская ведьма, живущая среди трав и старых книг.",
+                memory_turns=None,
+                race="человек",
+                clothing="",
+                inventory="",
+                health_status="",
+            ),
+            SimpleNamespace(
+                kind="npc",
+                title="Лорд Вейр",
+                content="Богатый аристократ и коллекционер редких часов.",
+                memory_turns=3,
+                race="",
+                clothing="",
+                inventory="",
+                health_status="",
+            ),
+            SimpleNamespace(kind="npc", title="Отключённый", content="Не включать", memory_turns=0),
+        ]
+
+        context = _collect_story_active_character_context(cards)
+        messages = _build_scene_background_prompt_messages(
+            world_title="Мир",
+            world_content="Фэнтези",
+            genres=["фэнтези"],
+            image_style_prompt="anime",
+            location_label="Дом Айри",
+            latest_user_prompt="Вхожу домой",
+            latest_assistant_text="Дверь открылась",
+            active_character_context=context,
+        )
+
+        self.assertIn("Айри", context)
+        self.assertIn("Лорд Вейр", context)
+        self.assertNotIn("Отключённый", context)
+        self.assertIn("только если фон явно является его домом", messages[0]["content"])
+        self.assertIn("АКТИВНЫЕ ПЕРСОНАЖИ", messages[1]["content"])
 
 
 class StorySceneBackgroundDbTests(unittest.TestCase):
@@ -441,6 +487,78 @@ class StoryPlaceCrudAndGenerationTests(unittest.TestCase):
             delete_story_game_with_relations(db, game_id=game.id)
             db.commit()
             self.assertIsNone(db.get(StoryGame, game.id))
+
+    def test_manual_generation_creates_non_current_place_and_keeps_current_scene(self) -> None:
+        with self.Session() as db:
+            user, game = self._seed(db)
+            current = create_story_scene_background_impl(
+                db=db,
+                game=game,
+                user=user,
+                title="Таверна",
+                triggers=["таверна"],
+                image_url=self.DATA_IMAGE,
+                make_current=True,
+            )
+            scene_payload = SimpleNamespace(prompt="A wizard study", location_title="Башня", has_people=False)
+            generation_payload = {
+                "model": "test-image-model",
+                "image_url": "https://example.com/tower.webp",
+                "image_data_url": None,
+            }
+            with (
+                patch("app.services.story_novel_backgrounds.generate_story_scene_background_prompt", return_value=scene_payload),
+                patch("app.services.story_novel_backgrounds.spend_user_tokens_if_sufficient", return_value=True),
+                patch("app.services.story_visuals._get_story_turn_image_cost_tokens", return_value=6),
+                patch("app.services.story_visuals._limit_story_turn_image_request_prompt", side_effect=lambda value, **_: value),
+                patch("app.services.story_visuals._request_story_turn_image", return_value=generation_payload),
+            ):
+                generated = generate_story_novel_background_impl(
+                    db=db,
+                    game=game,
+                    user=user,
+                    world_cards=[],
+                    location_label="Таверна",
+                    latest_user_prompt="",
+                    latest_assistant_text="",
+                    requested_title="Башня мага",
+                    requested_description="Высокая башня с алхимической лабораторией",
+                    requested_triggers=["башня мага"],
+                    make_current=False,
+                    create_new_place=True,
+                )
+
+            self.assertFalse(generated.is_current)
+            self.assertEqual(generated.triggers, ["башня мага"])
+            self.assertEqual(get_current_story_scene_background(db, game.id).id, current.id)
+
+    def test_profile_can_generate_paid_place_template_background(self) -> None:
+        with self.Session() as db:
+            user, _game = self._seed(db)
+            generation_payload = {
+                "model": "test-image-model",
+                "image_url": "https://example.com/library.webp",
+                "image_data_url": None,
+            }
+            with (
+                patch("app.services.story_novel_backgrounds.spend_user_tokens_if_sufficient", return_value=True),
+                patch("app.services.story_visuals._get_story_turn_image_cost_tokens", return_value=9),
+                patch("app.services.story_visuals._limit_story_turn_image_request_prompt", side_effect=lambda value, **_: value),
+                patch("app.services.story_visuals._request_story_turn_image", return_value=generation_payload),
+            ):
+                generated = generate_story_place_template_background_impl(
+                    db=db,
+                    user=user,
+                    title="Старая библиотека",
+                    description="Пыльные стеллажи и лунный свет",
+                    style_prompt="painterly anime background",
+                    image_model="google/gemini-2.5-flash-image",
+                    triggers=["библиотека"],
+                )
+
+            self.assertEqual(generated.title, "Старая библиотека")
+            self.assertEqual(generated.triggers, ["библиотека"])
+            self.assertEqual(db.get(StoryPlaceTemplate, generated.id).image_url, "https://example.com/library.webp")
 
     def test_regeneration_replaces_current_place_instead_of_creating_another(self) -> None:
         with self.Session() as db:

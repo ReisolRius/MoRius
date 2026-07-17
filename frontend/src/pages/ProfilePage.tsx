@@ -89,6 +89,7 @@ import { buildReferralLink } from '../utils/referrals'
 import {
   cloneStoryGame,
   createStoryPlaceTemplate,
+  generateStoryPlaceTemplateBackground,
   deleteStoryCharacter,
   deleteStoryGame,
   deleteStoryInstructionTemplate,
@@ -112,8 +113,13 @@ import type {
   StoryCommunityWorldSummary,
   StoryGameSummary,
   StoryInstructionTemplate,
+  StoryImageModelId,
   StoryPlaceTemplate,
 } from '../types/story'
+import {
+  DEFAULT_STORY_BACKGROUND_IMAGE_MODEL,
+  STORY_IMAGE_MODEL_OPTIONS_SHARED,
+} from '../constants/storyImageModels'
 import { moriusThemeTokens } from '../theme'
 import { getProfileBannerPreset, normalizeProfileBannerId } from '../constants/profileBanners'
 import { resolveProfileBannerImageUrl, withKnownCosmeticImageUrl } from '../utils/cosmeticImageFallbacks'
@@ -777,9 +783,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [placeTitleDraft, setPlaceTitleDraft] = useState('')
   const [placeTriggersDraft, setPlaceTriggersDraft] = useState('')
   const [placeImageDraft, setPlaceImageDraft] = useState<string | null>(null)
+  const [placeDescriptionDraft, setPlaceDescriptionDraft] = useState('')
+  const [placeStyleDraft, setPlaceStyleDraft] = useState('')
+  const [placeImageModelDraft, setPlaceImageModelDraft] = useState<StoryImageModelId>(
+    DEFAULT_STORY_BACKGROUND_IMAGE_MODEL,
+  )
   const [isPlaceImageDirty, setIsPlaceImageDirty] = useState(false)
   const [placeDialogError, setPlaceDialogError] = useState('')
   const [isPlaceTemplateSaving, setIsPlaceTemplateSaving] = useState(false)
+  const [isPlaceBackgroundGenerating, setIsPlaceBackgroundGenerating] = useState(false)
   const [deletingPlaceTemplateId, setDeletingPlaceTemplateId] = useState<number | null>(null)
   const [contentCardMenuAnchorEl, setContentCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [contentCardMenuType, setContentCardMenuType] = useState<'character' | 'instruction' | null>(null)
@@ -3024,6 +3036,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setPlaceTitleDraft('')
     setPlaceTriggersDraft('')
     setPlaceImageDraft(null)
+    setPlaceDescriptionDraft('')
+    setPlaceStyleDraft('')
+    setPlaceImageModelDraft(DEFAULT_STORY_BACKGROUND_IMAGE_MODEL)
     setIsPlaceImageDirty(false)
     setPlaceDialogError('')
     setPlaceDialogOpen(true)
@@ -3042,6 +3057,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       setPlaceTitleDraft(template.title)
       setPlaceTriggersDraft(template.triggers.join('\n'))
       setPlaceImageDraft(template.image_url)
+      setPlaceDescriptionDraft('')
+      setPlaceStyleDraft('')
+      setPlaceImageModelDraft(DEFAULT_STORY_BACKGROUND_IMAGE_MODEL)
       setIsPlaceImageDirty(false)
       setPlaceDialogError('')
       setPlaceDialogOpen(true)
@@ -3050,13 +3068,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   )
 
   const closePlaceDialog = useCallback(() => {
-    if (isPlaceTemplateSaving) {
+    if (isPlaceTemplateSaving || isPlaceBackgroundGenerating) {
       return
     }
     setPlaceDialogOpen(false)
     setPlaceDialogTemplateId(null)
     setPlaceDialogError('')
-  }, [isPlaceTemplateSaving])
+  }, [isPlaceBackgroundGenerating, isPlaceTemplateSaving])
 
   const handlePlaceImageChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -3082,6 +3100,65 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       setPlaceDialogError(detail)
     }
   }, [])
+
+  const generatePlaceTemplateBackground = useCallback(async () => {
+    if (!canManagePlaceTemplates || isPlaceBackgroundGenerating || isPlaceTemplateSaving) {
+      return
+    }
+    const title = placeTitleDraft.replace(/\s+/g, ' ').trim()
+    const description = placeDescriptionDraft.trim()
+    const triggers = parsePlaceTriggersDraft(placeTriggersDraft)
+    if (!title) {
+      setPlaceDialogError('Укажите короткое название места')
+      return
+    }
+    if (!description) {
+      setPlaceDialogError('Опишите, какой фон нужно сгенерировать')
+      return
+    }
+    if (triggers.length > PLACE_TRIGGER_MAX_COUNT) {
+      setPlaceDialogError(`Можно добавить не больше ${PLACE_TRIGGER_MAX_COUNT} триггеров`)
+      return
+    }
+
+    setIsPlaceBackgroundGenerating(true)
+    setPlaceDialogError('')
+    try {
+      const generatedTemplate = await generateStoryPlaceTemplateBackground({
+        token: authToken,
+        title,
+        description,
+        stylePrompt: placeStyleDraft.trim(),
+        imageModel: placeImageModelDraft,
+        triggers,
+        templateId: placeDialogTemplateId ?? undefined,
+      })
+      setPlaceDialogTemplateId(generatedTemplate.id)
+      setPlaceImageDraft(generatedTemplate.image_url)
+      setIsPlaceImageDirty(false)
+      setPlaceTemplates((currentTemplates) =>
+        [generatedTemplate, ...currentTemplates.filter((item) => item.id !== generatedTemplate.id)]
+          .sort((left, right) => parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id),
+      )
+      setHasLoadedPlaceTemplates(true)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось сгенерировать фон'
+      setPlaceDialogError(detail)
+    } finally {
+      setIsPlaceBackgroundGenerating(false)
+    }
+  }, [
+    authToken,
+    canManagePlaceTemplates,
+    isPlaceBackgroundGenerating,
+    isPlaceTemplateSaving,
+    placeDescriptionDraft,
+    placeDialogTemplateId,
+    placeImageModelDraft,
+    placeStyleDraft,
+    placeTitleDraft,
+    placeTriggersDraft,
+  ])
 
   const savePlaceTemplate = useCallback(async () => {
     if (!canManagePlaceTemplates || isPlaceTemplateSaving) {
@@ -7671,7 +7748,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               onChange={(event) => setPlaceTitleDraft(event.target.value.slice(0, 160))}
               inputProps={{ maxLength: 160 }}
               fullWidth
-              disabled={isPlaceTemplateSaving}
+              disabled={isPlaceTemplateSaving || isPlaceBackgroundGenerating}
             />
 
             <Box>
@@ -7703,9 +7780,35 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 )}
               />
               <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap" sx={{ mt: 0.85 }}>
+                <IconButton
+                  aria-label="Сгенерировать фон места за солы"
+                  title="Сгенерировать фон за солы"
+                  onClick={() => void generatePlaceTemplateBackground()}
+                  disabled={
+                    isPlaceTemplateSaving ||
+                    isPlaceBackgroundGenerating ||
+                    !placeTitleDraft.trim() ||
+                    !placeDescriptionDraft.trim()
+                  }
+                  sx={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: '8px',
+                    color: 'var(--morius-title-text)',
+                    backgroundColor: 'var(--morius-button-active)',
+                  }}
+                >
+                  {isPlaceBackgroundGenerating ? (
+                    <CircularProgress size={17} color="inherit" />
+                  ) : (
+                    <SvgIcon viewBox="0 0 24 24" sx={{ width: 19, height: 19 }}>
+                      <path fill="currentColor" d="M12 2a1 1 0 0 1 .9.6l1.4 3.1a7 7 0 0 0 3.5 3.5l3.1 1.4a1 1 0 0 1 0 1.8l-3.1 1.4a7 7 0 0 0-3.5 3.5l-1.4 3.1a1 1 0 0 1-1.8 0l-1.4-3.1a7 7 0 0 0-3.5-3.5l-3.1-1.4a1 1 0 0 1 0-1.8l3.1-1.4a7 7 0 0 0 3.5-3.5l1.4-3.1Z" />
+                    </SvgIcon>
+                  )}
+                </IconButton>
                 <Button
                   onClick={() => placeImageInputRef.current?.click()}
-                  disabled={isPlaceTemplateSaving}
+                  disabled={isPlaceTemplateSaving || isPlaceBackgroundGenerating}
                   sx={{
                     minHeight: 36,
                     borderRadius: '8px',
@@ -7740,6 +7843,43 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             </Box>
 
             <TextField
+              label="Что сгенерировать"
+              placeholder="Например, скромная комната деревенского лекаря, травы под потолком, дождь за окном"
+              value={placeDescriptionDraft}
+              onChange={(event) => setPlaceDescriptionDraft(event.target.value.slice(0, 4000))}
+              minRows={3}
+              maxRows={7}
+              multiline
+              fullWidth
+              disabled={isPlaceTemplateSaving || isPlaceBackgroundGenerating}
+              helperText="Описание места и атмосферы. Именованные персонажи на фон не добавляются."
+            />
+
+            <TextField
+              label="Стиль"
+              placeholder="Например, cinematic anime background, soft painterly light"
+              value={placeStyleDraft}
+              onChange={(event) => setPlaceStyleDraft(event.target.value.slice(0, 1000))}
+              fullWidth
+              disabled={isPlaceTemplateSaving || isPlaceBackgroundGenerating}
+            />
+
+            <TextField
+              select
+              label="Модель генерации"
+              value={placeImageModelDraft}
+              onChange={(event) => setPlaceImageModelDraft(event.target.value as StoryImageModelId)}
+              fullWidth
+              disabled={isPlaceTemplateSaving || isPlaceBackgroundGenerating}
+            >
+              {STORY_IMAGE_MODEL_OPTIONS_SHARED.map((option) => (
+                <MenuItem key={option.id} value={option.id}>
+                  {option.title} · {option.cost} сол
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <TextField
               label="Триггеры активации"
               placeholder={'лес\nполяна\nопушка'}
               value={placeTriggersDraft}
@@ -7758,7 +7898,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           {placeDialogTemplateId !== null ? (
             <Button
               onClick={(event) => void handleDeletePlaceTemplate(placeDialogTemplateId, event)}
-              disabled={isPlaceTemplateSaving || deletingPlaceTemplateId !== null}
+              disabled={isPlaceTemplateSaving || isPlaceBackgroundGenerating || deletingPlaceTemplateId !== null}
               sx={{ mr: 'auto', textTransform: 'none', color: 'rgba(248, 176, 176, 0.94)' }}
             >
               Удалить
@@ -7766,14 +7906,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           ) : null}
           <Button
             onClick={closePlaceDialog}
-            disabled={isPlaceTemplateSaving}
+            disabled={isPlaceTemplateSaving || isPlaceBackgroundGenerating}
             sx={{ textTransform: 'none', color: 'var(--morius-text-secondary)' }}
           >
             Отмена
           </Button>
           <Button
             onClick={() => void savePlaceTemplate()}
-            disabled={isPlaceTemplateSaving}
+            disabled={isPlaceTemplateSaving || isPlaceBackgroundGenerating}
             sx={{
               minWidth: 116,
               minHeight: 38,

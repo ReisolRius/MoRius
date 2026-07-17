@@ -76,7 +76,10 @@ import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import ImageCropper from '../components/ImageCropper'
 import AdvancedRegenerationDialog from '../components/story/AdvancedRegenerationDialog'
-import NovelPlacesPanel, { type NovelPlaceSavePayload } from '../components/story/NovelPlacesPanel'
+import NovelPlacesPanel, {
+  type NovelPlaceGeneratePayload,
+  type NovelPlaceSavePayload,
+} from '../components/story/NovelPlacesPanel'
 import StorySummaryDialog from '../components/story/StorySummaryDialog'
 import WorldCardBannerPreview from '../components/story/WorldCardBannerPreview'
 import WorldCardTemplatePickerDialog from '../components/story/WorldCardTemplatePickerDialog'
@@ -173,6 +176,7 @@ import type { AuthUser } from '../types/auth'
 import {
   STORY_CHARACTER_EMOTION_IDS,
   STORY_CHARACTER_EMOTION_LABELS,
+  STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER,
   type StoryAmbientProfile,
   type StoryAppearanceBackgroundMode,
   type StoryAppearanceTextStyle,
@@ -2038,15 +2042,212 @@ function AssetMaskIcon({
   )
 }
 
-function NovelIncognitoSilhouette({ gender }: { gender: 'male' | 'female' | null }) {
+type NovelStageCharacterPhase = 'entering' | 'switching' | 'present' | 'exiting'
+
+type AnimatedNovelStageCharacter = {
+  key: string
+  character: StoryNovelSceneCharacter
+  phase: NovelStageCharacterPhase
+  slotIndex: number
+  castCount: number
+}
+
+const NOVEL_STAGE_SPRITE_TRANSITION_MS = 460
+const NOVEL_STAGE_SPRITE_CROSSFADE_MS = 320
+
+function buildAnimatedNovelStageCharacter(
+  character: StoryNovelSceneCharacter,
+  slotIndex: number,
+  castCount: number,
+  phase: NovelStageCharacterPhase,
+): AnimatedNovelStageCharacter {
+  return {
+    key: normalizeStoryVNCharacterKey(character) || `anonymous:${slotIndex}:${character.name}`,
+    character,
+    phase,
+    slotIndex,
+    castCount,
+  }
+}
+
+function useAnimatedNovelStageCast(
+  characters: StoryNovelSceneCharacter[],
+  transitionKey: string,
+): AnimatedNovelStageCharacter[] {
+  const [entries, setEntries] = useState<AnimatedNovelStageCharacter[]>(() =>
+    characters.map((character, index) =>
+      buildAnimatedNovelStageCharacter(character, index, characters.length, 'entering'),
+    ),
+  )
+
+  useEffect(() => {
+    const nextCharacters = characters
+    let revealFrame: number | null = null
+    const reconcileFrame = window.requestAnimationFrame(() => {
+      setEntries((previousEntries) => {
+        const previousByKey = new Map(previousEntries.map((entry) => [entry.key, entry]))
+        const nextKeys = new Set<string>()
+        const activeEntries = nextCharacters.map((character, slotIndex) => {
+          const nextEntry = buildAnimatedNovelStageCharacter(
+            character,
+            slotIndex,
+            nextCharacters.length,
+            'entering',
+          )
+          nextKeys.add(nextEntry.key)
+          const previousEntry = previousByKey.get(nextEntry.key)
+          if (!previousEntry) {
+            return nextEntry
+          }
+          return {
+            ...nextEntry,
+            phase: previousEntry.phase === 'entering' ? 'entering' : 'switching',
+          } satisfies AnimatedNovelStageCharacter
+        })
+        const exitingEntries = previousEntries
+          .filter((entry) => !nextKeys.has(entry.key))
+          .map((entry) => ({ ...entry, phase: 'exiting' as const }))
+        return [...activeEntries, ...exitingEntries]
+      })
+      revealFrame = window.requestAnimationFrame(() => {
+        setEntries((currentEntries) =>
+          currentEntries.map((entry) =>
+            entry.phase === 'entering' || entry.phase === 'switching'
+              ? { ...entry, phase: 'present' }
+              : entry,
+          ),
+        )
+      })
+    })
+    const exitTimer = window.setTimeout(() => {
+      setEntries((currentEntries) =>
+        currentEntries.filter((entry) => entry.phase !== 'exiting'),
+      )
+    }, NOVEL_STAGE_SPRITE_TRANSITION_MS + 50)
+
+    return () => {
+      window.cancelAnimationFrame(reconcileFrame)
+      if (revealFrame != null) {
+        window.cancelAnimationFrame(revealFrame)
+      }
+      window.clearTimeout(exitTimer)
+    }
+  }, [characters, transitionKey])
+
+  return entries
+}
+
+function NovelStageSpriteImage({
+  src,
+  name,
+  techDemoEnabled,
+}: {
+  src: string
+  name: string
+  techDemoEnabled: boolean
+}) {
+  const displayedSrcRef = useRef(src)
+  const lastLoadedSrcRef = useRef<string | null>(null)
+  const [displayedSrc, setDisplayedSrc] = useState(src)
+  const [previousSrc, setPreviousSrc] = useState<string | null>(null)
+  const [isLoaded, setIsLoaded] = useState(false)
+
+  useEffect(() => {
+    if (src === displayedSrcRef.current) {
+      return
+    }
+    setPreviousSrc(lastLoadedSrcRef.current)
+    displayedSrcRef.current = src
+    setDisplayedSrc(src)
+    setIsLoaded(false)
+  }, [src])
+
+  useEffect(() => {
+    if (!isLoaded || !previousSrc) {
+      return
+    }
+    const cleanupTimer = window.setTimeout(
+      () => setPreviousSrc(null),
+      NOVEL_STAGE_SPRITE_CROSSFADE_MS,
+    )
+    return () => window.clearTimeout(cleanupTimer)
+  }, [displayedSrc, isLoaded, previousSrc])
+
+  const spriteImageSx = {
+    transform: techDemoEnabled
+      ? { xs: 'translateY(1.5%) scale(1.08)', md: 'translateY(1.5%) scale(1.12)' }
+      : { xs: 'translateY(2%) scale(1.12)', md: 'translateY(2%) scale(1.2)' },
+    filter: 'drop-shadow(0 22px 32px rgba(0,0,0,0.46))',
+    WebkitMaskImage:
+      'linear-gradient(to bottom, #000 0%, #000 76%, rgba(0,0,0,0.96) 82%, rgba(0,0,0,0.68) 89%, rgba(0,0,0,0.26) 95%, transparent 100%)',
+    WebkitMaskRepeat: 'no-repeat',
+    WebkitMaskSize: '100% 100%',
+    maskImage:
+      'linear-gradient(to bottom, #000 0%, #000 76%, rgba(0,0,0,0.96) 82%, rgba(0,0,0,0.68) 89%, rgba(0,0,0,0.26) 95%, transparent 100%)',
+    maskRepeat: 'no-repeat',
+    maskSize: '100% 100%',
+    userSelect: 'none',
+  } as const
+
   return (
-    <SvgIcon viewBox="0 0 200 260" sx={{ width: '100%', height: '100%', color: 'rgba(4, 5, 7, 0.92)' }}>
-      {gender === 'female' ? (
-        <path d="M100 12c-33 0-58 23-62 55-2 16 1 30 8 42-9 6-15 16-15 30v18c0 10 8 18 18 18h4c2 20 16 36 47 36s45-16 47-36h4c10 0 18-8 18-18v-18c0-14-6-24-15-30 7-12 10-26 8-42-4-32-29-55-62-55Zm-70 150c-14 10-22 26-22 44v54h184v-54c0-18-8-34-22-44-14 20-38 34-70 34s-56-14-70-34Z" />
-      ) : (
-        <path d="M100 14c-31 0-56 22-60 52-2 15 1 28 7 40-8 6-13 15-13 27v16c0 9 7 17 17 17h2c1 19 15 35 47 35s46-16 47-35h2c10 0 17-8 17-17v-16c0-12-5-21-13-27 6-12 9-25 7-40-4-30-29-52-60-52Zm-68 148c-13 10-20 25-20 42v56h176v-56c0-17-7-32-20-42-13 19-36 32-68 32s-55-13-68-32Z" />
-      )}
-    </SvgIcon>
+    <Box
+      sx={{
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+        WebkitMaskImage: 'linear-gradient(to bottom, #000 0%, #000 78%, rgba(0,0,0,0.82) 87%, transparent 100%)',
+        WebkitMaskRepeat: 'no-repeat',
+        WebkitMaskSize: '100% 100%',
+        maskImage: 'linear-gradient(to bottom, #000 0%, #000 78%, rgba(0,0,0,0.82) 87%, transparent 100%)',
+        maskRepeat: 'no-repeat',
+        maskSize: '100% 100%',
+      }}
+    >
+      {previousSrc ? (
+        <Box
+          component="img"
+          src={previousSrc}
+          alt=""
+          aria-hidden
+          decoding="async"
+          referrerPolicy="no-referrer"
+          sx={{
+            ...spriteImageSx,
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            objectPosition: 'center bottom',
+            opacity: isLoaded ? 0 : 1,
+            transition: `opacity ${NOVEL_STAGE_SPRITE_CROSSFADE_MS}ms ease`,
+          }}
+        />
+      ) : null}
+      <ProgressiveImage
+        key={displayedSrc}
+        src={displayedSrc}
+        alt={name}
+        loading="eager"
+        fetchPriority="high"
+        objectFit="contain"
+        objectPosition="center bottom"
+        loaderSize={28}
+        onLoad={() => {
+          lastLoadedSrcRef.current = displayedSrc
+          setIsLoaded(true)
+        }}
+        containerSx={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          opacity: !previousSrc || isLoaded ? 1 : 0,
+          transition: `opacity ${NOVEL_STAGE_SPRITE_CROSSFADE_MS}ms ease`,
+        }}
+        imgSx={spriteImageSx}
+      />
+    </Box>
   )
 }
 
@@ -2081,6 +2282,7 @@ function VisualNovelStage({
   backgroundError,
   emptyText,
   mainHeroName,
+  resolveSpeakerEntry,
 }: {
   beats: StoryNovelBeat[]
   beatIndex: number
@@ -2100,6 +2302,7 @@ function VisualNovelStage({
   backgroundError: string
   emptyText: string
   mainHeroName: string
+  resolveSpeakerEntry: (speakerName: string) => SpeakerAvatarEntry | null
 }) {
   const rawBackgroundUrl = background?.image_url ?? null
   const backgroundUrl = resolveApiResourceUrl(rawBackgroundUrl)
@@ -2120,36 +2323,66 @@ function VisualNovelStage({
   const isFirstBeat = beatIndex <= 0
   const isLastBeat = beatIndex >= beatCount - 1
   const isPlayerMoveBeat = Boolean(currentBeat?.is_player_move)
+  const isDialogueBeat = !isPlayerMoveBeat && currentBeat?.kind === 'dialogue'
+  const isThoughtBeat = !isPlayerMoveBeat && currentBeat?.kind === 'thought'
+  const isCharacterBeat = isDialogueBeat || isThoughtBeat
+  const speakerEntry = isCharacterBeat ? resolveSpeakerEntry(speakerLabel) : null
+  const beatAccentColor = resolveSpeakerBubbleColor(speakerEntry, isThoughtBeat)
+  const speakerTitleColor = isPlayerMoveBeat
+    ? 'var(--morius-accent)'
+    : isCharacterBeat
+      ? resolveSpeakerNameColor(speakerEntry, 'var(--morius-title-text)')
+      : 'var(--morius-title-text)'
+  const beatTextColor = isCharacterBeat
+    ? resolveSpeakerSpeechColor(speakerEntry, 'var(--morius-text-primary)')
+    : 'var(--morius-text-primary)'
   const sourceSpriteBeat = spriteBeat ?? currentBeat
-  const fallbackSceneCharacter = sourceSpriteBeat?.speaker_name
-    ? [{
-        character_id: sourceSpriteBeat.speaker_character_id,
-        name: sourceSpriteBeat.speaker_name,
-        emotion: sourceSpriteBeat.emotion ?? ('neutral' as StoryCharacterEmotionId),
-        sprite_url: sourceSpriteBeat.sprite_url,
-        incognito: sourceSpriteBeat.sprite_incognito,
-        gender: sourceSpriteBeat.sprite_gender,
-      }]
-    : []
-  const activeSpeakerKey = (currentBeat?.speaker_name ?? '').trim().toLocaleLowerCase('ru-RU')
-  let sceneCharacters: StoryNovelSceneCharacter[]
-  if (techDemoEnabled) {
-    // Persistent stage: keep up to three freshest active characters on screen — even during
-    // narration or the player's own move — each in the emotion state they were last shown with.
-    const spriteBeatIndex = isInputStep ? beats.length - 1 : beatIndex
-    const persistentCast = resolveNovelStageCast(beats, spriteBeatIndex, 3)
-    sceneCharacters = persistentCast.length > 0 ? persistentCast : fallbackSceneCharacter.slice(0, 3)
-  } else {
+  const activeSpeakerKey = isNovelNonCharacterName(currentBeat?.speaker_name)
+    ? ''
+    : normalizeNovelCharacterName(currentBeat?.speaker_name)
+  const sceneCharacters = useMemo<StoryNovelSceneCharacter[]>(() => {
+    const fallbackSpriteGender = sourceSpriteBeat?.speaker_name
+      ? inferNovelIncognitoSpriteGender(sourceSpriteBeat.speaker_name, sourceSpriteBeat.sprite_gender)
+      : null
+    const fallbackSpriteUrl = sourceSpriteBeat?.sprite_url ?? (
+      fallbackSpriteGender
+        ? STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER[fallbackSpriteGender]
+        : null
+    )
+    const fallbackSceneCharacter: StoryNovelSceneCharacter[] = (
+      sourceSpriteBeat?.speaker_name
+      && !isNovelNonCharacterName(sourceSpriteBeat.speaker_name)
+      && fallbackSpriteUrl
+    )
+      ? [{
+          character_id: sourceSpriteBeat.speaker_character_id,
+          name: sourceSpriteBeat.speaker_name,
+          emotion: sourceSpriteBeat.emotion ?? ('neutral' as StoryCharacterEmotionId),
+          sprite_url: fallbackSpriteUrl,
+          incognito: sourceSpriteBeat.sprite_url ? sourceSpriteBeat.sprite_incognito : true,
+          gender: fallbackSpriteGender,
+        }]
+      : []
+    if (techDemoEnabled) {
+      // Keep up to three active characters across narration/player pages. Dialogue moves the
+      // speaker to the center; narration never creates a synthetic "Рассказчик" sprite.
+      const spriteBeatIndex = isInputStep ? beats.length - 1 : beatIndex
+      const persistentCast = resolveNovelStageCast(beats, spriteBeatIndex, 3)
+      return persistentCast.length > 0 ? persistentCast : fallbackSceneCharacter.slice(0, 3)
+    }
     // Non-admin shell is unchanged: only the character who is actually speaking is shown.
-    sceneCharacters = (
+    return (
       activeSpeakerKey
         ? fallbackSceneCharacter.filter(
             (character) => character.name.trim().toLocaleLowerCase('ru-RU') === activeSpeakerKey,
           )
         : fallbackSceneCharacter
     ).slice(0, 1)
-  }
-  const sceneCastCount = sceneCharacters.length
+  }, [activeSpeakerKey, beatIndex, beats, isInputStep, sourceSpriteBeat, techDemoEnabled])
+  const animatedSceneCharacters = useAnimatedNovelStageCast(
+    sceneCharacters,
+    `${currentBeat?.id ?? 'empty'}:${beatIndex}:${isInputStep ? 'input' : 'beat'}`,
+  )
   // Shared step-nav button styling. Kept identical to the composer's nav so the controls do not
   // shift position when the player crosses from reading beats into their own turn.
   const stepNavButtonSx = {
@@ -2245,79 +2478,92 @@ function VisualNovelStage({
         }}
       />
 
-      {sceneCharacters.map((character, index) => {
-        const spriteUrl = resolveApiResourceUrl(!character.incognito ? character.sprite_url : null)
-        const normalizedName = character.name.trim().toLocaleLowerCase('ru-RU')
-        const isActiveSpeaker = !activeSpeakerKey || normalizedName === activeSpeakerKey
-        const desktopPositions = sceneCastCount === 1
+      {animatedSceneCharacters.map((entry) => {
+        const { character, castCount, phase, slotIndex } = entry
+        const spriteUrl = resolveApiResourceUrl(character.sprite_url)
+        const normalizedName = normalizeNovelCharacterName(character.name)
+        const isActiveSpeaker = !activeSpeakerKey
+          || (currentBeat?.speaker_character_id != null
+            && character.character_id === currentBeat.speaker_character_id)
+          || normalizedName === activeSpeakerKey
+        // Slot zero is deliberately the focus slot. The cast resolver puts the current speaker
+        // there on dialogue pages and the newest active character there on narration pages.
+        const desktopPositions = castCount === 1
           ? ['50%']
-          : sceneCastCount === 2
-            ? ['34%', '66%']
-            : ['20%', '50%', '80%']
-        const mobilePositions = sceneCastCount === 1
+          : castCount === 2
+            ? ['50%', '24%']
+            : ['50%', '24%', '76%']
+        const mobilePositions = castCount === 1
           ? ['50%']
-          : sceneCastCount === 2
-            ? ['29%', '71%']
-            : ['17%', '50%', '83%']
-        const isCenterCharacter = sceneCastCount === 1 || (sceneCastCount === 3 && index === 1)
+          : castCount === 2
+            ? ['50%', '20%']
+            : ['50%', '20%', '80%']
+        const isCenterCharacter = slotIndex === 0
+        const settledOpacity = techDemoEnabled && activeSpeakerKey && !isActiveSpeaker ? 0.78 : 1
+        const phaseOpacity = phase === 'entering' || phase === 'exiting'
+          ? 0
+          : phase === 'switching'
+            ? settledOpacity * 0.88
+            : settledOpacity
+        const baseScale = techDemoEnabled && !isCenterCharacter ? 0.94 : 1
+        const phaseScale = phase === 'entering'
+          ? baseScale * 0.9
+          : phase === 'switching'
+            ? baseScale * 0.97
+            : phase === 'exiting'
+              ? baseScale * 0.92
+              : baseScale
+        const phaseTranslateY = phase === 'entering' ? '4%' : phase === 'exiting' ? '5%' : '0%'
         return (
           <Box
-            key={`${character.character_id ?? character.name}-${index}`}
+            key={entry.key}
             sx={{
               position: 'absolute',
               left: {
-                xs: mobilePositions[index] ?? '50%',
-                md: desktopPositions[index] ?? '50%',
+                xs: mobilePositions[slotIndex] ?? '50%',
+                md: desktopPositions[slotIndex] ?? '50%',
               },
               bottom: techDemoEnabled ? { xs: 150, sm: 170, md: 188 } : { xs: 118, md: 126 },
               width: techDemoEnabled
                 ? {
-                    xs: sceneCastCount === 1 ? '92vw' : sceneCastCount === 2 ? '68vw' : '56vw',
-                    sm: sceneCastCount === 1 ? '66vw' : sceneCastCount === 2 ? '49vw' : '42vw',
-                    md: sceneCastCount === 1 ? 'min(46vw, 620px)' : sceneCastCount === 2 ? 'min(38vw, 530px)' : 'min(32vw, 470px)',
+                    xs: castCount === 1 ? '92vw' : castCount === 2 ? '68vw' : '56vw',
+                    sm: castCount === 1 ? '66vw' : castCount === 2 ? '49vw' : '42vw',
+                    md: castCount === 1 ? 'min(46vw, 620px)' : castCount === 2 ? 'min(38vw, 530px)' : 'min(32vw, 470px)',
                   }
                 : { xs: '72%', sm: '58%', md: '46%' },
               height: techDemoEnabled ? { xs: '64%', sm: '70%', md: '76%' } : { xs: '58%', md: '66%' },
-              transform: `translateX(-50%) scale(${techDemoEnabled && !isCenterCharacter ? 0.94 : 1})`,
+              transform: `translateX(-50%) translateY(${phaseTranslateY}) scale(${phaseScale})`,
               transformOrigin: 'center bottom',
               display: 'flex',
               alignItems: 'flex-end',
               justifyContent: 'center',
-              opacity: techDemoEnabled && activeSpeakerKey && !isActiveSpeaker ? 0.78 : 1,
-              filter: techDemoEnabled && activeSpeakerKey && !isActiveSpeaker ? 'saturate(0.78) brightness(0.82)' : 'none',
-              transition: 'left 220ms ease, opacity 180ms ease, filter 180ms ease, transform 220ms ease',
+              opacity: phaseOpacity,
+              filter: phase === 'exiting'
+                ? 'saturate(0.62) brightness(0.68) blur(2px)'
+                : techDemoEnabled && activeSpeakerKey && !isActiveSpeaker
+                  ? 'saturate(0.78) brightness(0.82)'
+                  : 'none',
+              transition: [
+                `left ${NOVEL_STAGE_SPRITE_TRANSITION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+                `width ${NOVEL_STAGE_SPRITE_TRANSITION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+                `opacity ${NOVEL_STAGE_SPRITE_TRANSITION_MS - 80}ms ease`,
+                `filter ${NOVEL_STAGE_SPRITE_TRANSITION_MS - 80}ms ease`,
+                `transform ${NOVEL_STAGE_SPRITE_TRANSITION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+              ].join(', '),
+              willChange: 'left, width, opacity, filter, transform',
               pointerEvents: 'none',
-              zIndex: isActiveSpeaker ? 3 : isCenterCharacter ? 2 : 1,
+              zIndex: phase === 'exiting' ? 0 : isCenterCharacter ? 4 : isActiveSpeaker ? 3 : 1,
+              '@media (prefers-reduced-motion: reduce)': {
+                transitionDuration: '1ms',
+              },
             }}
           >
             {spriteUrl ? (
-              <ProgressiveImage
+              <NovelStageSpriteImage
                 src={spriteUrl}
-                alt={character.name}
-                loading="eager"
-                fetchPriority="high"
-                objectFit="contain"
-                objectPosition="center bottom"
-                loaderSize={28}
-                containerSx={{ width: '100%', height: '100%' }}
-                imgSx={{
-                  transform: techDemoEnabled
-                    ? { xs: 'translateY(5%) scale(1.08)', md: 'translateY(5%) scale(1.12)' }
-                    : { xs: 'translateY(6%) scale(1.12)', md: 'translateY(7%) scale(1.2)' },
-                  filter: 'drop-shadow(0 22px 32px rgba(0,0,0,0.46))',
-                  userSelect: 'none',
-                }}
+                name={character.name}
+                techDemoEnabled={techDemoEnabled}
               />
-            ) : character.incognito || character.name ? (
-              <Box
-                sx={{
-                  width: techDemoEnabled ? { xs: 178, md: 250 } : { xs: 168, md: 230 },
-                  height: techDemoEnabled ? { xs: 286, md: 405 } : { xs: 270, md: 370 },
-                  filter: 'drop-shadow(0 18px 30px rgba(0,0,0,0.5))',
-                }}
-              >
-                <NovelIncognitoSilhouette gender={character.gender === 'male' || character.gender === 'female' ? character.gender : null} />
-              </Box>
             ) : null}
           </Box>
         )
@@ -2435,7 +2681,7 @@ function VisualNovelStage({
               <Typography
                 sx={{
                   minWidth: 0,
-                  color: isPlayerMoveBeat ? 'var(--morius-accent)' : 'var(--morius-title-text)',
+                  color: speakerTitleColor,
                   fontSize: { xs: '0.92rem', md: '1rem' },
                   lineHeight: 1.15,
                   fontWeight: 900,
@@ -2446,6 +2692,21 @@ function VisualNovelStage({
               >
                 {isPlayerMoveBeat ? 'Ваш ход' : speakerLabel}
               </Typography>
+              {isCharacterBeat ? (
+                <Typography
+                  sx={{
+                    color: beatAccentColor,
+                    fontSize: '0.65rem',
+                    lineHeight: 1,
+                    fontWeight: 900,
+                    letterSpacing: '0.08em',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  {isThoughtBeat ? '· В ГОЛОВЕ' : '· РЕПЛИКА'}
+                </Typography>
+              ) : null}
               {emotionLabel && !isPlayerMoveBeat ? (
                 <Typography
                   sx={{
@@ -2489,14 +2750,23 @@ function VisualNovelStage({
           </Stack>
           <Typography
             sx={{
-              color: 'var(--morius-text-primary)',
+              color: beatTextColor,
               fontSize: { xs: '1rem', md: '1.1rem' },
               lineHeight: 1.48,
               whiteSpace: 'pre-wrap',
-              fontStyle: isPlayerMoveBeat ? 'italic' : 'normal',
+              fontStyle: isPlayerMoveBeat || isThoughtBeat ? 'italic' : 'normal',
               minHeight: techDemoEnabled ? { xs: 80, md: 98 } : { xs: 72, md: 84 },
               maxHeight: techDemoEnabled ? { xs: 148, md: 180 } : { xs: 132, md: 150 },
               overflowY: 'auto',
+              ...(isCharacterBeat
+                ? {
+                    borderLeft: `3px solid ${beatAccentColor}`,
+                    backgroundColor: `color-mix(in srgb, ${beatAccentColor} 16%, transparent)`,
+                    borderRadius: '0 10px 10px 0',
+                    px: { xs: 1.25, md: 1.5 },
+                    py: { xs: 0.9, md: 1 },
+                  }
+                : {}),
             }}
           >
             {currentBeat ? replaceMainHeroInlineTags(currentBeat.text, mainHeroName) : emptyText}
@@ -3032,8 +3302,92 @@ function normalizeStoryMessageItem(message: StoryMessage): StoryMessage {
   }
 }
 
+const NOVEL_NON_CHARACTER_NAMES = new Set([
+  'narrator',
+  'рассказчик',
+  'автор',
+  'система',
+  'system',
+  'scene',
+  'сцена',
+  'повествователь',
+  'описание',
+])
+
+function normalizeNovelCharacterName(value: string | null | undefined): string {
+  return (value ?? '')
+    .trim()
+    .toLocaleLowerCase('ru-RU')
+    .replace(/ё/g, 'е')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+}
+
+function isNovelNonCharacterName(value: string | null | undefined): boolean {
+  return NOVEL_NON_CHARACTER_NAMES.has(normalizeNovelCharacterName(value))
+}
+
+function inferNovelIncognitoSpriteGender(
+  name: string | null | undefined,
+  explicitGender?: string | null,
+): 'male' | 'female' {
+  const explicit = (explicitGender ?? '').trim().toLocaleLowerCase('en-US')
+  if (explicit === 'female' || explicit === 'male') {
+    return explicit
+  }
+
+  const normalizedName = normalizeNovelCharacterName(name)
+  const tokens = normalizedName.split(/[^a-zа-я]+/iu).filter(Boolean)
+  const femaleStems = [
+    'женщин', 'девушк', 'девочк', 'героин', 'королев', 'принцесс', 'герцогин',
+    'графин', 'баронесс', 'учительниц', 'преподавательниц', 'директрис', 'наставниц',
+    'хозяйк', 'служанк', 'горничн', 'монахин', 'жриц', 'ведьм', 'волшебниц', 'колдунь',
+  ]
+  const femaleWords = new Set([
+    'мать', 'мама', 'дочь', 'сестра', 'жена', 'леди', 'female', 'woman', 'girl',
+    'mother', 'daughter', 'sister', 'queen', 'princess', 'duchess', 'lady',
+  ])
+  if (tokens.some((token) => femaleWords.has(token) || femaleStems.some((stem) => token.startsWith(stem)))) {
+    return 'female'
+  }
+
+  const maleWords = new Set([
+    'мужчина', 'парень', 'юноша', 'мальчик', 'отец', 'папа', 'сын', 'брат', 'муж',
+    'король', 'принц', 'герцог', 'граф', 'барон', 'лорд', 'учитель', 'преподаватель',
+    'директор', 'наставник', 'хозяин', 'слуга', 'монах', 'жрец', 'колдун', 'волшебник',
+    'стражник', 'охранник', 'male', 'man', 'boy', 'father', 'son', 'brother', 'king',
+    'prince', 'duke', 'lord',
+  ])
+  if (tokens.some((token) => maleWords.has(token))) {
+    return 'male'
+  }
+
+  const lastToken = tokens.at(-1) ?? ''
+  const masculineAEndingNames = new Set(['илья', 'никита', 'лука', 'кузьма', 'фома', 'савва', 'данила', 'миша', 'саша'])
+  if (lastToken && !masculineAEndingNames.has(lastToken) && /[ая]$/u.test(lastToken)) {
+    return 'female'
+  }
+  // Old beats can contain no gender at all. A real fallback is preferable to silently dropping
+  // the cast member; new turns still receive the narrator's explicit male/female metadata.
+  return 'male'
+}
+
 function normalizeStoryVNBeatItem(beat: StoryNovelBeat): StoryNovelBeat {
   const rawEmotion = typeof beat.emotion === 'string' ? beat.emotion : null
+  const speakerName = typeof beat.speaker_name === 'string' && beat.speaker_name.trim()
+    ? beat.speaker_name.trim()
+    : null
+  const spriteGender = speakerName
+    ? inferNovelIncognitoSpriteGender(speakerName, beat.sprite_gender)
+    : null
+  const rawSpriteUrl = typeof beat.sprite_url === 'string' && beat.sprite_url.trim()
+    ? beat.sprite_url.trim()
+    : null
+  const spriteUrl = rawSpriteUrl ?? (
+    speakerName && (beat.kind === 'dialogue' || beat.kind === 'thought') && spriteGender
+      ? STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER[spriteGender]
+      : null
+  )
   return {
     ...beat,
     id: Number.isFinite(beat.id) ? Math.trunc(beat.id) : 0,
@@ -3045,39 +3399,44 @@ function normalizeStoryVNBeatItem(beat: StoryNovelBeat): StoryNovelBeat {
       typeof beat.speaker_character_id === 'number' && Number.isFinite(beat.speaker_character_id)
         ? Math.trunc(beat.speaker_character_id)
         : null,
-    speaker_name: typeof beat.speaker_name === 'string' && beat.speaker_name.trim() ? beat.speaker_name.trim() : null,
+    speaker_name: speakerName,
     emotion:
       rawEmotion && STORY_CHARACTER_EMOTION_IDS.includes(rawEmotion as StoryCharacterEmotionId)
         ? (rawEmotion as StoryCharacterEmotionId)
         : null,
     text: toStoryText(beat.text),
-    sprite_url: typeof beat.sprite_url === 'string' && beat.sprite_url.trim() ? beat.sprite_url.trim() : null,
-    sprite_incognito: Boolean(beat.sprite_incognito),
-    sprite_gender: beat.sprite_gender ?? null,
+    sprite_url: spriteUrl,
+    sprite_incognito: rawSpriteUrl ? Boolean(beat.sprite_incognito) : Boolean(spriteUrl),
+    sprite_gender: spriteGender,
     scene_characters: Array.isArray(beat.scene_characters)
       ? beat.scene_characters
           .filter((character) => Boolean(character) && typeof character === 'object')
           .map((character) => {
             const rawCharacterEmotion = typeof character.emotion === 'string' ? character.emotion : 'neutral'
             const rawCharacterGender = typeof character.gender === 'string' ? character.gender : ''
+            const name = typeof character.name === 'string' ? character.name.trim() : ''
+            const gender = name ? inferNovelIncognitoSpriteGender(name, rawCharacterGender) : null
+            const rawCharacterSpriteUrl =
+              typeof character.sprite_url === 'string' && character.sprite_url.trim()
+                ? character.sprite_url.trim()
+                : null
             return {
               character_id:
                 typeof character.character_id === 'number' && Number.isFinite(character.character_id)
                   ? Math.trunc(character.character_id)
                   : null,
-              name: typeof character.name === 'string' ? character.name.trim() : '',
+              name,
               emotion: STORY_CHARACTER_EMOTION_IDS.includes(rawCharacterEmotion as StoryCharacterEmotionId)
                 ? (rawCharacterEmotion as StoryCharacterEmotionId)
                 : 'neutral',
-              sprite_url:
-                typeof character.sprite_url === 'string' && character.sprite_url.trim()
-                  ? character.sprite_url.trim()
-                  : null,
-              incognito: Boolean(character.incognito),
-              gender: rawCharacterGender === 'male' || rawCharacterGender === 'female' ? rawCharacterGender : null,
+              sprite_url: rawCharacterSpriteUrl ?? (
+                gender ? STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER[gender] : null
+              ),
+              incognito: rawCharacterSpriteUrl ? Boolean(character.incognito) : Boolean(gender),
+              gender,
             }
           })
-          .filter((character) => character.name.length > 0)
+          .filter((character) => character.name.length > 0 && !isNovelNonCharacterName(character.name))
           .slice(0, 3)
       : [],
     created_at: typeof beat.created_at === 'string' ? beat.created_at : new Date(0).toISOString(),
@@ -3118,22 +3477,46 @@ function parseOpeningFallbackSceneCast(text: string): {
   const seenNames = new Set<string>()
   const characters: StoryNovelBeat['scene_characters'] = []
   for (const item of rawCast.split(';')) {
-    const separatorIndex = item.lastIndexOf('|')
-    const rawName = separatorIndex >= 0 ? item.slice(0, separatorIndex) : item
-    const rawEmotion = separatorIndex >= 0 ? item.slice(separatorIndex + 1) : 'neutral'
+    const parts = item.split('|').map((part) => part.trim())
+    let rawName = parts[0] ?? ''
+    let rawEmotion = 'neutral'
+    let gender: 'male' | 'female' | null = null
+    if (parts.length >= 3) {
+      const firstTail = parts.at(-2) ?? ''
+      const secondTail = parts.at(-1) ?? ''
+      const firstTailGender = firstTail.toLocaleLowerCase('en-US')
+      const secondTailGender = secondTail.toLocaleLowerCase('en-US')
+      if (firstTailGender === 'male' || firstTailGender === 'female') {
+        rawName = parts.slice(0, -2).join('|')
+        gender = firstTailGender
+        rawEmotion = secondTail
+      } else if (secondTailGender === 'male' || secondTailGender === 'female') {
+        // Tolerate a provider swapping Gender and Emotion while keeping the legacy format safe.
+        rawName = parts.slice(0, -2).join('|')
+        gender = secondTailGender
+        rawEmotion = firstTail
+      } else {
+        rawName = parts.slice(0, -1).join('|')
+        rawEmotion = secondTail
+      }
+    } else if (parts.length === 2) {
+      rawName = parts[0] ?? ''
+      rawEmotion = parts[1] ?? 'neutral'
+    }
     const name = rawName.trim()
     const normalizedName = name.toLocaleLowerCase('ru-RU')
-    if (!name || seenNames.has(normalizedName)) {
+    if (!name || isNovelNonCharacterName(name) || seenNames.has(normalizedName)) {
       continue
     }
     seenNames.add(normalizedName)
+    gender = inferNovelIncognitoSpriteGender(name, gender)
     characters.push({
       character_id: null,
       name,
       emotion: labelToEmotion.get(rawEmotion.trim().toLocaleLowerCase('ru-RU')) ?? 'neutral',
-      sprite_url: null,
+      sprite_url: STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER[gender],
       incognito: true,
-      gender: null,
+      gender,
     })
     if (characters.length >= 3) {
       break
@@ -3153,15 +3536,18 @@ function buildOpeningSceneFallbackVNBeats(
   return blocks.map((block, index) => {
     const isCharacterBeat = block.type === 'character'
     const parsedScene = parseOpeningFallbackSceneCast(block.text)
-    const speakerSceneCharacter = isCharacterBeat
-      ? {
-          character_id: null,
-          name: block.speakerName,
-          emotion: 'neutral' as StoryCharacterEmotionId,
-          sprite_url: null,
-          incognito: true,
-          gender: null,
-        }
+    const speakerSceneCharacter = isCharacterBeat && !isNovelNonCharacterName(block.speakerName)
+      ? (() => {
+          const gender = inferNovelIncognitoSpriteGender(block.speakerName)
+          return {
+            character_id: null,
+            name: block.speakerName,
+            emotion: 'neutral' as StoryCharacterEmotionId,
+            sprite_url: STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER[gender],
+            incognito: true,
+            gender,
+          }
+        })()
       : null
     const hasSpeakerInScene = speakerSceneCharacter
       ? parsedScene.characters.some(
@@ -3171,6 +3557,11 @@ function buildOpeningSceneFallbackVNBeats(
     const fallbackSceneCharacters = speakerSceneCharacter && !hasSpeakerInScene
       ? [...parsedScene.characters.slice(0, 2), speakerSceneCharacter]
       : parsedScene.characters
+    const activeSpeakerSceneCharacter = speakerSceneCharacter
+      ? fallbackSceneCharacters.find(
+          (character) => character.name.toLocaleLowerCase('ru-RU') === speakerSceneCharacter.name.toLocaleLowerCase('ru-RU'),
+        ) ?? speakerSceneCharacter
+      : null
     return {
       // Negative local IDs keep this compatibility fallback out of persisted/merged beat state.
       id: -(index + 1),
@@ -3182,9 +3573,9 @@ function buildOpeningSceneFallbackVNBeats(
       speaker_character_id: null,
       emotion: isCharacterBeat ? 'neutral' : null,
       text: parsedScene.text,
-      sprite_url: null,
+      sprite_url: activeSpeakerSceneCharacter?.sprite_url ?? null,
       sprite_incognito: isCharacterBeat,
-      sprite_gender: null,
+      sprite_gender: activeSpeakerSceneCharacter?.gender ?? null,
       scene_characters: fallbackSceneCharacters,
       created_at: timestamp,
       updated_at: timestamp,
@@ -3232,10 +3623,13 @@ function resolveNovelStageCast(
     return []
   }
   const clampedIndex = Math.min(Math.max(index, 0), beats.length - 1)
-  // Most recent appearance of each character (presence + fallback emotion) and, separately, the
-  // most recent appearance where they were the one speaking (authoritative emotion + sprite).
+  const currentBeat = beats[clampedIndex]
+  // Build the active stage from the freshest appearances across pages. A model can emit only
+  // the currently discussed person in one VN_CAST; that must not make the two other active
+  // characters disappear. Service identities (especially "Рассказчик") are never cast members.
   const presenceByKey = new Map<string, StoryNovelSceneCharacter>()
   const spokenByKey = new Map<string, StoryNovelSceneCharacter>()
+  const spriteByKey = new Map<string, StoryNovelSceneCharacter>()
   const recencyKeys: string[] = []
   for (let cursor = clampedIndex; cursor >= 0; cursor -= 1) {
     const beat = beats[cursor]
@@ -3243,6 +3637,9 @@ function resolveNovelStageCast(
       continue
     }
     for (const character of beat.scene_characters ?? []) {
+      if (isNovelNonCharacterName(character.name)) {
+        continue
+      }
       const key = normalizeStoryVNCharacterKey(character)
       if (!key) {
         continue
@@ -3254,35 +3651,68 @@ function resolveNovelStageCast(
       if (!spokenByKey.has(key) && beatSpeakerMatchesCharacter(beat, character)) {
         spokenByKey.set(key, character)
       }
+      if (!spriteByKey.has(key) && character.sprite_url) {
+        spriteByKey.set(key, character)
+      }
     }
-  }
-  if (recencyKeys.length === 0) {
-    return []
   }
   const selectedKeys = new Set(recencyKeys.slice(0, maxCount))
   const resolvedByKey = new Map<string, StoryNovelSceneCharacter>()
   for (const key of selectedKeys) {
-    resolvedByKey.set(key, spokenByKey.get(key) ?? presenceByKey.get(key)!)
+    const presence = presenceByKey.get(key)
+    const spoken = spokenByKey.get(key)
+    const sprite = spriteByKey.get(key)
+    if (!presence) {
+      continue
+    }
+    const resolvedSprite = sprite ?? spoken ?? presence
+    const resolvedGender = inferNovelIncognitoSpriteGender(
+      presence.name,
+      spoken?.gender ?? sprite?.gender ?? presence.gender,
+    )
+    const resolvedSpriteUrl = resolvedSprite.sprite_url
+      ?? STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER[resolvedGender]
+    const resolved = {
+      ...presence,
+      emotion: spoken?.emotion ?? presence.emotion,
+      sprite_url: resolvedSpriteUrl,
+      incognito: resolvedSprite.sprite_url ? resolvedSprite.incognito : true,
+      gender: resolvedGender,
+    }
+    if (resolved.sprite_url) {
+      resolvedByKey.set(key, resolved)
+    }
   }
-  // Order by earliest appearance so a long-present sprite keeps its side of the stage while
-  // newcomers slide in beside it, instead of everyone reshuffling each beat.
+
+  // Preserve introduction order so narration does not randomly reshuffle the stage.
   const ordered: StoryNovelSceneCharacter[] = []
   const placed = new Set<string>()
   for (let cursor = 0; cursor <= clampedIndex && ordered.length < selectedKeys.size; cursor += 1) {
-    const beat = beats[cursor]
-    if (!beat) {
-      continue
-    }
-    for (const character of beat.scene_characters ?? []) {
+    for (const character of beats[cursor]?.scene_characters ?? []) {
       const key = normalizeStoryVNCharacterKey(character)
-      if (!key || !selectedKeys.has(key) || placed.has(key)) {
+      const resolved = resolvedByKey.get(key)
+      if (!key || !resolved || placed.has(key)) {
         continue
       }
       placed.add(key)
-      ordered.push(resolvedByKey.get(key)!)
+      ordered.push(resolved)
     }
   }
-  return ordered
+  if (ordered.length <= 1) {
+    return ordered
+  }
+
+  const currentSpeaker = currentBeat && (currentBeat.kind === 'dialogue' || currentBeat.kind === 'thought')
+    ? ordered.find((character) => beatSpeakerMatchesCharacter(currentBeat, character))
+    : null
+  if (!currentSpeaker) {
+    return ordered
+  }
+  const focusedKey = normalizeStoryVNCharacterKey(currentSpeaker)
+  return [
+    currentSpeaker,
+    ...ordered.filter((character) => normalizeStoryVNCharacterKey(character) !== focusedKey),
+  ]
 }
 
 type VnPlayerMove = { content: string }
@@ -16502,10 +16932,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     void loadNovelPlaces()
   }, [loadNovelPlaces])
 
-  const handleGenerateSceneBackground = useCallback(async (placeId?: number) => {
+  const handleGenerateSceneBackground = useCallback(async (
+    request?: number | NovelPlaceGeneratePayload,
+  ) => {
     if (!activeGameId || isGeneratingSceneBackground || isStoryTurnBusy || isCreatingGame || isUndoingAssistantStep) {
       return
     }
+    const placeId = typeof request === 'number' ? request : request?.placeId
     setSceneBackgroundError('')
     setNovelPlacesError('')
     setIsGeneratingSceneBackground(true)
@@ -16514,8 +16947,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         token: authToken,
         gameId: activeGameId,
         placeId,
+        title: typeof request === 'object' ? request.title : undefined,
+        description: typeof request === 'object' ? request.description : undefined,
+        stylePrompt: typeof request === 'object' ? request.stylePrompt : undefined,
+        imageModel: typeof request === 'object' ? request.imageModel : undefined,
+        triggers: typeof request === 'object' ? request.triggers : undefined,
+        makeCurrent: typeof request === 'object' ? request.makeCurrent : undefined,
+        createNewPlace: typeof request === 'object' ? request.createNewPlace : undefined,
       })
       mergeNovelPlace(background)
+      return background
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать фон сцены'
       setSceneBackgroundError(detail)
@@ -19580,6 +20021,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               saving={isNovelPlaceSaving}
               generating={isGeneratingSceneBackground}
               error={novelPlacesError || sceneBackgroundError}
+              defaultImageModel={storyImageModel}
+              defaultStylePrompt={imageStylePromptDraft}
               onRefresh={loadNovelPlaces}
               onGenerate={handleGenerateSceneBackground}
               onSelect={handleSelectNovelPlace}
@@ -26065,7 +26508,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   onPrevious={goToPreviousVnBeat}
                   onNext={goToNextVnBeat}
                   onJumpToEnd={jumpToLatestVnBeat}
-                  onGenerateBackground={handleGenerateSceneBackground}
+                  onGenerateBackground={() => handleGenerateSceneBackground().then(() => undefined)}
                   canGenerateBackground={canGenerateSceneBackground}
                   isGeneratingBackground={isGeneratingSceneBackground}
                   backgroundError={sceneBackgroundError}
@@ -26075,6 +26518,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       : 'Опишите первое действие — рассказчик откроет сцену.'
                   }
                   mainHeroName={mainHeroDisplayNameForTags}
+                  resolveSpeakerEntry={resolveDialogueSpeakerEntry}
                 />
               </Box>
             ) : null}

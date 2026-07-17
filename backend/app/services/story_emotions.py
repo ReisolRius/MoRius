@@ -115,6 +115,17 @@ def coerce_story_character_emotion_id(value: Any) -> str:
 
 
 def normalize_story_character_emotion_assets(value: Any) -> dict[str, str]:
+    # Copy/publication code frequently receives the value exactly as it is stored in the DB
+    # (a JSON string), while create/update endpoints pass a decoded dict.  Accept both shapes so
+    # a clone can never silently lose its whole eight-sprite pack during re-serialization.
+    if isinstance(value, str):
+        normalized_raw_value = value.strip()
+        if not normalized_raw_value:
+            return {}
+        try:
+            value = json.loads(normalized_raw_value)
+        except (TypeError, ValueError):
+            return {}
     if not isinstance(value, dict):
         return {}
 

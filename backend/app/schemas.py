@@ -1481,9 +1481,8 @@ class StoryNovelBeatOut(BaseModel):
     speaker_character_id: int | None = None
     emotion: str | None = None
     text: str
-    # Resolved at read time (not persisted): the sprite to show for the speaker's emotion.
-    # When no manually-uploaded sprite exists, sprite_incognito=True and the UI shows a black
-    # gender silhouette instead.
+    # Resolved at read time: exact emotion, then the character's neutral sprite, then a shared
+    # gender-specific incognito sprite. ``sprite_incognito`` distinguishes the final fallback.
     sprite_url: str | None = None
     sprite_incognito: bool = False
     sprite_gender: str | None = None
@@ -1516,6 +1515,21 @@ class StorySceneBackgroundOut(BaseModel):
 class StoryNovelBackgroundGenerateRequest(BaseModel):
     title: str | None = Field(default=None, max_length=160)
     place_id: int | None = Field(default=None, ge=1)
+    description: str | None = Field(default=None, max_length=4_000)
+    style_prompt: str | None = Field(default=None, max_length=1_000)
+    image_model: str | None = Field(default=None, max_length=160)
+    triggers: list[str] | None = Field(default=None, max_length=12)
+    make_current: bool | None = None
+    create_new_place: bool = False
+
+
+class StoryPlaceBackgroundGenerateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    description: str = Field(min_length=1, max_length=4_000)
+    style_prompt: str | None = Field(default=None, max_length=1_000)
+    image_model: str | None = Field(default=None, max_length=160)
+    triggers: list[str] = Field(default_factory=list, max_length=12)
+    template_id: int | None = Field(default=None, ge=1)
 
 
 class StoryNovelBackgroundSelectRequest(BaseModel):

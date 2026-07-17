@@ -7,12 +7,17 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.services.story_emotions import (  # noqa: E402
+    deserialize_story_character_emotion_assets,
+    serialize_story_character_emotion_assets,
+)
 from app.services.story_novel import (  # noqa: E402
     STORY_GAME_MODE_RPG,
     STORY_GAME_MODE_VISUAL_NOVEL,
     STORY_NOVEL_BEAT_DIALOGUE,
     STORY_NOVEL_BEAT_NARRATION,
     STORY_NOVEL_BEAT_THOUGHT,
+    STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER,
     _resolve_story_novel_sprite,
     build_story_novel_instruction_card,
     can_user_use_story_visual_novel,
@@ -109,16 +114,71 @@ class ParseStoryNovelBeatsTests(unittest.TestCase):
 
 
 class ResolveStoryNovelSpriteTests(unittest.TestCase):
-    def test_no_character_returns_incognito_with_no_gender(self) -> None:
+    def test_serialized_emotion_pack_can_be_safely_reserialized_during_copy(self) -> None:
+        original = serialize_story_character_emotion_assets(
+            {
+                "neutral": "https://cdn.example.com/neutral.png",
+                "surprised": "https://cdn.example.com/surprised.png",
+            }
+        )
+
+        copied = serialize_story_character_emotion_assets(original)
+
+        self.assertEqual(deserialize_story_character_emotion_assets(copied), {
+            "neutral": "https://cdn.example.com/neutral.png",
+            "surprised": "https://cdn.example.com/surprised.png",
+        })
+
+    def test_no_character_without_gender_still_returns_a_visible_incognito_sprite(self) -> None:
         sprite_url, incognito, gender = _resolve_story_novel_sprite(None, "happy")
-        self.assertIsNone(sprite_url)
+        self.assertEqual(sprite_url, STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER["male"])
         self.assertTrue(incognito)
-        self.assertIsNone(gender)
+        self.assertEqual(gender, "male")
+
+    def test_legacy_female_role_name_infers_female_incognito_sprite(self) -> None:
+        sprite_url, incognito, gender = _resolve_story_novel_sprite(
+            None,
+            "angry",
+            fallback_name="Учительница Ирис",
+        )
+
+        self.assertEqual(sprite_url, STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER["female"])
+        self.assertTrue(incognito)
+        self.assertEqual(gender, "female")
+
+    def test_character_profile_text_supplies_missing_sprite_gender(self) -> None:
+        character = SimpleNamespace(
+            id=11,
+            updated_at=None,
+            name="Ирис",
+            description="Пол: женский. Преподавательница боевой магии.",
+            note="",
+            triggers="",
+            novel_sprite_gender="",
+            emotion_assets="",
+        )
+
+        sprite_url, incognito, gender = _resolve_story_novel_sprite(character, "angry")
+
+        self.assertEqual(sprite_url, STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER["female"])
+        self.assertTrue(incognito)
+        self.assertEqual(gender, "female")
+
+    def test_unregistered_character_uses_ai_gender_incognito_sprite(self) -> None:
+        sprite_url, incognito, gender = _resolve_story_novel_sprite(
+            None,
+            "happy",
+            fallback_gender="female",
+        )
+
+        self.assertEqual(sprite_url, STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER["female"])
+        self.assertTrue(incognito)
+        self.assertEqual(gender, "female")
 
     def test_character_without_uploaded_sprites_is_incognito_by_gender(self) -> None:
         character = SimpleNamespace(id=1, updated_at=None, novel_sprite_gender="female", emotion_assets="")
         sprite_url, incognito, gender = _resolve_story_novel_sprite(character, "happy")
-        self.assertIsNone(sprite_url)
+        self.assertEqual(sprite_url, STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER["female"])
         self.assertTrue(incognito)
         self.assertEqual(gender, "female")
 
@@ -134,16 +194,36 @@ class ResolveStoryNovelSpriteTests(unittest.TestCase):
         self.assertFalse(incognito)
         self.assertEqual(gender, "male")
 
-    def test_character_falls_back_to_any_uploaded_sprite_when_emotion_missing(self) -> None:
+    def test_character_without_requested_or_neutral_slot_uses_gender_incognito(self) -> None:
         character = SimpleNamespace(
             id=3,
             updated_at=None,
             novel_sprite_gender="",
             emotion_assets='{"sad": "https://cdn.example.com/sad.png"}',
         )
-        sprite_url, incognito, gender = _resolve_story_novel_sprite(character, "happy")
-        self.assertIsNotNone(sprite_url)
+        sprite_url, incognito, gender = _resolve_story_novel_sprite(
+            character,
+            "happy",
+            fallback_gender="male",
+        )
+
+        self.assertEqual(sprite_url, STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER["male"])
+        self.assertTrue(incognito)
+        self.assertEqual(gender, "male")
+
+    def test_unknown_ninth_emotion_uses_neutral_sprite_instead_of_incognito(self) -> None:
+        character = SimpleNamespace(
+            id=4,
+            updated_at=None,
+            novel_sprite_gender="female",
+            emotion_assets='{"neutral": "https://cdn.example.com/neutral.png"}',
+        )
+
+        sprite_url, incognito, gender = _resolve_story_novel_sprite(character, "curiosity")
+
+        self.assertEqual(sprite_url, "https://cdn.example.com/neutral.png")
         self.assertFalse(incognito)
+        self.assertEqual(gender, "female")
 
 
 class BuildStoryNovelInstructionCardTests(unittest.TestCase):
@@ -158,6 +238,8 @@ class BuildStoryNovelInstructionCardTests(unittest.TestCase):
         self.assertIn("не длиннее четырёх слов", content)
         self.assertIn("НПС, NPC, Голос, Незнакомец и Персонаж", content)
         self.assertIn("не оставляй речь обычным текстом", content)
+        self.assertIn("{{VN_CAST|Точный title|female|Эмоция; Другой title|male|Эмоция}}", content)
+        self.assertIn("обязательно указывай пол", content)
         self.assertNotIn("Имя [эмоция]:", content)
 
 

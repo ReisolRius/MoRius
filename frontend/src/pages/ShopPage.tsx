@@ -52,6 +52,7 @@ import {
 import type { AuthUser } from '../types/auth'
 import { moriusThemeTokens } from '../theme'
 import { withKnownCosmeticImageUrl } from '../utils/cosmeticImageFallbacks'
+import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
 
 type CosmeticSortMode = 'newest' | 'price'
 
@@ -1140,6 +1141,12 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         isPageMenuOpen={isPageMenuOpen}
         onTogglePageMenu={() => setIsPageMenuOpen((previous) => !previous)}
         onClosePageMenu={() => setIsPageMenuOpen(false)}
+        mobileActionItems={buildUnifiedMobileQuickActions({
+          onContinue: () => onNavigate('/dashboard?mobileAction=continue'),
+          onQuickStart: () => onNavigate('/dashboard?mobileAction=quick-start'),
+          onCreateWorld: () => onNavigate('/worlds/new'),
+          onOpenShop: () => onNavigate('/shop'),
+        })}
         menuItems={[
           { key: 'dashboard', label: 'Главная', onClick: () => onNavigate('/dashboard') },
           { key: 'games-all', label: 'Сообщество', onClick: () => onNavigate('/games/all') },

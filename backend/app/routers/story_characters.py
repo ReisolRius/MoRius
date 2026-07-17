@@ -393,7 +393,9 @@ def _create_story_character_publication_copy_from_source(
             else None
         ),
         avatar_scale=normalize_story_avatar_scale(source_character.avatar_scale),
-        emotion_assets=serialize_story_character_emotion_assets(getattr(source_character, "emotion_assets", "")),
+        emotion_assets=serialize_story_character_emotion_assets(
+            deserialize_story_character_emotion_assets(getattr(source_character, "emotion_assets", ""))
+        ),
         novel_sprite_gender=normalize_story_novel_sprite_gender(getattr(source_character, "novel_sprite_gender", "")),
         source=normalize_story_character_source(source_character.source),
         visibility=STORY_CHARACTER_VISIBILITY_PUBLIC,
@@ -895,7 +897,9 @@ def add_story_community_character_to_account(
                     else None
                 ),
                 avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
-                emotion_assets=serialize_story_character_emotion_assets(getattr(character, "emotion_assets", "")),
+                emotion_assets=serialize_story_character_emotion_assets(
+                    deserialize_story_character_emotion_assets(getattr(character, "emotion_assets", ""))
+                ),
                 novel_sprite_gender=normalize_story_novel_sprite_gender(getattr(character, "novel_sprite_gender", "")),
                 source=normalize_story_character_source(character.source),
                 visibility=STORY_CHARACTER_VISIBILITY_PRIVATE,

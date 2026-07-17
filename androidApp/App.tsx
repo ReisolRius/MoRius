@@ -184,7 +184,6 @@ function buildInjectedRuntimeBridge(): string {
         } catch (error) {}
 
         var lastRightPanelClosePath = '';
-        var layoutFixTimer = 0;
 
         function postRoute() {
           try {
@@ -235,39 +234,6 @@ function buildInjectedRuntimeBridge(): string {
           postGoogleSignInRequest();
         }
 
-        function applyAndroidLayoutFixes() {
-          try {
-            if (isStoryGamePath(window.location.pathname)) {
-              return;
-            }
-            var nodes = document.body ? document.body.querySelectorAll('*') : [];
-            for (var index = 0; index < nodes.length; index += 1) {
-              var element = nodes[index];
-              var style = window.getComputedStyle(element);
-              if (
-                style.position === 'fixed' &&
-                style.bottom === '0px' &&
-                style.left === '0px' &&
-                style.right === '0px' &&
-                style.zIndex === '41'
-              ) {
-                element.style.paddingBottom = '0px';
-                element.setAttribute('data-morius-android-bottom-nav-fixed', '1');
-              }
-            }
-          } catch (error) {}
-        }
-
-        function scheduleLayoutFixes() {
-          if (layoutFixTimer) {
-            return;
-          }
-          layoutFixTimer = window.setTimeout(function () {
-            layoutFixTimer = 0;
-            applyAndroidLayoutFixes();
-          }, 120);
-        }
-
         function isStoryGamePath(pathname) {
           return /^\\/home(?:\\/\\d+)?\\/?$/.test(pathname);
         }
@@ -311,7 +277,6 @@ function buildInjectedRuntimeBridge(): string {
 
         function handleRouteChanged() {
           postRoute();
-          scheduleLayoutFixes();
           scheduleStoryRightPanelClose();
         }
 
@@ -333,11 +298,6 @@ function buildInjectedRuntimeBridge(): string {
         document.addEventListener('click', handleDocumentClick, true);
         window.addEventListener('popstate', handleRouteChanged);
         window.addEventListener('hashchange', handleRouteChanged);
-        if (typeof MutationObserver === 'function') {
-          new MutationObserver(function () {
-            scheduleLayoutFixes();
-          }).observe(document.documentElement, { childList: true, subtree: true });
-        }
         handleRouteChanged();
       }
       true;
@@ -514,7 +474,7 @@ function AppShell() {
   }, [])
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']}>
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
       <StatusBar style="light" />
       {loadError ? (
         <OfflineState description={loadError} onReload={reload} />

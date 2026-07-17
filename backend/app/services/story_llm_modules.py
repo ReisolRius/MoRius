@@ -30,6 +30,10 @@ class DetailedMemoryPayload(BaseModel):
     important_entities: list[ImportantEntityPayload] = Field(default_factory=list)
     state_changes: list[str] = Field(default_factory=list)
     open_threads: list[str] = Field(default_factory=list)
+    scene_anchor: list[str] = Field(default_factory=list)
+    presence_changes: list[str] = Field(default_factory=list)
+    character_knowledge: list[str] = Field(default_factory=list)
+    active_plans: list[str] = Field(default_factory=list)
 
 
 class CompressedMemoryPayload(BaseModel):
@@ -38,6 +42,9 @@ class CompressedMemoryPayload(BaseModel):
     summary: str
     key_facts: list[str] = Field(default_factory=list)
     open_threads: list[str] = Field(default_factory=list)
+    scene_state: list[str] = Field(default_factory=list)
+    character_knowledge: list[str] = Field(default_factory=list)
+    active_plans: list[str] = Field(default_factory=list)
 
 
 class FactMemoryPayload(BaseModel):
@@ -46,6 +53,8 @@ class FactMemoryPayload(BaseModel):
     facts: list[str] = Field(default_factory=list)
     persistent_state: list[str] = Field(default_factory=list)
     open_threads: list[str] = Field(default_factory=list)
+    character_knowledge: list[str] = Field(default_factory=list)
+    active_commitments: list[str] = Field(default_factory=list)
 
 
 class ImportantMemoryPayload(BaseModel):

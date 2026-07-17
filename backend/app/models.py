@@ -857,9 +857,9 @@ class StoryNovelBeat(Base):
     speaker_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     speaker_character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     emotion: Mapped[str | None] = mapped_column(String(24), nullable=True)
-    # Ordered cast visible during this beat. Stored as compact JSON objects with
-    # ``name``, ``emotion`` and an optional ``character_id`` so late card linking can
-    # still resolve historical beats without reparsing narrator prose.
+    # Ordered cast visible during this beat. Stored as compact JSON objects with ``name``,
+    # ``emotion``, optional ``gender`` and optional ``character_id`` so unknown NPCs can use
+    # a gender-specific incognito sprite and late card linking can still resolve old beats.
     scene_characters_json: Mapped[str] = mapped_column(
         Text,
         nullable=False,

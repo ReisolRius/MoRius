@@ -31,6 +31,7 @@ from app.services.story_characters import (
     deserialize_triggers,
 )
 from app.services.story_emotions import (
+    deserialize_story_character_emotion_assets,
     serialize_story_character_emotion_assets,
 )
 from app.services.story_games import (
@@ -103,7 +104,9 @@ def upsert_story_character_publication_copy_from_source(
                 else None
             ),
             avatar_scale=normalize_story_avatar_scale(source_character.avatar_scale),
-            emotion_assets=serialize_story_character_emotion_assets(getattr(source_character, "emotion_assets", "")),
+            emotion_assets=serialize_story_character_emotion_assets(
+                deserialize_story_character_emotion_assets(getattr(source_character, "emotion_assets", ""))
+            ),
             novel_sprite_gender=str(getattr(source_character, "novel_sprite_gender", "") or "").strip().lower(),
             source=normalize_story_character_source(source_character.source),
             visibility=STORY_CHARACTER_VISIBILITY_PUBLIC,
@@ -148,7 +151,9 @@ def upsert_story_character_publication_copy_from_source(
         else None
     )
     publication.avatar_scale = normalize_story_avatar_scale(source_character.avatar_scale)
-    publication.emotion_assets = serialize_story_character_emotion_assets(getattr(source_character, "emotion_assets", ""))
+    publication.emotion_assets = serialize_story_character_emotion_assets(
+        deserialize_story_character_emotion_assets(getattr(source_character, "emotion_assets", ""))
+    )
     publication.novel_sprite_gender = str(getattr(source_character, "novel_sprite_gender", "") or "").strip().lower()
     publication.source = normalize_story_character_source(source_character.source)
     publication.visibility = STORY_CHARACTER_VISIBILITY_PUBLIC
