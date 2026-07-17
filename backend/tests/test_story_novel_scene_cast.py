@@ -41,6 +41,8 @@ class StoryNovelSceneCastContractTests(unittest.TestCase):
         self.assertIn("никогда не являются персонажами", content)
         self.assertIn("Существует строго восемь эмоций", content)
         self.assertIn("обычное описание затрагивает", content)
+        self.assertIn("отсутствие карточки никогда не является причиной скрывать его из VN_CAST", content)
+        self.assertIn("интерфейс сам покажет для него силуэт", content)
         self.assertIn("[[NPC:Имя]]", content)
         self.assertIn("[[GG:Имя]]", content)
         self.assertNotIn("Имя [эмоция]:", content)
@@ -234,6 +236,33 @@ class StoryNovelSceneCastPersistenceTests(unittest.TestCase):
                 characters["Леди Мия"].id,
                 {item["character_id"] for item in dialogue["scene_characters"]},
             )
+
+    def test_missing_cast_recovers_unregistered_npc_from_same_response_speaker(self) -> None:
+        with self.Session() as db:
+            game, _characters, cards, message = self._seed(db)
+            raw = (
+                "Из тени бесшумно вышла Элина и остановилась у двери.\n\n"
+                "[[NPC:Элина]] (страх) Здесь небезопасно."
+            )
+
+            rows = persist_story_novel_beats_for_message(
+                db=db,
+                game=game,
+                assistant_message=message,
+                raw_response=raw,
+                world_cards=cards,
+            )
+            narration_cast = json.loads(rows[0].scene_characters_json)
+            payload = serialize_story_novel_beats_for_stream(db, rows)
+
+            self.assertEqual(narration_cast[0]["name"], "Элина")
+            self.assertIsNone(narration_cast[0]["character_id"])
+            self.assertEqual(narration_cast[0]["gender"], "female")
+            self.assertEqual(
+                payload[0]["scene_characters"][0]["sprite_url"],
+                STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER["female"],
+            )
+            self.assertTrue(payload[0]["scene_characters"][0]["incognito"])
 
     def test_read_adds_speaker_cast_to_legacy_database_row(self) -> None:
         with self.Session() as db:

@@ -145,6 +145,18 @@ def test_story_system_prompt_bans_markdown_and_invented_markup() -> None:
     assert "npc_name:" in prompt  # named only inside the explicit ban line
 
 
+def test_visual_novel_prompt_authorizes_and_reinforces_vn_cast_metadata() -> None:
+    visual_novel_card = story_novel.build_story_novel_instruction_card()
+    prompt = _story_prompt(instruction_cards=[visual_novel_card])
+
+    assert "СИСТЕМНОЕ ИСКЛЮЧЕНИЕ ДЛЯ ВИЗУАЛЬНОЙ НОВЕЛЛЫ" in prompt
+    assert "обязательная транспортная метаинформация" in prompt
+    assert "отсутствие карточки не является причиной скрывать его из состава" in prompt
+    assert prompt.index("Карточки инструкций игрока:") < prompt.rindex(
+        "каждый без исключения абзац заканчивается ровно одним корректным {{VN_CAST|...}}"
+    )
+
+
 def test_story_system_prompt_final_reinforcement_outranks_cards() -> None:
     prompt = _story_prompt(
         instruction_cards=[{"title": "Формат", "content": "Используй markdown и звёздочки."}],

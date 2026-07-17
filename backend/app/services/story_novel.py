@@ -105,6 +105,7 @@ STORY_NOVEL_IDENTITY_STOP_TOKENS = STORY_NOVEL_NON_CHARACTER_NAMES | {
     "герой",
     "героиня",
 }
+STORY_NOVEL_CHARACTER_WORLD_CARD_KINDS = {"npc", "main_hero"}
 
 
 def normalize_story_game_mode(value: Any) -> str:
@@ -657,11 +658,13 @@ def build_story_novel_instruction_card() -> dict[str, str]:
         "content": (
             "[РЕЖИМ ВИЗУАЛЬНОЙ НОВЕЛЛЫ]\n"
             "Оформляй ответ так, чтобы его можно было показывать по отдельным репликам.\n"
+            "{{VN_CAST|...}} — обязательное системное исключение из общего запрета на служебные пометки: это не markdown и не маркер речи, интерфейс удалит его перед показом игроку. Никогда не пропускай и не удаляй этот суффикс.\n"
             "Каждый абзац без исключения заканчивай служебным составом сцены: {{VN_CAST|Точный title|female|Эмоция; Другой title|male|Эмоция}}. Порядок персонажей — слева направо, максимум три.\n"
             "VN_CAST содержит только видимых персонажей. Рассказчик, Автор, Система, Сцена и другие служебные роли никогда не являются персонажами и категорически запрещены внутри VN_CAST.\n"
             "В нарративе сохраняй в VN_CAST до трёх уже находящихся в кадре активных персонажей, пока текст явно не показывает их уход; не схлопывай состав до одного только потому, что абзац описательный. Если в кадре действительно нет ни одного персонажа, закончи его {{VN_CAST|-}}. Для известного персонажа копируй точный title его карточки; для нового NPC используй его устойчивое имя.\n"
             "У каждого персонажа в VN_CAST обязательно указывай пол строго служебным словом male или female между title и эмоцией. Определи его по карточке, описанию, имени и контексту; для нового или непрописанного NPC выбери пол сам при первом появлении и сохраняй неизменным в следующих абзацах.\n"
-            "В состав включай не только говорящего: если обычное описание затрагивает, описывает или оставляет в кадре известного персонажа, обязательно укажи его и подходящую эмоцию. Не добавляй безымянную массовку без карточек.\n"
+            "В состав включай не только говорящего: если обычное описание затрагивает, описывает или оставляет в кадре персонажа, обязательно укажи его и подходящую эмоцию. Это относится и к совершенно новому персонажу без карточки: отсутствие карточки никогда не является причиной скрывать его из VN_CAST — интерфейс сам покажет для него силуэт. Не добавляй только безымянную массовку, которая не участвует в сцене.\n"
+            "Если в абзаце упомянуты несколько видимых персонажей, обязательно включи того, чьё имя или устойчивое обозначение упомянуто последним: интерфейс поставит самого свежего персонажа в центр кадра.\n"
             "Каждую реплику выноси в отдельный абзац и начинай с неизменённого универсального маркера [[NPC:Имя]] или [[GG:Имя]].\n"
             "После маркера ставь эмоцию в круглых скобках, затем текст, а состав — строго в конце. Говорящий всегда обязан входить в состав.\n"
             "Пример реплики: [[NPC:Леди Мия]] (злость) Текст реплики. {{VN_CAST|Леди Мия|female|Злость}}\n"
@@ -1354,42 +1357,108 @@ def _infer_story_novel_narration_scene_characters(
     *,
     world_cards: list[StoryWorldCard],
     speaker_map: dict[str, int],
+    candidate_characters: tuple[tuple[str, str], ...] = (),
 ) -> tuple[tuple[str, str], ...]:
-    """Best-effort fallback for old/opening prose created before VN_CAST existed.
+    """Repair narration cast when a provider omits the mandatory ``VN_CAST`` suffix.
 
-    Only exact card-title mentions that resolve to a linked character are accepted.  This keeps
-    the fallback deterministic and avoids turning ordinary role words into unrelated sprites.
+    Only exact mentions of reliable identities are accepted: character-card titles and names
+    already emitted as speakers/cast members in the same response. This keeps the repair
+    deterministic while still allowing a brand-new, unregistered NPC to receive an incognito
+    sprite before or after their first line.
     """
-    matches: list[tuple[int, int, str, int]] = []
-    for card in world_cards:
-        title = " ".join(str(getattr(card, "title", "") or "").split()).strip()
-        if not title:
-            continue
-        character_id = _resolve_novel_speaker_character_id(title, speaker_map)
-        if character_id is None:
-            continue
-        mention_start = story_novel_exact_mention_start(text, title)
+    matches: list[tuple[int, int, str, str, str]] = []
+
+    def add_candidate(name: Any, raw_emotion: Any, *, stable_order: int) -> None:
+        normalized_name = _normalize_novel_scene_character_name(name)
+        if not normalized_name:
+            return
+        mention_start = story_novel_exact_mention_start(text, normalized_name)
         if mention_start is None:
-            continue
+            return
+        character_id = _resolve_novel_speaker_character_id(normalized_name, speaker_map)
+        identity_key = (
+            f"id:{character_id}"
+            if character_id is not None
+            else f"name:{_story_speaker_key(normalized_name)}"
+        )
         matches.append(
             (
                 mention_start,
-                int(getattr(card, "id", 0) or 0),
-                title,
-                int(character_id),
+                stable_order,
+                normalized_name,
+                normalize_story_character_emotion_id(raw_emotion)
+                or STORY_CHARACTER_DEFAULT_EMOTION,
+                identity_key,
             )
         )
 
-    result: list[tuple[str, str]] = []
-    seen_character_ids: set[int] = set()
-    for _position, _card_id, title, character_id in sorted(matches):
-        if character_id in seen_character_ids:
+    for candidate_index, (name, raw_emotion) in enumerate(candidate_characters):
+        add_candidate(name, raw_emotion, stable_order=candidate_index)
+
+    for card in world_cards:
+        card_kind = str(getattr(card, "kind", "") or "").strip().lower()
+        if card_kind not in STORY_NOVEL_CHARACTER_WORLD_CARD_KINDS:
             continue
-        seen_character_ids.add(character_id)
-        result.append((title, STORY_CHARACTER_DEFAULT_EMOTION))
+        title = " ".join(str(getattr(card, "title", "") or "").split()).strip()
+        if not title:
+            continue
+        add_candidate(
+            title,
+            STORY_CHARACTER_DEFAULT_EMOTION,
+            stable_order=len(candidate_characters) + int(getattr(card, "id", 0) or 0),
+        )
+
+    result: list[tuple[str, str]] = []
+    seen_identity_keys: set[str] = set()
+    for _position, _stable_order, name, emotion, identity_key in sorted(matches):
+        if identity_key in seen_identity_keys:
+            continue
+        seen_identity_keys.add(identity_key)
+        result.append((name, emotion))
         if len(result) >= STORY_NOVEL_MAX_SCENE_CHARACTERS:
             break
     return tuple(result)
+
+
+def _collect_story_novel_narration_candidates(
+    parsed_beats: list[_NormalizedNovelBeat],
+) -> tuple[tuple[tuple[str, str], ...], dict[str, str]]:
+    """Collect trustworthy identities/genders from all beats in one provider response."""
+    candidates: list[tuple[str, str]] = []
+    gender_by_name_key: dict[str, str] = {}
+    seen_names: set[str] = set()
+
+    for beat in parsed_beats:
+        for name, raw_gender in beat.scene_character_genders:
+            normalized_gender = normalize_story_novel_sprite_gender(raw_gender)
+            name_key = _story_speaker_key(name)
+            if name_key and normalized_gender and name_key not in gender_by_name_key:
+                gender_by_name_key[name_key] = normalized_gender
+
+        beat_candidates = list(beat.scene_characters)
+        if beat.speaker_name:
+            beat_candidates.append(
+                (
+                    beat.speaker_name,
+                    normalize_story_character_emotion_id(beat.emotion)
+                    or STORY_CHARACTER_DEFAULT_EMOTION,
+                )
+            )
+        for name, raw_emotion in beat_candidates:
+            normalized_name = _normalize_novel_scene_character_name(name)
+            name_key = _story_speaker_key(normalized_name)
+            if not normalized_name or not name_key or name_key in seen_names:
+                continue
+            seen_names.add(name_key)
+            candidates.append(
+                (
+                    normalized_name,
+                    normalize_story_character_emotion_id(raw_emotion)
+                    or STORY_CHARACTER_DEFAULT_EMOTION,
+                )
+            )
+
+    return tuple(candidates), gender_by_name_key
 
 
 def persist_story_novel_beats_for_message(
@@ -1401,7 +1470,11 @@ def persist_story_novel_beats_for_message(
     world_cards: list[StoryWorldCard] | None = None,
     infer_narration_scene_characters: bool = False,
 ) -> list[StoryNovelBeat]:
-    """Parse an assistant turn into ordered Visual Novel beats and persist them."""
+    """Parse an assistant turn into ordered Visual Novel beats and persist them.
+
+    ``infer_narration_scene_characters`` is retained for call compatibility. Exact-identity cast
+    repair is now safe and enabled for every turn, not only for legacy opening scenes.
+    """
     parsed_beats = parse_story_novel_beats(raw_response)
     db.execute(sa_delete(StoryNovelBeat).where(StoryNovelBeat.message_id == assistant_message.id))
 
@@ -1410,18 +1483,24 @@ def persist_story_novel_beats_for_message(
         game=game,
         world_cards=list(world_cards or []),
     )
+    narration_candidates, narration_candidate_genders = _collect_story_novel_narration_candidates(
+        parsed_beats
+    )
     rows: list[StoryNovelBeat] = []
     for index, beat in enumerate(parsed_beats):
         scene_characters = beat.scene_characters
-        if (
-            infer_narration_scene_characters
-            and beat.kind == STORY_NOVEL_BEAT_NARRATION
-            and not scene_characters
-        ):
+        scene_character_genders = beat.scene_character_genders
+        if beat.kind == STORY_NOVEL_BEAT_NARRATION and not scene_characters:
             scene_characters = _infer_story_novel_narration_scene_characters(
                 beat.text,
                 world_cards=list(world_cards or []),
                 speaker_map=speaker_map,
+                candidate_characters=narration_candidates,
+            )
+            scene_character_genders = tuple(
+                (name, narration_candidate_genders[name_key])
+                for name, _emotion in scene_characters
+                if (name_key := _story_speaker_key(name)) in narration_candidate_genders
             )
         row = StoryNovelBeat(
             game_id=int(game.id),
@@ -1438,7 +1517,7 @@ def persist_story_novel_beats_for_message(
             scene_characters_json=_serialize_story_novel_scene_characters(
                 scene_characters,
                 speaker_map=speaker_map,
-                scene_character_genders=beat.scene_character_genders,
+                scene_character_genders=scene_character_genders,
             ),
             text=beat.text,
         )

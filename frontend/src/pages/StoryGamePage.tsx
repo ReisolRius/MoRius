@@ -2365,7 +2365,8 @@ function VisualNovelStage({
       : []
     if (techDemoEnabled) {
       // Keep up to three active characters across narration/player pages. Dialogue moves the
-      // speaker to the center; narration never creates a synthetic "Рассказчик" sprite.
+      // speaker to the center; narration centers its last-mentioned character and never creates
+      // a synthetic "Рассказчик" sprite.
       const spriteBeatIndex = isInputStep ? beats.length - 1 : beatIndex
       const persistentCast = resolveNovelStageCast(beats, spriteBeatIndex, 3)
       return persistentCast.length > 0 ? persistentCast : fallbackSceneCharacter.slice(0, 3)
@@ -2487,7 +2488,7 @@ function VisualNovelStage({
             && character.character_id === currentBeat.speaker_character_id)
           || normalizedName === activeSpeakerKey
         // Slot zero is deliberately the focus slot. The cast resolver puts the current speaker
-        // there on dialogue pages and the newest active character there on narration pages.
+        // there on dialogue pages and the last-mentioned active character on narration pages.
         const desktopPositions = castCount === 1
           ? ['50%']
           : castCount === 2
@@ -3608,6 +3609,106 @@ function beatSpeakerMatchesCharacter(beat: StoryNovelBeat, character: StoryNovel
   return speaker === name
 }
 
+type NovelMentionToken = { value: string; index: number }
+
+function tokenizeNovelMentionText(value: string | null | undefined): NovelMentionToken[] {
+  const normalized = normalizeNovelCharacterName(value)
+  return Array.from(normalized.matchAll(/[a-zа-я0-9]+/giu), (match) => ({
+    value: match[0],
+    index: match.index ?? 0,
+  }))
+}
+
+function findLastNovelCharacterMention(
+  text: string,
+  characters: StoryNovelSceneCharacter[],
+): StoryNovelSceneCharacter | null {
+  const textTokens = tokenizeNovelMentionText(text)
+  if (textTokens.length === 0 || characters.length === 0) {
+    return null
+  }
+
+  const nameTokensByKey = new Map<string, string[]>()
+  const tokenOwnerCount = new Map<string, number>()
+  for (const character of characters) {
+    const key = normalizeStoryVNCharacterKey(character)
+    const nameTokens = tokenizeNovelMentionText(character.name).map((token) => token.value)
+    if (!key || nameTokens.length === 0) {
+      continue
+    }
+    nameTokensByKey.set(key, nameTokens)
+    for (const token of new Set(nameTokens.filter((item) => item.length >= 3))) {
+      tokenOwnerCount.set(token, (tokenOwnerCount.get(token) ?? 0) + 1)
+    }
+  }
+
+  let focusedCharacter: StoryNovelSceneCharacter | null = null
+  let focusedMentionIndex = -1
+  for (const character of characters) {
+    const key = normalizeStoryVNCharacterKey(character)
+    const nameTokens = nameTokensByKey.get(key)
+    if (!key || !nameTokens || nameTokens.length === 0) {
+      continue
+    }
+
+    let lastMentionIndex = -1
+    for (let start = 0; start <= textTokens.length - nameTokens.length; start += 1) {
+      if (nameTokens.every((token, offset) => textTokens[start + offset]?.value === token)) {
+        lastMentionIndex = Math.max(
+          lastMentionIndex,
+          textTokens[start + nameTokens.length - 1]?.index ?? -1,
+        )
+      }
+    }
+
+    // Card titles often contain a role ("Леди Мия") while prose naturally uses just the
+    // personal name ("Мия"). A unique token is safe; shared role words never steal focus.
+    for (const token of nameTokens) {
+      if (token.length < 3 || tokenOwnerCount.get(token) !== 1) {
+        continue
+      }
+      for (const textToken of textTokens) {
+        if (textToken.value === token) {
+          lastMentionIndex = Math.max(lastMentionIndex, textToken.index)
+        }
+      }
+    }
+
+    if (lastMentionIndex > focusedMentionIndex) {
+      focusedMentionIndex = lastMentionIndex
+      focusedCharacter = character
+    }
+  }
+  return focusedCharacter
+}
+
+function resolveNovelFocusedCharacter(
+  beats: StoryNovelBeat[],
+  index: number,
+  characters: StoryNovelSceneCharacter[],
+): StoryNovelSceneCharacter | null {
+  // The current narration page owns focus. Player-move pages and narration without a named
+  // participant retain the nearest previous focus instead of falling back to introduction order.
+  for (let cursor = index; cursor >= 0; cursor -= 1) {
+    const beat = beats[cursor]
+    if (!beat || beat.is_player_move) {
+      continue
+    }
+    if (beat.kind === 'dialogue' || beat.kind === 'thought') {
+      const speaker = characters.find((character) => beatSpeakerMatchesCharacter(beat, character))
+      if (speaker) {
+        return speaker
+      }
+      continue
+    }
+    const mentionedCharacter = findLastNovelCharacterMention(beat.text, characters)
+    if (mentionedCharacter) {
+      return mentionedCharacter
+    }
+  }
+  return null
+}
+
 // Persistent Visual Novel stage cast. Keeps up to `maxCount` freshest active characters on
 // screen — including during narration beats and the player's own move — and, critically, sticks
 // each character to the emotion of the last line they actually SPOKE or THOUGHT. A narration
@@ -3623,7 +3724,6 @@ function resolveNovelStageCast(
     return []
   }
   const clampedIndex = Math.min(Math.max(index, 0), beats.length - 1)
-  const currentBeat = beats[clampedIndex]
   // Build the active stage from the freshest appearances across pages. A model can emit only
   // the currently discussed person in one VN_CAST; that must not make the two other active
   // characters disappear. Service identities (especially "Рассказчик") are never cast members.
@@ -3702,15 +3802,13 @@ function resolveNovelStageCast(
     return ordered
   }
 
-  const currentSpeaker = currentBeat && (currentBeat.kind === 'dialogue' || currentBeat.kind === 'thought')
-    ? ordered.find((character) => beatSpeakerMatchesCharacter(currentBeat, character))
-    : null
-  if (!currentSpeaker) {
+  const focusedCharacter = resolveNovelFocusedCharacter(beats, clampedIndex, ordered)
+  if (!focusedCharacter) {
     return ordered
   }
-  const focusedKey = normalizeStoryVNCharacterKey(currentSpeaker)
+  const focusedKey = normalizeStoryVNCharacterKey(focusedCharacter)
   return [
-    currentSpeaker,
+    focusedCharacter,
     ...ordered.filter((character) => normalizeStoryVNCharacterKey(character) !== focusedKey),
   ]
 }
