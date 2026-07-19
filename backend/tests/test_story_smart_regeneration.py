@@ -46,7 +46,8 @@ class StorySmartRegenerationTests(unittest.TestCase):
         )
 
         self.assertIn("[[NPC:Name]]", instructions)
-        self.assertIn("Предыдущий ответ:", instructions)
+        self.assertNotIn("[[NPC:Мира]] Привет.", instructions)
+        self.assertNotIn("Предыдущий ответ:", instructions)
         self.assertLess(instructions.index("СОХРАНИТЬ ФОРМАТ РЕПЛИК"), instructions.index("СТРОЖЕ ПО ФАКТАМ"))
         self.assertLess(instructions.index("СТРОЖЕ ПО ФАКТАМ"), instructions.index("ИСПРАВИТЬ ЯЗЫК"))
         self.assertLess(instructions.index("ИСПРАВИТЬ ЯЗЫК"), instructions.index("УБРАТЬ ПОВТОР"))
@@ -60,7 +61,8 @@ class StorySmartRegenerationTests(unittest.TestCase):
 
         self.assertIn("РЕЖИМ: НОВЫЙ ВАРИАНТ", instructions)
         self.assertIn("не редактуру старого текста", instructions)
-        self.assertIn("Не копируй его текст, структуру", instructions)
+        self.assertNotIn("Старый ответ с теми же жестами.", instructions)
+        self.assertIn("текст отклонённого ответа намеренно не передаётся", instructions.casefold())
         self.assertIn("хотя бы одна содержательная реплика NPC".casefold(), instructions.casefold())
 
     def test_improve_existing_prompt_keeps_essence(self) -> None:
@@ -73,6 +75,7 @@ class StorySmartRegenerationTests(unittest.TestCase):
         self.assertIn("РЕЖИМ: УЛУЧШИТЬ ТЕКУЩИЙ", instructions)
         self.assertIn("сохранив его основную суть", instructions)
         self.assertIn("Исправить только выбранные аспекты", instructions)
+        self.assertIn("Текущий смысл сцены.", instructions)
 
     def test_disabled_or_empty_request_returns_no_card(self) -> None:
         self.assertIsNone(build_smart_regeneration_instruction_card(None))

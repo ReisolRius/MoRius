@@ -1512,7 +1512,7 @@ STORY_NARRATOR_CORE_RULES = (
     "Каждый ответ двигает историю: новое последствие, реакция, факт, угроза, возможность или развилка выбора — никогда не топчись на месте.",
     "NPC живут своей жизнью, но активная карточка не означает присутствие: ушедший не возвращается без показанного входа и знает лишь увиденное или сообщённое.",
     "Меняй ритм: чередуй короткие и длинные фразы, начала абзацев и тип деталей; избегай шаблонных связок и самоповторов из прошлых ходов.",
-    "Последние точные ходы и текущее место важнее старого пересказа: не откатывай переходы и продолжай незавершённые планы.",
+    "Последние ходы и место важнее старого пересказа; выполненное, проваленное или отменённое задание уже не будущее. Не откатывай переходы, продолжай лишь незавершённые планы.",
     "Не смешивай персонажей: имя, раса, пол, роль, вещи, отношения и прошлое принадлежат только своей карточке.",
     "Завершай ход на ясной точке опоры — реплике, действии или вопросе мира к герою, а не на оборванной фразе.",
 )
@@ -6795,37 +6795,13 @@ def _select_story_history_source(
     return selected_reversed
 
 
-STORY_REROLL_REFERENCE_MAX_CHARS = 1_800
-
-
-def _normalize_story_reroll_reference_text(value: str | None) -> str:
-    normalized = str(value or "").replace("\r\n", "\n").strip()
-    if not normalized:
-        return ""
-
-    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
-    if len(normalized) <= STORY_REROLL_REFERENCE_MAX_CHARS:
-        return normalized
-
-    head_chars = 1_000
-    tail_chars = 650
-    head = normalized[:head_chars].rstrip()
-    tail = normalized[-tail_chars:].lstrip()
-    if not head:
-        return tail
-    if not tail:
-        return head
-    return f"{head}\n...\n{tail}"
-
-
 def _build_story_reroll_system_message(
     discarded_assistant_text: str | None,
     *,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ) -> dict[str, str] | None:
-    reference_text = _normalize_story_reroll_reference_text(discarded_assistant_text)
-    if not reference_text:
+    if not str(discarded_assistant_text or "").strip():
         return None
 
     thought_rules: list[str] = []
@@ -6836,20 +6812,16 @@ def _build_story_reroll_system_message(
 
     content = "\n".join(
         [
-            "This is a reroll that replaces the previous assistant answer.",
-            "Write a fresh answer, but keep the MoRius formatting contract exactly.",
+            "This is an independent reroll of the latest player turn.",
+            "The previous assistant answer is rejected, non-canonical, and deliberately absent from this request.",
+            "Re-run the player's latest action from the story state that existed immediately before the rejected answer.",
+            "Choose a genuinely independent plausible continuation from scratch; do not reconstruct an assumed previous topic, sequence, or outcome.",
+            "Write a fresh answer while keeping the MoRius formatting contract exactly.",
             "Every spoken line or visible thought must be its own paragraph starting with exactly one marker:",
             "[[NPC:Name]], [[GG:Name]], [[NPC_THOUGHT:Name]], or [[GG_THOUGHT:Name]].",
             "Narration paragraphs have no marker. Never downgrade marked dialogue/thoughts to plain Name:, quotes-only lines, markdown bullets, or unmarked text.",
-            "If the discarded answer used these markers, the replacement must keep the same marker protocol even when the scene changes.",
             *thought_rules,
-            "The discarded answer was rejected by the player and must not simply be reworded.",
-            "Meaningfully vary this reroll from the discarded answer: choose a different emphasis, angle, reaction, or detail than before "
-            "(for example a different NPC response, a different beat of action, a different tone or pacing) while still answering the same "
-            "player action and staying consistent with the established scene and characters.",
-            "Do not copy the discarded answer verbatim and do not merely paraphrase it sentence-by-sentence.",
-            "DISCARDED_ASSISTANT_ANSWER (for reference only, to avoid repeating it):",
-            reference_text,
+            "Answer the same player action, but freely select another valid branch, NPC initiative, consequence, tone, and pacing.",
         ]
     )
     return {"role": "system", "content": content}
@@ -9831,7 +9803,11 @@ def _list_story_prompt_memory_cards(
         }
         ordered_blocks = sorted(
             memory_blocks,
-            key=lambda block: (layer_order.get(_normalize_story_memory_layer(block.layer), 99), block.id),
+            key=lambda block: (
+                layer_order.get(_normalize_story_memory_layer(block.layer), 99),
+                int(getattr(block, "assistant_message_id", 0) or 0),
+                int(getattr(block, "id", 0) or 0),
+            ),
         )
         for block in ordered_blocks:
             content = _normalize_story_message_content(getattr(block, "content", None))
@@ -9839,7 +9815,10 @@ def _list_story_prompt_memory_cards(
             if not content:
                 continue
             layer = _normalize_story_memory_layer(block.layer)
-            if layer in {STORY_MEMORY_LAYER_LOCATION, STORY_MEMORY_LAYER_WEATHER}:
+            # Archive blocks are lossless recovery copies, not prompt cards.  Feeding them
+            # alongside their compressed counterparts would duplicate every historical turn
+            # and defeat memory budgeting.
+            if layer in {STORY_MEMORY_LAYER_LOCATION, STORY_MEMORY_LAYER_WEATHER, "archive"}:
                 continue
             title_prefix = layer_label.get(layer, "Память")
             full_title = " ".join(f"{title_prefix}: {title or 'Блок'}".split()).strip()

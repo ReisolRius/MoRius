@@ -38,7 +38,7 @@ from app.schemas import (
     StoryGraphOut,
     StoryGraphSuggestionOut,
 )
-from app.services.auth_identity import ROLE_ADMINISTRATOR, ROLE_MODERATOR
+from app.services.auth_identity import ROLE_ADMINISTRATOR, ROLE_BETA_TESTER, ROLE_MODERATOR
 from app.services.media import resolve_media_display_url
 from app.services.story_cards import deserialize_story_plot_card_triggers, story_plot_card_to_out
 from app.services.story_memory import story_memory_block_to_out
@@ -49,7 +49,7 @@ from app.services.text_encoding import sanitize_likely_utf8_mojibake
 
 logger = logging.getLogger(__name__)
 
-GRAPH_ACCESS_ROLES = {ROLE_ADMINISTRATOR, ROLE_MODERATOR}
+GRAPH_ACCESS_ROLES = {ROLE_ADMINISTRATOR, ROLE_MODERATOR, ROLE_BETA_TESTER}
 GRAPH_CARD_TYPE_WORLD_CARD = "world_card"
 GRAPH_CARD_TYPE_INSTRUCTION_CARD = "instruction_card"
 GRAPH_CARD_TYPE_PLOT_CARD = "plot_card"

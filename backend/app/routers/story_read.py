@@ -41,6 +41,7 @@ from app.services.story_games import (
 )
 from app.services.story_novel import (
     STORY_GAME_MODE_RPG,
+    can_user_use_story_visual_novel,
     is_story_visual_novel_game,
     resolve_story_novel_beats_for_read,
 )
@@ -406,13 +407,22 @@ def _build_story_game_out_resilient(
         resolved_current_location_label = getattr(game_summary, "current_location_label", None)
     if resolved_current_location_label != getattr(game_summary, "current_location_label", None):
         game_summary = game_summary.model_copy(update={"current_location_label": resolved_current_location_label})
-    is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
-    if not is_administrator:
+    can_use_visual_novel = can_user_use_story_visual_novel(user)
+    client_memory_blocks = (
+        list(memory_blocks)
+        if str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+        else [
+            block
+            for block in memory_blocks
+            if str(getattr(block, "layer", "") or "").strip().lower() != "archive"
+        ]
+    )
+    if not can_use_visual_novel:
         game_summary = game_summary.model_copy(update={"game_mode": STORY_GAME_MODE_RPG})
 
     novel_beats = []
     current_scene_background = None
-    if is_administrator and is_story_visual_novel_game(game_summary):
+    if can_use_visual_novel and is_story_visual_novel_game(game_summary):
         message_ids = [
             int(getattr(message, "id", 0) or 0)
             for message in messages
@@ -481,7 +491,7 @@ def _build_story_game_out_resilient(
         memory_blocks=_safe_story_read_map(
             section_name="memory_blocks",
             game_id=int(getattr(game, "id", 0) or 0),
-            items=list(memory_blocks),
+            items=client_memory_blocks,
             serializer=lambda item: StoryMemoryBlockOut.model_validate(story_memory_block_to_out(item)),
         ),
         world_cards=_safe_story_read_map(
@@ -583,10 +593,7 @@ def get_story_game(
     user = get_current_user(db, authorization)
     try:
         game = get_user_story_game_or_404(db, user.id, game_id)
-        if (
-            str(getattr(user, "role", "") or "").strip().lower() == "administrator"
-            and is_story_visual_novel_game(game)
-        ):
+        if can_user_use_story_visual_novel(user) and is_story_visual_novel_game(game):
             try:
                 opening_bootstrap = ensure_story_novel_opening_scene_beats(db=db, game=game)
                 if opening_bootstrap.changed:

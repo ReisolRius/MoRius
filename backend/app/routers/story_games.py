@@ -1875,9 +1875,9 @@ def list_story_games(
         db,
         game_ids=[game.id for game in games],
     )
-    is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+    can_use_visual_novel = can_user_use_story_visual_novel(user)
     def _mask_story_game_mode(summary: StoryGameSummaryOut) -> StoryGameSummaryOut:
-        if is_administrator:
+        if can_use_visual_novel:
             return summary
         return summary.model_copy(update={"game_mode": STORY_GAME_MODE_RPG})
 

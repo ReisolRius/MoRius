@@ -1591,6 +1591,26 @@ export async function updateModeratorRoleAsAdmin(payload: {
   )
 }
 
+export async function updateUserRoleAsAdmin(payload: {
+  token: string
+  user_id: number
+  role: 'user' | 'moderator' | 'beta_tester'
+}): Promise<AdminManagedUser> {
+  return requestJson<AdminManagedUser>(
+    `/api/auth/admin/users/${payload.user_id}/role`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        role: payload.role,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
 export async function updateProfileTagAsAdmin(payload: {
   token: string
   user_id: number

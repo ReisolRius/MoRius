@@ -81,6 +81,7 @@ from app.services.story_generation_cancel import (
 )
 from app.services.story_novel import (
     build_story_novel_instruction_card,
+    can_user_use_story_visual_novel,
     is_story_visual_novel_enabled,
     persist_story_novel_beats_for_message,
     serialize_story_novel_beats_for_stream,
@@ -1054,6 +1055,17 @@ def _calculate_story_service_surcharge_tokens(
     return surcharge
 
 
+def _resolve_story_turn_charge_tokens(
+    *,
+    is_subscription_turn: bool,
+    base_cost_tokens: int,
+    service_surcharge_tokens: int,
+) -> int:
+    if is_subscription_turn:
+        return 0
+    return max(int(base_cost_tokens or 0), 0) + max(int(service_surcharge_tokens or 0), 0)
+
+
 def _merge_story_active_world_cards(
     primary_cards: list[dict[str, Any]],
     fallback_cards: list[dict[str, Any]],
@@ -1604,6 +1616,12 @@ def _stream_story_response(
     subscription_daily_turn_limit: int = 0,
     subscription_period_start: str = "",
 ):
+    if is_subscription_turn:
+        # Subscription narrator turns are paid exclusively with the subscription turn counter.
+        # Keep this guard inside the billing stream as well as in request preparation so no
+        # future surcharge or fallback path can accidentally spend sols.
+        turn_cost_tokens = 0
+        precharged_graph_cost_tokens = 0
     assistant_message: StoryMessage | None = None
     discarded_assistant_ids = [
         int(message_id)
@@ -1647,6 +1665,18 @@ def _stream_story_response(
     last_persisted_at = time.monotonic()
     aborted = False
     stream_error: str | None = None
+    assistant_message_finalized = False
+    raw_memory_checkpointed = False
+
+    def _list_story_memory_blocks_for_client() -> list[Any]:
+        blocks = list(deps.list_story_memory_blocks(db, game.id))
+        if str(getattr(user, "role", "") or "").strip().lower() == "administrator":
+            return blocks
+        return [
+            block
+            for block in blocks
+            if str(getattr(block, "layer", "") or "").strip().lower() != "archive"
+        ]
 
     def _stop_requested(stage: str, *, rollback: bool = False) -> bool:
         if not is_story_generation_cancelled(int(game.id), story_generation_id):
@@ -1667,9 +1697,12 @@ def _stream_story_response(
                     stage,
                     exc_info=True,
                 )
+        if assistant_message_finalized:
+            _settle_cancelled_accepted_response(stage)
         return True
 
     def _persist_cancelled_output() -> None:
+        nonlocal assistant_message_finalized
         partial_output = str(produced or "").replace("\r\n", "\n").strip()
         try:
             if assistant_message is not None and partial_output:
@@ -1678,6 +1711,9 @@ def _stream_story_response(
                 db.delete(assistant_message)
             deps.touch_story_game(game)
             commit_with_retry(db)
+            if assistant_message is not None and partial_output:
+                assistant_message_finalized = True
+                _settle_cancelled_accepted_response("partial_output_persisted")
             try:
                 db.refresh(user)
             except Exception:
@@ -1745,7 +1781,6 @@ def _stream_story_response(
         nonlocal discarded_steps_purged
         if discarded_steps_purged or not discarded_assistant_ids:
             return
-        discarded_steps_purged = True
         try:
             from app.services.story_undo import purge_story_graph_turn_references
 
@@ -1781,6 +1816,7 @@ def _stream_story_response(
             )
             deps.touch_story_game(game)
             commit_with_retry(db)
+            discarded_steps_purged = True
         except Exception:
             logger.exception(
                 "Failed to purge discarded assistant step after replacement: game_id=%s assistant_ids=%s",
@@ -1798,14 +1834,15 @@ def _stream_story_response(
         nonlocal variant_log_finalized
         if variant_log_finalized or assistant_message is None:
             return
-        variant_log_finalized = True
         if not reroll_carried_variant_history:
+            variant_log_finalized = True
             return
         try:
             full_log = _append_story_message_variant_log_entry(assistant_message, reroll_carried_variant_history)
             assistant_message.variant_history_json = json.dumps(full_log, ensure_ascii=False)
             assistant_message.active_variant_index = max(len(full_log) - 1, 0)
             commit_with_retry(db)
+            variant_log_finalized = True
         except Exception:
             logger.exception(
                 "Failed to finalize story message variant log: game_id=%s assistant_message_id=%s",
@@ -1813,6 +1850,43 @@ def _stream_story_response(
                 getattr(assistant_message, "id", None),
             )
             db.rollback()
+
+    def _settle_cancelled_accepted_response(stage: str) -> None:
+        """Leave a cancelled stream in one coherent, recoverable state."""
+        nonlocal raw_memory_checkpointed
+        if not assistant_message_finalized or assistant_message is None:
+            return
+        if memory_optimization_enabled:
+            accepted_text = _normalize_story_message_content(getattr(assistant_message, "content", None))
+            if accepted_text:
+                raw_memory_checkpointed = _checkpoint_story_raw_turn_memory(
+                    deps=deps,
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    latest_user_prompt=prompt,
+                    latest_assistant_text=accepted_text,
+                    memory_optimization_enabled=True,
+                ) or raw_memory_checkpointed
+        _purge_discarded_assistant_steps_after_success()
+        _finalize_story_message_variant_log()
+        logger.info(
+            "Settled accepted story response after cancellation: game_id=%s assistant_message_id=%s stage=%s memory_checkpointed=%s",
+            game.id,
+            assistant_message.id,
+            stage,
+            raw_memory_checkpointed,
+        )
+
+    def _delete_current_assistant_memory_blocks() -> None:
+        if assistant_message is None or not getattr(assistant_message, "id", None):
+            return
+        db.execute(
+            sa_delete(StoryMemoryBlock).where(
+                StoryMemoryBlock.game_id == game.id,
+                StoryMemoryBlock.assistant_message_id == int(assistant_message.id),
+            )
+        )
 
     try:
         for stream_attempt in range(len(STORY_STREAM_RETRY_DELAYS_SECONDS) + 1):
@@ -1958,7 +2032,7 @@ def _stream_story_response(
         public_stream_text = strip_story_novel_scene_cast_metadata(produced)
         if public_stream_text:
             # VN cast metadata can be split across arbitrary provider chunks.  Buffer the
-            # admin-only VN response and emit one clean public chunk once the provider finishes
+            # limited-access VN response and emit one clean public chunk once the provider finishes
             # instead of ever leaking a partial ``{{VN_CAST...}}`` marker to the client.
             yield _sse_event(
                 "chunk",
@@ -2019,10 +2093,40 @@ def _stream_story_response(
             yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
         return
 
+    response_has_content = bool(normalized_output.strip() or produced.strip())
+    assistant_message_finalized = response_has_content
+    assistant_text_for_postprocess = _normalize_story_message_content(getattr(assistant_message, "content", None))
+    if not assistant_text_for_postprocess:
+        assistant_text_for_postprocess = normalized_output.strip() or produced.strip()
+    assistant_text_for_memory = assistant_text_for_postprocess
+    if _should_use_english_memory_source(story_model_name):
+        raw_output_candidate = str(stream_runtime_meta.get("raw_output") or "").replace("\r\n", "\n").strip()
+        if raw_output_candidate:
+            assistant_text_for_memory = raw_output_candidate
+
+    # The message and its recovery checkpoint are one acceptance boundary.  Do this before
+    # VN materialization, billing and every post-process stage so stop/reroll cannot leave a
+    # visible accepted response without durable memory.
+    if response_has_content:
+        raw_memory_checkpointed = _checkpoint_story_raw_turn_memory(
+            deps=deps,
+            db=db,
+            game=game,
+            assistant_message=assistant_message,
+            latest_user_prompt=prompt,
+            latest_assistant_text=assistant_text_for_memory,
+            memory_optimization_enabled=memory_optimization_enabled,
+        )
+        if memory_optimization_enabled and not raw_memory_checkpointed:
+            logger.warning(
+                "Story raw-memory checkpoint unavailable at message acceptance: game_id=%s assistant_message_id=%s",
+                game.id,
+                assistant_message.id,
+            )
+
     if _stop_requested("message_finalized"):
         return
 
-    response_has_content = bool(normalized_output.strip() or produced.strip())
     if not response_has_content:
         try:
             if assistant_message is not None:
@@ -2064,6 +2168,7 @@ def _stream_story_response(
             db.rollback()
             try:
                 db.execute(sa_delete(StoryNovelBeat).where(StoryNovelBeat.message_id == assistant_message.id))
+                _delete_current_assistant_memory_blocks()
                 db.delete(assistant_message)
                 deps.touch_story_game(game)
                 commit_with_retry(db)
@@ -2103,8 +2208,7 @@ def _stream_story_response(
         return
 
     if is_subscription_turn:
-        # Consume one daily turn (the authoritative atomic guard) instead of charging sols for
-        # the base model cost. Module surcharges, if any, are still charged below.
+        # Consume one subscription turn (the authoritative atomic guard) instead of charging sols.
         try:
             from app.services.subscriptions import try_consume_subscription_turn
 
@@ -2116,6 +2220,7 @@ def _stream_story_response(
             ):
                 db.rollback()
                 if assistant_message is not None:
+                    _delete_current_assistant_memory_blocks()
                     db.delete(assistant_message)
                 deps.touch_story_game(game)
                 commit_with_retry(db)
@@ -2137,11 +2242,12 @@ def _stream_story_response(
             yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
             return
 
-    if turn_cost_tokens > 0:
+    if not is_subscription_turn and turn_cost_tokens > 0:
         try:
             if not deps.spend_user_tokens_if_sufficient(db, int(user.id), turn_cost_tokens):
                 db.rollback()
                 if assistant_message is not None:
+                    _delete_current_assistant_memory_blocks()
                     db.delete(assistant_message)
                 deps.touch_story_game(game)
                 commit_with_retry(db)
@@ -2164,22 +2270,8 @@ def _stream_story_response(
     if _stop_requested("after_billing"):
         return
 
-    assistant_text_for_postprocess = _normalize_story_message_content(getattr(assistant_message, "content", None))
-    if not assistant_text_for_postprocess:
-        assistant_text_for_postprocess = normalized_output.strip()
-    if not assistant_text_for_postprocess:
-        assistant_text_for_postprocess = produced.strip()
-
-    assistant_text_for_memory = assistant_text_for_postprocess
-    if _should_use_english_memory_source(story_model_name):
-        raw_output_candidate = str(stream_runtime_meta.get("raw_output") or "").replace("\r\n", "\n").strip()
-        if raw_output_candidate:
-            if raw_output_candidate:
-                assistant_text_for_memory = raw_output_candidate
-
-    raw_memory_checkpointed = False
-    if not aborted and response_has_content:
-        if _stop_requested("raw_memory_checkpoint"):
+    if not aborted and response_has_content and memory_optimization_enabled and not raw_memory_checkpointed:
+        if _stop_requested("raw_memory_checkpoint_retry"):
             return
         raw_memory_checkpointed = _checkpoint_story_raw_turn_memory(
             deps=deps,
@@ -2190,7 +2282,7 @@ def _stream_story_response(
             latest_assistant_text=assistant_text_for_memory,
             memory_optimization_enabled=memory_optimization_enabled,
         )
-        if _stop_requested("raw_memory_checkpoint_complete", rollback=True):
+        if _stop_requested("raw_memory_checkpoint_retry_complete", rollback=True):
             return
         if memory_optimization_enabled and not raw_memory_checkpointed:
             logger.warning(
@@ -2387,7 +2479,7 @@ def _stream_story_response(
                         [deps.plot_card_to_out(card) for card in deps.list_story_plot_cards(db, game.id)]
                     ),
                     "ai_memory_blocks": _safe_dump_stream_items(
-                        [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
+                        [deps.memory_block_to_out(block) for block in _list_story_memory_blocks_for_client()]
                     ),
                     "plot_card_created": plot_card_created,
                 }
@@ -2475,12 +2567,16 @@ def _stream_story_response(
             )
         if graph_enabled and isinstance(graph_analysis_result, dict):
             graph_analysis_result["gemini_request_count"] = actual_graph_cost_tokens
-            graph_analysis_result["cost_tokens"] = actual_graph_cost_tokens
+            graph_analysis_result["cost_tokens"] = 0 if is_subscription_turn else actual_graph_cost_tokens
         prepaid_graph_cost_tokens = max(
             0,
             min(int(precharged_graph_cost_tokens or 0), STORY_GRAPH_MAX_SERVICE_REQUESTS),
         )
-        actual_turn_cost_tokens = max(turn_cost_tokens - prepaid_graph_cost_tokens + actual_graph_cost_tokens, 0)
+        actual_turn_cost_tokens = (
+            0
+            if is_subscription_turn
+            else max(turn_cost_tokens - prepaid_graph_cost_tokens + actual_graph_cost_tokens, 0)
+        )
         if actual_turn_cost_tokens < turn_cost_tokens:
             refund_tokens = turn_cost_tokens - actual_turn_cost_tokens
             try:
@@ -2549,7 +2645,7 @@ def _stream_story_response(
         _purge_discarded_assistant_steps_after_success()
         _finalize_story_message_variant_log()
         ai_memory_blocks_payload = _safe_dump_stream_items(
-            [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
+            [deps.memory_block_to_out(block) for block in _list_story_memory_blocks_for_client()]
         )
         done_payload = {
             "message": {
@@ -2643,7 +2739,7 @@ def _stream_story_response(
     _purge_discarded_assistant_steps_after_success()
     _finalize_story_message_variant_log()
     ai_memory_blocks_payload = _safe_dump_stream_items(
-        [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
+        [deps.memory_block_to_out(block) for block in _list_story_memory_blocks_for_client()]
     )
     done_payload = {
         "message": {
@@ -2744,7 +2840,7 @@ def _generate_story_response_locked(
     # Subscription-only narrator models: gate by an active subscription (or admin test) that
     # includes the model, and by the tier's daily-turn limit. Subscription turns render as plain
     # text (no memory optimization / environment / visual novel), cap responses at 450 tokens,
-    # never charge sols for the base model cost, and consume one daily turn instead.
+    # never charge sols for the turn, and consume one subscription turn instead.
     is_subscription_turn = story_model_name in STORY_SUBSCRIPTION_LLM_MODELS
     subscription_entitlement: dict[str, Any] | None = None
     subscription_memory_cap = 0
@@ -2823,12 +2919,12 @@ def _generate_story_response_locked(
                 "Failed to ensure baseline story environment snapshot: game_id=%s",
                 game.id,
             )
-    is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+    can_use_visual_novel = can_user_use_story_visual_novel(user)
     raw_ambient_enabled = getattr(game, "ambient_enabled", None)
     ambient_enabled = bool(raw_ambient_enabled)
     if payload.ambient_enabled is not None:
         ambient_enabled = bool(payload.ambient_enabled)
-    if not is_administrator:
+    if not can_use_visual_novel:
         ambient_enabled = False
     visual_novel_enabled = is_story_visual_novel_enabled(game, user)
     logger.info(
@@ -2899,7 +2995,7 @@ def _generate_story_response_locked(
     if is_subscription_turn:
         # Plain continuous text: disable memory optimization, the visual novel and the emotion
         # stage (environment was already disabled above). Clamp the response to 450 tokens and the
-        # scene memory to the tier cap. Toggleable modules are left as-is (they still cost sols).
+        # scene memory to the tier cap. Any remaining story modules are covered by the same turn.
         memory_optimization_enabled = False
         visual_novel_enabled = False
         ambient_enabled = False
@@ -3273,6 +3369,32 @@ def _generate_story_response_locked(
 
     messages = _seed_opening_scene_message_if_needed(messages)
 
+    # Repair the durable memory/message invariant before any reroll mutates the tail and,
+    # crucially, before prompt cards are selected.  This backfills historical turns that
+    # survived in StoryMessage but missed their checkpoint after a cancelled stream.
+    if memory_optimization_enabled:
+        try:
+            from app.services import story_memory_pipeline
+
+            memory_repaired = story_memory_pipeline._sync_story_raw_memory_blocks_for_recent_turns(
+                db=db,
+                game=game,
+            )
+            if memory_repaired:
+                deps.touch_story_game(game)
+                commit_with_retry(db)
+                messages = deps.list_story_messages(db, game.id)
+        except Exception as exc:
+            logger.exception(
+                "Failed to repair story memory before generation: game_id=%s",
+                game.id,
+            )
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to repair story memory before generation: {_public_story_error_detail(exc)}",
+            ) from exc
+
     if payload.reroll_last_response:
         if discard_last_assistant_steps > 0:
             raise HTTPException(
@@ -3379,6 +3501,19 @@ def _generate_story_response_locked(
             list(getattr(payload.smart_regeneration, "options", []) or []),
             len(str(smart_instruction_card.get("content", ""))),
         )
+    # Ordinary rerolls use the discarded text only as an internal boolean signal for the
+    # provider's wider sampling. The text itself is never interpolated into the prompt.
+    # Explicit smart regeneration already owns its reference card, so it does not also get
+    # the independent-reroll system directive.
+    smart_regeneration_improves_existing = bool(
+        smart_instruction_card is not None
+        and normalize_smart_regeneration_mode(smart_regeneration_mode) == "improve_existing"
+    )
+    provider_reroll_signal_text = (
+        None
+        if smart_regeneration_improves_existing
+        else reroll_discarded_assistant_text
+    )
 
     world_cards = _order_story_world_cards_for_active_main_hero(
         game,
@@ -3465,7 +3600,7 @@ def _generate_story_response_locked(
             )
     except Exception:
         logger.exception("Story graph context build failed; continuing without graph context: game_id=%s", game.id)
-    turn_cost_tokens = _calculate_story_turn_cost_tokens(
+    base_turn_cost_tokens = _calculate_story_turn_cost_tokens(
         get_story_turn_cost_tokens=deps.get_story_turn_cost_tokens,
         context_limit_tokens=context_limit_chars,
         model_name=story_model_name,
@@ -3476,22 +3611,28 @@ def _generate_story_response_locked(
         memory_optimization_enabled=memory_optimization_enabled,
         accelerated_service_enabled=bool(getattr(game, "accelerated_service_enabled", False)),
     )
-    if is_subscription_turn:
-        # The base model cost is covered by the subscription — a daily turn is consumed at billing
-        # instead. Toggleable modules below still add their sol surcharge.
-        turn_cost_tokens = 0
     graph_enabled_for_billing = bool(getattr(game, "auto_graph_nodes_enabled", False)) or bool(
         getattr(game, "auto_graph_edges_enabled", False)
     )
-    precharged_graph_cost_tokens = STORY_GRAPH_MAX_SERVICE_REQUESTS if graph_enabled_for_billing else 0
-    turn_cost_tokens += _calculate_story_service_surcharge_tokens(
+    precharged_graph_cost_tokens = (
+        STORY_GRAPH_MAX_SERVICE_REQUESTS
+        if graph_enabled_for_billing and not is_subscription_turn
+        else 0
+    )
+    service_surcharge_tokens = _calculate_story_service_surcharge_tokens(
         environment_time_enabled=environment_time_enabled,
         character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
         auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
         graph_enabled=graph_enabled_for_billing,
         graph_request_cost_tokens=precharged_graph_cost_tokens,
     )
-    _ensure_user_can_afford_turn(turn_cost_tokens)
+    turn_cost_tokens = _resolve_story_turn_charge_tokens(
+        is_subscription_turn=is_subscription_turn,
+        base_cost_tokens=base_turn_cost_tokens,
+        service_surcharge_tokens=service_surcharge_tokens,
+    )
+    if not is_subscription_turn:
+        _ensure_user_can_afford_turn(turn_cost_tokens)
     db.commit()
     if source_user_message is not None:
         db.refresh(source_user_message)
@@ -3523,7 +3664,7 @@ def _generate_story_response_locked(
         story_top_k=story_top_k,
         story_top_r=story_top_r,
         memory_optimization_enabled=memory_optimization_enabled,
-        reroll_discarded_assistant_text=reroll_discarded_assistant_text,
+        reroll_discarded_assistant_text=provider_reroll_signal_text,
         reroll_carried_variant_history=reroll_carried_variant_history,
         ambient_enabled=ambient_enabled,
         visual_novel_enabled=visual_novel_enabled,

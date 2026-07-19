@@ -29,6 +29,7 @@ from app.services.story_llm_modules import (
     WorldAnalysisPayload,
 )
 from app.services.story_memory import (
+    STORY_MEMORY_LAYER_ARCHIVE,
     STORY_MEMORY_LAYER_COMPRESSED as LEGACY_STORY_MEMORY_LAYER_COMPRESSED,
     STORY_MEMORY_LAYER_KEY,
     STORY_MEMORY_LAYER_LOCATION,
@@ -91,6 +92,17 @@ STORY_MEMORY_LAYER_FACTS = "facts"
 STORY_MEMORY_LAYER_RAW_PENDING = "raw_pending"
 STORY_MEMORY_LAYER_PROMOTED = "promoted"
 
+STORY_MEMORY_NARRATIVE_LAYERS = {
+    STORY_MEMORY_LAYER_LATEST_FULL,
+    STORY_MEMORY_LAYER_FRESH_DETAILED,
+    STORY_MEMORY_LAYER_COMPRESSED_SUMMARY,
+    STORY_MEMORY_LAYER_FACTS,
+    STORY_MEMORY_LAYER_RAW_PENDING,
+    LEGACY_STORY_MEMORY_LAYER_RAW,
+    LEGACY_STORY_MEMORY_LAYER_COMPRESSED,
+    LEGACY_STORY_MEMORY_LAYER_SUPER,
+}
+
 STORY_MEMORY_LAYER_RAW = STORY_MEMORY_LAYER_LATEST_FULL
 STORY_MEMORY_LAYER_COMPRESSED = STORY_MEMORY_LAYER_COMPRESSED_SUMMARY
 STORY_MEMORY_LAYER_SUPER = STORY_MEMORY_LAYER_FACTS
@@ -115,6 +127,7 @@ STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO = 900
 STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO = 0.78
 STORY_MEMORY_DETAILED_COPY_NGRAM_SIZE = 12
 STORY_MEMORY_DETAILED_COPY_RATIO_LIMIT = 0.32
+STORY_MEMORY_TERMINAL_EVIDENCE_MAX_CHARS = 700
 STORY_SERVICE_WORLD_CONTEXT_MAX_CARDS = 12
 STORY_SERVICE_WORLD_CONTEXT_CARD_MAX_CHARS = 1_200
 STORY_SERVICE_CHARACTER_DESCRIPTION_MAX_CHARS = 600
@@ -185,6 +198,8 @@ def _normalize_story_memory_layer(value: str | None) -> str:
         "super": STORY_MEMORY_LAYER_FACTS,
         "raw_pending": STORY_MEMORY_LAYER_RAW_PENDING,
         "pending_retry": STORY_MEMORY_LAYER_RAW_PENDING,
+        "archive": STORY_MEMORY_LAYER_ARCHIVE,
+        "full_turn_archive": STORY_MEMORY_LAYER_ARCHIVE,
         "raw": LEGACY_STORY_MEMORY_LAYER_RAW,
         "key": STORY_MEMORY_LAYER_KEY,
         "location": STORY_MEMORY_LAYER_LOCATION,
@@ -314,6 +329,27 @@ def _build_story_raw_memory_block_content(
     return "\n\n".join(parts).strip()
 
 
+def _build_story_archive_memory_block_content(
+    *,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+) -> str:
+    """Build the lossless recovery copy for an accepted story turn.
+
+    Prompt-facing memory may be compressed repeatedly.  This copy is deliberately
+    excluded from prompts and keeps the canonical message text so a failed checkpoint
+    or an over-aggressive summary can always be repaired from durable data.
+    """
+    player_text = _normalize_story_message_content(latest_user_prompt)
+    narrator_text = _normalize_story_message_content(latest_assistant_text)
+    parts: list[str] = []
+    if player_text:
+        parts.append(f"PLAYER_TURN:\n{player_text}")
+    if narrator_text:
+        parts.append(f"NARRATOR_RESPONSE:\n{narrator_text}")
+    return "\n\n".join(parts).strip()
+
+
 def _parse_full_turn_content(content: str) -> tuple[str, str]:
     normalized = _normalize_story_message_content(content)
     if not normalized:
@@ -351,7 +387,13 @@ def _create_story_memory_block(
     content: str,
 ) -> StoryMemoryBlock:
     normalized_layer = _normalize_story_memory_layer(layer)
-    normalized_content = _base_normalize_memory_content(content)
+    normalized_content = (
+        str(content or "").replace("\r\n", "\n").strip()
+        if normalized_layer == STORY_MEMORY_LAYER_ARCHIVE
+        else _base_normalize_memory_content(content)
+    )
+    if not normalized_content:
+        raise ValueError("Story memory block content cannot be empty")
     block = StoryMemoryBlock(
         game_id=int(game_id),
         assistant_message_id=int(assistant_message_id) if assistant_message_id else None,
@@ -374,6 +416,7 @@ def _upsert_story_raw_memory_block(
     latest_assistant_text: str,
     preserve_user_text: bool = True,
     preserve_assistant_text: bool = True,
+    existing_turn_blocks: list[StoryMemoryBlock] | None = None,
 ) -> bool:
     _ = (preserve_user_text, preserve_assistant_text)
     if assistant_message.game_id != game.id:
@@ -385,9 +428,14 @@ def _upsert_story_raw_memory_block(
     if not content:
         return False
     assistant_id = int(getattr(assistant_message, "id", 0) or 0)
+    candidate_blocks = (
+        existing_turn_blocks
+        if existing_turn_blocks is not None
+        else _list_story_memory_blocks(db, game.id)
+    )
     existing_blocks = [
         block
-        for block in _list_story_memory_blocks(db, game.id)
+        for block in candidate_blocks
         if int(getattr(block, "assistant_message_id", 0) or 0) == assistant_id
         and _normalize_story_memory_layer(getattr(block, "layer", "")) in {STORY_MEMORY_LAYER_LATEST_FULL, LEGACY_STORY_MEMORY_LAYER_RAW}
     ]
@@ -420,6 +468,72 @@ def _upsert_story_raw_memory_block(
         game_id=game.id,
         assistant_message_id=assistant_id or None,
         layer=STORY_MEMORY_LAYER_LATEST_FULL,
+        title=title,
+        content=content,
+    )
+    return True
+
+
+def _upsert_story_archive_memory_block(
+    *,
+    db: Session,
+    game: StoryGame,
+    assistant_message: StoryMessage,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+    existing_turn_blocks: list[StoryMemoryBlock] | None = None,
+) -> bool:
+    if assistant_message.game_id != game.id:
+        return False
+    assistant_id = int(getattr(assistant_message, "id", 0) or 0)
+    if assistant_id <= 0:
+        return False
+    content = _build_story_archive_memory_block_content(
+        latest_user_prompt=latest_user_prompt,
+        latest_assistant_text=latest_assistant_text,
+    )
+    if not content:
+        return False
+    candidate_blocks = (
+        existing_turn_blocks
+        if existing_turn_blocks is not None
+        else _list_story_memory_blocks(db, game.id)
+    )
+    archive_blocks = [
+        block
+        for block in candidate_blocks
+        if int(getattr(block, "assistant_message_id", 0) or 0) == assistant_id
+        and _normalize_story_memory_layer(getattr(block, "layer", "")) == STORY_MEMORY_LAYER_ARCHIVE
+    ]
+    title = f"Архив полного хода #{assistant_id}"
+    token_count = max(_estimate_story_tokens(content), 1)
+    changed = False
+    if archive_blocks:
+        primary = archive_blocks[0]
+        if primary.layer != STORY_MEMORY_LAYER_ARCHIVE:
+            primary.layer = STORY_MEMORY_LAYER_ARCHIVE
+            changed = True
+        if primary.title != title:
+            primary.title = title
+            changed = True
+        if primary.content != content:
+            primary.content = content
+            changed = True
+        if int(primary.token_count or 0) != token_count:
+            primary.token_count = token_count
+            changed = True
+        for duplicate in archive_blocks[1:]:
+            db.delete(duplicate)
+            changed = True
+        if changed:
+            db.flush()
+        return changed
+
+    _create_story_memory_block(
+        db=db,
+        game_id=game.id,
+        assistant_message_id=assistant_id,
+        layer=STORY_MEMORY_LAYER_ARCHIVE,
         title=title,
         content=content,
     )
@@ -524,6 +638,162 @@ def _story_memory_copied_ngram_ratio(
     return copied / candidate_total
 
 
+_STORY_MEMORY_TERMINAL_TARGET_RU = (
+    r"(?:задани\w*|мисси\w*|цел\w*|квест\w*|операци\w*|поручени\w*|"
+    r"задач\w*|контракт\w*|заказ\w*|этап\w*|план\w*)"
+)
+_STORY_MEMORY_TERMINAL_TARGET_EN = (
+    r"(?:mission\w*|quest\w*|objective\w*|goal\w*|assignment\w*|task\w*|"
+    r"operation\w*|contract\w*|job\w*|stage\w*|plan\w*)"
+)
+_STORY_MEMORY_COMPLETED_RU = (
+    r"(?<!не\s)(?<!не было\s)(?:выполн(?:ен\w*|ил\w*)|заверш(?:ён\w*|ен\w*|ил\w*)|окончен\w*|"
+    r"закончил\w*|достиг(?:нут(?:а|о|ы)?|ла|ли)?)"
+)
+_STORY_MEMORY_FAILED_RU = (
+    r"(?:провал(?:ен\w*|ил\w*)|не\s+(?:было\s+)?выполнен\w*|"
+    r"не\s+(?:было\s+)?заверш[её]н\w*|не\s+удал(?:ось|ась|ись)\s+(?:выполнить|завершить))"
+)
+_STORY_MEMORY_CANCELLED_RU = r"(?:отмен(?:ен\w*|ён\w*|ил\w*)|аннулир(?:ован\w*|овал\w*)|отказал\w*\s+от)"
+_STORY_MEMORY_COMPLETED_EN = r"(?<!not\s)(?<!not been\s)(?:completed|finished|accomplished|achieved|successful)"
+_STORY_MEMORY_FAILED_EN = r"(?:failed|failure|unsuccessful|not\s+(?:been\s+)?(?:completed|finished))"
+_STORY_MEMORY_CANCELLED_EN = r"(?:cancelled|canceled|abandoned|called\s+off)"
+
+
+def _compile_story_terminal_status_pattern(*, target: str, status: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"(?:\b{target}\b.{{0,96}}\b{status}\b|\b{status}\b.{{0,96}}\b{target}\b)",
+        re.IGNORECASE | re.DOTALL,
+    )
+
+
+_STORY_MEMORY_TERMINAL_STATUS_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
+    "completed": (
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_RU,
+            status=_STORY_MEMORY_COMPLETED_RU,
+        ),
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_EN,
+            status=_STORY_MEMORY_COMPLETED_EN,
+        ),
+    ),
+    "failed": (
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_RU,
+            status=_STORY_MEMORY_FAILED_RU,
+        ),
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_EN,
+            status=_STORY_MEMORY_FAILED_EN,
+        ),
+    ),
+    "cancelled": (
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_RU,
+            status=_STORY_MEMORY_CANCELLED_RU,
+        ),
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_EN,
+            status=_STORY_MEMORY_CANCELLED_EN,
+        ),
+    ),
+}
+
+
+def _story_memory_terminal_statuses(value: str) -> set[str]:
+    normalized = _normalize_story_message_content(value)
+    return {
+        status_name
+        for status_name, patterns in _STORY_MEMORY_TERMINAL_STATUS_PATTERNS.items()
+        if any(pattern.search(normalized) for pattern in patterns)
+    }
+
+
+def _validate_story_memory_terminal_statuses(*, source_content: str, result_content: str) -> None:
+    source_statuses = _story_memory_terminal_statuses(source_content)
+    if not source_statuses:
+        return
+    missing_statuses = source_statuses - _story_memory_terminal_statuses(result_content)
+    if missing_statuses:
+        raise RuntimeError(
+            "Service model memory omitted terminal story status: "
+            + ", ".join(sorted(missing_statuses))
+        )
+
+
+def _extract_story_memory_terminal_status_evidence(
+    *,
+    source_content: str,
+    missing_statuses: set[str],
+) -> list[str]:
+    normalized_source = _normalize_story_message_content(source_content)
+    if not normalized_source or not missing_statuses:
+        return []
+
+    source_parts = [
+        re.sub(r"^(?:PLAYER_TURN|NARRATOR_RESPONSE)\s*:\s*", "", part, flags=re.IGNORECASE).strip()
+        for part in re.split(r"(?:\r?\n)+|(?<=[.!?…])\s+", normalized_source)
+    ]
+    evidence: list[str] = []
+    for status_name in sorted(missing_statuses):
+        patterns = _STORY_MEMORY_TERMINAL_STATUS_PATTERNS.get(status_name, ())
+        matches: list[tuple[str, re.Match[str]]] = []
+        for part in source_parts:
+            if not part:
+                continue
+            for pattern in patterns:
+                match = pattern.search(part)
+                if match is not None:
+                    matches.append((part, match))
+                    break
+        if not matches:
+            continue
+
+        # The narrator response follows the player turn, so the last matching sentence is
+        # normally the canonical resolution rather than an earlier plan or recollection.
+        sentence, match = matches[-1]
+        sentence = " ".join(sentence.split()).strip(" -")
+        if len(sentence) > STORY_MEMORY_TERMINAL_EVIDENCE_MAX_CHARS:
+            half_window = STORY_MEMORY_TERMINAL_EVIDENCE_MAX_CHARS // 2
+            start = max(match.start() - half_window, 0)
+            end = min(start + STORY_MEMORY_TERMINAL_EVIDENCE_MAX_CHARS, len(sentence))
+            start = max(end - STORY_MEMORY_TERMINAL_EVIDENCE_MAX_CHARS, 0)
+            sentence = (
+                ("…" if start > 0 else "")
+                + sentence[start:end].strip()
+                + ("…" if end < len(sentence) else "")
+            )
+        if sentence and sentence not in evidence:
+            evidence.append(sentence)
+    return evidence
+
+
+def _repair_story_memory_terminal_statuses(*, source_content: str, result_content: str) -> str:
+    normalized_result = _normalize_story_message_content(result_content)
+    missing_statuses = _story_memory_terminal_statuses(source_content) - _story_memory_terminal_statuses(
+        normalized_result
+    )
+    if not missing_statuses:
+        return normalized_result
+
+    evidence = _extract_story_memory_terminal_status_evidence(
+        source_content=source_content,
+        missing_statuses=missing_statuses,
+    )
+    if not evidence:
+        return normalized_result
+    repaired = "\n\n".join(
+        part
+        for part in (
+            normalized_result,
+            "Canonical terminal outcomes:\n" + "\n".join(f"- {item}" for item in evidence),
+        )
+        if part
+    )
+    return repaired.strip()
+
+
 def _validate_detailed_memory_model_result(
     *,
     source_content: str,
@@ -600,6 +870,14 @@ def _compress_story_memory_block_with_model(
                     payload=payload,
                     result_content=result_content,
                 )
+                result_content = _repair_story_memory_terminal_statuses(
+                    source_content=content,
+                    result_content=result_content,
+                )
+                _validate_story_memory_terminal_statuses(
+                    source_content=content,
+                    result_content=result_content,
+                )
             except RuntimeError as exc:
                 logger.warning(
                     "Service model detailed memory semantic validation failed",
@@ -623,7 +901,6 @@ def _compress_story_memory_block_with_model(
                 ]
                 continue
             break
-    result_content = _format_detailed_memory_content(payload)
     return "Подробная память", result_content
 
 
@@ -752,6 +1029,15 @@ def _promote_blocks(
 
     if not content:
         raise RuntimeError(f"{prompt_name} returned empty content")
+    source_content = "\n\n".join(str(block.get("content", "") or "") for block in block_payloads)
+    content = _repair_story_memory_terminal_statuses(
+        source_content=source_content,
+        result_content=content,
+    )
+    _validate_story_memory_terminal_statuses(
+        source_content=source_content,
+        result_content=content,
+    )
     assistant_ids = [int(getattr(block, "assistant_message_id", 0) or 0) for block in source_blocks]
     assistant_id = max([value for value in assistant_ids if value > 0], default=None)
     _create_story_memory_block(
@@ -791,8 +1077,9 @@ def _rebalance_story_memory_layers(
 ) -> bool:
     _ = backfill_existing_compact_layers
     budget = _calculate_memory_budget(db, game)
-    # A turn may run at most one transition per tier: previous full turn -> detailed,
-    # one detailed -> compressed, and one compressed -> facts. It must never sweep a backlog.
+    # The total number of model transitions remains capped. If prior raw compactions are
+    # pending, spare transition slots repair that backlog while one slot stays reserved for
+    # the newly stale turn. This prevents a recoverable failure from accumulating forever.
     requested_model_calls = (
         STORY_MEMORY_MAX_TRANSITIONS_PER_TURN
         if max_model_requests is None
@@ -804,21 +1091,41 @@ def _rebalance_story_memory_layers(
     raw_compaction_failures: list[Exception] = []
 
     stale_latest = _get_story_stale_raw_memory_blocks(db=db, game=game)
-    stale_latest = sorted(
-        stale_latest,
-        key=lambda item: (
-            1
-            if _normalize_story_memory_layer(getattr(item, "layer", ""))
+    pending_raw_blocks = sorted(
+        (
+            block
+            for block in stale_latest
+            if _normalize_story_memory_layer(getattr(block, "layer", ""))
             == STORY_MEMORY_LAYER_RAW_PENDING
-            else 0,
-            (
-                -int(getattr(item, "id", 0) or 0)
-                if prioritize_recent_transitions
-                else int(getattr(item, "id", 0) or 0)
-            ),
+        ),
+        key=lambda item: int(getattr(item, "id", 0) or 0),
+    )
+    new_raw_blocks = sorted(
+        (
+            block
+            for block in stale_latest
+            if _normalize_story_memory_layer(getattr(block, "layer", ""))
+            != STORY_MEMORY_LAYER_RAW_PENDING
+        ),
+        key=lambda item: (
+            -int(getattr(item, "id", 0) or 0)
+            if prioritize_recent_transitions
+            else int(getattr(item, "id", 0) or 0)
         ),
     )
-    for block in list(stale_latest[:1]):
+    if pending_raw_blocks and new_raw_blocks and requests_left > 1:
+        raw_compaction_candidates = [
+            *pending_raw_blocks[: max(requests_left - 1, 0)],
+            new_raw_blocks[0],
+        ]
+    elif new_raw_blocks:
+        # With a single request, keep the live queue moving instead of letting a broken
+        # pending block starve every newer accepted turn.
+        raw_compaction_candidates = new_raw_blocks[:1]
+    else:
+        raw_compaction_candidates = pending_raw_blocks[:requests_left]
+
+    for block in raw_compaction_candidates:
         if requests_left <= 0:
             break
         block_id = int(getattr(block, "id", 0) or 0)
@@ -2502,24 +2809,77 @@ def _sync_story_raw_memory_blocks_for_recent_turns(
     additional_assistant_message_ids: list[int] | None = None,
     **kwargs: Any,
 ) -> bool:
-    _ = (additional_assistant_message_ids, kwargs)
+    _ = kwargs
     changed = False
-    latest_ids = _list_story_latest_assistant_message_ids(db, game.id, limit=1)
-    for assistant_id in latest_ids:
-        message = db.get(StoryMessage, assistant_id)
-        if message is None:
+    active_messages = list(
+        db.scalars(
+            select(StoryMessage)
+            .where(
+                StoryMessage.game_id == int(game.id),
+                StoryMessage.undone_at.is_(None),
+                StoryMessage.role.in_({STORY_USER_ROLE, STORY_ASSISTANT_ROLE}),
+            )
+            .order_by(StoryMessage.id.asc())
+        ).all()
+    )
+    assistant_turns: list[tuple[StoryMessage, str]] = []
+    latest_user_prompt = ""
+    for message in active_messages:
+        role = str(getattr(message, "role", "") or "").strip().lower()
+        content = _normalize_story_message_content(getattr(message, "content", ""))
+        if role == STORY_USER_ROLE:
+            latest_user_prompt = content
             continue
-        user_prompt = _get_story_user_prompt_before_assistant_message(
-            db,
-            game_id=game.id,
-            assistant_message_id=assistant_id,
-        )
+        if role == STORY_ASSISTANT_ROLE and content:
+            assistant_turns.append((message, latest_user_prompt))
+
+    if not assistant_turns:
+        return False
+
+    memory_blocks = _list_story_memory_blocks(db, game.id)
+    blocks_by_assistant_id: dict[int, list[StoryMemoryBlock]] = {}
+    assistants_with_narrative_memory: set[int] = set()
+    for block in memory_blocks:
+        assistant_id = int(getattr(block, "assistant_message_id", 0) or 0)
+        if assistant_id <= 0:
+            continue
+        blocks_by_assistant_id.setdefault(assistant_id, []).append(block)
+        if _normalize_story_memory_layer(getattr(block, "layer", "")) in STORY_MEMORY_NARRATIVE_LAYERS:
+            assistants_with_narrative_memory.add(assistant_id)
+
+    requested_ids = {
+        int(message_id)
+        for message_id in (additional_assistant_message_ids or [])
+        if int(message_id or 0) > 0
+    }
+    requested_ids.update(_list_story_latest_assistant_message_ids(db, game.id, limit=1))
+    requested_ids.update(
+        int(message.id)
+        for message, _user_prompt in assistant_turns
+        if int(message.id) not in assistants_with_narrative_memory
+    )
+
+    for message, user_prompt in assistant_turns:
+        assistant_id = int(message.id)
+        turn_blocks = blocks_by_assistant_id.get(assistant_id, [])
+        assistant_text = str(getattr(message, "content", "") or "")
+        changed = _upsert_story_archive_memory_block(
+            db=db,
+            game=game,
+            assistant_message=message,
+            latest_user_prompt=user_prompt,
+            latest_assistant_text=assistant_text,
+            existing_turn_blocks=turn_blocks,
+        ) or changed
+        if assistant_id not in requested_ids:
+            continue
         changed = _upsert_story_raw_memory_block(
             db=db,
             game=game,
             assistant_message=message,
             latest_user_prompt=user_prompt,
-            latest_assistant_text=str(getattr(message, "content", "") or ""),
+            latest_assistant_text=assistant_text,
+            existing_turn_blocks=turn_blocks,
         ) or changed
     return changed
 

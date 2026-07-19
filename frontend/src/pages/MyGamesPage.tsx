@@ -52,7 +52,7 @@ import {
 import { cloneStoryGame, deleteStoryGame, getCommunityWorld, listStoryGames, rateCommunityWorld } from '../services/storyApi'
 import { getDisplayStoryTitle, loadStoryTitleMap, persistStoryTitleMap, setStoryTitle, type StoryTitleMap } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
-import type { AuthUser } from '../types/auth'
+import { canUseVisualNovelFeatures, type AuthUser } from '../types/auth'
 import type { StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
 import { buildUnifiedMobileQuickActions, rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
 import { MobileCardItem } from '../components/mobile/MobileCardSlider'
@@ -1154,7 +1154,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                       onClick={() => onNavigate(`/home/${game.id}`)}
                       coverBadge={
                         <Stack direction="row" spacing={0.6} alignItems="center" flexWrap="wrap">
-                          {user.role === 'administrator' && game.game_mode === 'visual_novel' ? (
+                          {canUseVisualNovelFeatures(user.role) && game.game_mode === 'visual_novel' ? (
                             <Box
                               sx={{
                                 display: 'inline-flex',
@@ -1607,7 +1607,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       <CharacterManagerDialog
         open={characterManagerOpen}
         authToken={authToken}
-        showEmotionTools={user.role === 'administrator'}
+        showEmotionTools={canUseVisualNovelFeatures(user.role)}
         onClose={() => setCharacterManagerOpen(false)}
       />
 

@@ -74,6 +74,8 @@ from app.services.story_emotions import (
     normalize_story_novel_sprite_gender,
     serialize_story_character_emotion_assets,
 )
+from app.services.story_novel import can_user_use_story_visual_novel
+
 try:
     from app.services.story_publication_moderation import clear_story_publication_state, mark_story_publication_pending
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
@@ -204,8 +206,8 @@ def _notify_staff(
     )
 
 
-def _is_story_emotion_admin(user: User) -> bool:
-    return str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+def _can_user_edit_story_emotions(user: User) -> bool:
+    return can_user_use_story_visual_novel(user)
 
 
 def _resolve_story_character_emotion_payload_for_write(
@@ -214,12 +216,12 @@ def _resolve_story_character_emotion_payload_for_write(
     payload: StoryCharacterCreateRequest | StoryCharacterUpdateRequest,
     current_character: StoryCharacter | None = None,
 ) -> tuple[dict[str, str], str]:
-    """Visual Novel emotion sprites are uploaded manually and gated to administrators.
+    """Visual Novel emotion sprites are uploaded manually by users with VN access.
 
-    Returns (emotion_assets, novel_sprite_gender). Non-admins can never change these, so any
+    Returns (emotion_assets, novel_sprite_gender). Other users cannot change these, so any
     existing values on the character are preserved untouched.
     """
-    if not _is_story_emotion_admin(user):
+    if not _can_user_edit_story_emotions(user):
         if current_character is not None:
             return (
                 normalize_story_character_emotion_assets(
@@ -267,10 +269,10 @@ def _visible_story_character_emotion_assets_from_raw(raw_value: dict[str, object
 
 
 def _require_story_emotion_admin(user: User) -> None:
-    if not _is_story_emotion_admin(user):
+    if not _can_user_edit_story_emotions(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only administrators can edit Visual Novel emotion sprites",
+            detail="Visual Novel access is required to edit emotion sprites",
         )
 
 

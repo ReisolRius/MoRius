@@ -33,8 +33,9 @@ logger = logging.getLogger(__name__)
 
 _ROLE_PRIORITY = {
     "user": 0,
-    "moderator": 1,
-    "administrator": 2,
+    "beta_tester": 1,
+    "moderator": 2,
+    "administrator": 3,
 }
 MERGED_AUTH_PROVIDER = "merged"
 MERGED_EMAIL_DOMAIN = "@merged.morius.local"

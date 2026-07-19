@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models import StoryCharacter, StoryGame, StoryMessage, StoryNovelBeat, StoryWorldCard
 from app.schemas import StoryNovelBeatOut, StoryNovelSceneCharacterOut
+from app.services.auth_identity import ROLE_ADMINISTRATOR, ROLE_BETA_TESTER
 from app.services.media import resolve_media_display_url
 from app.services.story_emotions import (
     STORY_CHARACTER_DEFAULT_EMOTION,
@@ -21,7 +22,7 @@ from app.services.story_emotions import (
 )
 from app.services.text_encoding import sanitize_likely_utf8_mojibake
 
-# --- Game mode (chosen once at creation; Visual Novel is admin-only) -------------------
+# --- Game mode (chosen once at creation; Visual Novel is limited-access) ---------------
 STORY_GAME_MODE_RPG = "rpg"
 STORY_GAME_MODE_VISUAL_NOVEL = "visual_novel"
 STORY_GAME_MODES = {STORY_GAME_MODE_RPG, STORY_GAME_MODE_VISUAL_NOVEL}
@@ -118,7 +119,7 @@ def normalize_story_game_mode(value: Any) -> str:
 
 
 def is_story_user_administrator(user: Any) -> bool:
-    return str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+    return str(getattr(user, "role", "") or "").strip().lower() == ROLE_ADMINISTRATOR
 
 
 def is_story_visual_novel_game(game: Any) -> bool:
@@ -126,8 +127,9 @@ def is_story_visual_novel_game(game: Any) -> bool:
 
 
 def can_user_use_story_visual_novel(user: Any) -> bool:
-    """Visual Novel mode is an admin-only feature while it is being developed/tested."""
-    return is_story_user_administrator(user)
+    """Visual Novel is available to administrators and explicitly assigned beta testers."""
+    role = str(getattr(user, "role", "") or "").strip().lower()
+    return role in {ROLE_ADMINISTRATOR, ROLE_BETA_TESTER}
 
 
 def is_story_visual_novel_enabled(game: Any, user: Any) -> bool:

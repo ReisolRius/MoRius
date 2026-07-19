@@ -36,7 +36,7 @@ import {
   updateStoryInstructionTemplate,
 } from '../services/storyApi'
 import { moriusThemeTokens } from '../theme'
-import type { AuthUser } from '../types/auth'
+import { canUseVisualNovelFeatures, type AuthUser } from '../types/auth'
 import type {
   StoryCharacter,
   StoryGameSummary,
@@ -1300,7 +1300,7 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
         initialMode={characterDialogMode}
         initialCharacterId={characterEditId}
         includePublicationCopies
-        showEmotionTools={user.role === 'administrator'}
+        showEmotionTools={canUseVisualNovelFeatures(user.role)}
         onClose={closeCharacterDialog}
       />
       <InstructionTemplateDialog

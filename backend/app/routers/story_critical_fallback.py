@@ -11,6 +11,7 @@ from app.models import StoryGame, StoryMessage
 from app.schemas import StoryGameOut, StoryGameSummaryOut, StoryInstructionCardOut, StoryMemoryBlockOut, StoryTurnImageOut
 from app.services.story_novel import (
     STORY_GAME_MODE_RPG,
+    can_user_use_story_visual_novel,
     is_story_visual_novel_game,
     resolve_story_novel_beats_for_read,
 )
@@ -156,6 +157,51 @@ def _has_weather_block_for_assistant(memory_blocks: list[object], assistant_mess
     return False
 
 
+def _has_missing_story_turn_memory(messages: list[object], memory_blocks: list[object]) -> bool:
+    assistant_ids = {
+        int(getattr(message, "id", 0) or 0)
+        for message in messages
+        if str(getattr(message, "role", "") or "").strip().lower() == "assistant"
+        and getattr(message, "undone_at", None) is None
+        and str(getattr(message, "content", "") or "").strip()
+        and int(getattr(message, "id", 0) or 0) > 0
+    }
+    narrative_layers = {
+        "raw",
+        "latest_full",
+        "fresh_detailed",
+        "compressed",
+        "super",
+        "facts",
+        "raw_pending",
+    }
+    covered_ids = {
+        int(getattr(block, "assistant_message_id", 0) or 0)
+        for block in memory_blocks
+        if getattr(block, "undone_at", None) is None
+        and str(getattr(block, "layer", "") or "").strip().lower() in narrative_layers
+    }
+    return bool(assistant_ids - covered_ids)
+
+
+def _has_unarchived_story_turns(messages: list[object], memory_blocks: list[object]) -> bool:
+    assistant_ids = {
+        int(getattr(message, "id", 0) or 0)
+        for message in messages
+        if str(getattr(message, "role", "") or "").strip().lower() == "assistant"
+        and getattr(message, "undone_at", None) is None
+        and str(getattr(message, "content", "") or "").strip()
+        and int(getattr(message, "id", 0) or 0) > 0
+    }
+    archived_ids = {
+        int(getattr(block, "assistant_message_id", 0) or 0)
+        for block in memory_blocks
+        if getattr(block, "undone_at", None) is None
+        and str(getattr(block, "layer", "") or "").strip().lower() == "archive"
+    }
+    return bool(assistant_ids - archived_ids)
+
+
 def _get_story_dev_raw_keep_turns() -> int:
     try:
         from app.services import story_memory_pipeline
@@ -191,13 +237,17 @@ def _self_heal_story_memory_and_environment_snapshot(
         memory_blocks=memory_blocks,
         keep_turns=raw_keep_turns,
     )
-    should_heal_memory = (
+    has_missing_turn_memory = _has_missing_story_turn_memory(messages, memory_blocks)
+    has_unarchived_turns = _has_unarchived_story_turns(messages, memory_blocks)
+    should_rebalance_memory = (
         not _has_dev_memory_blocks(memory_blocks)
         or raw_memory_count > raw_keep_turns
         or has_stale_raw_blocks
         or _has_dev_memory_markup(memory_blocks)
         or _has_non_compact_dev_memory(memory_blocks)
+        or has_missing_turn_memory
     )
+    should_heal_memory = should_rebalance_memory or has_unarchived_turns
     environment_enabled = bool(getattr(game, "environment_enabled", None))
     has_current_datetime = bool(str(getattr(game, "environment_current_datetime", "") or "").strip())
     should_heal_environment = environment_enabled and (
@@ -226,21 +276,22 @@ def _self_heal_story_memory_and_environment_snapshot(
                     additional_assistant_message_ids=[int(getattr(latest_assistant_message, "id", 0) or 0)],
                 )
             ) or changed
-            try:
-                story_memory_pipeline._rebalance_story_memory_layers(
-                    db=db,
-                    game=game,
-                    max_model_requests=3,
-                    backfill_existing_compact_layers=False,
-                    prioritize_recent_transitions=True,
-                )
-                changed = True
-            except Exception:
-                logger.exception(
-                    "Story fallback snapshot memory rebalance failed: game_id=%s raw_blocks=%s",
-                    getattr(game, "id", None),
-                    raw_memory_count,
-                )
+            if should_rebalance_memory:
+                try:
+                    story_memory_pipeline._rebalance_story_memory_layers(
+                        db=db,
+                        game=game,
+                        max_model_requests=3,
+                        backfill_existing_compact_layers=False,
+                        prioritize_recent_transitions=True,
+                    )
+                    changed = True
+                except Exception:
+                    logger.exception(
+                        "Story fallback snapshot memory rebalance failed: game_id=%s raw_blocks=%s",
+                        getattr(game, "id", None),
+                        raw_memory_count,
+                    )
 
         if should_heal_environment:
             current_location_content = story_memory_pipeline._get_story_effective_location_memory_content(
@@ -349,8 +400,8 @@ def get_story_game_fallback_router(
     _apply_no_store_headers(response)
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-    is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
-    if is_administrator and is_story_visual_novel_game(game):
+    can_use_visual_novel = can_user_use_story_visual_novel(user)
+    if can_use_visual_novel and is_story_visual_novel_game(game):
         try:
             opening_bootstrap = ensure_story_novel_opening_scene_beats(db=db, game=game)
             if opening_bootstrap.changed:
@@ -373,10 +424,19 @@ def get_story_game_fallback_router(
         messages=messages,
         memory_blocks=memory_blocks,
     )
+    client_memory_blocks = (
+        list(memory_blocks)
+        if str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+        else [
+            block
+            for block in memory_blocks
+            if str(getattr(block, "layer", "") or "").strip().lower() != "archive"
+        ]
+    )
     world_cards = list_story_world_cards(db, game.id)
     can_redo_assistant_step = has_story_assistant_redo_step(db, game.id)
     game_summary = story_game_summary_to_out(game, turn_count=count_story_completed_turns(messages))
-    if not is_administrator:
+    if not can_use_visual_novel:
         game_summary = game_summary.model_copy(update={"game_mode": STORY_GAME_MODE_RPG})
     resolved_current_location_label = resolve_story_current_location_label(
         getattr(game_summary, "current_location_label", None),
@@ -385,7 +445,7 @@ def get_story_game_fallback_router(
     if resolved_current_location_label != getattr(game_summary, "current_location_label", None):
         game_summary = game_summary.model_copy(update={"current_location_label": resolved_current_location_label})
     current_scene_background = None
-    if is_administrator and is_story_visual_novel_game(game_summary):
+    if can_use_visual_novel and is_story_visual_novel_game(game_summary):
         current_background = get_current_story_scene_background(db, game.id)
         if current_background is not None:
             current_scene_background = story_scene_background_to_out(current_background)
@@ -401,7 +461,7 @@ def get_story_game_fallback_router(
         messages=[story_message_to_out(message) for message in messages],
         novel_beats=(
             resolve_story_novel_beats_for_read(db, list_story_novel_beats(db, game.id))
-            if is_administrator and is_story_visual_novel_game(game_summary)
+            if can_use_visual_novel and is_story_visual_novel_game(game_summary)
             else []
         ),
         current_scene_background=current_scene_background,
@@ -409,7 +469,10 @@ def get_story_game_fallback_router(
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[story_plot_card_to_out(card) for card in plot_cards],
         plot_card_events=[],
-        memory_blocks=[StoryMemoryBlockOut.model_validate(story_memory_block_to_out(block)) for block in memory_blocks],
+        memory_blocks=[
+            StoryMemoryBlockOut.model_validate(story_memory_block_to_out(block))
+            for block in client_memory_blocks
+        ],
         world_cards=[story_world_card_to_out(card) for card in world_cards],
         world_card_events=[],
         can_redo_assistant_step=can_redo_assistant_step,

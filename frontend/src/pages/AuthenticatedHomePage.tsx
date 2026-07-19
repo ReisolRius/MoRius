@@ -118,7 +118,7 @@ import {
   type StoryCommunityWorldReportReason,
 } from '../services/storyApi'
 import { moriusThemeTokens } from '../theme'
-import type { AuthUser } from '../types/auth'
+import { canUseVisualNovelFeatures, type AuthUser } from '../types/auth'
 import type { StoryCommunityCharacterSummary, StoryCommunityInstructionTemplateSummary, StoryCommunityWorldPayload, StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 import { resolveApiResourceUrl } from '../services/httpClient'
@@ -4245,7 +4245,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       <CharacterManagerDialog
         open={characterManagerOpen}
         authToken={authToken}
-        showEmotionTools={user.role === 'administrator'}
+        showEmotionTools={canUseVisualNovelFeatures(user.role)}
         onClose={() => setCharacterManagerOpen(false)}
       />
 

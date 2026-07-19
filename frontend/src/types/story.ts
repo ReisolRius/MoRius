@@ -220,7 +220,7 @@ export type StoryNovelBeat = {
   updated_at: string
 }
 
-// A saved Visual Novel scene background (admin-only), with trigger-based memory.
+// A saved Visual Novel scene background with trigger-based memory.
 export type StorySceneBackground = {
   id: number
   game_id: number
@@ -236,7 +236,7 @@ export type StorySceneBackground = {
   updated_at: string
 }
 
-// A reusable Visual Novel place kept in the administrator's profile library.
+// A reusable Visual Novel place kept in a VN-enabled user's profile library.
 // Importing it into a game creates an independent scene-place card server-side.
 export type StoryPlaceTemplate = {
   id: number
@@ -323,6 +323,7 @@ export type StoryMemoryLayer =
   | 'super'
   | 'facts'
   | 'raw_pending'
+  | 'archive'
   | 'key'
   | 'location'
   | 'weather'

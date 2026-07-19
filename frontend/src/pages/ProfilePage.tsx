@@ -104,7 +104,7 @@ import {
   updateStoryPlaceTemplate,
 } from '../services/storyApi'
 import type { AuthUser } from '../types/auth'
-import { getDisplayedTagLabel } from '../types/auth'
+import { canUseVisualNovelFeatures, getDisplayedTagLabel } from '../types/auth'
 import type { AiAssistantChatResponse } from '../services/aiAssistantApi'
 import type {
   StoryCharacter,
@@ -833,7 +833,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const profileDescription = user.profile_description || ''
   const coins = Math.max(0, Math.trunc(user.coins || 0))
   const canOpenAdmin = user.role === 'administrator' || user.role === 'moderator'
-  const canManagePlaceTemplates = isOwnProfile && user.role === 'administrator'
+  const canManagePlaceTemplates = isOwnProfile && canUseVisualNovelFeatures(user.role)
   const isProfileNarrowMobile = useMediaQuery('(max-width:550px)')
 
   const fallbackOwnProfileUser = {
@@ -7704,7 +7704,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         initialMode={characterDialogMode}
         initialCharacterId={characterEditId}
         includePublicationCopies
-        showEmotionTools={user.role === 'administrator'}
+        showEmotionTools={canUseVisualNovelFeatures(user.role)}
         onClose={closeCharacterDialog}
       />
 

@@ -278,20 +278,17 @@ def _sync_turn_raw_memory_after_message_update(
         if target_assistant_message is None:
             return
 
-        latest_assistant_ids = set(
-            _list_latest_assistant_message_ids(
-                db,
-                int(game.id),
-                limit=_STORY_INLINE_EDIT_RAW_KEEP_LATEST_ASSISTANT_TURNS,
-            )
-        )
-        if int(target_assistant_message.id) not in latest_assistant_ids:
-            return
-
         _upsert_latest_turn_raw_memory_block(
             db=db,
             game=game,
             assistant_message=target_assistant_message,
+        )
+        from app.services import story_memory_pipeline
+
+        story_memory_pipeline._sync_story_raw_memory_blocks_for_recent_turns(
+            db=db,
+            game=game,
+            additional_assistant_message_ids=[int(target_assistant_message.id)],
         )
     except Exception:
         logger.exception(

@@ -35,7 +35,10 @@ from app.services.story_games import (  # noqa: E402
     normalize_story_top_k,
     normalize_story_top_r,
 )
-from app.services.story_runtime import _calculate_story_turn_cost_tokens  # noqa: E402
+from app.services.story_runtime import (  # noqa: E402
+    _calculate_story_turn_cost_tokens,
+    _resolve_story_turn_charge_tokens,
+)
 
 
 class StoryGameSettingsSchemaTests(unittest.TestCase):
@@ -391,6 +394,24 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         )
 
         self.assertEqual(cost, 10)
+
+    def test_subscription_turn_charge_is_zero_even_with_base_and_module_costs(self) -> None:
+        self.assertEqual(
+            _resolve_story_turn_charge_tokens(
+                is_subscription_turn=True,
+                base_cost_tokens=65,
+                service_surcharge_tokens=7,
+            ),
+            0,
+        )
+        self.assertEqual(
+            _resolve_story_turn_charge_tokens(
+                is_subscription_turn=False,
+                base_cost_tokens=10,
+                service_surcharge_tokens=7,
+            ),
+            17,
+        )
 
     def test_runtime_turn_cost_is_capped_by_selected_context_limit(self) -> None:
         cost = _calculate_story_turn_cost_tokens(

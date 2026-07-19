@@ -835,7 +835,7 @@ class StoryMessage(Base):
 
 
 class StoryNovelBeat(Base):
-    """One ordered "page" of a Visual Novel turn (admin-only game_mode='visual_novel').
+    """One ordered "page" of a Visual Novel turn (limited-access game_mode='visual_novel').
 
     An assistant turn is parsed into ordered beats the player advances through with a
     "Далее" button: narration paragraphs, character dialogue lines, and inner thoughts.
@@ -876,10 +876,10 @@ class StoryNovelBeat(Base):
 
 
 class StorySceneBackground(Base):
-    """A saved Visual Novel scene background (admin-only) with trigger-based memory.
+    """A saved Visual Novel scene background with trigger-based memory.
 
     Generated on demand via the internal service model (prompt) + the image pipeline. Once the
-    administrator adds explicit trigger keywords, re-entering the same location swaps to the saved
+    user adds explicit trigger keywords, re-entering the same location swaps to the saved
     background instead of regenerating it (free, instant).
     """
 

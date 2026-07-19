@@ -487,6 +487,10 @@ class AdminUserModeratorUpdateRequest(BaseModel):
     is_moderator: bool
 
 
+class AdminUserRoleUpdateRequest(BaseModel):
+    role: Literal["user", "moderator", "beta_tester"]
+
+
 class AdminUserTagUpdateRequest(BaseModel):
     tag: str = Field(default="", max_length=40)
 
@@ -1494,7 +1498,7 @@ class StoryNovelBeatOut(BaseModel):
 
 
 class StorySceneBackgroundOut(BaseModel):
-    """A saved Visual Novel scene background (admin-only), with trigger-based memory."""
+    """A saved Visual Novel scene background with trigger-based memory."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1798,6 +1802,7 @@ class StoryMemoryBlockOut(BaseModel):
         "super",
         "facts",
         "raw_pending",
+        "archive",
         "key",
         "location",
         "weather",

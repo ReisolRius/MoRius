@@ -1,5 +1,6 @@
 import hashlib
 import inspect
+from types import SimpleNamespace
 
 from app import main
 from app.routers import story_games as story_games_router
@@ -210,6 +211,70 @@ def test_base_story_system_prompt_stays_within_budget() -> None:
     # The hardened protocol, example, and mandatory unregistered-speaker rules deliberately
     # trade a little length for unbreakable formatting; keep a ceiling against unbounded bloat.
     assert len(prompt) <= 7800
+
+
+def test_plain_reroll_never_sends_rejected_answer_back_to_narrator() -> None:
+    rejected_answer = "СЕКРЕТНЫЙ СТАРЫЙ ОТВЕТ: все обязательно идут к северной башне."
+
+    reroll_message = main._build_story_reroll_system_message(rejected_answer)
+
+    assert reroll_message is not None
+    content = reroll_message["content"]
+    assert rejected_answer not in content
+    assert "DISCARDED_ASSISTANT_ANSWER" not in content
+    assert "independent reroll" in content
+    assert "from scratch" in content
+
+    provider_messages = main._build_story_provider_messages(
+        [SimpleNamespace(role="user", content="Я открываю дверь.")],
+        [],
+        [],
+        [],
+        context_limit_tokens=12_000,
+        reroll_discarded_assistant_text=rejected_answer,
+    )
+    provider_payload = _combined_message_text(provider_messages)
+    assert rejected_answer not in provider_payload
+    assert "Я открываю дверь." in provider_payload
+
+
+def test_reroll_sampling_is_wider_than_normal_turn_sampling() -> None:
+    normal = main._apply_story_reroll_sampling_boost(
+        story_temperature=0.7,
+        story_top_k=40,
+        story_top_r=0.8,
+        is_reroll=False,
+    )
+    reroll = main._apply_story_reroll_sampling_boost(
+        story_temperature=0.7,
+        story_top_k=40,
+        story_top_r=0.8,
+        is_reroll=True,
+    )
+
+    assert normal == (0.7, 40, 0.8)
+    assert reroll[0] > normal[0]
+    assert reroll[1] > normal[1]
+    assert reroll[2] > normal[2]
+
+
+def test_fallback_reroll_prompt_also_omits_rejected_answer() -> None:
+    rejected_answer = "СТАРЫЙ ИСХОД: герои обязаны пойти в шахту."
+    messages = story_generate_router._fallback_build_provider_messages(
+        game=None,
+        prompt="Я осматриваю площадь.",
+        context_messages=[SimpleNamespace(role="user", content="Я осматриваю площадь.")],
+        instruction_cards=[],
+        plot_cards=[],
+        world_cards=[],
+        context_limit_chars=8_000,
+        reroll_discarded_assistant_text=rejected_answer,
+    )
+    payload = _combined_message_text(messages)
+
+    assert rejected_answer not in payload
+    assert "INDEPENDENT REROLL" in payload
+    assert "Я осматриваю площадь." in payload
 
 
 def test_story_json_prompts_are_json_only_and_hide_reasoning() -> None:

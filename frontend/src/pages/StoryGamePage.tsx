@@ -172,7 +172,12 @@ import {
   type StoryTitleMap,
 } from '../services/storyTitleStore'
 import type { AiAssistantChatResponse } from '../services/aiAssistantApi'
-import type { AuthUser } from '../types/auth'
+import {
+  canUseStoryGraphFeatures,
+  canUseVisualNovelFeatures,
+  isAdministratorRole,
+  type AuthUser,
+} from '../types/auth'
 import {
   STORY_CHARACTER_EMOTION_IDS,
   STORY_CHARACTER_EMOTION_LABELS,
@@ -3147,7 +3152,7 @@ function isRetryableStoryTurnImageError(error: unknown): boolean {
   const detail = error instanceof Error ? `${error.name} ${error.message}`.toLowerCase() : String(error ?? '').toLowerCase()
   return STORY_TURN_IMAGE_RETRYABLE_ERROR_MARKERS.some((marker) => detail.includes(marker))
 }
-type StoryMemoryDevLayer = 'raw' | 'compressed' | 'super'
+type StoryMemoryDevLayer = 'raw' | 'compressed' | 'super' | 'archive'
 
 function getStoryMemoryDevLayer(layer: StoryMemoryLayer): StoryMemoryDevLayer | null {
   if (layer === 'raw' || layer === 'latest_full' || layer === 'fresh_detailed' || layer === 'raw_pending') {
@@ -3158,6 +3163,9 @@ function getStoryMemoryDevLayer(layer: StoryMemoryLayer): StoryMemoryDevLayer | 
   }
   if (layer === 'super' || layer === 'facts') {
     return 'super'
+  }
+  if (layer === 'archive') {
+    return 'archive'
   }
   return null
 }
@@ -5583,9 +5591,12 @@ function normalizeStoryAppearanceColor(value: string | null | undefined, fallbac
 }
 
 function getStoryMemoryLayerLabel(
-  layer: 'raw' | 'compressed' | 'super',
+  layer: StoryMemoryDevLayer,
   mode: StoryMemoryOptimizationMode,
 ): string {
+  if (layer === 'archive') {
+    return 'Архив полных ходов · резервная копия'
+  }
   const share = STORY_MEMORY_LAYER_SHARE_BY_MODE[mode]?.[layer] ?? STORY_MEMORY_LAYER_SHARE_BY_MODE.standard[layer]
   const title = STORY_MEMORY_LAYER_TITLE[layer]
   const legacyLabelExists = Boolean(AI_MEMORY_LAYER_LABEL[layer])
@@ -7814,7 +7825,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [worldCardAvatarTargetId, setWorldCardAvatarTargetId] = useState<number | null>(null)
   const [worldCardAvatarTargetMode, setWorldCardAvatarTargetMode] = useState<'persisted' | 'draft' | null>(null)
   const [worldCardAvatarCropSource, setWorldCardAvatarCropSource] = useState<string | null>(null)
-  const [worldCardCharacterMirrorByCardId, setWorldCardCharacterMirrorByCardId] = useState<Record<number, number>>({})
   const [isSavingWorldCardAvatar, setIsSavingWorldCardAvatar] = useState(false)
   const [worldCardEvents, setWorldCardEvents] = useState<StoryWorldCardEvent[]>([])
   const [canRedoAssistantStepServer, setCanRedoAssistantStepServer] = useState(false)
@@ -8288,7 +8298,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [],
   )
   const composerAmbientVisual = useMemo(() => {
-    if (!ambientEnabled || user.role.trim().toLowerCase() !== 'administrator') {
+    if (!ambientEnabled || !canUseVisualNovelFeatures(user.role)) {
       return null
     }
 
@@ -8691,13 +8701,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const storyPostprocessLabel = storyPostprocessStage
     ? STORY_POSTPROCESS_STAGE_LABELS[storyPostprocessStage]
     : STORY_POSTPROCESS_STAGE_LABELS.finalizing
-  const isAdministrator = user.role.trim().toLowerCase() === 'administrator'
-  const canUseStoryGraph = isAdministrator || user.role.trim().toLowerCase() === 'moderator'
-  const effectiveAmbientEnabled = isAdministrator && ambientEnabled
+  const isAdministrator = isAdministratorRole(user.role)
+  const canUseVisualNovel = canUseVisualNovelFeatures(user.role)
+  const canUseStoryGraph = canUseStoryGraphFeatures(user.role)
+  const effectiveAmbientEnabled = canUseVisualNovel && ambientEnabled
   const isVisualNovelMode = activeGameSummary?.game_mode === 'visual_novel'
-  // The rebuilt VN tech demo remains administrator-only until the product owner
-  // explicitly opens it to players. Non-admins keep the established VN shell.
-  const isVisualNovelTechDemoEnabled = isVisualNovelMode && isAdministrator
+  const isVisualNovelTechDemoEnabled = isVisualNovelMode && canUseVisualNovel
   const visualNovelOpeningFallbackBlocks = useMemo(
     () => (isVisualNovelMode ? parseAssistantMessageBlocks(quickStartIntro) : []),
     [isVisualNovelMode, quickStartIntro],
@@ -8924,6 +8933,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     nextMap.set('raw', [])
     nextMap.set('compressed', [])
     nextMap.set('super', [])
+    nextMap.set('archive', [])
     aiMemoryBlocks.forEach((block) => {
       const devLayer = getStoryMemoryDevLayer(block.layer)
       if (!devLayer) {
@@ -9361,14 +9371,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   )
   const currentTurnCostTokens = useMemo(
     () =>
-      getStoryTurnCostTokens(
-        Math.min(cardsContextCharsUsed, contextLimitChars),
-        storyLlmModel,
-        effectiveAmbientEnabled,
-        environmentTimeEnabled,
-        characterStateEnabled || autoNpcCardsEnabled,
-        graphAiEnabledForTurnCost,
-      ),
+      isSubscriptionNarratorSelected
+        ? 0
+        : getStoryTurnCostTokens(
+            Math.min(cardsContextCharsUsed, contextLimitChars),
+            storyLlmModel,
+            effectiveAmbientEnabled,
+            environmentTimeEnabled,
+            characterStateEnabled || autoNpcCardsEnabled,
+            graphAiEnabledForTurnCost,
+          ),
     [
       autoNpcCardsEnabled,
       cardsContextCharsUsed,
@@ -9377,10 +9389,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       effectiveAmbientEnabled,
       environmentTimeEnabled,
       graphAiEnabledForTurnCost,
+      isSubscriptionNarratorSelected,
       storyLlmModel,
     ],
   )
-  const hasInsufficientTokensForTurn = user.coins < currentTurnCostTokens
+  const hasInsufficientTokensForTurn = !isSubscriptionNarratorSelected && user.coins < currentTurnCostTokens
   const composerStatusLabel = isFinalizingStoryTurn
     ? storyPostprocessLabel
     : isStoryGenerationActive
@@ -10000,6 +10013,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return card.character_id && card.character_id > 0 ? charactersById.get(card.character_id) ?? null : null
     },
     [charactersById],
+  )
+  const resolveWorldCardEmotionCount = useCallback(
+    (card: StoryWorldCard): number => {
+      const assets = resolveLinkedCharacterForWorldCard(card)?.emotion_assets ?? {}
+      return STORY_CHARACTER_EMOTION_IDS.reduce(
+        (count, emotionId) => count + (typeof assets[emotionId] === 'string' && assets[emotionId].trim() ? 1 : 0),
+        0,
+      )
+    },
+    [resolveLinkedCharacterForWorldCard],
   )
   const resolveLinkedCharacterPreviewAvatar = useCallback(
     (card: StoryWorldCard | null): string | null => {
@@ -10916,6 +10939,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               applyActiveMainHeroCardId(targetGameId, createdCard.id)
               setMissingMainHeroDialogOpen(false)
             } else {
+              if (isVisualNovelMode && canUseVisualNovel) {
+                setCharacterDialogOpen(false)
+                return
+              }
               setEditingWorldCardId(createdCard.id)
               setEditingWorldCardKind(createdCard.kind)
               setWorldCardTitleDraft(createdCard.title)
@@ -11034,7 +11061,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     characterManagerSyncCardKind,
     characterManagerSyncCardId,
     characterManagerSyncCardMemoryTurnsDraft,
+    canUseVisualNovel,
     characters,
+    isVisualNovelMode,
     worldCards,
   ])
 
@@ -11402,6 +11431,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     characterManagerKnownCharacterIdsRef.current = new Set(characters.map((character) => character.id))
     setCharacterManagerDialogOpen(true)
   }, [characterDialogMode, characters, isSelectingCharacter])
+
+  const handleStartCreateVisualNovelNpc = useCallback(() => {
+    if (isSelectingCharacter) {
+      return
+    }
+    setCharacterDialogOpen(false)
+    setCharacterDialogReturnMode(null)
+    setCharacterManagerInitialMode('create')
+    setCharacterManagerInitialCharacterId(null)
+    setCharacterManagerSyncCardId(null)
+    setCharacterManagerSyncCardKind(null)
+    setCharacterManagerSyncCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+    characterManagerCreateSelectionModeRef.current = 'select-npc'
+    characterManagerKnownCharacterIdsRef.current = new Set(characters.map((character) => character.id))
+    setCharacterManagerDialogOpen(true)
+  }, [characters, isSelectingCharacter])
 
   const handleStartEditCharacter = useCallback((character: StoryCharacter) => {
     setCharacterDialogReturnMode(null)
@@ -13739,17 +13784,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (isGenerating || isSavingWorldCard || isCreatingGame) {
       return
     }
-    if (STORY_ENABLE_LEGACY_WORLD_EDITOR && (card.kind === 'main_hero' || card.kind === 'npc')) {
+    if (
+      (STORY_ENABLE_LEGACY_WORLD_EDITOR || (isVisualNovelMode && canUseVisualNovel)) &&
+      (card.kind === 'main_hero' || card.kind === 'npc')
+    ) {
       const resolvedLinkedCharacter = resolveLinkedCharacterForWorldCard(card)
       const rawCharacterId = card.character_id
       const numericCharacterId = Number(rawCharacterId)
       const directCharacterId =
         Number.isFinite(numericCharacterId) && numericCharacterId > 0 ? numericCharacterId : null
-      const linkedCharacterId =
-        resolvedLinkedCharacter?.id ?? directCharacterId ?? worldCardCharacterMirrorByCardId[card.id] ?? null
-      const hasLinkedCharacter =
-        linkedCharacterId !== null ? characters.some((item) => item.id === linkedCharacterId) : false
-      if (linkedCharacterId !== null && linkedCharacterId > 0 && hasLinkedCharacter) {
+      const linkedCharacterId = resolvedLinkedCharacter?.id ?? directCharacterId ?? null
+      // CharacterManager loads its own fresh character list before applying initialCharacterId.
+      // Do not treat a valid relation as missing merely because StoryGamePage's local cache has
+      // not loaded that character yet: doing so creates a duplicate profile character without
+      // the original emotion sprites.
+      if (linkedCharacterId !== null && linkedCharacterId > 0) {
         handleOpenCharacterManager({
           initialCharacterId: linkedCharacterId,
           syncCardId: card.id,
@@ -13767,6 +13816,75 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             Array.isArray(card.triggers) && card.triggers.length > 0
               ? card.triggers
               : normalizeCharacterTriggersDraft('', normalizedName)
+          const persistCharacterLink = async (characterId: number) => {
+            const linkedCard = await updateStoryWorldCard({
+              token: authToken,
+              gameId: activeGameId!,
+              cardId: card.id,
+              title: card.title,
+              content: card.content,
+              race: normalizeCharacterRaceValue(card.race),
+              clothing: normalizeCharacterAdditionalValue(card.clothing),
+              inventory: normalizeCharacterAdditionalValue(card.inventory),
+              health_status: normalizeCharacterAdditionalValue(card.health_status),
+              name_color: normalizeStoryCharacterTextColor(card.name_color) || null,
+              speech_color: normalizeStoryCharacterTextColor(card.speech_color) || null,
+              bubble_color: normalizeStoryCharacterTextColor(card.bubble_color) || null,
+              thought_bubble_color: normalizeStoryCharacterTextColor(card.thought_bubble_color) || null,
+              triggers: normalizedTriggers,
+              detail_type: normalizeStoryWorldDetailTypeValue(card.detail_type),
+              character_id: characterId,
+              memory_turns: card.kind === 'npc' ? resolveWorldCardMemoryTurns(card) : undefined,
+            })
+            setWorldCards((previousCards) =>
+              previousCards.map((previousCard) => (previousCard.id === linkedCard.id ? linkedCard : previousCard)),
+            )
+            return linkedCard
+          }
+
+          // Legacy game cards may have lost their character_id while the original profile
+          // character (and its sprites) still exists. Refresh and reuse that source before the
+          // old mirror path is allowed to create anything.
+          const refreshedCharacters = await listStoryCharacters(authToken, { includeEmotionAssets: true })
+          setCharacters(refreshedCharacters)
+          setHasLoadedCharacters(true)
+          const normalizedIdentity = (value: string | null | undefined) =>
+            toStoryText(value).replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru-RU')
+          const normalizedCardName = normalizedIdentity(card.title)
+          const normalizedCardDescription = normalizedIdentity(card.content)
+          const matchingCharacter = refreshedCharacters
+            .filter((character) => normalizedIdentity(character.name) === normalizedCardName)
+            .sort((left, right) => {
+              const score = (character: StoryCharacter) => {
+                const spriteCount = STORY_CHARACTER_EMOTION_IDS.reduce(
+                  (count, emotionId) =>
+                    count + (typeof character.emotion_assets?.[emotionId] === 'string' && character.emotion_assets[emotionId]!.trim() ? 1 : 0),
+                  0,
+                )
+                return (
+                  spriteCount * 100 +
+                  (normalizedIdentity(character.description) === normalizedCardDescription ? 20 : 0) +
+                  (normalizeCharacterRaceValue(character.race) === normalizeCharacterRaceValue(card.race) ? 4 : 0) +
+                  (character.source_character_id === null ? 1 : 0)
+                )
+              }
+              return score(right) - score(left) || left.id - right.id
+            })[0] ?? null
+
+          if (matchingCharacter) {
+            await persistCharacterLink(matchingCharacter.id)
+            handleOpenCharacterManager({
+              initialCharacterId: matchingCharacter.id,
+              syncCardId: card.id,
+              syncCardKind: card.kind,
+              memoryTurns:
+                card.kind === 'npc'
+                  ? toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(card))
+                  : NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS,
+            })
+            return
+          }
+
           const linkedCharacter = resolveLinkedCharacterForWorldCard(card)
           const preparedMirroredAvatarPayload = await prepareAvatarPayloadForRequest({
             avatarUrl: resolveWorldCardAvatar(card),
@@ -13811,10 +13929,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             [...previous.filter((item) => item.id !== mirroredCharacter.id), mirroredCharacter].sort((left, right) => left.id - right.id),
           )
           setHasLoadedCharacters(true)
-          setWorldCardCharacterMirrorByCardId((previous) => ({
-            ...previous,
-            [card.id]: mirroredCharacter.id,
-          }))
+          await persistCharacterLink(mirroredCharacter.id)
           handleOpenCharacterManager({
             initialCharacterId: mirroredCharacter.id,
             syncCardId: card.id,
@@ -14368,14 +14483,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               .sort((left, right) => right.id - left.id)[0]?.id ?? null
           applyActiveMainHeroCardId(activeGameId, nextMainHeroCardId)
         }
-        setWorldCardCharacterMirrorByCardId((previous) => {
-          if (!(cardId in previous)) {
-            return previous
-          }
-          const next = { ...previous }
-          delete next[cardId]
-          return next
-        })
         if (editingWorldCardId === cardId) {
           setWorldCardDialogOpen(false)
           setEditingWorldCardId(null)
@@ -16122,7 +16229,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const toggleCanonicalStatePipelineEnabled = useCallback(async () => {
     const targetGameId = activeGameId
     if (
-      !isAdministrator ||
+      !canUseVisualNovel ||
       !targetGameId ||
       isSavingCanonicalStatePipeline ||
       isSavingCanonicalStateSafeFallback ||
@@ -16241,7 +16348,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     canonicalStatePipelineEnabled,
     canonicalStateSafeFallbackEnabled,
     contextLimitChars,
-    isAdministrator,
+    canUseVisualNovel,
     isGenerating,
     isSavingAmbientEnabled,
     isSavingCanonicalStatePipeline,
@@ -16266,7 +16373,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const toggleCanonicalStateSafeFallbackEnabled = useCallback(async () => {
     const targetGameId = activeGameId
     if (
-      !isAdministrator ||
+      !canUseVisualNovel ||
       !targetGameId ||
       !canonicalStatePipelineEnabled ||
       isSavingCanonicalStateSafeFallback ||
@@ -16386,7 +16493,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     canonicalStatePipelineEnabled,
     canonicalStateSafeFallbackEnabled,
     contextLimitChars,
-    isAdministrator,
+    canUseVisualNovel,
     isGenerating,
     isSavingAmbientEnabled,
     isSavingCanonicalStatePipeline,
@@ -17954,6 +18061,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       options?: {
         clearComposer?: boolean
         hideUserMessage?: boolean
+        rerollLastResponse?: boolean
         discardLastAssistantSteps?: number
         smartRegenerationMode?: SmartRegenerationMode
         smartRegenerationOptions?: SmartRegenerationOption[]
@@ -18037,6 +18145,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         gameId: targetGameId,
         prompt: normalizedPrompt,
         isContinue: options?.hideUserMessage,
+        rerollLastResponse: options?.rerollLastResponse,
         discardLastAssistantSteps: options?.discardLastAssistantSteps,
         smartRegenerationMode: options?.smartRegenerationMode,
         smartRegenerationOptions: options?.smartRegenerationOptions,
@@ -18475,7 +18584,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     const generationResult = await sendStoryPrompt(rerollSourceUserMessage.content, {
-      discardLastAssistantSteps: rerollAssistantMessage ? 1 : 0,
+      rerollLastResponse: Boolean(rerollAssistantMessage),
       smartRegenerationMode,
       smartRegenerationOptions,
     })
@@ -18895,6 +19004,65 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       borderColor: 'color-mix(in srgb, var(--morius-card-border) 70%, var(--morius-accent) 30%)',
     },
   } as const
+  const renderWorldCardEmotionTools = (card: StoryWorldCard) => {
+    if (!isVisualNovelMode || !canUseVisualNovel) {
+      return null
+    }
+    const linkedCharacter = resolveLinkedCharacterForWorldCard(card)
+    const emotionAssets = linkedCharacter?.emotion_assets ?? {}
+    const emotionCount = resolveWorldCardEmotionCount(card)
+    return (
+      <Button
+        aria-label={`Спрайты эмоций персонажа ${card.title}: ${emotionCount} из ${STORY_CHARACTER_EMOTION_IDS.length}`}
+        onClick={(event) => {
+          event.stopPropagation()
+          handleOpenEditWorldCardDialog(card)
+        }}
+        sx={{
+          width: '100%',
+          minHeight: 31,
+          mt: 0.42,
+          px: 0.72,
+          py: 0.42,
+          borderRadius: '10px',
+          textTransform: 'none',
+          justifyContent: 'stretch',
+          color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)',
+          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 34%, var(--morius-card-border))',
+          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 8%, transparent)',
+          '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, transparent)' },
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={0.58} sx={{ width: '100%', minWidth: 0 }}>
+          <Typography sx={{ fontSize: '0.7rem', fontWeight: 950, lineHeight: 1, flexShrink: 0 }}>
+            Эмоции
+          </Typography>
+          <Stack direction="row" spacing={0.24} sx={{ flex: 1, minWidth: 0 }}>
+            {STORY_CHARACTER_EMOTION_IDS.map((emotionId) => {
+              const isReady = typeof emotionAssets[emotionId] === 'string' && emotionAssets[emotionId].trim().length > 0
+              return (
+                <Box
+                  key={`${card.id}-${emotionId}`}
+                  component="span"
+                  title={STORY_CHARACTER_EMOTION_LABELS[emotionId]}
+                  sx={{
+                    width: 5,
+                    height: 5,
+                    borderRadius: '50%',
+                    flexShrink: 0,
+                    backgroundColor: isReady ? 'var(--morius-accent)' : 'color-mix(in srgb, var(--morius-text-secondary) 34%, transparent)',
+                  }}
+                />
+              )
+            })}
+          </Stack>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', fontWeight: 900, lineHeight: 1, flexShrink: 0 }}>
+            {emotionCount}/{STORY_CHARACTER_EMOTION_IDS.length} · {emotionCount > 0 ? 'Догрузить' : 'Загрузить'}
+          </Typography>
+        </Stack>
+      </Button>
+    )
+  }
   const shouldRenderLegacyRightPanel = activeGameId === Number.MIN_SAFE_INTEGER
 
   return (
@@ -20227,7 +20395,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               ...rightPanelCardSx,
                               ...(isActiveHero ? rightPanelActiveCardSx : {}),
                               p: { xs: 1.05, md: 1.15 },
-                              height: RIGHT_PANEL_CHARACTER_ROW_CARD_HEIGHT,
+                              height: isVisualNovelMode && canUseVisualNovel ? 148 : RIGHT_PANEL_CHARACTER_ROW_CARD_HEIGHT,
                               display: 'flex',
                               alignItems: 'flex-start',
                               gap: 1,
@@ -20295,6 +20463,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               >
                                 {replaceMainHeroInlineTags(card.content, card.title)}
                               </Typography>
+                              {renderWorldCardEmotionTools(card)}
                             </Stack>
                             <IconButton
                               onClick={(event) => {
@@ -20326,7 +20495,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   <Stack spacing={1.25}>
                     <Stack direction="row" spacing={0.65}>
                       <Button
-                        onClick={() => handleOpenCreateWorldCardDialog('npc')}
+                        onClick={() => {
+                          if (isVisualNovelMode && canUseVisualNovel) {
+                            handleStartCreateVisualNovelNpc()
+                            return
+                          }
+                          handleOpenCreateWorldCardDialog('npc')
+                        }}
                         disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
                         sx={{ ...rightPanelCompactActionButtonSx, flex: 1, minHeight: 40 }}
                       >
@@ -20446,7 +20621,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 ...rightPanelCardSx,
                                 ...(isCardContextActive ? rightPanelActiveCardSx : {}),
                                 p: 0.9,
-                                height: RIGHT_PANEL_CHARACTER_ROW_CARD_HEIGHT,
+                                height: isVisualNovelMode && canUseVisualNovel ? 148 : RIGHT_PANEL_CHARACTER_ROW_CARD_HEIGHT,
                                 display: 'flex',
                                 alignItems: 'flex-start',
                                 gap: 0.85,
@@ -20504,6 +20679,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 >
                                   {card.content}
                                 </Typography>
+                                {renderWorldCardEmotionTools(card)}
                               </Stack>
                               <IconButton
                                 onClick={(event) => {
@@ -21199,7 +21375,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   ) : (
                     <Stack spacing={0.75}>
                       <RightPanelSectionHeading title="Dev-память" />
-                      {(['raw', 'compressed', 'super'] as const).map((layer) => {
+                      {(['raw', 'compressed', 'super', 'archive'] as const).map((layer) => {
                         const layerBlocks = aiMemoryBlocksByLayer.get(layer) ?? []
                         return (
                           <Box key={`plot-dev-memory-${layer}`} sx={{ ...rightPanelCardSx, p: 1 }}>
@@ -21705,7 +21881,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     ) : null}
                     <Stack direction="row" spacing={0.65}>
                       <Button
-                        onClick={() => handleOpenCreateWorldCardDialog('npc')}
+                        onClick={() => {
+                          if (isVisualNovelMode && canUseVisualNovel) {
+                            handleStartCreateVisualNovelNpc()
+                            return
+                          }
+                          handleOpenCreateWorldCardDialog('npc')
+                        }}
                         disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
                         sx={{ ...rightPanelCompactActionButtonSx, flex: 1, minHeight: 40 }}
                       >
@@ -22480,7 +22662,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 700 }}>
                             DEV память
                           </Typography>
-                          {(['raw', 'compressed', 'super'] as const).map((layer) => {
+                          {(['raw', 'compressed', 'super', 'archive'] as const).map((layer) => {
                             const layerBlocks = aiMemoryBlocksByLayer.get(layer) ?? []
                             return (
                               <Box
@@ -23437,7 +23619,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               title="Эмбиент-подсветка"
                               description="Фон страницы мягко подсвечивается под настроение сцены"
                               checked={ambientEnabled}
-                              visible={isAdministrator}
+                              visible={canUseVisualNovel}
                               onToggle={() => {
                                 void toggleAmbientEnabled()
                               }}
@@ -23465,7 +23647,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               title="RPG pipeline v1"
                               description="Расширенная обработка правил и механик"
                               checked={canonicalStatePipelineEnabled}
-                              visible={isAdministrator}
+                              visible={canUseVisualNovel}
                               onToggle={() => {
                                 void toggleCanonicalStatePipelineEnabled()
                               }}
@@ -23476,7 +23658,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               title="Safe fallback"
                               description="Подстраховка, если модель отвечает некорректно"
                               checked={canonicalStatePipelineEnabled && canonicalStateSafeFallbackEnabled}
-                              visible={isAdministrator}
+                              visible={canUseVisualNovel}
                               onToggle={() => {
                                 void toggleCanonicalStateSafeFallbackEnabled()
                               }}
@@ -24821,7 +25003,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             gap: 0.72,
                           }}
                         >
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: canUseVisualNovel ? 'flex' : 'none' }}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                                 Эмбиент подсветка
@@ -24868,7 +25050,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             />
                           </Stack>
 
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: canUseVisualNovel ? 'flex' : 'none' }}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                                 RPG pipeline v1
@@ -24889,7 +25071,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             />
                           </Stack>
 
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: canUseVisualNovel ? 'flex' : 'none' }}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                                 Safe fallback
@@ -26602,7 +26784,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   isInputStep={isVisualNovelTurnInputStep}
                   techDemoEnabled={isVisualNovelTechDemoEnabled}
                   background={currentSceneBackground}
-                  isAdmin={isAdministrator}
+                  isAdmin={canUseVisualNovel}
                   onPrevious={goToPreviousVnBeat}
                   onNext={goToNextVnBeat}
                   onJumpToEnd={jumpToLatestVnBeat}
@@ -28090,7 +28272,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 <Tooltip
                   arrow
                   placement="top"
-                  title={<StoryTurnCostTooltipContent />}
+                  title={
+                    isSubscriptionNarratorSelected ? (
+                      <Stack spacing={0.35} sx={{ p: 0.35, maxWidth: 290 }}>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 900 }}>
+                          Ход по подписке
+                        </Typography>
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.35 }}>
+                          Солы не списываются. Будет использован 1 подписочный ход. Доступно:{' '}
+                          {formatRussianTurnsLabel(user.subscription?.daily_turns_remaining ?? 0)}.
+                        </Typography>
+                      </Stack>
+                    ) : (
+                      <StoryTurnCostTooltipContent />
+                    )
+                  }
                   componentsProps={{
                     tooltip: {
                       sx: {
@@ -28124,7 +28320,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       flexShrink: 0,
                     }}
                   >
-                    <SoulIcon size={19} sx={{ width: { xs: 16, md: 19 }, height: { xs: 16, md: 19 }, opacity: 0.98 }} />
+                    {isSubscriptionNarratorSelected ? null : (
+                      <SoulIcon size={19} sx={{ width: { xs: 16, md: 19 }, height: { xs: 16, md: 19 }, opacity: 0.98 }} />
+                    )}
                     <Typography
                       sx={{
                         color: 'var(--morius-title-text)',
@@ -28135,7 +28333,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         letterSpacing: 0,
                       }}
                     >
-                      {currentTurnCostTokens}
+                      {isSubscriptionNarratorSelected ? '1 ход' : currentTurnCostTokens}
                     </Typography>
                   </Box>
                 </Tooltip>
@@ -31086,7 +31284,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         authToken={authToken}
         initialMode={characterManagerInitialMode}
         initialCharacterId={characterManagerInitialCharacterId}
-        showEmotionTools={user.role === 'administrator'}
+        showEmotionTools={isVisualNovelMode && canUseVisualNovel}
         extraEditorContent={
           shouldShowCharacterManagerNpcMemoryEditor ? (
             <Stack spacing={0.35}>

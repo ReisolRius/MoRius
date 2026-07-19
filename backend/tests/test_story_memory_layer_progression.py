@@ -202,6 +202,115 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
         self.assertEqual([block.content for block in blocks if block.layer == "raw_pending"], ["old turn awaiting retry"])
         self.assertEqual([block.content for block in blocks if block.layer == "fresh_detailed"], ["compressed new turn"])
 
+    def test_rebalance_drains_pending_backlog_and_keeps_new_turn_moving(self) -> None:
+        blocks = [
+            _block(1, 100, "raw_pending", "old pending turn one"),
+            _block(2, 101, "raw_pending", "old pending turn two"),
+            _block(3, 102, "latest_full", "new stale full turn"),
+            _block(4, 103, "latest_full", "latest full turn"),
+        ]
+
+        def compress_memory_block(*, raw_content: str, **_kwargs):
+            return "Detailed memory", f"compressed: {raw_content}"
+
+        def create_memory_block(**kwargs):
+            block = _block(
+                max(item.id for item in blocks) + 1,
+                kwargs["assistant_message_id"],
+                kwargs["layer"],
+                kwargs["content"],
+                token_count=5,
+            )
+            block.title = kwargs["title"]
+            blocks.append(block)
+            return block
+
+        with (
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget()),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
+            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[103]),
+            patch.object(
+                story_memory_pipeline,
+                "_compress_story_memory_block_with_model",
+                side_effect=compress_memory_block,
+            ) as compress_mock,
+            patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
+        ):
+            story_memory_pipeline._rebalance_story_memory_layers(
+                db=_FakeSession(blocks),
+                game=_game(),
+                max_model_requests=3,
+            )
+
+        self.assertEqual(
+            [call.kwargs["raw_content"] for call in compress_mock.call_args_list],
+            ["old pending turn one", "old pending turn two", "new stale full turn"],
+        )
+        self.assertEqual([block for block in blocks if block.layer == "raw_pending"], [])
+        self.assertEqual(
+            sorted(block.assistant_message_id for block in blocks if block.layer == "fresh_detailed"),
+            [100, 101, 102],
+        )
+        self.assertEqual(
+            [block.assistant_message_id for block in blocks if block.layer == "latest_full"],
+            [103],
+        )
+
+    def test_broken_pending_retry_does_not_block_new_turn_with_spare_budget(self) -> None:
+        blocks = [
+            _block(1, 100, "raw_pending", "permanently broken pending turn"),
+            _block(2, 101, "latest_full", "healthy new stale turn"),
+            _block(3, 102, "latest_full", "latest full turn"),
+        ]
+
+        def compress_memory_block(*, raw_content: str, **_kwargs):
+            if raw_content == "permanently broken pending turn":
+                raise RuntimeError("content-specific compaction failure")
+            return "Detailed memory", f"compressed: {raw_content}"
+
+        def create_memory_block(**kwargs):
+            block = _block(
+                max(item.id for item in blocks) + 1,
+                kwargs["assistant_message_id"],
+                kwargs["layer"],
+                kwargs["content"],
+                token_count=5,
+            )
+            block.title = kwargs["title"]
+            blocks.append(block)
+            return block
+
+        with (
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget()),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
+            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
+            patch.object(
+                story_memory_pipeline,
+                "_compress_story_memory_block_with_model",
+                side_effect=compress_memory_block,
+            ) as compress_mock,
+            patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
+        ):
+            story_memory_pipeline._rebalance_story_memory_layers(
+                db=_FakeSession(blocks),
+                game=_game(),
+                max_model_requests=2,
+                require_model_compaction=True,
+            )
+
+        self.assertEqual(
+            [call.kwargs["raw_content"] for call in compress_mock.call_args_list],
+            ["permanently broken pending turn", "healthy new stale turn"],
+        )
+        self.assertEqual(
+            [block.assistant_message_id for block in blocks if block.layer == "raw_pending"],
+            [100],
+        )
+        self.assertEqual(
+            [block.assistant_message_id for block in blocks if block.layer == "fresh_detailed"],
+            [101],
+        )
+
     def test_rebalance_attempts_only_newest_raw_block_even_with_larger_request_budget(self) -> None:
         blocks = [
             _block(1, 100, "latest_full", "problematic full turn"),

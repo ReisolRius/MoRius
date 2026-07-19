@@ -16,6 +16,7 @@ STORY_MEMORY_LAYER_COMPRESSED = "compressed"
 STORY_MEMORY_LAYER_SUPER = "super"
 STORY_MEMORY_LAYER_FACTS = "facts"
 STORY_MEMORY_LAYER_RAW_PENDING = "raw_pending"
+STORY_MEMORY_LAYER_ARCHIVE = "archive"
 STORY_MEMORY_LAYER_KEY = "key"
 STORY_MEMORY_LAYER_LOCATION = "location"
 STORY_MEMORY_LAYER_WEATHER = "weather"
@@ -27,6 +28,7 @@ STORY_MEMORY_LAYERS = {
     STORY_MEMORY_LAYER_SUPER,
     STORY_MEMORY_LAYER_FACTS,
     STORY_MEMORY_LAYER_RAW_PENDING,
+    STORY_MEMORY_LAYER_ARCHIVE,
     STORY_MEMORY_LAYER_KEY,
     STORY_MEMORY_LAYER_LOCATION,
     STORY_MEMORY_LAYER_WEATHER,
@@ -106,6 +108,7 @@ def normalize_story_memory_layer(value: str | None) -> str:
         "compressed_summary": STORY_MEMORY_LAYER_COMPRESSED,
         "fact": STORY_MEMORY_LAYER_FACTS,
         "pending_retry": STORY_MEMORY_LAYER_RAW_PENDING,
+        "full_turn_archive": STORY_MEMORY_LAYER_ARCHIVE,
     }
     if normalized in aliases:
         return aliases[normalized]
@@ -163,6 +166,7 @@ def story_memory_block_to_out(block: StoryMemoryBlock) -> StoryMemoryBlockOut:
         STORY_MEMORY_LAYER_SUPER,
         STORY_MEMORY_LAYER_FACTS,
         STORY_MEMORY_LAYER_RAW_PENDING,
+        STORY_MEMORY_LAYER_ARCHIVE,
         STORY_MEMORY_LAYER_KEY,
     }:
         normalized_title = _replace_markup_with_names(normalized_title)

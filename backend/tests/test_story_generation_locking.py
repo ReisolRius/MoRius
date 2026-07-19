@@ -460,7 +460,8 @@ class StoryGenerationLockingTests(unittest.TestCase):
         finally:
             mark_story_generation_finished(game_id, generation_id)
 
-    def test_cancel_after_finalizing_progress_skips_billing_and_postprocess(self) -> None:
+    @patch.object(story_runtime, "_checkpoint_story_raw_turn_memory", return_value=True)
+    def test_cancel_after_finalizing_progress_skips_billing_and_postprocess(self, checkpoint) -> None:
         game_id = 9_101
         generation_id = "generation-finalizing-cancel"
         db = _StreamingSession()
@@ -535,6 +536,82 @@ class StoryGenerationLockingTests(unittest.TestCase):
 
         self.assertEqual(calls["billing"], 0)
         self.assertEqual(calls["postprocess"], 0)
+        checkpoint.assert_called_once()
+
+    def test_subscription_stream_consumes_turn_but_never_spends_sols(self) -> None:
+        game_id = 9_105
+        generation_id = "generation-subscription-zero-sols"
+        db = _StreamingSession()
+        game = SimpleNamespace(id=game_id)
+        user = SimpleNamespace(id=505, coins=0)
+        billing_calls = 0
+
+        def fail_sol_billing(*_args, **_kwargs):
+            nonlocal billing_calls
+            billing_calls += 1
+            self.fail("Subscription narrator turn must never spend sols")
+
+        deps = SimpleNamespace(
+            stream_persist_min_chars=10_000,
+            stream_persist_max_interval_seconds=60.0,
+            story_assistant_role="assistant",
+            touch_story_game=lambda _game: None,
+            stream_story_provider_chunks=lambda **_kwargs: iter(["Подписочный ответ"]),
+            spend_user_tokens_if_sufficient=fail_sol_billing,
+            select_story_world_cards_triggered_by_text=lambda *_args, **_kwargs: [],
+        )
+
+        mark_story_generation_started(game_id, generation_id)
+        try:
+            with patch(
+                "app.services.subscriptions.try_consume_subscription_turn",
+                return_value=True,
+            ) as consume_turn_mock:
+                stream = story_runtime._stream_story_response(
+                    deps=deps,
+                    db=db,
+                    game=game,
+                    user=user,
+                    turn_cost_tokens=99,
+                    source_user_message=None,
+                    prompt="Ход",
+                    turn_index=1,
+                    context_messages=[],
+                    instruction_cards=[],
+                    plot_cards=[],
+                    world_cards=[],
+                    all_world_cards=[],
+                    context_limit_chars=10_000,
+                    story_model_name="deepseek/deepseek-v4-flash",
+                    story_response_max_tokens=450,
+                    story_temperature=0.7,
+                    story_repetition_penalty=1.0,
+                    story_top_k=40,
+                    story_top_r=0.9,
+                    memory_optimization_enabled=False,
+                    reroll_discarded_assistant_text=None,
+                    ambient_enabled=False,
+                    visual_novel_enabled=False,
+                    show_gg_thoughts=False,
+                    show_npc_thoughts=False,
+                    story_generation_id=generation_id,
+                    precharged_graph_cost_tokens=5,
+                    is_subscription_turn=True,
+                    subscription_daily_turn_limit=20,
+                    subscription_period_start="2026-07-01",
+                )
+
+                self.assertIn("event: start", next(stream))
+                self.assertIn("event: chunk", next(stream))
+                self.assertIn('"stage": "finalizing"', next(stream))
+                self.assertIn('"stage": "postprocess"', next(stream))
+                stream.close()
+
+            consume_turn_mock.assert_called_once()
+        finally:
+            mark_story_generation_finished(game_id, generation_id)
+
+        self.assertEqual(billing_calls, 0)
 
     def test_partial_provider_failure_is_not_restarted_as_a_new_turn(self) -> None:
         game_id = 9_102

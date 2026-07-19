@@ -84,6 +84,39 @@ class StoryMemoryCompressionTests(unittest.TestCase):
                     raw_content="PLAYER_TURN:\nI enter.\n\nNARRATOR_RESPONSE:\nThe room is quiet.",
                 )
 
+    def test_missing_terminal_outcome_is_repaired_without_rejecting_compaction(self) -> None:
+        raw_content = (
+            "PLAYER_TURN:\nГруппа возвращается после задания.\n\n"
+            "NARRATOR_RESPONSE:\nГруппа выполнила задание и вернулась в лагерь."
+        )
+        compressed_without_outcome = json.dumps(
+            {
+                "summary": "Группа снова находится в лагере.",
+                "important_entities": [],
+                "state_changes": [],
+                "open_threads": [],
+            },
+            ensure_ascii=False,
+        )
+
+        with patch.object(
+            story_memory_pipeline,
+            "_request_polza_story_text",
+            return_value=compressed_without_outcome,
+        ) as request_mock:
+            title, content = story_memory_pipeline._compress_story_memory_block_with_model(
+                raw_content=raw_content,
+            )
+
+        self.assertEqual(title, "Подробная память")
+        self.assertIn("Группа снова находится в лагере.", content)
+        self.assertIn("Группа выполнила задание и вернулась в лагерь.", content)
+        story_memory_pipeline._validate_story_memory_terminal_statuses(
+            source_content=raw_content,
+            result_content=content,
+        )
+        self.assertEqual(request_mock.call_count, 1)
+
     def test_memory_compression_has_reserved_service_budget_after_postprocess_budget_is_exhausted(self) -> None:
         valid_memory_json = (
             '{"summary":"Alex entered the hall.",'

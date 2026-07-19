@@ -1,8 +1,8 @@
 """Subscription entitlement resolution + turn accounting.
 
 Subscriptions differ ONLY in: available narrator models, daily turns, and scene-memory size.
-A subscription model turn never grants or spends sols for the base model cost — instead it
-consumes one of the tier's turns (toggleable modules still cost sols separately).
+A subscription narrator turn never spends sols, including story-service modules attached to the
+turn. It consumes exactly one of the tier's accrued turns instead.
 
 Turn budget accrues: each Europe/Moscow day inside the current subscription billing period adds
 the tier's daily limit, and unspent turns roll over within the period. The counter resets ONLY at

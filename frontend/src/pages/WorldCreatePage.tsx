@@ -49,7 +49,7 @@ import {
 } from '../services/storyApi'
 import { loadStoryTitleMap, persistStoryTitleMap, setStoryTitle } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
-import type { AuthUser } from '../types/auth'
+import { canUseVisualNovelFeatures, type AuthUser } from '../types/auth'
 import type {
   StoryCharacter,
   StoryCharacterEmotionAssets,
@@ -646,7 +646,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const [openingSceneNpcName, setOpeningSceneNpcName] = useState('')
   const [visibility, setVisibility] = useState<StoryGameVisibility>('private')
   const [gameMode, setGameMode] = useState<StoryGameMode>('rpg')
-  const isAdministrator = user.role === 'administrator'
+  const canUseVisualNovel = canUseVisualNovelFeatures(user.role)
   const [activeWorldCreateSection, setActiveWorldCreateSection] = useState<WorldCreateSection>('main')
   const [isOpeningSceneExpanded, setIsOpeningSceneExpanded] = useState(false)
   const [isPublicationRulesDialogOpen, setIsPublicationRulesDialogOpen] = useState(false)
@@ -1863,7 +1863,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           cover_scale: coverScale,
           cover_position_x: coverPositionX,
           cover_position_y: coverPositionY,
-          gameMode: isAdministrator ? gameMode : undefined,
+          gameMode: canUseVisualNovel ? gameMode : undefined,
         })
         gameId = created.id
         draftGameIdRef.current = created.id
@@ -2169,7 +2169,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       isSaveInFlightRef.current = false
       setIsSubmitting(false)
     }
-  }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, genres, hasTemplateConflicts, instructionCards, isMyGamesEdit, isMyPublicationsEdit, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, resolvedEditingGameId, shouldConfirmPublishWithoutMainHero, title, user.id, visibility, worldProfile])
+  }, [ageRating, authToken, canSubmit, canUseVisualNovel, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, gameMode, genres, hasTemplateConflicts, instructionCards, isMyGamesEdit, isMyPublicationsEdit, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, resolvedEditingGameId, shouldConfirmPublishWithoutMainHero, title, user.id, visibility, worldProfile])
 
   const handleCancelWorld = useCallback(() => {
     if (isEditMode) {
@@ -2780,13 +2780,13 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 helperText={<TextLimitIndicator currentLength={description.length} maxLength={1000} />}
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
-              {isAdministrator && !isEditMode ? (
+              {canUseVisualNovel && !isEditMode ? (
                 <TextField
                   select
                   label="Тип игры"
                   value={gameMode}
                   onChange={(event) => setGameMode(event.target.value as StoryGameMode)}
-                  helperText="Видно только администратору. Режим нельзя изменить после создания мира."
+                  helperText="Доступно администратору и бета-тестеру. Режим нельзя изменить после создания мира."
                   fullWidth
                 >
                   <MenuItem value="rpg">Текстовая РПГ</MenuItem>
@@ -3657,7 +3657,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         authToken={authToken}
         initialMode={characterManagerInitialMode}
         initialCharacterId={characterManagerInitialCharacterId}
-        showEmotionTools={user.role === 'administrator'}
+        showEmotionTools={canUseVisualNovel}
         onClose={handleCloseCharacterManager}
       />
       <InstructionTemplateDialog

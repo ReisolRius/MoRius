@@ -48,6 +48,7 @@ from app.schemas import (
     AdminUserListResponse,
     AdminUserModeratorUpdateRequest,
     AdminUserOut,
+    AdminUserRoleUpdateRequest,
     AdminUserTagUpdateRequest,
     AdminUserTokensUpdateRequest,
     MaintenanceSettingsOut,
@@ -56,6 +57,7 @@ from app.schemas import (
 )
 from app.services.auth_identity import (
     ROLE_ADMINISTRATOR,
+    ROLE_BETA_TESTER,
     ROLE_MODERATOR,
     ROLE_USER,
     get_current_user,
@@ -104,7 +106,7 @@ def _require_administrator(*, db: Session, authorization: str | None) -> User:
     if str(getattr(user, "role", "") or "").strip().lower() != ROLE_ADMINISTRATOR:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only administrators can manage moderator roles",
+            detail="Only administrators can manage user roles",
         )
     return user
 
@@ -727,6 +729,35 @@ def update_user_moderator_role(
         )
 
     target_user.role = ROLE_MODERATOR if payload.is_moderator else ROLE_USER
+    sync_user_access_state(target_user)
+    db.commit()
+    db.refresh(target_user)
+    return _admin_user_out(db, target_user)
+
+
+@router.post("/api/auth/admin/users/{user_id}/role", response_model=AdminUserOut)
+def update_user_role(
+    user_id: int,
+    payload: AdminUserRoleUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AdminUserOut:
+    admin_user = _require_administrator(db=db, authorization=authorization)
+    target_user = _get_target_user_or_404(db, user_id=user_id)
+
+    if int(target_user.id) == int(admin_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot change your own role here",
+        )
+    if is_privileged_email(target_user.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Privileged accounts roles cannot be changed manually",
+        )
+
+    assignable_roles = {ROLE_USER, ROLE_MODERATOR, ROLE_BETA_TESTER}
+    target_user.role = payload.role if payload.role in assignable_roles else ROLE_USER
     sync_user_access_state(target_user)
     db.commit()
     db.refresh(target_user)

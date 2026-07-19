@@ -44,6 +44,7 @@ import {
   updateStoryGraphNodeLayout,
 } from '../../services/storyApi'
 import { resolveApiResourceUrl } from '../../services/httpClient'
+import { canUseStoryGraphFeatures } from '../../types/auth'
 import type {
   StoryGameSummary,
   StoryGraphCardSummary,
@@ -262,10 +263,6 @@ function formatSuggestionKind(value: string): string {
   return 'Предложение'
 }
 
-function normalizeRole(value: string): string {
-  return value.trim().toLowerCase()
-}
-
 function normalizeGraphSearch(value: string): string {
   return value.replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru')
 }
@@ -317,6 +314,7 @@ export default function StoryGraphDialog({
   onOpenMemoryBlock,
 }: StoryGraphDialogProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const gridLayerRef = useRef<HTMLDivElement | null>(null)
   const worldLayerRef = useRef<HTMLDivElement | null>(null)
   const gestureRef = useRef<GestureState | null>(null)
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map())
@@ -353,7 +351,7 @@ export default function StoryGraphDialog({
 
   const isCompact = useMediaQuery(COMPACT_QUERY)
 
-  const canUseGraph = normalizeRole(userRole) === 'administrator' || normalizeRole(userRole) === 'moderator'
+  const canUseGraph = canUseStoryGraphFeatures(userRole)
   const gameId = game?.id ?? null
   const graphPayload = graph ?? createEmptyGraph(gameId ?? 0)
   const nodesById = useMemo(() => new Map(graphPayload.nodes.map((node) => [node.id, node])), [graphPayload.nodes])
@@ -535,10 +533,10 @@ export default function StoryGraphDialog({
     if (layer) {
       layer.style.transform = `translate3d(${currentPan.x}px, ${currentPan.y}px, 0) scale(${currentZoom})`
     }
-    const viewport = viewportRef.current
-    if (viewport) {
-      viewport.style.backgroundSize = `${GRID_SIZE * currentZoom}px ${GRID_SIZE * currentZoom}px`
-      viewport.style.backgroundPosition = `${currentPan.x}px ${currentPan.y}px`
+    const gridLayer = gridLayerRef.current
+    if (gridLayer) {
+      gridLayer.style.backgroundSize = `${GRID_SIZE * currentZoom}px ${GRID_SIZE * currentZoom}px`
+      gridLayer.style.backgroundPosition = `${currentPan.x}px ${currentPan.y}px`
     }
   }, [])
 
@@ -1724,21 +1722,44 @@ export default function StoryGraphDialog({
       onPointerMove={handleViewportPointerMove}
       onPointerUp={handleViewportPointerEnd}
       onPointerCancel={handleViewportPointerEnd}
-      style={{
-        backgroundSize: `${GRID_SIZE * zoom}px ${GRID_SIZE * zoom}px`,
-        backgroundPosition: `${pan.x}px ${pan.y}px`,
-      }}
       sx={{
         position: 'relative',
         flex: 1,
         minHeight: 0,
         overflow: 'hidden',
+        isolation: 'isolate',
         touchAction: 'none',
         cursor: gestureRef.current?.type === 'pan' ? 'grabbing' : 'grab',
         backgroundColor: CANVAS_BG,
-        backgroundImage: `linear-gradient(${GRID_LINE} 1px, transparent 1px), linear-gradient(90deg, ${GRID_LINE} 1px, transparent 1px)`,
       }}
     >
+      <Box
+        aria-hidden="true"
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 0,
+          pointerEvents: 'none',
+          backgroundColor: CANVAS_BG,
+          transform: 'translateZ(0)',
+          backfaceVisibility: 'hidden',
+        }}
+      />
+      <Box
+        ref={gridLayerRef}
+        aria-hidden="true"
+        style={{
+          backgroundSize: `${GRID_SIZE * zoom}px ${GRID_SIZE * zoom}px`,
+          backgroundPosition: `${pan.x}px ${pan.y}px`,
+        }}
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 1,
+          pointerEvents: 'none',
+          backgroundImage: `linear-gradient(${GRID_LINE} 1px, transparent 1px), linear-gradient(90deg, ${GRID_LINE} 1px, transparent 1px)`,
+        }}
+      />
       {isLoading && graph === null ? (
         <Stack spacing={1} alignItems="center" justifyContent="center" sx={{ position: 'absolute', inset: 0, zIndex: 4 }}>
           <CircularProgress size={30} sx={{ color: T.accent }} />
@@ -1754,6 +1775,7 @@ export default function StoryGraphDialog({
           top: 0,
           width: 0,
           height: 0,
+          zIndex: 2,
           transformOrigin: '0 0',
           willChange: 'transform',
           transition: isViewportAnimating ? `transform ${VIEWPORT_ANIMATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)` : 'none',
@@ -1875,13 +1897,14 @@ export default function StoryGraphDialog({
         fullScreen
         PaperProps={{
           sx: {
-            background: T.appBg,
+            backgroundColor: CANVAS_BG,
+            backgroundImage: 'none',
             color: T.text,
             overflow: 'hidden',
           },
         }}
       >
-        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100dvh', minHeight: 0 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100dvh', minHeight: 0, overflow: 'hidden', backgroundColor: CANVAS_BG }}>
           <Stack
             direction="row"
             alignItems="center"
@@ -1954,7 +1977,7 @@ export default function StoryGraphDialog({
           ) : null}
 
           {isCompact ? (
-            <Box sx={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: CANVAS_BG }}>
               {canvas}
               {mobilePanel !== 'none' ? (
                 <>

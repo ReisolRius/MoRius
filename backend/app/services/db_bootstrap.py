@@ -351,11 +351,12 @@ def _enforce_privileged_roles() -> None:
                     f"UPDATE {User.__tablename__} "
                     "SET role = :user_role "
                     f"WHERE lower(email) NOT IN ({placeholders}) "
-                    "AND lower(role) NOT IN (:user_role, :moderator_role)"
+                    "AND lower(role) NOT IN (:user_role, :moderator_role, :beta_tester_role)"
                 ),
                 {
                     "user_role": DEFAULT_USER_ROLE,
                     "moderator_role": "moderator",
+                    "beta_tester_role": "beta_tester",
                     **email_params,
                 },
             )

@@ -48,7 +48,7 @@ import {
   rejectModerationWorldForAdmin,
   searchUsersForAdminPanel,
   unbanUserAsAdmin,
-  updateModeratorRoleAsAdmin,
+  updateUserRoleAsAdmin,
   updateProfileTagAsAdmin,
   updateModerationCharacterForAdmin,
   updateModerationInstructionTemplateForAdmin,
@@ -355,11 +355,11 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
     () => ADMIN_PANEL_ALLOWED_ROLES.has(currentUserRole.trim().toLowerCase()),
     [currentUserRole],
   )
-  const canManageModeratorRole = useMemo(
+  const canManageUserRole = useMemo(
     () => currentUserRole.trim().toLowerCase() === 'administrator',
     [currentUserRole],
   )
-  const canManageMaintenance = canManageModeratorRole
+  const canManageMaintenance = canManageUserRole
 
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) ?? null,
@@ -928,7 +928,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
     }
   }, [authToken, mergeUpdatedUser, selectedUser])
 
-  const handleUpdateModeratorRole = useCallback(async (isModerator: boolean) => {
+  const handleUpdateUserRole = useCallback(async (role: 'user' | 'moderator' | 'beta_tester') => {
     if (!selectedUser) {
       setErrorMessage('Выберите пользователя')
       return
@@ -938,15 +938,15 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
     setErrorMessage('')
     setSuccessMessage('')
     try {
-      const updatedUser = await updateModeratorRoleAsAdmin({
+      const updatedUser = await updateUserRoleAsAdmin({
         token: authToken,
         user_id: selectedUser.id,
-        is_moderator: isModerator,
+        role,
       })
       mergeUpdatedUser(updatedUser)
-      setSuccessMessage(isModerator ? 'Тег «Модератор» назначен' : 'Тег «Игрок» назначен')
+      setSuccessMessage(`Роль «${getDisplayedTagLabel(role, '')}» назначена`)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось изменить роль модератора'
+      const detail = error instanceof Error ? error.message : 'Не удалось изменить роль пользователя'
       setErrorMessage(detail)
     } finally {
       setIsApplyingUserAction(false)
@@ -1728,18 +1728,25 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
                       <Typography sx={adminActionLabelSx}>Роль и тег</Typography>
                       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                         <Button
-                          onClick={() => void handleUpdateModeratorRole(false)}
-                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                          onClick={() => void handleUpdateUserRole('user')}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageUserRole}
                           sx={{ ...(selectedUser?.role === 'user' ? adminPrimaryButtonSx : adminNeutralButtonSx), flex: 1 }}
                         >
-                          Тег «Игрок»
+                          Роль «Игрок»
                         </Button>
                         <Button
-                          onClick={() => void handleUpdateModeratorRole(true)}
-                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                          onClick={() => void handleUpdateUserRole('beta_tester')}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageUserRole}
+                          sx={{ ...(selectedUser?.role === 'beta_tester' ? adminPrimaryButtonSx : adminNeutralButtonSx), flex: 1 }}
+                        >
+                          Роль «Бета-тестер»
+                        </Button>
+                        <Button
+                          onClick={() => void handleUpdateUserRole('moderator')}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageUserRole}
                           sx={{ ...(selectedUser?.role === 'moderator' ? adminPrimaryButtonSx : adminNeutralButtonSx), flex: 1 }}
                         >
-                          Тег «Модератор»
+                          Роль «Модератор»
                         </Button>
                       </Stack>
                       <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem', lineHeight: 1.4 }}>
@@ -1747,7 +1754,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
                         <Typography component="span" sx={{ color: 'var(--morius-text-primary)', fontWeight: 700 }}>
                           {selectedUser ? getDisplayedTagLabel(selectedUser.role, selectedUser.profile_tag) : '—'}
                         </Typography>
-                        {selectedUser && !canManageModeratorRole ? ' · менять может только администратор' : null}
+                        {selectedUser && !canManageUserRole ? ' · менять может только администратор' : null}
                       </Typography>
                     </Box>
 
@@ -1760,7 +1767,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
                           label="Свой тег (любой текст)"
                           placeholder="Например: Создатель"
                           size="small"
-                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageUserRole}
                           inputProps={{ maxLength: ADMIN_CUSTOM_TAG_MAX_LENGTH }}
                           helperText={<TextLimitIndicator currentLength={customTagDraft.length} maxLength={ADMIN_CUSTOM_TAG_MAX_LENGTH} />}
                           FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
@@ -1768,14 +1775,14 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
                         />
                         <Button
                           onClick={() => void handleUpdateProfileTag('')}
-                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageUserRole}
                           sx={adminNeutralButtonSx}
                         >
                           Сбросить
                         </Button>
                         <Button
                           onClick={() => void handleUpdateProfileTag()}
-                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                          disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageUserRole}
                           sx={adminPrimaryButtonSx}
                         >
                           Сохранить

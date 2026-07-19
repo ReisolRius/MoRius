@@ -11,6 +11,7 @@ from app.services.story_emotions import (  # noqa: E402
     deserialize_story_character_emotion_assets,
     serialize_story_character_emotion_assets,
 )
+from app.services.auth_identity import sync_user_role_with_email  # noqa: E402
 from app.services.story_novel import (  # noqa: E402
     STORY_GAME_MODE_RPG,
     STORY_GAME_MODE_VISUAL_NOVEL,
@@ -40,18 +41,21 @@ class NormalizeStoryGameModeTests(unittest.TestCase):
         self.assertEqual(normalize_story_game_mode("VN"), STORY_GAME_MODE_VISUAL_NOVEL)
 
 
-class AdminGatingTests(unittest.TestCase):
-    def test_only_administrator_role_can_use_visual_novel(self) -> None:
+class VisualNovelRoleGatingTests(unittest.TestCase):
+    def test_administrator_and_beta_tester_can_use_visual_novel(self) -> None:
         admin = SimpleNamespace(role="administrator")
+        beta_tester = SimpleNamespace(role="beta_tester")
         player = SimpleNamespace(role="user")
         moderator = SimpleNamespace(role="moderator")
 
         self.assertTrue(can_user_use_story_visual_novel(admin))
+        self.assertTrue(can_user_use_story_visual_novel(beta_tester))
         self.assertFalse(can_user_use_story_visual_novel(player))
         self.assertFalse(can_user_use_story_visual_novel(moderator))
 
-    def test_is_story_visual_novel_enabled_requires_both_admin_and_game_mode(self) -> None:
+    def test_is_story_visual_novel_enabled_requires_access_and_game_mode(self) -> None:
         admin = SimpleNamespace(role="administrator")
+        beta_tester = SimpleNamespace(role="beta_tester")
         player = SimpleNamespace(role="user")
         vn_game = SimpleNamespace(game_mode="visual_novel")
         rpg_game = SimpleNamespace(game_mode="rpg")
@@ -59,8 +63,15 @@ class AdminGatingTests(unittest.TestCase):
         self.assertTrue(is_story_visual_novel_game(vn_game))
         self.assertFalse(is_story_visual_novel_game(rpg_game))
         self.assertTrue(is_story_visual_novel_enabled(vn_game, admin))
+        self.assertTrue(is_story_visual_novel_enabled(vn_game, beta_tester))
         self.assertFalse(is_story_visual_novel_enabled(vn_game, player))
         self.assertFalse(is_story_visual_novel_enabled(rpg_game, admin))
+
+    def test_beta_tester_role_survives_auth_role_sync(self) -> None:
+        beta_tester = SimpleNamespace(email="beta@example.com", role="beta_tester")
+
+        self.assertFalse(sync_user_role_with_email(beta_tester))
+        self.assertEqual(beta_tester.role, "beta_tester")
 
 
 class ParseStoryNovelBeatsTests(unittest.TestCase):

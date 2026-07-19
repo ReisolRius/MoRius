@@ -542,6 +542,17 @@ def _fallback_build_provider_messages(
     history_budget = max(context_limit_chars * 3, 6_000)
     trimmed_history = _fallback_trim_history_messages(context_messages, max_chars=history_budget)
     payload_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+    if str(reroll_discarded_assistant_text or "").strip():
+        payload_messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "INDEPENDENT REROLL: rerun the latest player turn from the canonical state immediately before "
+                    "the rejected narrator answer. The rejected text is non-canonical and is not included. Choose "
+                    "a fresh plausible branch from scratch instead of reconstructing or paraphrasing an assumed answer."
+                ),
+            }
+        )
     if context_sections:
         payload_messages.append({"role": "system", "content": "\n\n".join(context_sections)})
     for message in trimmed_history:
@@ -650,6 +661,16 @@ def _fallback_iter_story_provider_chunks(
     if settings.polza_app_name:
         headers["X-Title"] = settings.polza_app_name
 
+    effective_temperature = float(story_temperature)
+    effective_top_k = int(story_top_k)
+    effective_top_r = float(story_top_r)
+    if str(reroll_discarded_assistant_text or "").strip():
+        effective_temperature = min(2.0, effective_temperature + 0.25)
+        if effective_top_k > 0:
+            effective_top_k = max(effective_top_k, round(effective_top_k * 1.5))
+        if effective_top_r > 0:
+            effective_top_r = min(1.0, effective_top_r + 0.12)
+
     request_payload = {
         "model": selected_model_name,
         "messages": _fallback_build_provider_messages(
@@ -662,11 +683,13 @@ def _fallback_iter_story_provider_chunks(
             context_limit_chars=context_limit_chars,
             reroll_discarded_assistant_text=reroll_discarded_assistant_text,
         ),
-        "temperature": float(story_temperature),
+        "temperature": effective_temperature,
         "repetition_penalty": float(story_repetition_penalty),
-        "top_p": float(story_top_r),
+        "top_p": effective_top_r,
         "stream": True,
     }
+    if effective_top_k > 0:
+        request_payload["top_k"] = effective_top_k
     if story_response_max_tokens is not None:
         request_payload["max_tokens"] = int(story_response_max_tokens)
 

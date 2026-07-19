@@ -60,11 +60,30 @@ export type AuthResponse = {
 const ROLE_BADGE_LABELS: Record<string, string> = {
   administrator: 'Разработчик',
   moderator: 'Модератор',
+  beta_tester: 'Бета-тестер',
   user: 'Игрок',
 }
 
+export function normalizeUserRole(role: string | null | undefined): string {
+  return (role ?? '').trim().toLowerCase()
+}
+
+export function isAdministratorRole(role: string | null | undefined): boolean {
+  return normalizeUserRole(role) === 'administrator'
+}
+
+export function canUseVisualNovelFeatures(role: string | null | undefined): boolean {
+  const normalizedRole = normalizeUserRole(role)
+  return normalizedRole === 'administrator' || normalizedRole === 'beta_tester'
+}
+
+export function canUseStoryGraphFeatures(role: string | null | undefined): boolean {
+  const normalizedRole = normalizeUserRole(role)
+  return normalizedRole === 'administrator' || normalizedRole === 'moderator' || normalizedRole === 'beta_tester'
+}
+
 export function getRoleBadgeLabel(role: string | null | undefined): string {
-  const normalizedRole = (role ?? '').trim().toLowerCase()
+  const normalizedRole = normalizeUserRole(role)
   return ROLE_BADGE_LABELS[normalizedRole] ?? ROLE_BADGE_LABELS.user
 }
 

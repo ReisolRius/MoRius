@@ -730,7 +730,7 @@ function CharacterManagerDialog({
     setErrorMessage('')
     setIsLoadingCharacters(true)
     try {
-      const loadedCharacters = await listStoryCharacters(authToken)
+      const loadedCharacters = await listStoryCharacters(authToken, { includeEmotionAssets: true })
       const normalizedCharacters = loadedCharacters
         .filter((item): item is StoryCharacter => Boolean(item) && typeof item.id === 'number')
         .map((item) => ({
@@ -1931,9 +1931,11 @@ function CharacterManagerDialog({
                               onKeyDown={(event) => {
                                 if (event.key === 'Enter' || event.key === ' ') {
                                   event.preventDefault()
-                                  assetUrl
-                                    ? handleOpenCharacterEmotionPreview(emotionId, assetUrl, nameDraft)
-                                    : handleChooseEmotionSlot(emotionId)
+                                  if (assetUrl) {
+                                    handleOpenCharacterEmotionPreview(emotionId, assetUrl, nameDraft)
+                                  } else {
+                                    handleChooseEmotionSlot(emotionId)
+                                  }
                                 }
                               }}
                               sx={{

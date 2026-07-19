@@ -15,10 +15,12 @@ from app.database import Base  # noqa: E402
 from app.models import StoryMemoryBlock, StoryMessage  # noqa: E402
 from app.routers.story_messages import _sync_turn_raw_memory_after_message_update  # noqa: E402
 from app.services.story_memory import (  # noqa: E402
+    STORY_MEMORY_LAYER_ARCHIVE,
     STORY_MEMORY_LAYER_COMPRESSED,
     STORY_MEMORY_LAYER_KEY,
     STORY_MEMORY_LAYER_LATEST_FULL,
 )
+from app.services.story_memory_pipeline import _sync_story_raw_memory_blocks_for_recent_turns  # noqa: E402
 
 
 class StoryMessageMemorySyncTests(unittest.TestCase):
@@ -152,6 +154,81 @@ class StoryMessageMemorySyncTests(unittest.TestCase):
             self.assertIn("edited player turn", latest_block.content)
             self.assertIn("original narrator response", latest_block.content)
             self.assertNotIn("original player turn\noriginal narrator response", latest_block.content)
+
+    def test_sync_backfills_missing_intermediate_turn_and_archives_every_active_turn(self) -> None:
+        with self.Session() as db:
+            first_user, first_assistant = self._create_latest_turn(
+                db,
+                user_content="accept mission",
+                assistant_content="the mission starts tomorrow",
+            )
+            second_user, second_assistant = self._create_latest_turn(
+                db,
+                user_content="complete mission",
+                assistant_content="the mission is completed",
+            )
+            third_user, third_assistant = self._create_latest_turn(
+                db,
+                user_content="return to camp",
+                assistant_content="everyone rests at camp",
+            )
+            _ = (first_user, second_user, third_user)
+            db.add_all(
+                [
+                    StoryMemoryBlock(
+                        game_id=self.game_id,
+                        assistant_message_id=first_assistant.id,
+                        layer=STORY_MEMORY_LAYER_COMPRESSED,
+                        title="mission assigned",
+                        content="The mission was assigned for tomorrow.",
+                        token_count=9,
+                    ),
+                    StoryMemoryBlock(
+                        game_id=self.game_id,
+                        assistant_message_id=third_assistant.id,
+                        layer=STORY_MEMORY_LAYER_LATEST_FULL,
+                        title="camp",
+                        content="return to camp\neveryone rests at camp",
+                        token_count=9,
+                    ),
+                ]
+            )
+            db.flush()
+
+            changed = _sync_story_raw_memory_blocks_for_recent_turns(
+                db=db,
+                game=SimpleNamespace(id=self.game_id),
+                additional_assistant_message_ids=[int(second_assistant.id)],
+            )
+
+            self.assertTrue(changed)
+            all_blocks = db.scalars(
+                select(StoryMemoryBlock).where(
+                    StoryMemoryBlock.game_id == self.game_id,
+                    StoryMemoryBlock.undone_at.is_(None),
+                )
+            ).all()
+            archived_ids = {
+                int(block.assistant_message_id)
+                for block in all_blocks
+                if block.layer == STORY_MEMORY_LAYER_ARCHIVE and block.assistant_message_id is not None
+            }
+            self.assertEqual(
+                archived_ids,
+                {int(first_assistant.id), int(second_assistant.id), int(third_assistant.id)},
+            )
+            repaired_block = next(
+                block
+                for block in all_blocks
+                if block.assistant_message_id == second_assistant.id
+                and block.layer == STORY_MEMORY_LAYER_LATEST_FULL
+            )
+            self.assertIn("complete mission", repaired_block.content)
+            self.assertIn("the mission is completed", repaired_block.content)
+            first_layers = {
+                block.layer for block in all_blocks if block.assistant_message_id == first_assistant.id
+            }
+            self.assertEqual(first_layers, {STORY_MEMORY_LAYER_COMPRESSED, STORY_MEMORY_LAYER_ARCHIVE})
 
 
 if __name__ == "__main__":
