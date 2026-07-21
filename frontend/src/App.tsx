@@ -121,6 +121,10 @@ function isLegalPath(pathname: string): boolean {
   )
 }
 
+function isWikiPath(pathname: string): boolean {
+  return pathname === '/wiki'
+}
+
 function parseAuthRouteMode(search: string): AuthRouteMode {
   const mode = new URLSearchParams(search).get('mode')
   if (mode === 'register' || mode === 'reset') {
@@ -285,6 +289,7 @@ const loadMyPublicationsPage = () => import('./pages/MyPublicationsPage')
 const loadCommunityWorldsPage = () => import('./pages/CommunityWorldsPage')
 const loadWorldCreatePage = () => import('./pages/WorldCreatePage')
 const loadLegalDocumentPage = () => import('./pages/LegalDocumentPage')
+const loadWikiPage = () => import('./pages/WikiPage')
 const loadProfilePage = () => import('./pages/ProfilePage')
 const loadShopPage = () => import('./pages/ShopPage')
 const loadMaintenancePage = () => import('./pages/MaintenancePage')
@@ -299,6 +304,7 @@ const MyPublicationsPage = lazy(loadMyPublicationsPage)
 const CommunityWorldsPage = lazy(loadCommunityWorldsPage)
 const WorldCreatePage = lazy(loadWorldCreatePage)
 const LegalDocumentPage = lazy(loadLegalDocumentPage)
+const WikiPage = lazy(loadWikiPage)
 const ProfilePage = lazy(loadProfilePage)
 const ShopPage = lazy(loadShopPage)
 const MaintenancePage = lazy(loadMaintenancePage)
@@ -809,7 +815,7 @@ function App() {
       return
     }
 
-    if (!isAuthenticatedPath(path) && !isLegalPath(path)) {
+    if (!isAuthenticatedPath(path) && !isLegalPath(path) && !isWikiPath(path)) {
       const redirectId = window.setTimeout(() => {
         navigate('/dashboard', { replace: true })
       }, 0)
@@ -889,6 +895,7 @@ function App() {
   const shouldShowTermsPage = path === '/terms-of-service'
   const shouldShowPublicationRulesPage = path === '/publication-rules'
   const shouldShowSubscriptionTermsPage = path === '/subscription-terms'
+  const shouldShowWikiPage = path === '/wiki'
   const shouldShowAuthPage = !isAuthenticated && path === '/auth'
   const shouldAllowMaintenanceAuthBypass = !isAuthenticated && path === '/auth'
   const shouldShowMaintenancePage = Boolean(
@@ -942,6 +949,12 @@ function App() {
           content={SUBSCRIPTION_TERMS_TEXT}
           onNavigate={navigate}
         />
+      </Suspense>
+    )
+  } else if (shouldShowWikiPage) {
+    pageContent = (
+      <Suspense fallback={routeTransitionFallback}>
+        <WikiPage user={authUser} authToken={authToken} onNavigate={navigate} />
       </Suspense>
     )
   } else if (shouldShowAuthPage) {

@@ -263,6 +263,11 @@ except Exception:  # pragma: no cover - optional router should not break API sta
     dashboard_news_router = None
 
 try:
+    from app.routers.wiki import router as wiki_router
+except Exception:  # pragma: no cover - optional router should not break API startup
+    wiki_router = None
+
+try:
     from app.routers.media import router as media_router
 except Exception:  # pragma: no cover - optional router should not break API startup
     media_router = None
@@ -1714,6 +1719,10 @@ if dashboard_news_router is not None:
     app.include_router(dashboard_news_router)
 else:
     logger.warning("Dashboard news router is unavailable and will be skipped")
+if wiki_router is not None:
+    app.include_router(wiki_router)
+else:
+    logger.warning("Wiki router is unavailable and will be skipped")
 if media_router is not None:
     app.include_router(media_router)
 else:

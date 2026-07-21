@@ -336,6 +336,51 @@ class DashboardNewsCard(Base):
     )
 
 
+class WikiArticle(Base):
+    """A public MoRius Wiki article. Only administrators can create/edit; everyone can read."""
+
+    __tablename__ = "wiki_articles"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    category: Mapped[str] = mapped_column(String(80), nullable=False, default="", server_default="")
+    summary: Mapped[str] = mapped_column(String(600), nullable=False, default="", server_default="")
+    # Lightweight forum-style markup with [[image:<id>]] placeholders for attached images.
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    # Denormalized plaintext (title + summary + body text) used for case-insensitive search.
+    search_text: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0", index=True)
+    author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class WikiArticleImage(Base):
+    """An image attached to a wiki article. Served through the signed /api/media token endpoint."""
+
+    __tablename__ = "wiki_article_images"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    article_id: Mapped[int] = mapped_column(
+        ForeignKey("wiki_articles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # Stored as a data: URL (or absolute remote URL); never returned inline to clients.
+    image_url: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class StoryGame(Base):
     __tablename__ = "story_games"
 

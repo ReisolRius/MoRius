@@ -146,9 +146,10 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
   }
   const legalLinks = infoLinks.length > 0 ? infoLinks : DEFAULT_INFO_LINKS
   const helpLinks: FooterLink[] = [
+    { label: 'Мориус Вики', path: '/wiki' },
     { label: 'Поддержка', href: TELEGRAM_URL, external: true },
     { label: 'Реферальная программа', path: '/profile#referral-program' },
-    ...legalLinks,
+    ...legalLinks.filter((link) => link.path !== '/wiki'),
   ]
 
   return (

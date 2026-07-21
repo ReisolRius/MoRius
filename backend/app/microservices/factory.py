@@ -21,6 +21,7 @@ _PREFIX_TO_ROUTER_MODULES: dict[str, tuple[str, ...]] = {
         "app.routers.profiles",
         "app.routers.admin",
         "app.routers.dashboard_news",
+        "app.routers.wiki",
         "app.routers.admin_moderation",
     ),
     "/api/admin": ("app.routers.ai_assistant",),

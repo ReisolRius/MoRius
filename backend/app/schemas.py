@@ -603,6 +603,53 @@ class DashboardNewsCardUpdateRequest(BaseModel):
     date_label: str = Field(min_length=1, max_length=80)
 
 
+class WikiArticleImageInput(BaseModel):
+    # Client-side placeholder key used inside the body ([[image:<key>]]).
+    key: str = Field(min_length=1, max_length=64)
+    # A data: URL (or absolute remote URL) for a new/replaced image.
+    data_url: str | None = Field(default=None, max_length=6_000_000)
+    # Id of an already-stored image that should be reused as-is.
+    image_id: int | None = None
+
+
+class WikiArticleSaveRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    category: str = Field(default="", max_length=80)
+    summary: str = Field(default="", max_length=600)
+    body: str = Field(default="", max_length=200_000)
+    images: list[WikiArticleImageInput] = Field(default_factory=list, max_length=60)
+
+
+class WikiArticleImageOut(BaseModel):
+    id: int
+    url: str
+
+
+class WikiArticleListItemOut(BaseModel):
+    id: int
+    title: str
+    category: str
+    summary: str
+    position: int
+    updated_at: datetime | None = None
+
+
+class WikiArticleDetailOut(BaseModel):
+    id: int
+    title: str
+    category: str
+    summary: str
+    body: str
+    position: int
+    images: list[WikiArticleImageOut] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class WikiReorderRequest(BaseModel):
+    ordered_ids: list[int] = Field(default_factory=list, max_length=500)
+
+
 class CoinTopUpCreateRequest(BaseModel):
     plan_id: str = Field(min_length=1, max_length=32)
 

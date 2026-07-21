@@ -405,6 +405,14 @@ function AppHeader({
   const handleOpenAppDownloadDialog = () => setIsAppDownloadDialogOpen(true)
   const handleCloseAppDownloadDialog = () => setIsAppDownloadDialogOpen(false)
 
+  const handleOpenWiki = () => {
+    if (window.location.pathname !== '/wiki') {
+      window.history.pushState({}, '', '/wiki')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }
+
   const handleOpenTopUpDialog = () => {
     if (!onOpenTopUpDialog) {
       return
@@ -550,6 +558,12 @@ function AppHeader({
           },
         ]
       : []),
+    {
+      key: 'wiki',
+      label: 'Мориус Вики',
+      onClick: handleOpenWiki,
+      icon: <SidebarGlyphIcon markup={sidebarBookIconMarkup} />,
+    },
     {
       key: 'app-download',
       label: 'Скачать приложение',

@@ -21,6 +21,7 @@ from app.models import (
     StoryWorldCardTemplate,
     User,
     UserGalleryImage,
+    WikiArticleImage,
 )
 from app.services.story_emotions import deserialize_story_character_emotion_assets
 from app.services.media import (
@@ -121,6 +122,11 @@ MEDIA_KIND_SPECS: dict[str, tuple[type[Any], Callable[[Any, dict[str, Any]], Any
     ),
     "cosmetic-item-image": (
         CosmeticItem,
+        lambda record, _: getattr(record, "image_url", None),
+        lambda record: getattr(record, "updated_at", None),
+    ),
+    "wiki-article-image": (
+        WikiArticleImage,
         lambda record, _: getattr(record, "image_url", None),
         lambda record: getattr(record, "updated_at", None),
     ),

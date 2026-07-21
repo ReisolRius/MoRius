@@ -235,6 +235,7 @@ def _load_media_storage_source_value(db: Any, payload: dict[str, Any]) -> Any | 
         StoryWorldCardTemplate,
         User,
         UserGalleryImage,
+        WikiArticleImage,
     )
     from app.services.story_emotions import deserialize_story_character_emotion_assets
 
@@ -276,6 +277,7 @@ def _load_media_storage_source_value(db: Any, payload: dict[str, Any]) -> Any | 
         "profile-gallery-image-data": (UserGalleryImage, lambda record, _: getattr(record, "image_data_url", None)),
         "dashboard-news-image": (DashboardNewsCard, lambda record, _: getattr(record, "image_url", None)),
         "cosmetic-item-image": (CosmeticItem, lambda record, _: getattr(record, "image_url", None)),
+        "wiki-article-image": (WikiArticleImage, lambda record, _: getattr(record, "image_url", None)),
     }
 
     spec = media_kind_specs.get(kind)
