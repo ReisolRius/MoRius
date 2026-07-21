@@ -706,6 +706,48 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
     [authToken, isApplyingModerationAction, resetModerationDrafts],
   )
 
+  // Reset per-session state on open. This MUST run before the tab-load effect below:
+  // it bumps usersRequestIdRef to cancel any stale in-flight request, so if it ran after
+  // the load effect it would invalidate the fresh users request and leave the tab empty
+  // until the user switched tabs and came back.
+  useEffect(() => {
+    if (!open) {
+      resetSelectedReportTargetPayloads()
+      return
+    }
+    setActiveTab(initialTarget?.tab ?? 'users')
+    setQuery('')
+    setUserSortMode('created_desc')
+    setUsers([])
+    setUsersTotalCount(0)
+    setHasMoreUsers(false)
+    setSelectedUserId(null)
+    setTokenAmountDraft('100')
+    setBanDurationDraft('24')
+    setBanDurationUnit('hours')
+    setReports([])
+    setSelectedReportKey(null)
+    resetSelectedReportTargetPayloads()
+    setBugReports([])
+    setSelectedBugReportId(null)
+    setIsBugReportDialogOpen(false)
+    setModerationItems([])
+    setSelectedModerationKey(null)
+    setModerationCommentDraft('')
+    resetModerationDrafts()
+    setMaintenanceSettings(null)
+    setMaintenanceEnabledDraft(false)
+    setMaintenanceTitleDraft(DEFAULT_MAINTENANCE_TITLE)
+    setMaintenanceMessageDraft(DEFAULT_MAINTENANCE_MESSAGE)
+    setMaintenanceEtaDraft(DEFAULT_MAINTENANCE_ETA)
+    setIsLoadingMaintenanceSettings(false)
+    setIsSavingMaintenanceSettings(false)
+    setErrorMessage('')
+    setSuccessMessage('')
+    usersRequestIdRef.current += 1
+    moderationDetailRequestIdRef.current = 0
+  }, [initialTarget, open, resetModerationDrafts, resetSelectedReportTargetPayloads])
+
   useEffect(() => {
     if (!open) {
       return
@@ -744,44 +786,6 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
     }
     void openModerationItem(selectedModerationItem)
   }, [activeTab, open, openModerationItem, selectedModerationItem, selectedModerationKey])
-
-  useEffect(() => {
-    if (!open) {
-      resetSelectedReportTargetPayloads()
-      return
-    }
-    setActiveTab(initialTarget?.tab ?? 'users')
-    setQuery('')
-    setUserSortMode('created_desc')
-    setUsers([])
-    setUsersTotalCount(0)
-    setHasMoreUsers(false)
-    setSelectedUserId(null)
-    setTokenAmountDraft('100')
-    setBanDurationDraft('24')
-    setBanDurationUnit('hours')
-    setReports([])
-    setSelectedReportKey(null)
-    resetSelectedReportTargetPayloads()
-    setBugReports([])
-    setSelectedBugReportId(null)
-    setIsBugReportDialogOpen(false)
-    setModerationItems([])
-    setSelectedModerationKey(null)
-    setModerationCommentDraft('')
-    resetModerationDrafts()
-    setMaintenanceSettings(null)
-    setMaintenanceEnabledDraft(false)
-    setMaintenanceTitleDraft(DEFAULT_MAINTENANCE_TITLE)
-    setMaintenanceMessageDraft(DEFAULT_MAINTENANCE_MESSAGE)
-    setMaintenanceEtaDraft(DEFAULT_MAINTENANCE_ETA)
-    setIsLoadingMaintenanceSettings(false)
-    setIsSavingMaintenanceSettings(false)
-    setErrorMessage('')
-    setSuccessMessage('')
-    usersRequestIdRef.current += 1
-    moderationDetailRequestIdRef.current = 0
-  }, [initialTarget, open, resetModerationDrafts, resetSelectedReportTargetPayloads])
 
   const handleSelectModerationItem = useCallback(
     (item: AdminModerationQueueItem) => {

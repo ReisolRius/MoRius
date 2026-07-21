@@ -159,8 +159,8 @@ function CommunityRuleCard({
         <Box
           sx={{
             minHeight: 0,
-            display: 'grid',
-            gridTemplateRows: { xs: '44px minmax(0, 1fr)', md: '50px minmax(0, 1fr)' },
+            display: 'flex',
+            flexDirection: 'column',
             rowGap: 1.2,
             overflow: 'hidden',
           }}
@@ -168,27 +168,29 @@ function CommunityRuleCard({
           <Typography
             title={title}
             sx={{
+              flexShrink: 0,
               color: 'var(--morius-title-text)',
               fontFamily: '"Spectral", serif',
               fontSize: { xs: '1.18rem', md: '1.34rem' },
               fontWeight: 700,
-              lineHeight: 1.15,
+              lineHeight: 1.2,
               display: '-webkit-box',
               WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
-              height: '100%',
             }}
           >
             {title}
           </Typography>
           <Typography
             sx={{
+              flex: 1,
+              minHeight: 0,
               color: 'var(--morius-text-secondary)',
               fontSize: { xs: '0.9rem', md: '0.96rem' },
               lineHeight: 1.52,
               display: '-webkit-box',
-              WebkitLineClamp: 5,
+              WebkitLineClamp: 4,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
             }}

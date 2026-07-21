@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import DashboardNewsCard
-from app.schemas import DashboardNewsCardOut, DashboardNewsCardUpdateRequest
+from app.schemas import DashboardNewsCardOut, DashboardNewsCardUpdateRequest, DashboardNewsReorderRequest
 from app.services.auth_identity import ADMIN_PANEL_ALLOWED_ROLES, get_current_user
 from app.services.media import resolve_media_storage_value, validate_avatar_url
 
@@ -116,6 +116,39 @@ def list_dashboard_news(
     _ = get_current_user(db, authorization)
     cards = _list_dashboard_news_cards(db)
     return [DashboardNewsCardOut.model_validate(card) for card in cards]
+
+
+@router.patch("/api/auth/dashboard-news/reorder", response_model=list[DashboardNewsCardOut])
+def reorder_dashboard_news(
+    payload: DashboardNewsReorderRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[DashboardNewsCardOut]:
+    user = get_current_user(db, authorization)
+    _require_dashboard_news_editor(user)
+    cards = _list_dashboard_news_cards(db)
+
+    cards_by_id = {card.id: card for card in cards}
+    ordered_ids = list(dict.fromkeys(payload.ordered_ids))
+    if set(ordered_ids) != set(cards_by_id.keys()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ordered_ids must contain every dashboard news card exactly once",
+        )
+
+    # Assign fresh sequential slots (1..n) following the requested order. Use a large
+    # temporary offset first so the unique slot ordering never collides mid-update.
+    for index, news_id in enumerate(ordered_ids):
+        cards_by_id[news_id].slot = 10_000 + index
+    db.flush()
+    for index, news_id in enumerate(ordered_ids):
+        cards_by_id[news_id].slot = index + 1
+    db.commit()
+
+    refreshed = db.scalars(
+        select(DashboardNewsCard).order_by(DashboardNewsCard.slot.asc(), DashboardNewsCard.id.asc())
+    ).all()
+    return [DashboardNewsCardOut.model_validate(card) for card in refreshed]
 
 
 @router.patch("/api/auth/dashboard-news/{news_id}", response_model=DashboardNewsCardOut)

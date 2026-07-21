@@ -35,9 +35,11 @@ export type StoryNarratorModelId =
   | 'deepseek/deepseek-r1-0528'
   | 'mistralai/mistral-nemo'
   | 'aion-labs/aion-2.0'
+  | 'aion-labs/aion-3.0'
   | 'minimax/minimax-m2-her'
   | 'google/gemini-3.1-flash-lite'
   | 'anthropic/claude-sonnet-4.6'
+  | 'deepcogito/cogito-v2.1-671b'
   | 'google/gemini-2.5-pro'
   | 'google/gemini-3.1-pro-preview'
   // Subscription-only narrator models (gated by an active subscription / admin test).

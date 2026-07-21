@@ -170,6 +170,8 @@ STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS = (5, 6, 8, 10, 10)
 STORY_TURN_COST_GLM47_FLASH_TIERS = (4, 4, 4, 5, 5)
 STORY_TURN_COST_GLM47_TIERS = (6, 7, 8, 10, 10)
 STORY_TURN_COST_AION_TIERS = (6, 8, 10, 16, 28)
+STORY_TURN_COST_AION3_TIERS = (8, 10, 14, 22, 22)
+STORY_TURN_COST_COGITO_TIERS = (7, 9, 12, 18, 18)
 STORY_TURN_COST_MINIMAX_M2_HER_TIERS = (6, 8, 10, 16, 28)
 STORY_TURN_COST_QWEN_TIERS = (6, 8, 10, 16, 28)
 STORY_TURN_COST_GLM5_TIERS = (6, 8, 10, 14, 14)
@@ -192,6 +194,8 @@ STORY_LLM_MODEL_DEEPSEEK_V4_PRO = "deepseek/deepseek-v4-pro"
 STORY_LLM_MODEL_DEEPSEEK_R1 = "deepseek/deepseek-r1-0528"
 STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
 STORY_LLM_MODEL_AION_2 = "aion-labs/aion-2.0"
+STORY_LLM_MODEL_AION_3 = "aion-labs/aion-3.0"
+STORY_LLM_MODEL_COGITO = "deepcogito/cogito-v2.1-671b"
 STORY_LLM_MODEL_MINIMAX_M2_HER = "minimax/minimax-m2-her"
 STORY_LLM_MODEL_GEMINI_31_FLASH_LITE = "google/gemini-3.1-flash-lite"
 STORY_LLM_MODEL_CLAUDE_SONNET_46 = "anthropic/claude-sonnet-4.6"
@@ -229,6 +233,8 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_DEEPSEEK_R1,
     STORY_LLM_MODEL_MISTRAL_NEMO,
     STORY_LLM_MODEL_AION_2,
+    STORY_LLM_MODEL_AION_3,
+    STORY_LLM_MODEL_COGITO,
     STORY_LLM_MODEL_MINIMAX_M2_HER,
     STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
     STORY_LLM_MODEL_CLAUDE_SONNET_46,
@@ -306,6 +312,8 @@ STORY_MODEL_SAMPLING_PROFILES: dict[str, dict[str, float]] = {
     STORY_LLM_MODEL_DEEPSEEK_R1: {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_MISTRAL_NEMO: {"temperature": 0.78, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_AION_2: {"temperature": 0.80, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.08},
+    STORY_LLM_MODEL_AION_3: {"temperature": 0.80, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.08},
+    STORY_LLM_MODEL_COGITO: {"temperature": 0.80, "top_r": 0.92, "top_k": 40, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_MINIMAX_M2_HER: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_GEMINI_31_FLASH_LITE: {"temperature": 1.00, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.00},
     STORY_LLM_MODEL_CLAUDE_SONNET_46: {"temperature": 0.90, "top_r": 1.00, "top_k": 0, "repetition_penalty": 1.00},
@@ -611,6 +619,10 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
         return STORY_TURN_COST_GLM52_TIERS
     if normalized_model_name == STORY_LLM_MODEL_AION_2:
         return STORY_TURN_COST_AION_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_AION_3:
+        return STORY_TURN_COST_AION3_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_COGITO:
+        return STORY_TURN_COST_COGITO_TIERS
     if normalized_model_name == STORY_LLM_MODEL_MINIMAX_M2_HER:
         return STORY_TURN_COST_MINIMAX_M2_HER_TIERS
     if normalized_model_name == STORY_LLM_MODEL_GLM5:
@@ -668,7 +680,7 @@ def normalize_story_llm_model(value: str | None) -> str:
                 "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-5.2, z-ai/glm-4.7-flash, z-ai/glm-4.7, "
                 "deepseek/deepseek-v3.2, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v4-pro, "
                 "deepseek/deepseek-r1-0528, mistralai/mistral-nemo, "
-                "aion-labs/aion-2.0, minimax/minimax-m2-her, google/gemini-3.1-flash-lite, "
+                "aion-labs/aion-2.0, aion-labs/aion-3.0, deepcogito/cogito-v2.1-671b, minimax/minimax-m2-her, google/gemini-3.1-flash-lite, "
                 "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, google/gemini-3.1-pro-preview"
             ),
         )

@@ -230,13 +230,12 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
                   placeItems: 'center',
                   textDecoration: 'none',
                   borderRadius: '13px',
-                  border: 'var(--morius-border-width) solid rgba(255,255,255,0.1)',
-                  backgroundColor: 'rgba(255,255,255,0.025)',
-                  transition: 'border-color 160ms ease, background-color 160ms ease, transform 160ms ease',
+                  border: 'none',
+                  backgroundColor: 'rgba(255,255,255,0.04)',
+                  transition: 'background-color 160ms ease, transform 160ms ease',
                   '& svg': { width: 25, height: 25 },
                   '&:hover': {
-                    borderColor: 'color-mix(in srgb, var(--morius-accent) 56%, rgba(255,255,255,0.1))',
-                    backgroundColor: 'rgba(255,255,255,0.045)',
+                    backgroundColor: 'rgba(255,255,255,0.08)',
                     transform: 'translateY(-1px)',
                   },
                   '&:focus-visible': {

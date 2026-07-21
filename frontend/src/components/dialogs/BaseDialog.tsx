@@ -209,8 +209,11 @@ function BaseDialog({
             width: 34,
             height: 34,
             borderRadius: '999px',
+            border: 'none',
+            backgroundColor: 'transparent',
             color: 'var(--morius-text-secondary)',
             '&:hover': {
+              backgroundColor: 'var(--morius-button-hover)',
               color: 'var(--morius-text-primary)',
             },
           }}

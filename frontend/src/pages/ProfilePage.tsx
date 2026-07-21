@@ -6261,52 +6261,66 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 position: 'relative',
                 scrollMarginTop: 'calc(var(--morius-header-menu-top) + 16px)',
                 overflow: 'hidden',
-                borderRadius: { xs: '16px', md: '20px' },
-                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 34%, var(--morius-card-border))',
+                borderRadius: { xs: '14px', md: '16px' },
+                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 26%, var(--morius-card-border))',
                 background:
-                  'linear-gradient(135deg, color-mix(in srgb, var(--morius-card-bg) 90%, var(--morius-accent) 10%) 0%, color-mix(in srgb, var(--morius-card-bg) 98%, #000 2%) 68%)',
-                boxShadow: '0 18px 48px rgba(0, 0, 0, 0.2)',
-                p: { xs: 1.7, sm: 2.1, md: 2.4 },
+                  'linear-gradient(120deg, color-mix(in srgb, var(--morius-card-bg) 88%, var(--morius-accent) 12%) 0%, color-mix(in srgb, var(--morius-card-bg) 99%, #000 1%) 72%)',
+                p: { xs: 1.35, sm: 1.5, md: 1.65 },
                 mb: { xs: 1.4, lg: 2.2 },
-                '&::before': {
-                  content: '""',
-                  position: 'absolute',
-                  width: { xs: 180, md: 260 },
-                  height: { xs: 180, md: 260 },
-                  top: { xs: -118, md: -168 },
-                  right: { xs: -92, md: '26%' },
-                  borderRadius: '50%',
-                  pointerEvents: 'none',
-                  background: 'radial-gradient(circle, color-mix(in srgb, var(--morius-accent) 20%, transparent) 0%, transparent 70%)',
-                },
               }}
             >
               <Stack
-                direction={{ xs: 'column', md: 'row' }}
-                spacing={{ xs: 1.55, md: 3 }}
-                alignItems={{ xs: 'stretch', md: 'center' }}
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={{ xs: 1.2, sm: 1.8 }}
+                alignItems={{ xs: 'stretch', sm: 'center' }}
                 justifyContent="space-between"
                 sx={{ position: 'relative', zIndex: 1, minWidth: 0 }}
               >
-                <Stack spacing={0.72} sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography
-                    sx={{
-                      color: 'var(--morius-accent)',
-                      fontSize: { xs: '0.68rem', sm: '0.72rem' },
-                      lineHeight: 1.2,
-                      fontWeight: 900,
-                      letterSpacing: '0.14em !important',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Реферальная программа
-                  </Typography>
+                <Stack spacing={0.5} sx={{ minWidth: 0, flex: 1 }}>
+                  <Stack direction="row" spacing={0.7} alignItems="center" flexWrap="wrap" useFlexGap sx={{ minWidth: 0 }}>
+                    <Typography
+                      sx={{
+                        color: 'var(--morius-accent)',
+                        fontSize: { xs: '0.64rem', sm: '0.68rem' },
+                        lineHeight: 1.2,
+                        fontWeight: 900,
+                        letterSpacing: '0.13em !important',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Реферальная программа
+                    </Typography>
+                    {referralSummary?.referral_pending_purchase ? (
+                      <Box
+                        sx={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 0.4,
+                          px: 0.75,
+                          py: 0.35,
+                          borderRadius: '999px',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, transparent)',
+                        }}
+                      >
+                        <Box sx={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: 'var(--morius-accent)', flexShrink: 0 }} />
+                        <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.68rem', lineHeight: 1.2, fontWeight: 750 }}>
+                          Бонус{' '}
+                          <SoulAmount
+                            amount={`+${Math.max(0, referralSummary.pending_bonus_amount || 500).toLocaleString('ru-RU')}`}
+                            iconSize={12}
+                            fontSize="0.68rem"
+                          />{' '}
+                          ждёт покупку
+                        </Typography>
+                      </Box>
+                    ) : null}
+                  </Stack>
                   <Typography
                     sx={{
                       color: 'var(--morius-title-text)',
                       fontFamily: moriusThemeTokens.fonts.heading,
-                      fontSize: { xs: '1.3rem', sm: '1.55rem', md: '1.72rem' },
-                      lineHeight: 1.16,
+                      fontSize: { xs: '1.18rem', sm: '1.34rem', md: '1.46rem' },
+                      lineHeight: 1.14,
                       fontWeight: 800,
                     }}
                   >
@@ -6314,93 +6328,55 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   </Typography>
                   <Typography
                     sx={{
-                      maxWidth: 700,
                       color: 'var(--morius-text-secondary)',
-                      fontSize: { xs: '0.82rem', sm: '0.9rem' },
-                      lineHeight: 1.55,
+                      fontSize: { xs: '0.78rem', sm: '0.82rem' },
+                      lineHeight: 1.45,
                     }}
                   >
-                    Поделись ссылкой. После первой успешной покупки солов друг получит{' '}
-                    <SoulAmount amount="+500" iconSize={15} fontSize="0.82rem" />, и тебе начислим{' '}
-                    <SoulAmount amount="+500" iconSize={15} fontSize="0.82rem" />.
+                    Поделись ссылкой — после первой покупки друга вы оба получите по{' '}
+                    <SoulAmount amount="500" iconSize={14} fontSize="0.8rem" />.
                   </Typography>
-                  {referralSummary?.referral_pending_purchase ? (
-                    <Box
-                      sx={{
-                        alignSelf: 'flex-start',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 0.55,
-                        maxWidth: '100%',
-                        px: 0.95,
-                        py: 0.55,
-                        borderRadius: '999px',
-                        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 36%, transparent)',
-                        backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, transparent)',
-                      }}
-                    >
-                      <Box sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--morius-accent)', flexShrink: 0 }} />
-                      <Typography
-                        sx={{
-                          minWidth: 0,
-                          color: 'var(--morius-text-primary)',
-                          fontSize: { xs: '0.7rem', sm: '0.76rem' },
-                          lineHeight: 1.3,
-                          fontWeight: 750,
-                        }}
-                      >
-                        Твой бонус{' '}
-                        <SoulAmount
-                          amount={`+${Math.max(0, referralSummary.pending_bonus_amount || 500).toLocaleString('ru-RU')}`}
-                          iconSize={14}
-                          fontSize="0.74rem"
-                        />{' '}
-                        ждет первую покупку
-                      </Typography>
-                    </Box>
-                  ) : null}
                 </Stack>
 
-                <Stack spacing={0.82} sx={{ width: { xs: '100%', md: 320 }, minWidth: 0, flexShrink: 0 }}>
+                <Stack spacing={0.6} sx={{ width: { xs: '100%', sm: 250 }, minWidth: 0, flexShrink: 0 }}>
                   {isReferralSummaryLoading && !referralSummary ? (
-                    <Skeleton variant="rounded" height={46} sx={{ borderRadius: '12px', bgcolor: 'rgba(184, 201, 226, 0.16)' }} />
+                    <Skeleton variant="rounded" height={42} sx={{ borderRadius: '11px', bgcolor: 'rgba(184, 201, 226, 0.16)' }} />
                   ) : (
                     <Button
                       onClick={() => void handleCopyReferralLink()}
                       disabled={!referralLink}
                       sx={{
                         width: '100%',
-                        minHeight: 46,
+                        minHeight: 42,
                         px: 1.4,
-                        borderRadius: '12px',
+                        borderRadius: '11px',
                         justifyContent: 'center',
                         gap: 0.8,
                         textTransform: 'none',
-                        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
-                        backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-elevated-bg))',
+                        border: 'none',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-elevated-bg))',
                         color: 'var(--morius-title-text)',
-                        fontSize: '0.84rem',
+                        fontSize: '0.82rem',
                         fontWeight: 850,
                         '&:hover': {
-                          borderColor: 'color-mix(in srgb, var(--morius-accent) 70%, var(--morius-card-border))',
-                          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 26%, var(--morius-elevated-bg))',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 30%, var(--morius-elevated-bg))',
                         },
                       }}
                     >
-                      <Box component="img" src={icons.communityShare} alt="" sx={{ width: 17, height: 17, flexShrink: 0 }} />
+                      <Box component="img" src={icons.communityShare} alt="" sx={{ width: 16, height: 16, flexShrink: 0 }} />
                       <Box component="span">{isReferralCopied ? 'Ссылка скопирована' : 'Скопировать ссылку'}</Box>
                     </Button>
                   )}
                   <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ px: 0.2 }}>
-                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem', lineHeight: 1.3 }}>
+                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.73rem', lineHeight: 1.3 }}>
                       Оплаченных приглашений
                     </Typography>
-                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.88rem', lineHeight: 1, fontWeight: 900 }}>
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.86rem', lineHeight: 1, fontWeight: 900 }}>
                       {Math.max(0, referralSummary?.paid_referrals_count ?? 0).toLocaleString('ru-RU')}
                     </Typography>
                   </Stack>
                   {referralError ? (
-                    <Typography sx={{ color: 'var(--morius-danger, #ef6c6c)', fontSize: '0.74rem', lineHeight: 1.35 }}>
+                    <Typography sx={{ color: 'var(--morius-danger, #ef6c6c)', fontSize: '0.72rem', lineHeight: 1.35 }}>
                       {referralError}
                     </Typography>
                   ) : null}

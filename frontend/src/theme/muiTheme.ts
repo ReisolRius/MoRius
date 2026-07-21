@@ -92,9 +92,10 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
             width: `${moriusThemeTokens.layout.actionButtonSize}px`,
             height: `${moriusThemeTokens.layout.actionButtonSize}px`,
             borderRadius: moriusThemeTokens.radii.button,
-            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
+            // Buttons are borderless by design: rely on a light background tint for affordance.
+            border: 'none',
             color: colors.textSecondary,
-            backgroundColor: colors.appBorder === 'transparent' ? colors.appElevated : colors.appElevated,
+            backgroundColor: colors.appElevated,
             '&:hover': {
               backgroundColor: colors.buttonHover,
               color: colors.titleText,
@@ -115,18 +116,17 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
             borderRadius: moriusThemeTokens.radii.button,
             minHeight: `${moriusThemeTokens.layout.actionButtonSize}px`,
             padding: '10px 20px',
-            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
+            // Buttons are borderless by design: rely on a light background tint for affordance.
+            border: 'none',
             backgroundColor: colors.appElevated,
             color: colors.accent,
             '&:hover': {
-            backgroundColor: colors.buttonHover,
+              backgroundColor: colors.buttonHover,
               color: colors.titleText,
-              borderColor: 'rgba(255,255,255,0.18)',
             },
             '&:active': {
-            backgroundColor: colors.buttonActive,
+              backgroundColor: colors.buttonActive,
               color: colors.titleText,
-              borderColor: 'rgba(255,255,255,0.18)',
             },
           },
         },

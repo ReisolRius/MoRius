@@ -1249,6 +1249,8 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "deepseek/deepseek-r1-0528": STORY_SERVICE_TEXT_MODEL,
     "mistralai/mistral-nemo": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
+    "aion-labs/aion-3.0": STORY_SERVICE_TEXT_MODEL,
+    "deepcogito/cogito-v2.1-671b": STORY_SERVICE_TEXT_MODEL,
     "minimax/minimax-m2-her": STORY_SERVICE_TEXT_MODEL,
     "anthropic/claude-sonnet-4.6": STORY_SERVICE_TEXT_MODEL,
     "google/gemini-2.5-pro": STORY_SERVICE_TEXT_MODEL,
@@ -1284,6 +1286,7 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "deepseek/deepseek-chat-v3-0324": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
     "mistralai/mistral-nemo": STORY_POLZA_PROVIDER_AZURE,
     "aion-labs/aion-2.0": STORY_POLZA_PROVIDER_AION_LABS,
+    "aion-labs/aion-3.0": STORY_POLZA_PROVIDER_AION_LABS,
     "minimax/minimax-m2-her": STORY_POLZA_PROVIDER_MINIMAX,
     "google/gemini-3.1-flash-lite": STORY_POLZA_PROVIDER_ROUTERAI,
     "anthropic/claude-sonnet-4.6": STORY_POLZA_PROVIDER_MIE,
@@ -1302,6 +1305,8 @@ STORY_PAID_MODEL_HINTS = {
     "deepseek/deepseek-r1-0528",
     "mistralai/mistral-nemo",
     "aion-labs/aion-2.0",
+    "aion-labs/aion-3.0",
+    "deepcogito/cogito-v2.1-671b",
     "minimax/minimax-m2-her",
     "google/gemini-3.1-flash-lite",
     "anthropic/claude-sonnet-4.6",
@@ -1322,6 +1327,10 @@ STORY_REPETITION_PENALTY_DISABLED_MODEL_IDS: set[str] = {
 }
 STORY_DISABLE_THINKING_MODEL_IDS: set[str] = {
     "aion-labs/aion-2.0",
+    "aion-labs/aion-3.0",
+    # Cogito is a hybrid reasoning model — keep its reasoning internal so it never leaks
+    # into the rendered scene and breaks the [[NPC:...]] markup.
+    "deepcogito/cogito-v2.1-671b",
     "minimax/minimax-m2-her",
     "google/gemini-3.1-flash-lite",
     "google/gemini-2.5-pro",
@@ -1574,6 +1583,15 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
     "aion-labs/aion-2.0": (
         "Твоя сила — логика и связность: строй продуманные сцены, где причины и следствия выверены.",
         "Глубину создавай через поведение, подтекст и последовательность характеров, а не через длинные объяснения.",
+    ),
+    "aion-labs/aion-3.0": (
+        "Твоя сила — логика и связность: строй продуманные сцены, где причины и следствия выверены.",
+        "Глубину создавай через поведение, подтекст и последовательность характеров, а не через длинные объяснения.",
+    ),
+    "deepcogito/cogito-v2.1-671b": (
+        "Твоя сила — рассуждение и связность: продумывай причинность внутри и отдавай в сцену только чистую прозу.",
+        "Глубину создавай через поведение, подтекст и последовательность характеров, а не через объяснения.",
+        "Никаких следов рассуждений, служебных пометок или markdown — только живая сцена обычным текстом.",
     ),
     "minimax/minimax-m2-her": (
         "Ты мастер живого диалога и устойчивых характеров — давай выразительные многоходовые сцены с яркими голосами NPC.",

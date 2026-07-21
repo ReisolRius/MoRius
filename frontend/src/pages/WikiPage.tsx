@@ -370,7 +370,7 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
                   minHeight: 40,
                   px: 1.6,
                   borderRadius: '10px',
-                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                  border: 'none',
                   backgroundColor: 'var(--morius-elevated-bg)',
                   color: 'var(--morius-title-text)',
                   textTransform: 'none',

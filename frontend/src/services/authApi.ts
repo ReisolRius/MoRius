@@ -1498,6 +1498,23 @@ export async function listDashboardNews(payload: { token: string }): Promise<Das
   )
 }
 
+export async function reorderDashboardNews(payload: {
+  token: string
+  ordered_ids: number[]
+}): Promise<DashboardNewsCard[]> {
+  return requestJson<DashboardNewsCard[]>(
+    '/api/auth/dashboard-news/reorder',
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({ ordered_ids: payload.ordered_ids }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
 export async function updateDashboardNews(payload: {
   token: string
   news_id: number

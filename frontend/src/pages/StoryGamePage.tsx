@@ -922,6 +922,8 @@ const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, n
 const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [4, 4, 4, 5, 5]
 const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [6, 7, 8, 10, 10]
 const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
+const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 22, 22]
+const STORY_TURN_COST_COGITO_TIERS: readonly [number, number, number, number, number] = [7, 9, 12, 18, 18]
 const STORY_TURN_COST_MINIMAX_M2_HER_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
 const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 14, 14]
 const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [7, 9, 10, 14, 14]
@@ -1204,6 +1206,12 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 50,
     storyTopR: 0.92,
   },
+  'aion-labs/aion-3.0': {
+    storyTemperature: 0.8,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.92,
+  },
   // Ролевой специалист: самая выразительная и живая подача.
   'minimax/minimax-m2-her': {
     storyTemperature: 0.95,
@@ -1224,6 +1232,13 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyRepetitionPenalty: 1.0,
     storyTopK: 0,
     storyTopR: 1,
+  },
+  // Рассуждающая модель: умеренная температура, аккуратная связность.
+  'deepcogito/cogito-v2.1-671b': {
+    storyTemperature: 0.8,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 40,
+    storyTopR: 0.92,
   },
   // Gemini Pro получает temperature/top-p/top-k без repetition penalty.
   'google/gemini-2.5-pro': {
@@ -1409,6 +1424,19 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
+    id: 'aion-labs/aion-3.0',
+    title: 'Aion 3.0',
+    description:
+      'Новое поколение AionLabs: ещё более выверенная логика и связность, аккуратная причинность и цельность мира для продуманных, последовательных историй.',
+    portraitSrc: narratorVelesPortrait,
+    portraitAlt: 'Aion 3.0',
+    stats: [
+      { label: 'Интеллект', value: 5 },
+      { label: 'Скорость', value: 3 },
+      { label: 'Глубина', value: 5 },
+    ],
+  },
+  {
     id: 'minimax/minimax-m2-her',
     title: 'MiniMax M2-her',
     description:
@@ -1473,9 +1501,23 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Глубина', value: 5 },
     ],
   },
+  {
+    id: 'deepcogito/cogito-v2.1-671b',
+    title: 'Deep Cogito',
+    description:
+      'Крупная рассуждающая модель: сильная логика, аккуратная причинность и связность мира. Думает внутри, а в сцену отдаёт чистую прозу без следов рассуждений.',
+    portraitSrc: narratorVelesPortrait,
+    portraitAlt: 'Deep Cogito',
+    stats: [
+      { label: 'Интеллект', value: 5 },
+      { label: 'Скорость', value: 3 },
+      { label: 'Глубина', value: 4 },
+    ],
+  },
 ].filter(
   (option): option is StoryNarratorModelOption =>
-    option.id !== 'mistralai/mistral-nemo',
+    // GLM 4.7 Flash is a service/processing model only — never offered in the narrator pool.
+    option.id !== 'mistralai/mistral-nemo' && option.id !== 'z-ai/glm-4.7-flash',
 )
 
 // Subscription-only narrator models, shown as a separate labelled group ("Модели по подписке")
@@ -1611,7 +1653,7 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите модель рассказчика. GLM 4.7 Flash и DeepSeek V3/V3.2 — экономичные варианты от 4 единиц; Gemini 3.1 Flash Lite — быстрый и точный; старшие модели стоят по таблице.',
+    'Выберите модель рассказчика. DeepSeek V3/V3.2 — экономичные варианты от 4 единиц; Gemini 3.1 Flash Lite — быстрый и точный; старшие модели стоят по таблице.',
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
@@ -5636,6 +5678,41 @@ function clampStoryContextLimit(
   )
 }
 
+// Fixed breakpoints for the context-limit slider. Costs are tiered exactly at these
+// thresholds, so free-sliding between them adds no value — snapping to the breakpoints
+// (6000, 16000, 32000, 64000 and, where the model allows, its extended max) is clearer.
+function getStoryContextLimitMarks(maxValue: number): { value: number }[] {
+  const breakpoints = [
+    STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX,
+    STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX,
+    STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX,
+    STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX,
+    STORY_CONTEXT_LIMIT_GLM51_MAX,
+  ]
+  const values = new Set<number>([STORY_CONTEXT_LIMIT_MIN])
+  for (const breakpoint of breakpoints) {
+    if (breakpoint >= STORY_CONTEXT_LIMIT_MIN && breakpoint <= maxValue) {
+      values.add(breakpoint)
+    }
+  }
+  values.add(maxValue)
+  return Array.from(values)
+    .sort((a, b) => a - b)
+    .map((value) => ({ value }))
+}
+
+// Snap an arbitrary context-limit value to the nearest allowed breakpoint mark.
+function snapStoryContextLimitToMark(value: number, maxValue: number): number {
+  const marks = getStoryContextLimitMarks(maxValue)
+  let closest = marks[0]?.value ?? STORY_CONTEXT_LIMIT_MIN
+  for (const mark of marks) {
+    if (Math.abs(mark.value - value) < Math.abs(closest - value)) {
+      closest = mark.value
+    }
+  }
+  return closest
+}
+
 function clampStoryResponseMaxTokens(value: number): number {
   if (!Number.isFinite(value)) {
     return STORY_DEFAULT_RESPONSE_MAX_TOKENS
@@ -5664,6 +5741,12 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   }
   if (modelId === 'aion-labs/aion-2.0') {
     return STORY_TURN_COST_AION_TIERS
+  }
+  if (modelId === 'aion-labs/aion-3.0') {
+    return STORY_TURN_COST_AION3_TIERS
+  }
+  if (modelId === 'deepcogito/cogito-v2.1-671b') {
+    return STORY_TURN_COST_COGITO_TIERS
   }
   if (modelId === 'minimax/minimax-m2-her') {
     return STORY_TURN_COST_MINIMAX_M2_HER_TIERS
@@ -5702,12 +5785,6 @@ function getStoryTurnCostTooltipText(): string {
   return [
     'Стоимость хода зависит от рассказчика и использованного контекста, но не выше выбранного лимита:',
     '',
-    'GLM 4.7 Flash:',
-    'до 6000 — 4 ед.',
-    '6001–16000 — 4 ед.',
-    '16001–32000 — 4 ед.',
-    '32001–64000 — 5 ед.',
-    '',
     'DeepSeek V3/V3.2:',
     'до 6000 — 4 ед.',
     '6001–16000 — 5 ед.',
@@ -5738,6 +5815,18 @@ function getStoryTurnCostTooltipText(): string {
     '16001–32000 — 10 ед.',
     '32001–64000 — 16 ед.',
     '64001–108000 — 28 ед.',
+    '',
+    'Aion 3.0:',
+    'до 6000 — 8 ед.',
+    '6001–16000 — 10 ед.',
+    '16001–32000 — 14 ед.',
+    '32001–64000 — 22 ед.',
+    '',
+    'Deep Cogito:',
+    'до 6000 — 7 ед.',
+    '6001–16000 — 9 ед.',
+    '16001–32000 — 12 ед.',
+    '32001–64000 — 18 ед.',
     '',
     'Gemini 3.1 Flash Lite:',
     'до 6000 — 7 ед.',
@@ -5781,12 +5870,13 @@ function getStoryTurnCostTooltipText(): string {
 
 function StoryTurnCostTooltipContent() {
   const rows = [
-    { title: 'GLM 4.7 Flash', values: ['4', '4', '4', '5', '—'] },
     { title: 'DeepSeek V3/V3.2', values: ['4', '5', '6', '7', '—'] },
     { title: 'DeepSeek V4 Pro / R1', values: ['5', '6', '8', '10', '—'] },
     { title: 'GLM 4.7', values: ['6', '7', '8', '10', '—'] },
     { title: 'GLM 5.0', values: ['6', '8', '10', '14', '—'] },
     { title: 'AionLabs', values: ['6', '8', '10', '16', '28'] },
+    { title: 'Aion 3.0', values: ['8', '10', '14', '22', '—'] },
+    { title: 'Deep Cogito', values: ['7', '9', '12', '18', '—'] },
     { title: 'Gemini 3.1 Flash Lite', values: ['7', '9', '10', '14', '—'] },
     { title: 'GLM 5.1', values: ['8', '10', '14', '20', '35'] },
     { title: 'GLM 5.2', values: ['8', '10', '14', '20', '—'] },
@@ -8472,7 +8562,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const normalizedRuntimeStoryModel = normalizeStoryNarratorModelId(runtimeGame.story_llm_model)
     const override = storySettingsOverridesRef.current[game.id]
     const effectiveContextModel = override ? normalizeStoryNarratorModelId(override.storyLlmModel) : normalizedRuntimeStoryModel
-    const normalizedContextLimit = clampStoryContextLimit(game.context_limit_chars, effectiveContextModel, subscriptionMemoryCap)
+    const clampedContextLimit = clampStoryContextLimit(game.context_limit_chars, effectiveContextModel, subscriptionMemoryCap)
+    // The slider is breakpoint-based, so keep the active value pinned to a valid breakpoint.
+    const normalizedContextLimit = snapStoryContextLimitToMark(
+      clampedContextLimit,
+      getStoryContextLimitMax(effectiveContextModel, subscriptionMemoryCap),
+    )
     setContextLimitChars(normalizedContextLimit)
     setContextLimitDraft(String(normalizedContextLimit))
     const runtimeSamplingDefaults = getStoryNarratorSamplingDefaults(normalizedRuntimeStoryModel)
@@ -9344,6 +9439,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     contextLimitChars > 0 ? Math.min(100, (cardsContextCharsUsed / contextLimitChars) * 100) : 100
   const plotContextOverflowTokens = Math.max(rawPlotContextTokensUsed - plotBudgetTokens, 0)
   const currentStoryContextLimitMax = getStoryContextLimitMax(storyLlmModel, subscriptionMemoryCap)
+  const contextLimitMarks = useMemo(
+    () => getStoryContextLimitMarks(currentStoryContextLimitMax),
+    [currentStoryContextLimitMax],
+  )
   const recommendedContextLimitForBudget = useMemo(() => {
     if (plotContextOverflowTokens <= 0) {
       return contextLimitChars
@@ -23353,7 +23452,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           value={contextLimitChars}
                           min={STORY_CONTEXT_LIMIT_MIN}
                           max={currentStoryContextLimitMax}
-                          step={STORY_CONTEXT_LIMIT_STEP}
+                          step={null}
+                          marks={contextLimitMarks}
                           onChange={handleContextLimitSliderChange}
                           onChangeCommitted={(event, value) => {
                             void handleContextLimitSliderCommit(event, value)
@@ -23370,6 +23470,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             },
                             '& .MuiSlider-track': { height: 5, border: 'none' },
                             '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
+                            '& .MuiSlider-mark': {
+                              width: 3,
+                              height: 3,
+                              borderRadius: '50%',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-text-secondary) 60%, transparent)',
+                            },
+                            '& .MuiSlider-markActive': {
+                              backgroundColor: 'color-mix(in srgb, #fff 70%, transparent)',
+                            },
                           }}
                         />
                         <Stack direction="row" justifyContent="space-between">
@@ -24185,7 +24294,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <Box data-tour-id="story-settings-narrator-panel" sx={{ pb: 0.9 }}>
                         <SettingsSectionLabel
                           text="Выбор рассказчика"
-                          tooltip={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны DeepSeek V4 Pro, DeepSeek R1, GLM 5.1, GLM 5.2, AionLabs, Gemini 2.5 Pro, Gemini 3.1 Pro и Claude Sonnet 4.6.`}
+                          tooltip={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны DeepSeek V4 Pro, DeepSeek R1, GLM 5.1, GLM 5.2, AionLabs, Aion 3.0, Deep Cogito, Gemini 2.5 Pro, Gemini 3.1 Pro и Claude Sonnet 4.6.`}
                         />
                         <FormControl fullWidth size="small" sx={{ mt: 0.85 }}>
                           <Select
@@ -24652,7 +24761,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               value={contextLimitChars}
                               min={STORY_CONTEXT_LIMIT_MIN}
                               max={currentStoryContextLimitMax}
-                              step={STORY_CONTEXT_LIMIT_STEP}
+                              step={null}
+                              marks={contextLimitMarks}
                               onChange={handleContextLimitSliderChange}
                               onChangeCommitted={(event, value) => {
                                 void handleContextLimitSliderCommit(event, value)
@@ -24672,6 +24782,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 '& .MuiSlider-rail': {
                                   opacity: 1,
                                   backgroundColor: sliderRailColor,
+                                },
+                                '& .MuiSlider-mark': {
+                                  width: 3,
+                                  height: 3,
+                                  borderRadius: '50%',
+                                  backgroundColor: 'color-mix(in srgb, var(--morius-text-secondary) 55%, transparent)',
+                                },
+                                '& .MuiSlider-markActive': {
+                                  backgroundColor: 'color-mix(in srgb, #fff 70%, transparent)',
                                 },
                               }}
                             />
@@ -25195,7 +25314,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             value={contextLimitChars}
                             min={STORY_CONTEXT_LIMIT_MIN}
                             max={currentStoryContextLimitMax}
-                            step={STORY_CONTEXT_LIMIT_STEP}
+                            step={null}
+                            marks={contextLimitMarks}
                             onChange={handleContextLimitSliderChange}
                             onChangeCommitted={(event, value) => {
                               void handleContextLimitSliderCommit(event, value)
@@ -25213,6 +25333,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               '& .MuiSlider-rail': {
                                 opacity: 1,
                                 backgroundColor: sliderRailColor,
+                              },
+                              '& .MuiSlider-mark': {
+                                width: 3,
+                                height: 3,
+                                borderRadius: '50%',
+                                backgroundColor: 'color-mix(in srgb, var(--morius-text-secondary) 55%, transparent)',
+                              },
+                              '& .MuiSlider-markActive': {
+                                backgroundColor: 'color-mix(in srgb, #fff 70%, transparent)',
                               },
                             }}
                           />

@@ -603,6 +603,11 @@ class DashboardNewsCardUpdateRequest(BaseModel):
     date_label: str = Field(min_length=1, max_length=80)
 
 
+class DashboardNewsReorderRequest(BaseModel):
+    # Full list of news card ids in the desired display order (top to bottom).
+    ordered_ids: list[int] = Field(min_length=1, max_length=100)
+
+
 class WikiArticleImageInput(BaseModel):
     # Client-side placeholder key used inside the body ([[image:<key>]]).
     key: str = Field(min_length=1, max_length=64)

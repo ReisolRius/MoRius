@@ -67,9 +67,8 @@ function CharacterShowcaseCard({
         sx={{
           position: 'relative',
           width: '100%',
-          height: '61%',
           minHeight: 250,
-          flex: '0 0 61%',
+          flex: '1 1 auto',
           overflow: 'hidden',
           background:
             'linear-gradient(160deg, #4a3a66, #2a2142 68%, #15101f)',
@@ -140,9 +139,9 @@ function CharacterShowcaseCard({
       <Stack
         spacing={1}
         sx={{
-          flex: 1,
+          flex: '0 0 auto',
           px: { xs: 1.7, md: 2 },
-          py: { xs: 1.55, md: 1.8 },
+          py: { xs: 1.35, md: 1.5 },
           background: 'var(--morius-card-gradient)',
           borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)',
         }}
@@ -156,14 +155,13 @@ function CharacterShowcaseCard({
             WebkitLineClamp: descriptionLineClamp,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
-            minHeight: '4.2em',
           }}
         >
           {resolvedDescription || 'Описание пока не добавлено.'}
         </Typography>
 
         {shouldRenderCommunityFooter ? (
-          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1.2} sx={{ mt: 'auto', pt: 1.25, borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)', minWidth: 0 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1.2} sx={{ pt: 1.1, borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)', minWidth: 0 }}>
             <Box
               sx={{
                 minWidth: 0,

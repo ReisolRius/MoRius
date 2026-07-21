@@ -90,6 +90,7 @@ import {
   updateCurrentUserAvatar,
   updateCurrentUserProfile,
   updateDashboardNews,
+  reorderDashboardNews,
   updateCreatorMonthSlot,
   type CoinTopUpPlan,
   type CreatorCandidate,
@@ -971,6 +972,46 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   }, [loadDashboardNewsSnapshot])
 
   const isDashboardNewsEditor = user.role === 'administrator' || user.role === 'moderator'
+  // Reordering the news plaques is an administrator-only capability.
+  const canReorderDashboardNews = user.role === 'administrator'
+  const [isReorderingDashboardNews, setIsReorderingDashboardNews] = useState(false)
+
+  const handleReorderDashboardNews = useCallback(
+    async (newsId: number, direction: 'up' | 'down') => {
+      if (!canReorderDashboardNews || isReorderingDashboardNews) {
+        return
+      }
+      const currentIndex = dashboardNews.findIndex((item) => item.id === newsId)
+      if (currentIndex === -1) {
+        return
+      }
+      const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+      if (targetIndex < 0 || targetIndex >= dashboardNews.length) {
+        return
+      }
+      const reordered = [...dashboardNews]
+      const [moved] = reordered.splice(currentIndex, 1)
+      reordered.splice(targetIndex, 0, moved)
+      // Optimistic update, then persist the new order for every player.
+      setDashboardNews(reordered)
+      setIsReorderingDashboardNews(true)
+      setDashboardNewsError('')
+      try {
+        const updated = await reorderDashboardNews({
+          token: authToken,
+          ordered_ids: reordered.map((item) => item.id),
+        })
+        setDashboardNews(updated)
+      } catch (error) {
+        setDashboardNewsError(error instanceof Error ? error.message : 'Не удалось изменить порядок новостей')
+        void loadDashboardNewsSnapshot()
+      } finally {
+        setIsReorderingDashboardNews(false)
+      }
+    },
+    [authToken, canReorderDashboardNews, dashboardNews, isReorderingDashboardNews, loadDashboardNewsSnapshot],
+  )
+
   const creatorMonthSlots = useMemo(() => {
     const bySlot = new Map((creatorMonth?.slots ?? []).map((item) => [item.slot, item]))
     return [1, 2, 3].map((slot) => bySlot.get(slot) ?? {
@@ -2721,9 +2762,11 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                           }}
                         />
                       ))
-                    : dashboardNews.map((item) => {
+                    : dashboardNews.map((item, newsIndex) => {
                         const isSelected = item.id === selectedDashboardNews?.id
                         const isUpdateCategory = item.category.toLowerCase().includes('обнов')
+                        const canMoveUp = canReorderDashboardNews && newsIndex > 0
+                        const canMoveDown = canReorderDashboardNews && newsIndex < dashboardNews.length - 1
                         return (
                           <ButtonBase
                             key={item.id}
@@ -2752,22 +2795,11 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                               background: isSelected
                                 ? 'color-mix(in srgb, var(--accent, #4c8dff) 11%, transparent)'
                                 : 'transparent',
-                              backdropFilter: 'blur(6px)',
                               transition: 'background 200ms ease',
-                              '&::before': isSelected
-                                ? {
-                                    content: '""',
-                                    position: 'absolute',
-                                    top: 0,
-                                    bottom: 0,
-                                    left: 0,
-                                    width: 3,
-                                    backgroundColor: 'var(--accent, #4c8dff)',
-                                  }
-                                : undefined,
                               '&:hover': {
                                 background: isSelected ? 'color-mix(in srgb, var(--accent, #4c8dff) 11%, transparent)' : 'rgba(255,255,255,0.04)',
                               },
+                              '&:hover .morius-news-reorder': { opacity: 1, pointerEvents: 'auto' },
                             }}
                           >
                             {isSelected ? (
@@ -2821,9 +2853,67 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                                 {item.description}
                               </Typography>
                             </Stack>
-                            <SvgIcon sx={{ position: 'absolute', top: '50%', right: 12, zIndex: 1, transform: 'translateY(-50%)', width: 18, height: 18, color: 'var(--morius-muted-text)' }}>
-                              <path d="M8.7 5.3 12.4 9l-3.7 3.7-1.1-1.1L9.4 9 7.6 6.4l1.1-1.1Z" fill="currentColor" />
-                            </SvgIcon>
+                            {canReorderDashboardNews ? null : (
+                              <SvgIcon sx={{ position: 'absolute', top: '50%', right: 12, zIndex: 1, transform: 'translateY(-50%)', width: 18, height: 18, color: 'var(--morius-muted-text)' }}>
+                                <path d="M8.7 5.3 12.4 9l-3.7 3.7-1.1-1.1L9.4 9 7.6 6.4l1.1-1.1Z" fill="currentColor" />
+                              </SvgIcon>
+                            )}
+                            {canReorderDashboardNews ? (
+                              <Box
+                                className="morius-news-reorder"
+                                sx={{
+                                  position: 'absolute',
+                                  top: '50%',
+                                  right: 8,
+                                  zIndex: 3,
+                                  transform: 'translateY(-50%)',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '4px',
+                                  opacity: { xs: 1, xl: 0 },
+                                  pointerEvents: { xs: 'auto', xl: 'none' },
+                                  transition: 'opacity 160ms ease',
+                                }}
+                              >
+                                {([
+                                  { dir: 'up' as const, enabled: canMoveUp, d: 'M12 8l4 5H8l4-5z' },
+                                  { dir: 'down' as const, enabled: canMoveDown, d: 'M12 16l-4-5h8l-4 5z' },
+                                ]).map(({ dir, enabled, d }) => (
+                                  <Box
+                                    key={dir}
+                                    role="button"
+                                    aria-label={dir === 'up' ? 'Поднять новость выше' : 'Опустить новость ниже'}
+                                    aria-disabled={!enabled || isReorderingDashboardNews}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      if (!enabled || isReorderingDashboardNews) {
+                                        return
+                                      }
+                                      void handleReorderDashboardNews(item.id, dir)
+                                    }}
+                                    sx={{
+                                      width: 24,
+                                      height: 20,
+                                      display: 'grid',
+                                      placeItems: 'center',
+                                      borderRadius: '7px',
+                                      cursor: enabled && !isReorderingDashboardNews ? 'pointer' : 'default',
+                                      color: enabled ? 'var(--morius-text-primary)' : 'var(--morius-quiet-text)',
+                                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, black 18%)',
+                                      opacity: enabled ? 1 : 0.4,
+                                      transition: 'background-color 150ms ease',
+                                      '&:hover': enabled && !isReorderingDashboardNews
+                                        ? { backgroundColor: 'color-mix(in srgb, var(--accent, #4c8dff) 30%, var(--morius-card-bg))' }
+                                        : undefined,
+                                    }}
+                                  >
+                                    <SvgIcon sx={{ width: 16, height: 16 }}>
+                                      <path d={d} fill="currentColor" />
+                                    </SvgIcon>
+                                  </Box>
+                                ))}
+                              </Box>
+                            ) : null}
                           </ButtonBase>
                         )
                       })}
@@ -3740,7 +3830,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       <BaseDialog
         open={Boolean(dashboardNewsDialogItem)}
         onClose={handleCloseDashboardNewsDialog}
-        maxWidth="lg"
+        maxWidth={false}
         transitionComponent={DialogTransition}
         rawChildren
         protectTextInputClose={false}
@@ -3754,8 +3844,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           borderRadius: { xs: '20px 20px 0 0', md: '18px' },
           background: 'linear-gradient(180deg, #17171c 0%, #111114 100%)',
           color: 'var(--morius-text-primary)',
-          width: { xs: '100%', md: 'min(1040px, calc(100vw - 48px))' },
-          maxHeight: { xs: '92dvh', md: 'min(860px, 92dvh)' },
+          width: { xs: '100%', md: 'min(1440px, calc(100vw - 56px))' },
+          maxWidth: { md: 'min(1440px, calc(100vw - 56px))' },
+          maxHeight: { xs: '94dvh', md: 'min(940px, 94dvh)' },
           m: { xs: 0, md: 2 },
         }}
       >
@@ -3764,16 +3855,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             sx={{
               position: 'relative',
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1.08fr) minmax(360px, 0.92fr)' },
-              minHeight: { md: 620 },
-              maxHeight: { xs: '92dvh', md: 'min(860px, 92dvh)' },
+              gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1.12fr) minmax(420px, 0.88fr)' },
+              minHeight: { md: 720 },
+              maxHeight: { xs: '94dvh', md: 'min(940px, 94dvh)' },
               overflow: 'hidden',
             }}
           >
             <Box
               sx={{
                 position: 'relative',
-                minHeight: { xs: 258, sm: 340, md: 620 },
+                minHeight: { xs: 258, sm: 340, md: 720 },
                 overflow: 'hidden',
                 background: dashboardNewsDialogAmbient,
               }}
@@ -3808,7 +3899,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 sx={{
                   position: 'absolute',
                   left: { xs: 16, md: 20 },
-                  right: { xs: 64, md: 20 },
+                  right: { xs: 16, md: 20 },
                   bottom: { xs: 16, md: 20 },
                   zIndex: 2,
                   flexWrap: 'wrap',
@@ -3846,36 +3937,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   {dashboardNewsDialogItem.date_label}
                 </Box>
               </Stack>
-              <Box
-                component="button"
-                type="button"
-                aria-label="Закрыть новость"
-                onClick={handleCloseDashboardNewsDialog}
-                sx={{
-                  position: 'absolute',
-                  top: { xs: 14, md: 16 },
-                  right: { xs: 14, md: 16 },
-                  zIndex: 3,
-                  width: 42,
-                  height: 42,
-                  borderRadius: '12px',
-                  border: 'var(--morius-border-width) solid rgba(255,255,255,0.12)',
-                  backgroundColor: 'rgba(9,9,9,0.48)',
-                  color: 'var(--morius-title-text)',
-                  display: 'grid',
-                  placeItems: 'center',
-                  cursor: 'pointer',
-                  backdropFilter: 'blur(10px)',
-                  '&:hover': {
-                    borderColor: 'var(--morius-hover-border)',
-                    backgroundColor: 'rgba(255,255,255,0.07)',
-                  },
-                }}
-              >
-                <SvgIcon sx={{ width: 20, height: 20 }}>
-                  <path d="M6.7 6.7a1 1 0 0 1 1.4 0L12 10.6l3.9-3.9a1 1 0 1 1 1.4 1.4L13.4 12l3.9 3.9a1 1 0 0 1-1.4 1.4L12 13.4l-3.9 3.9a1 1 0 0 1-1.4-1.4l3.9-3.9-3.9-3.9a1 1 0 0 1 0-1.4" fill="currentColor" />
-                </SvgIcon>
-              </Box>
             </Box>
 
             <Box
@@ -3883,9 +3944,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 position: 'relative',
                 overflowY: 'auto',
                 minHeight: 0,
-                maxHeight: { xs: 'calc(92dvh - 258px)', sm: 'calc(92dvh - 340px)', md: 'min(860px, 92dvh)' },
-                px: { xs: 2, sm: 2.5, md: 3.25 },
-                py: { xs: 2.1, md: 3.2 },
+                maxHeight: { xs: 'calc(94dvh - 258px)', sm: 'calc(94dvh - 340px)', md: 'min(940px, 94dvh)' },
+                px: { xs: 2, sm: 2.5, md: 3.6 },
+                py: { xs: 2.1, md: 3.4 },
                 borderLeft: { md: 'var(--morius-border-width) solid var(--morius-divider-color)' },
                 background:
                   'radial-gradient(circle at 18% 0%, rgba(205,166,89,0.08) 0%, transparent 36%), linear-gradient(180deg, rgba(23,23,28,0.98) 0%, rgba(17,17,20,0.98) 100%)',
@@ -3932,17 +3993,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     alignSelf: 'flex-start',
                     mt: 0.5,
                     minHeight: 40,
-                    px: 1.35,
+                    px: 1.6,
                     borderRadius: '12px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: 'rgba(255,255,255,0.03)',
+                    border: 'none',
+                    backgroundColor: 'rgba(255,255,255,0.05)',
                     color: 'var(--morius-text-primary)',
                     font: 'inherit',
                     fontWeight: 800,
                     cursor: 'pointer',
                     '&:hover': {
-                      borderColor: 'var(--morius-hover-border)',
-                      backgroundColor: 'rgba(255,255,255,0.06)',
+                      backgroundColor: 'rgba(255,255,255,0.09)',
                     },
                   }}
                 >

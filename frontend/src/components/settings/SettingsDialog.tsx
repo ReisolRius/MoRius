@@ -888,7 +888,8 @@ function SettingsDialog({
                 width: 42,
                 height: 42,
                 p: 0,
-                borderRadius: 0,
+                borderRadius: '10px',
+                border: 'none',
                 color: 'color-mix(in srgb, var(--morius-title-text) 76%, black 24%)',
                 backgroundColor: 'transparent',
                 fontSize: '1.8rem',
@@ -896,7 +897,7 @@ function SettingsDialog({
                 lineHeight: 1,
                 flexShrink: 0,
                 '&:hover': {
-                  backgroundColor: 'transparent',
+                  backgroundColor: 'var(--morius-button-hover)',
                   color: 'var(--morius-title-text)',
                 },
               }}
@@ -1744,19 +1745,19 @@ function SettingsDialog({
         >
           {activeTab === 'profile' ? (
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="flex-end">
-              <Button onClick={onLogout} fullWidth={mobileSheet.isMobileSheet} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)' }}>
+              <Button onClick={onLogout} fullWidth={mobileSheet.isMobileSheet} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'var(--morius-elevated-bg)', '&:hover': { backgroundColor: 'var(--morius-button-hover)' } }}>
                 Выйти
               </Button>
-              <Button onClick={() => void handleSaveProfile()} fullWidth={mobileSheet.isMobileSheet} disabled={isSavingProfile} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))' }}>
+              <Button onClick={() => void handleSaveProfile()} fullWidth={mobileSheet.isMobileSheet} disabled={isSavingProfile} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-card-bg))', '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 30%, var(--morius-card-bg))' } }}>
                 {isSavingProfile ? 'Сохраняем...' : 'Сохранить'}
               </Button>
             </Stack>
           ) : (
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="flex-end">
-              <Button onClick={handleResetDraft} fullWidth={mobileSheet.isMobileSheet} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)' }}>
+              <Button onClick={handleResetDraft} fullWidth={mobileSheet.isMobileSheet} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'var(--morius-elevated-bg)', '&:hover': { backgroundColor: 'var(--morius-button-hover)' } }}>
                 Сбросить
               </Button>
-              <Button onClick={() => void handleSaveTheme()} fullWidth={mobileSheet.isMobileSheet} disabled={isSavingTheme} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))' }}>
+              <Button onClick={() => void handleSaveTheme()} fullWidth={mobileSheet.isMobileSheet} disabled={isSavingTheme} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-card-bg))', '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 30%, var(--morius-card-bg))' } }}>
                 {isSavingTheme ? 'Сохраняем...' : 'Сохранить'}
               </Button>
             </Stack>
