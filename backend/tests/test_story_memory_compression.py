@@ -14,6 +14,8 @@ from app.services.story_service_budget import (  # noqa: E402
     StoryServiceHttpRequestBudget,
     consume_story_service_http_request,
     use_story_service_http_request_budget,
+    use_story_service_http_request_budget_or_reserve,
+    use_story_turn_hard_budget,
 )
 
 
@@ -149,6 +151,39 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             story_memory_pipeline.POLZA_STORY_SERVICE_TEXT_MODEL,
         )
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
+
+    def test_turn_hard_budget_caps_total_across_independent_module_budgets(self) -> None:
+        # A single turn may fan out into several independent service modules (Call A «Мир»,
+        # Call B «Персонажи», сжатие памяти через or_reserve, важные события, граф, baseline).
+        # Each keeps its own budget so they don't starve each other, but the turn-wide hard
+        # ceiling must still cap the grand total — otherwise a turn can balloon to 10+ requests.
+        turn_ceiling = StoryServiceHttpRequestBudget(max_requests=3)
+        consumed = 0
+        with use_story_turn_hard_budget(turn_ceiling):
+            # Module with its own budget of 1.
+            with use_story_service_http_request_budget(StoryServiceHttpRequestBudget(max_requests=1)):
+                consume_story_service_http_request()
+                consumed += 1
+            # Memory-style reserved (independent) budgets, one request each.
+            for _ in range(5):
+                try:
+                    with use_story_service_http_request_budget_or_reserve(1):
+                        consume_story_service_http_request()
+                        consumed += 1
+                except RuntimeError:
+                    break
+        self.assertEqual(consumed, 3)
+        self.assertEqual(turn_ceiling.used_requests, 3)
+
+    def test_reserved_budgets_stay_independent_without_a_turn_ceiling(self) -> None:
+        # Backward compatibility: with no turn ceiling set, reserved module budgets remain
+        # independent (the deliberate no-starvation design), so nothing is capped globally.
+        consumed = 0
+        for _ in range(5):
+            with use_story_service_http_request_budget_or_reserve(1):
+                consume_story_service_http_request()
+                consumed += 1
+        self.assertEqual(consumed, 5)
 
     def test_copy_like_detailed_memory_payload_is_not_retried(self) -> None:
         narrator_response = (

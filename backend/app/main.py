@@ -10410,10 +10410,13 @@ def _upsert_story_plot_memory_card(
         try:
             from app.services import story_memory_pipeline as rebalance_memory_pipeline
 
+            # Постобработку памяти держим на 2 запросах на ход (ранее 3): каждый — отдельная
+            # компакция, коммит независимый, остаток догоняется следующими ходами. Это часть
+            # общего потолка хода 1(A)+1(B)+2(память)+1(граф)=5.
             _rebalance_story_memory_layers(
                 db=db,
                 game=game,
-                max_model_requests=3,
+                max_model_requests=2,
                 require_model_compaction=True,
                 commit_each_model_compaction=True,
                 prioritize_recent_transitions=True,

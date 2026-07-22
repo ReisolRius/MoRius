@@ -64,6 +64,7 @@ from app.services.provider_resilience import is_retryable_provider_error
 from app.services.story_service_budget import (
     StoryServiceHttpRequestBudget,
     use_story_service_http_request_budget,
+    use_story_turn_hard_budget,
 )
 from app.services.story_smart_regeneration import (
     build_smart_regeneration_instruction_card,
@@ -139,7 +140,10 @@ STORY_MESSAGE_VARIANT_HISTORY_MAX = 8
 # повтор следующим ходом), без локального синтеза.
 STORY_TURN_MAX_SERVICE_REQUESTS = 5
 STORY_MEMORY_POSTPROCESS_MAX_SERVICE_REQUESTS = 5
-STORY_GRAPH_MAX_SERVICE_REQUESTS = 5
+# Граф-анализ хода делает ровно один структурированный запрос (max_attempts=1). Прежний
+# потолок 5 позволял на ретраях/сбоях раздувать ход до 10+ вызовов. Держим 1 запрос на ход,
+# как и заявлено в бюджете выше; при рейт-лимите модуль штатно уходит в pending до след. хода.
+STORY_GRAPH_MAX_SERVICE_REQUESTS = 1
 STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES = 7
 STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 1_800
 STORY_ENVIRONMENT_TIME_TURN_SURCHARGE_TOKENS = 1
@@ -1436,10 +1440,12 @@ def _best_effort_sync_story_turn_memory_and_environment(
 
     if (memory_changed or should_force_memory_rebalance) and story_memory_pipeline is not None:
         try:
+            # Совпадает с основным путём (2 запроса на ход); общий потолок хода всё равно
+            # ограничивает суммарные вызовы основного пути + baseline.
             story_memory_pipeline._rebalance_story_memory_layers(
                 db=db,
                 game=game,
-                max_model_requests=3,
+                max_model_requests=2,
                 backfill_existing_compact_layers=False,
                 prioritize_recent_transitions=True,
             )
@@ -2306,8 +2312,14 @@ def _stream_story_response(
             )
 
     unified_postprocess_payload: dict[str, Any] | None = None
-    # Единый жёсткий бюджет на ВСЕ Gemini-вызовы хода: Call A «Мир», Call B «Персонажи»,
-    # сжатие памяти и граф тянут запросы из одного счётчика. Это и есть потолок ≤5 на ход.
+    # Жёсткий потолок ≤5 на ВСЕ служебные вызовы хода. Каждый модуль сохраняет свой отдельный
+    # бюджет (чтобы не голодать друг у друга), но КАЖДЫЙ запрос дополнительно списывается из
+    # этого общего счётчика — независимо от того, сколько путей кода сработало (пере-запуски
+    # baseline-синхронизации, ретраи и т.п.). Упёршись в потолок, следующий вызов штатно
+    # отклоняется, модуль уходит в pending и повторяется следующим ходом.
+    turn_service_hard_budget = StoryServiceHttpRequestBudget(
+        max_requests=STORY_TURN_MAX_SERVICE_REQUESTS
+    )
     service_request_budget = StoryServiceHttpRequestBudget(
         max_requests=STORY_MEMORY_POSTPROCESS_MAX_SERVICE_REQUESTS
     )
@@ -2319,7 +2331,7 @@ def _stream_story_response(
         if _stop_requested("postprocess"):
             return
         try:
-            with use_story_service_http_request_budget(service_request_budget):
+            with use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(service_request_budget):
                 unified_postprocess_payload = deps.resolve_story_turn_postprocess_payload(
                     db=db,
                     game=game,
@@ -2415,7 +2427,7 @@ def _stream_story_response(
             return False
 
         try:
-            with use_story_service_http_request_budget(service_request_budget):
+            with use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(service_request_budget):
                 postprocess_result = deps.upsert_story_plot_memory_card(
                     db=db,
                     game=game,
@@ -2502,7 +2514,7 @@ def _stream_story_response(
             try:
                 from app.services.story_graph import analyze_story_graph_after_turn
 
-                with use_story_service_http_request_budget(graph_request_budget):
+                with use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(graph_request_budget):
                     graph_analysis_result = analyze_story_graph_after_turn(
                         db=db,
                         game=game,
@@ -2612,7 +2624,7 @@ def _stream_story_response(
         if needs_baseline_sync:
             if _stop_requested("baseline_sync"):
                 return
-            with use_story_service_http_request_budget(service_request_budget):
+            with use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(service_request_budget):
                 baseline_synced = _best_effort_sync_story_turn_memory_and_environment(
                     deps=deps,
                     db=db,
