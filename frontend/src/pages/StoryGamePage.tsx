@@ -1734,6 +1734,105 @@ function resolveNarratorStatLabel(label: string, index: number): string {
   return normalizedLabel
 }
 
+// Newcomer guidance: the narrator list is long and a new player gets lost in it. A handful of
+// models get a tiny badge in the dropdown so the best picks stand out at a glance.
+// gold = наш флагман · accent = заточены под RP · green = лучший бюджет.
+type StoryNarratorHighlightTone = 'flagship' | 'rp' | 'budget'
+type StoryNarratorHighlight = { label: string; tone: StoryNarratorHighlightTone }
+
+const NARRATOR_HIGHLIGHT_GOLD = '#e7bd5a'
+
+const STORY_NARRATOR_HIGHLIGHTS: Partial<Record<StoryNarratorModelId, StoryNarratorHighlight>> = {
+  // Флагман: дорогой, но реально топовый для RP — выделяем золотом.
+  'google/gemini-3.1-pro-preview': { label: 'Флагман', tone: 'flagship' },
+  // Заточены под RP — лучшие в среднем бюджете.
+  'aion-labs/aion-3.0': { label: 'Топ РП', tone: 'rp' },
+  'aion-labs/aion-2.0': { label: 'Топ РП', tone: 'rp' },
+  // Лучшие из бюджетных.
+  'deepseek/deepseek-v3.2': { label: 'Топ бюджет', tone: 'budget' },
+  'z-ai/glm-5.2': { label: 'Топ бюджет', tone: 'budget' },
+  // Лучшая среди подписочных.
+  'google/gemini-3-flash-preview': { label: 'Лучшая', tone: 'flagship' },
+}
+
+const NARRATOR_HIGHLIGHT_TONE_STYLES: Record<
+  StoryNarratorHighlightTone,
+  { color: string; bg: string; border: string }
+> = {
+  flagship: {
+    color: NARRATOR_HIGHLIGHT_GOLD,
+    bg: `color-mix(in srgb, ${NARRATOR_HIGHLIGHT_GOLD} 22%, transparent)`,
+    border: `color-mix(in srgb, ${NARRATOR_HIGHLIGHT_GOLD} 55%, transparent)`,
+  },
+  rp: {
+    color: 'color-mix(in srgb, var(--morius-accent) 58%, var(--morius-title-text))',
+    bg: 'color-mix(in srgb, var(--morius-accent) 16%, transparent)',
+    border: 'color-mix(in srgb, var(--morius-accent) 46%, transparent)',
+  },
+  budget: {
+    color: '#57bd86',
+    bg: 'color-mix(in srgb, #57bd86 16%, transparent)',
+    border: 'color-mix(in srgb, #57bd86 46%, transparent)',
+  },
+}
+
+function NarratorHighlightBadge({ highlight }: { highlight: StoryNarratorHighlight }) {
+  const tone = NARRATOR_HIGHLIGHT_TONE_STYLES[highlight.tone]
+  return (
+    <Box
+      component="span"
+      sx={{
+        ml: 0.75,
+        px: 0.6,
+        height: 17,
+        flexShrink: 0,
+        display: 'inline-flex',
+        alignItems: 'center',
+        borderRadius: '6px',
+        fontSize: '0.6rem',
+        fontWeight: 950,
+        lineHeight: 1,
+        letterSpacing: '0.01em',
+        whiteSpace: 'nowrap',
+        color: tone.color,
+        backgroundColor: tone.bg,
+        border: `1px solid ${tone.border}`,
+      }}
+    >
+      {highlight.label}
+    </Box>
+  )
+}
+
+// Renders a narrator dropdown row: title (+ optional plan suffix) with its highlight badge.
+// `emphasizeTitle` tints the flagship's title gold in the main pool; subscription rows keep the
+// title neutral so that group stays minimalist — only the "Лучшая" badge stands out.
+function renderNarratorMenuItemLabel(
+  title: string,
+  highlight: StoryNarratorHighlight | undefined,
+  options?: { suffix?: string; emphasizeTitle?: boolean },
+) {
+  const goldTitle = Boolean(options?.emphasizeTitle) && highlight?.tone === 'flagship'
+  return (
+    <Stack direction="row" alignItems="center" sx={{ width: '100%', minWidth: 0 }}>
+      <Box
+        component="span"
+        sx={{
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          ...(goldTitle ? { color: NARRATOR_HIGHLIGHT_GOLD, fontWeight: 950 } : null),
+        }}
+      >
+        {title}
+        {options?.suffix ?? ''}
+      </Box>
+      {highlight ? <NarratorHighlightBadge highlight={highlight} /> : null}
+    </Stack>
+  )
+}
+
 function SettingsInfoTooltipIcon({ text }: { text: string }) {
   return (
     <Tooltip
@@ -23265,7 +23364,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         >
                           {STORY_NARRATOR_MODEL_OPTIONS.map((option) => (
                             <MenuItem key={option.id} value={option.id}>
-                              {option.title}
+                              {renderNarratorMenuItemLabel(option.title, STORY_NARRATOR_HIGHLIGHTS[option.id], {
+                                emphasizeTitle: true,
+                              })}
                             </MenuItem>
                           ))}
                           <MenuItem
@@ -23279,8 +23380,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             const unlocked = unlockedSubscriptionModelIds.has(option.id)
                             return (
                               <MenuItem key={option.id} value={option.id} disabled={!unlocked}>
-                                {option.title}
-                                {unlocked ? '' : ` · ${option.minPlanTitle}`}
+                                {renderNarratorMenuItemLabel(option.title, STORY_NARRATOR_HIGHLIGHTS[option.id], {
+                                  suffix: unlocked ? '' : ` · ${option.minPlanTitle}`,
+                                })}
                               </MenuItem>
                             )
                           })}
@@ -24358,7 +24460,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           >
                             {STORY_NARRATOR_MODEL_OPTIONS.map((option) => (
                               <MenuItem key={option.id} value={option.id}>
-                                {option.title}
+                                {renderNarratorMenuItemLabel(option.title, STORY_NARRATOR_HIGHLIGHTS[option.id], {
+                                  emphasizeTitle: true,
+                                })}
                               </MenuItem>
                             ))}
                             <MenuItem
@@ -24372,8 +24476,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               const unlocked = unlockedSubscriptionModelIds.has(option.id)
                               return (
                                 <MenuItem key={option.id} value={option.id} disabled={!unlocked}>
-                                  {option.title}
-                                  {unlocked ? '' : ` · ${option.minPlanTitle}`}
+                                  {renderNarratorMenuItemLabel(option.title, STORY_NARRATOR_HIGHLIGHTS[option.id], {
+                                    suffix: unlocked ? '' : ` · ${option.minPlanTitle}`,
+                                  })}
                                 </MenuItem>
                               )
                             })}
