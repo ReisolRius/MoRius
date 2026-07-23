@@ -762,6 +762,7 @@ function AppHeader({
             height: 'auto',
             display: 'block',
             opacity: 0.96,
+            filter: 'brightness(0) invert(1)',
           }}
         />
         {showWordmark ? (

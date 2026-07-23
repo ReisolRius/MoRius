@@ -186,7 +186,12 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
           sx={{ gridColumn: { xs: '1 / -1', md: 'auto' }, maxWidth: 390 }}
         >
           <Stack direction="row" spacing={1.4} alignItems="center">
-            <Box component="img" src={brandLogo} alt="" sx={{ width: { xs: 48, md: 54 }, height: 'auto', opacity: 0.94 }} />
+            <Box
+              component="img"
+              src={brandLogo}
+              alt=""
+              sx={{ width: { xs: 48, md: 54 }, height: 'auto', opacity: 0.96, filter: 'brightness(0) invert(1)' }}
+            />
             <Typography
               sx={{
                 color: 'var(--morius-title-text)',

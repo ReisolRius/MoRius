@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import {
   Alert,
   Box,
-  Button,
   CircularProgress,
   Dialog,
   DialogContent,
@@ -14,11 +13,12 @@ import {
 } from '@mui/material'
 import { getCurrentUserReferralSummary, type CoinTopUpPlan } from '../../services/authApi'
 import SoulAmount from '../currency/SoulAmount'
+import PresentationPlanCard from '../shop/PresentationPlanCard'
 import mobileCloseIcon from '../../assets/icons/mobile-close.svg'
-import chroniclerOrnament from '../../assets/images/topup/chronicler-ornament.svg'
-import chroniclerImg from '../../assets/images/topup/chronicler.png'
-import putnikRibbon from '../../assets/images/topup/putnik-ribbon.svg'
-import seekerTrail from '../../assets/images/topup/seeker-trail.svg'
+import planCompassIcon from '../../assets/images/presentation/plan-compass.png'
+import planMagnifierIcon from '../../assets/images/presentation/plan-magnifier.png'
+import planCrownIcon from '../../assets/images/presentation/plan-crown.png'
+import planFeatherIcon from '../../assets/images/presentation/plan-feather.png'
 import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 
 type TopUpDialogProps = {
@@ -45,8 +45,8 @@ const PLAN_LOOKUP: Record<
   }
 > = {
   standard: {
-    accent: '#5F93F2',
-    imageSrc: putnikRibbon,
+    accent: '#6daeff',
+    imageSrc: planCompassIcon,
     lines: [
       'Для старта, тестовых миров и коротких кампаний.',
       'Работает с новым лимитом контекста до 64k.',
@@ -54,8 +54,8 @@ const PLAN_LOOKUP: Record<
     ],
   },
   pro: {
-    accent: '#5DD8BC',
-    imageSrc: seekerTrail,
+    accent: '#54e4df',
+    imageSrc: planMagnifierIcon,
     lines: [
       'Оптимален для регулярной игры и длинных сцен.',
       'Лучший баланс между ценой и запасом.',
@@ -64,8 +64,8 @@ const PLAN_LOOKUP: Record<
     badge: 'Самый популярный',
   },
   mega: {
-    accent: '#F0B45B',
-    imageSrc: chroniclerOrnament,
+    accent: '#f4b83f',
+    imageSrc: planCrownIcon,
     lines: [
       'Для больших кампаний и тяжёлых сцен с запасом.',
       'Удобен, если часто используете дорогие модели.',
@@ -73,8 +73,8 @@ const PLAN_LOOKUP: Record<
     ],
   },
   legendary: {
-    accent: '#C47FFF',
-    imageSrc: chroniclerImg,
+    accent: '#bd78ff',
+    imageSrc: planFeatherIcon,
     lines: [
       'Максимальный запас для долгих хроник и сложных миров.',
       'Идеален для дорогих моделей и активных кампаний.',
@@ -84,16 +84,14 @@ const PLAN_LOOKUP: Record<
 }
 
 const DEFAULT_PLAN_CARD = {
-  accent: '#5F93F2',
-  imageSrc: putnikRibbon,
+  accent: '#6daeff',
+  imageSrc: planCompassIcon,
   lines: [
     'Пакет валюты для игры без подписки.',
     'Поддерживает новый лимит контекста до 64k.',
     'Один баланс на текст, изображения и эффекты.',
   ],
 }
-
-const POPULAR_PLAN_ID = 'pro'
 
 function TopUpDialog({
   open,
@@ -228,149 +226,22 @@ function TopUpDialog({
             >
               {topUpPlans.map((plan) => {
                 const isBuying = activePlanPurchaseId === plan.id
-                const isPopular = plan.id === POPULAR_PLAN_ID
                 const card = PLAN_LOOKUP[plan.id] ?? DEFAULT_PLAN_CARD
                 return (
-                  <Box
+                  <PresentationPlanCard
                     key={plan.id}
-                    sx={{
-                      position: 'relative',
-                      borderRadius: '18px',
-                      border: isPopular ? `1px solid ${card.accent}` : '1px solid rgba(255,255,255,0.08)',
-                      background: isPopular
-                        ? 'linear-gradient(180deg, rgba(23, 28, 26, 0.98) 0%, rgba(17, 20, 19, 0.98) 100%)'
-                        : '#171716',
-                      boxShadow: isPopular ? `0 18px 40px color-mix(in srgb, ${card.accent} 22%, transparent)` : 'none',
-                      overflow: 'hidden',
-                      minHeight: 430,
-                      display: 'grid',
-                      gridTemplateRows: '96px minmax(0, 1fr) auto',
-                      transition: 'transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease',
-                      '&:hover': {
-                        transform: 'translateY(-4px)',
-                        borderColor: isPopular ? card.accent : 'rgba(255,255,255,0.16)',
-                        boxShadow: isPopular
-                          ? `0 24px 52px color-mix(in srgb, ${card.accent} 28%, transparent)`
-                          : '0 18px 40px rgba(0,0,0,0.28)',
-                      },
-                    }}
-                  >
-                    {isPopular && card.badge ? (
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          top: 12,
-                          left: 14,
-                          zIndex: 3,
-                          maxWidth: 'calc(100% - 28px)',
-                          px: 1.2,
-                          py: 0.45,
-                          borderRadius: '999px',
-                          bgcolor: 'rgba(17,17,17,0.9)',
-                          border: `1px solid color-mix(in srgb, ${card.accent} 46%, rgba(255,255,255,0.22))`,
-                          boxShadow: `0 8px 18px color-mix(in srgb, ${card.accent} 16%, transparent)`,
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            fontWeight: 900,
-                            fontSize: '0.72rem',
-                            color: card.accent,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.04em',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {card.badge}
-                        </Typography>
-                      </Box>
-                    ) : null}
-                    <Box
-                      sx={{
-                        px: 2.2,
-                        pt: isPopular ? 3.4 : 1.6,
-                        pb: 1.25,
-                        background: card.accent,
-                        display: 'flex',
-                        alignItems: 'flex-end',
-                        justifyContent: 'space-between',
-                        gap: 1,
-                        position: 'relative',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <Stack spacing={0.75} sx={{ position: 'relative', zIndex: 1, minWidth: 0, flex: 1 }}>
-                        <Typography sx={{ fontWeight: 900, fontSize: '1.7rem', color: '#111111' }}>
-                          <Box
-                            component="span"
-                            sx={{
-                              display: 'block',
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}
-                          >
-                            {plan.title}
-                          </Box>
-                        </Typography>
-                      </Stack>
-                      <Box
-                        component="img"
-                        src={card.imageSrc}
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                        sx={{
-                          width: { xs: 112, md: 136 },
-                          height: 72,
-                          objectFit: 'contain',
-                          mr: -1.4,
-                          mt: -0.6,
-                          flexShrink: 0,
-                        }}
-                      />
-                    </Box>
-
-                    <Stack spacing={1} sx={{ px: 2.2, py: 2.2 }}>
-                      <Typography sx={{ fontWeight: 900, fontSize: '3rem', lineHeight: 1, color: '#FFFFFF' }}>
-                        {plan.price_rub} ₽
-                      </Typography>
-                      <SoulAmount amount={plan.coins} iconSize={20} color={card.accent} fontSize="1.08rem" fontWeight={800} />
-                      {card.lines.map((line) => (
-                        <Typography key={`${plan.id}-${line}`} sx={{ color: 'rgba(255,255,255,0.78)', fontSize: '1.02rem' }}>
-                          {line}
-                        </Typography>
-                      ))}
-                    </Stack>
-
-                    <Box sx={{ px: 2.2, pb: 2.2 }}>
-                      <Button
-                        variant="contained"
-                        disabled={Boolean(activePlanPurchaseId)}
-                        onClick={() => onPurchasePlan(plan.id)}
-                        sx={{
-                          width: '100%',
-                          minHeight: 48,
-                          borderRadius: '14px',
-                          border: isPopular ? `1px solid color-mix(in srgb, ${card.accent} 58%, white)` : 'none',
-                          backgroundColor: card.accent,
-                          color: '#FFFFFF',
-                          fontWeight: 800,
-                          fontSize: '1.02rem',
-                          boxShadow: isPopular ? `0 12px 24px color-mix(in srgb, ${card.accent} 24%, transparent)` : 'none',
-                          '&:hover': {
-                            backgroundColor: `color-mix(in srgb, ${card.accent} 86%, #ffffff 14%)`,
-                            color: '#FFFFFF',
-                            boxShadow: `0 16px 30px color-mix(in srgb, ${card.accent} 30%, transparent)`,
-                          },
-                        }}
-                      >
-                        {isBuying ? <CircularProgress size={18} sx={{ color: '#FFFFFF' }} /> : 'Купить'}
-                      </Button>
-                    </Box>
-                  </Box>
+                    title={plan.title}
+                    price={`${plan.price_rub.toLocaleString('ru-RU')} ₽`}
+                    accent={card.accent}
+                    details={card.lines}
+                    iconSrc={card.imageSrc}
+                    balance={plan.coins.toLocaleString('ru-RU')}
+                    badge={card.badge}
+                    buttonLabel={isBuying ? 'Открываем оплату…' : 'Купить'}
+                    onClick={() => onPurchasePlan(plan.id)}
+                    disabled={Boolean(activePlanPurchaseId)}
+                    minHeight={500}
+                  />
                 )
               })}
             </Box>

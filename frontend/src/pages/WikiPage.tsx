@@ -362,7 +362,12 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
                 sx={{ p: 0, border: 'none', background: 'none', cursor: 'pointer', lineHeight: 0 }}
                 aria-label="На главную"
               >
-                <Box component="img" src={brandLogo} alt="MoRius" sx={{ width: { xs: 108, md: 132 }, opacity: 0.92 }} />
+                <Box
+                  component="img"
+                  src={brandLogo}
+                  alt="MoRius"
+                  sx={{ width: { xs: 108, md: 132 }, opacity: 0.96, filter: 'brightness(0) invert(1)' }}
+                />
               </Box>
               <Button
                 onClick={() => onNavigate('/')}

@@ -794,7 +794,12 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           }}
           aria-label="На главную"
         >
-          <Box component="img" src={brandLogo} alt="MoRius" sx={{ width: '100%', display: 'block' }} />
+          <Box
+            component="img"
+            src={brandLogo}
+            alt="MoRius"
+            sx={{ width: '100%', display: 'block', filter: 'brightness(0) invert(1)' }}
+          />
         </Box>
 
         <Box sx={{ width: '100%', maxWidth: { xs: 'calc(100vw - 32px)', sm: 500 }, minWidth: 0, mx: 'auto' }}>

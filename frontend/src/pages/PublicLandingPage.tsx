@@ -1,301 +1,96 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import {
   Box,
   Button,
   Container,
-  IconButton,
   Stack,
   Typography,
   type SxProps,
   type Theme,
 } from '@mui/material'
 import { brandLogo } from '../assets'
-import heroNewBg from '../assets/images/landing-hero-rebrand.webp'
-import characterAboutImg from '../assets/images/character-about.webp'
 import slideTemplatesPreview from '../assets/images/advantages/slide-templates.png'
 import advantageAvatarsPreview from '../assets/images/advantages/avatars-preview.png'
 import advantageStorytellersPreview from '../assets/images/advantages/storytellers-preview.png'
 import advantageImagesPreview from '../assets/images/advantages/images-preview.png'
 import advantageCommunityPreview from '../assets/images/advantages/community-preview.png'
 import advantageMemoryPreview from '../assets/images/advantages/memory-preview.png'
-import pkgPutnikImg from '../assets/images/packages/putnik.png'
-import pkgIskateltImg from '../assets/images/packages/iskatel.png'
-import pkgKhronistImg from '../assets/images/packages/khronist.png'
-import landingLikeIcon from '../assets/icons/landing-like.svg'
-import landingGearIcon from '../assets/icons/landing-gear.svg'
-import landingPlayIcon from '../assets/icons/landing-play.svg'
-import arrowPrevIcon from '../assets/icons/landing-arrow-prev.svg'
-import arrowNextIcon from '../assets/icons/landing-arrow-next.svg'
-import landingControlsIcon from '../assets/icons/landing-controls.svg'
-import landingSendIcon from '../assets/icons/landing-send.svg'
-import TextLimitIndicator from '../components/TextLimitIndicator'
-import Footer from '../components/Footer'
-import SoulIcon from '../components/currency/SoulIcon'
-import ProgressiveImage from '../components/media/ProgressiveImage'
+import heroSkyImg from '../assets/images/presentation/hero-sky.jpg'
+import heroWandererImg from '../assets/images/presentation/hero-wanderer.png'
+import heroCliffImg from '../assets/images/presentation/hero-cliff.png'
+import aboutCavernImg from '../assets/images/presentation/about-cavern.png'
+import underwaterCavernImg from '../assets/images/presentation/underwater-cavern.png'
+import dragonDepthsImg from '../assets/images/presentation/dragon-depths.png'
+import ctaCavernImg from '../assets/images/presentation/cta-cavern.jpg'
+import planCompassIcon from '../assets/images/presentation/plan-compass.png'
+import planMagnifierIcon from '../assets/images/presentation/plan-magnifier.png'
+import planCrownIcon from '../assets/images/presentation/plan-crown.png'
+import planFeatherIcon from '../assets/images/presentation/plan-feather.png'
+import planFlameIcon from '../assets/images/presentation/plan-flame.png'
+import planConstellationIcon from '../assets/images/presentation/plan-constellation.png'
+import footerSocialIcons from '../assets/icons/footer-social-icons.svg'
+import PresentationPlanCard from '../components/shop/PresentationPlanCard'
 import { listPublicCommunityWorlds } from '../services/storyApi'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import type { StoryCommunityWorldSummary } from '../types/story'
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 
-/* --- Constants ----------------------------------------------------------- */
+const ACCENT = '#66a8ff'
+const TEXT_HEADING = '#f5f4f1'
+const TEXT_BODY = '#a8b0bb'
+const TEXT_MUTED = '#727f8f'
+const PAGE_BG = '#02050a'
+const PREVIOUS_SLIDE_ARIA_LABEL = 'Предыдущий слайд'
+const NEXT_SLIDE_ARIA_LABEL = 'Следующий слайд'
+const FEATURED_PUBLIC_WORLDS = [
+  { title: 'Нарушение условий содержания SCP', query: 'Нарушение условий содержания SCP' },
+  { title: 'Операция "Скрежет когтей"', query: 'Скрежет когтей' },
+  { title: 'Aincrad: Real Pain.', query: 'Aincrad' },
+  { title: "Baldur's Gate III: Возвышение Абсолют", query: 'Возвышение Абсолют' },
+  { title: 'Жизнь в монастыре (Англия)', query: 'Жизнь в монастыре' },
+] as const
 
-const STORY_TEXT =
-  'Трактирщик с грохотом ставит перед вами деревянную кружку, пена стекает по краям. «Пять медных,странник», — бурчит он. В этот момент музыка стихает, и вы чувствуете тяжелую руку на своем плече. Это один из местных наемников, и он выглядит недружелюбно.'
+const normalizeFeaturedWorldTitle = (value: string) =>
+  value
+    .normalize('NFKC')
+    .toLocaleLowerCase('ru-RU')
+    .replace(/ё/g, 'е')
+    .replace(/[«»„“”"'’]/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
 
-const LANDING_PROMPT_MAX_LENGTH = 8000
-
-const ACCENT = '#4c8dff'
-const ACCENT_HOVER = 'color-mix(in srgb, #4c8dff 88%, #000 12%)'
-const ACCENT_ICON_FILTER =
-  'brightness(0) saturate(100%) invert(59%) sepia(85%) saturate(1731%) hue-rotate(194deg) brightness(97%) contrast(92%)'
-const TEXT_HEADING = '#fbf9f4'
-const TEXT_BODY = '#9b9aa0'
-const TEXT_SUBTITLE = '#cbc7c0'
-const CARD_BG = '#17171c'
-const CARD_BORDER = 'rgba(255,255,255,0.07)'
-const PREVIOUS_SLIDE_ARIA_LABEL = '\u041f\u0440\u0435\u0434\u044b\u0434\u0443\u0449\u0438\u0439 \u0441\u043b\u0430\u0439\u0434'
-const NEXT_SLIDE_ARIA_LABEL = '\u0421\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0439 \u0441\u043b\u0430\u0439\u0434'
-const getSlideAriaLabel = (index: number) => `\u0421\u043b\u0430\u0439\u0434 ${index + 1}`
-const BUY_PLAN_CTA_LABEL = '\u041a\u0443\u043f\u0438\u0442\u044c'
-
-/* --- Data ----------------------------------------------------------------- */
-
-type AdvantageSlide = {
-  id: string
-  number: string
-  title: string
-  description: string
-  preview: string
-}
-
-const advantageSlides: AdvantageSlide[] = [
-  {
-    id: 'templates',
-    number: '01',
-    title: 'ШАБЛОНЫ КАРТОЧЕК',
-    description:
-      'Устали каждый раз заново прописывать персонажей и инструкции? Оставьте это в прошлом. Создавайте свои карточки персонажей и инструкций и используйте их в любой игре в два клика',
-    preview: slideTemplatesPreview,
-  },
-  {
-    id: 'avatars',
-    number: '02',
-    title: 'АВАТАРКИ ПЕРСОНАЖЕЙ',
-    description:
-      'Читать историю интересно, но для более глубокого погружения важно видеть лица героев. Мы сделали отображение диалога так, чтобы вы, почти как в мессенджере, сразу видели аватар и имя собеседника.',
-    preview: advantageAvatarsPreview,
-  },
-  {
-    id: 'storytellers',
-    number: '03',
-    title: 'РАССКАЗЧИКИ',
-    description:
-      'Мы подбираем, тестируем и оставляем только лучшие модели на роль гейм-мастера. GLM 5.0, GLM 4.7 и Gemini 3.1 Pro уже ждут, чтобы начать ваше приключение.',
-    preview: advantageStorytellersPreview,
-  },
-  {
-    id: 'images',
-    number: '04',
-    title: 'ГЕНЕРАЦИЯ КАРТИНОК',
-    description:
-      'Визуализируйте сцену и переключайтесь между разными художниками: от экономичного Flux до выразительного Nano Banano.',
-    preview: advantageImagesPreview,
-  },
-  {
-    id: 'community',
-    number: '05',
-    title: 'СООБЩЕСТВО',
-    description:
-      'Не хочется придумывать все с нуля? Делитесь персонажами, мирами и инструкциями, добавляйте к себе карточки других игроков и собирайте свою библиотеку идей.',
-    preview: advantageCommunityPreview,
-  },
-  {
-    id: 'memory',
-    number: '06',
-    title: 'ОПТИМИЗАЦИЯ ПАМЯТИ',
-    description:
-      'Надоело, что память забивается за пару ходов? Мы реализовали механизм оптимизации памяти — тратьте меньше, помните больше!',
-    preview: advantageMemoryPreview,
-  },
-]
-
-const featureCards = [
-  {
-    id: 'choice',
-    title: 'Каждое решение меняет мир',
-    description: 'Союзники запоминают, враги мстят, слухи расходятся. Ты строишь репутацию поступками',
-    icon: landingLikeIcon,
-  },
-  {
-    id: 'gm',
-    title: 'Ты - герой. ИИ - мастер игры',
-    description: 'Ты задаёшь намерение, мы создаём сцену и ведём сюжет дальше - как в настолке, только быстрее',
-    icon: landingGearIcon,
-  },
-  {
-    id: 'pay',
-    title: 'Плати только за действие',
-    description: 'Без подписок и переплат - только оплата за время в игре. Без скрытых условий и лишних расходов',
-    icon: landingPlayIcon,
-  },
-]
-
-type TariffPlan = {
-  id: string
-  title: string
-  price: string
-  coins: string
-  details: string[]
-  image: string
-}
-
-const tariffPlans: TariffPlan[] = [
-  {
-    id: 'pathfinder',
-    title: 'Путник',
-    price: '399 ₽',
-    coins: '400',
-    details: [
-      'Для старта, тестовых миров и коротких кампаний.',
-      'Работает с лимитом контекста до 64k.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-    image: pkgPutnikImg,
-  },
-  {
-    id: 'seeker',
-    title: 'Искатель',
-    price: '1190 ₽',
-    coins: '1290',
-    details: [
-      'Оптимален для регулярной игры и длинных сцен.',
-      'Лучший баланс между ценой и запасом валюты.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-    image: pkgIskateltImg,
-  },
-  {
-    id: 'archon',
-    title: 'Архонт',
-    price: '2990 ₽',
-    coins: '3350',
-    details: [
-      'Для больших кампаний и тяжёлых сцен с запасом.',
-      'Удобен, если часто используете дорогие модели.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-    image: pkgKhronistImg,
-  },
-  {
-    id: 'legendary',
-    title: 'Летописец',
-    price: '5990 ₽',
-    coins: '7000',
-    details: [
-      'Максимальный запас для долгих хроник и сложных миров.',
-      'Идеален для дорогих моделей и активных кампаний.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-    image: pkgKhronistImg,
-  },
-]
-
-type SubscriptionSet = {
-  id: string
-  title: string
-  subtitle: string
-  price: string
-  period: string
-  badge: string | null
-  perks: string[]
-}
-
-const subscriptionSets: SubscriptionSet[] = [
-  {
-    id: 'spark',
-    title: 'Искра',
-    subtitle: 'Для регулярной игры без оглядки на счётчик',
-    price: '299 ₽',
-    period: 'мес',
-    badge: null,
-    perks: [
-      '2 модели: DeepSeek V4 Flash и Gemini 2.5 Flash Lite',
-      'До 40 ходов в день без списания солов',
-      'Неиспользованные ходы не сгорают и накапливаются каждый день',
-      'Память сцены до 8K токенов',
-    ],
-  },
-  {
-    id: 'flame',
-    title: 'Пламя',
-    subtitle: 'Расширенный доступ для активных хронистов',
-    price: '599 ₽',
-    period: 'мес',
-    badge: 'Популярный',
-    perks: [
-      '3 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite и GLM 4.5 Air',
-      'До 60 ходов в день без списания солов',
-      'Неиспользованные ходы не сгорают и накапливаются каждый день',
-      'Память сцены до 20K токенов',
-    ],
-  },
-  {
-    id: 'constellation',
-    title: 'Созвездие',
-    subtitle: 'Максимум памяти и лучшие модели',
-    price: '1190 ₽',
-    period: 'мес',
-    badge: null,
-    perks: [
-      '4 модели: добавляется Gemini 3 Flash Preview',
-      'До 90 ходов в день без списания солов',
-      'Неиспользованные ходы не сгорают и накапливаются каждый день',
-      'Память сцены до 32K токенов',
-    ],
-  },
-]
-
-const footerSocialLinks: Array<{ label: string; href: string; external?: boolean }> = [
-  { label: 'Вконтакте', href: 'https://vk.com/moriusai', external: true },
-  { label: 'Telegram', href: 'https://t.me/+t2ueY4x_KvE4ZWEy', external: true },
-]
-
-const footerInfoLinks: Array<{ label: string; path: string }> = [
-  { label: 'Политика конфиденциальности', path: '/privacy-policy' },
-  { label: 'Пользовательское соглашение', path: '/terms-of-service' },
-  { label: 'Условия подписки', path: '/subscription-terms' },
-]
-
-const ctaButtonSx: SxProps<Theme> = {
-  minWidth: 160,
-  height: 48,
+const primaryButtonSx: SxProps<Theme> = {
+  minWidth: { xs: 148, md: 176 },
+  height: { xs: 42, md: 46 },
+  px: 3.5,
   borderRadius: '999px',
-  px: 4,
-  fontWeight: 700,
-  fontSize: '1rem',
+  background: 'linear-gradient(180deg, #75b4ff 0%, #4c8dff 100%)',
+  color: '#fff',
   fontFamily: '"Manrope", sans-serif',
-  background: `linear-gradient(180deg, color-mix(in srgb, ${ACCENT} 82%, #ffffff 18%), ${ACCENT})`,
-  color: '#ffffff',
-  boxShadow: 'none',
-  transition: 'transform 200ms ease, box-shadow 200ms ease, background-color 200ms ease',
+  fontSize: { xs: '0.82rem', md: '0.9rem' },
+  fontWeight: 800,
   textTransform: 'none',
+  boxShadow: '0 8px 26px rgba(53, 127, 255, 0.24)',
+  transition: 'transform 180ms ease, filter 180ms ease, box-shadow 180ms ease',
   '&:hover': {
-    background: ACCENT_HOVER,
-    color: '#ffffff',
+    background: 'linear-gradient(180deg, #86beff 0%, #5595ff 100%)',
     transform: 'translateY(-2px)',
-    boxShadow: 'none',
+    filter: 'brightness(1.05)',
+    boxShadow: '0 12px 32px rgba(53, 127, 255, 0.3)',
   },
 }
 
-const sectionHeadingSx: SxProps<Theme> = {
-  fontFamily: '"Spectral", serif',
-  fontWeight: 700,
-  textTransform: 'none',
+const sectionTitleSx: SxProps<Theme> = {
   color: TEXT_HEADING,
-  letterSpacing: 0,
+  fontFamily: '"Spectral", "Times New Roman", serif',
+  fontSize: { xs: '1.75rem', sm: '2.15rem', md: '2.55rem' },
+  fontWeight: 700,
+  lineHeight: 1.12,
+  letterSpacing: '0.02em',
+  textAlign: 'center',
+  textTransform: 'uppercase',
+  textShadow: '0 4px 24px rgba(168, 211, 255, 0.16)',
 }
-
-/* --- RevealOnView --------------------------------------------------------- */
 
 type RevealOnViewProps = {
   children: ReactNode
@@ -305,13 +100,17 @@ type RevealOnViewProps = {
   sx?: SxProps<Theme>
 }
 
-function RevealOnView({ children, delay = 0, y = 24, threshold = 0.18, sx }: RevealOnViewProps) {
+function RevealOnView({ children, delay = 0, y = 24, threshold = 0.16, sx }: RevealOnViewProps) {
   const nodeRef = useRef<HTMLDivElement | null>(null)
   const [isVisible, setIsVisible] = useState(false)
 
   useEffect(() => {
     const node = nodeRef.current
     if (!node) return
+    if (typeof IntersectionObserver === 'undefined') {
+      const timerId = globalThis.setTimeout(() => setIsVisible(true), 0)
+      return () => globalThis.clearTimeout(timerId)
+    }
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -332,8 +131,7 @@ function RevealOnView({ children, delay = 0, y = 24, threshold = 0.18, sx }: Rev
         {
           opacity: isVisible ? 1 : 0,
           transform: isVisible ? 'translateY(0)' : `translateY(${y}px)`,
-          transition: `opacity 700ms cubic-bezier(0.22,1,0.36,1) ${delay}ms, transform 700ms cubic-bezier(0.22,1,0.36,1) ${delay}ms`,
-          willChange: 'opacity, transform',
+          transition: `opacity 760ms cubic-bezier(0.22, 1, 0.36, 1) ${delay}ms, transform 760ms cubic-bezier(0.22, 1, 0.36, 1) ${delay}ms`,
         },
         ...(Array.isArray(sx) ? sx : [sx]),
       ]}
@@ -343,166 +141,433 @@ function RevealOnView({ children, delay = 0, y = 24, threshold = 0.18, sx }: Rev
   )
 }
 
-function shuffleLandingWorlds(worlds: StoryCommunityWorldSummary[]): StoryCommunityWorldSummary[] {
-  const nextWorlds = [...worlds]
-  for (let i = nextWorlds.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1))
-    const item = nextWorlds[i]
-    nextWorlds[i] = nextWorlds[j]
-    nextWorlds[j] = item
-  }
-  return nextWorlds
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
+function usePresentationParallax(
+  heroRef: RefObject<HTMLElement | null>,
+  aboutRef: RefObject<HTMLElement | null>,
+) {
+  useEffect(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    let frameId = 0
+    let pointerX = 0
+    let pointerY = 0
+
+    const setPixels = (node: HTMLElement, name: string, value: number) => {
+      node.style.setProperty(name, `${value.toFixed(2)}px`)
+    }
+
+    const update = () => {
+      frameId = 0
+      const viewportHeight = window.innerHeight || 1
+      const hero = heroRef.current
+      const about = aboutRef.current
+
+      if (hero) {
+        const rect = hero.getBoundingClientRect()
+        const scrollDepth = reducedMotion ? 0 : clamp(-rect.top, 0, rect.height + viewportHeight)
+        setPixels(hero, '--hero-bg-x', reducedMotion ? 0 : pointerX * -10)
+        setPixels(hero, '--hero-bg-y', scrollDepth * 0.1 + (reducedMotion ? 0 : pointerY * -5))
+        setPixels(hero, '--hero-copy-y', scrollDepth * 0.075)
+        setPixels(hero, '--hero-person-x', reducedMotion ? 0 : pointerX * 22)
+        setPixels(hero, '--hero-person-y', scrollDepth * 0.32 + (reducedMotion ? 0 : pointerY * 12))
+        setPixels(hero, '--hero-cliff-x', reducedMotion ? 0 : pointerX * 22)
+        setPixels(hero, '--hero-cliff-y', scrollDepth * 0.32 + (reducedMotion ? 0 : pointerY * 12))
+      }
+
+      if (about) {
+        const rect = about.getBoundingClientRect()
+        const centerDelta = reducedMotion
+          ? 0
+          : clamp(viewportHeight / 2 - (rect.top + rect.height / 2), -viewportHeight, viewportHeight)
+        setPixels(about, '--about-bg-x', reducedMotion ? 0 : pointerX * -8)
+        setPixels(about, '--about-bg-y', centerDelta * 0.12 + (reducedMotion ? 0 : pointerY * -6))
+        setPixels(about, '--about-glow-x', reducedMotion ? 0 : pointerX * 18)
+        setPixels(about, '--about-glow-y', centerDelta * 0.2 + (reducedMotion ? 0 : pointerY * 10))
+        setPixels(about, '--about-copy-y', centerDelta * 0.035)
+      }
+    }
+
+    const requestUpdate = () => {
+      if (!frameId) frameId = window.requestAnimationFrame(update)
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (reducedMotion || event.pointerType === 'touch') return
+      pointerX = (event.clientX / Math.max(window.innerWidth, 1) - 0.5) * 2
+      pointerY = (event.clientY / Math.max(window.innerHeight, 1) - 0.5) * 2
+      requestUpdate()
+    }
+
+    const handlePointerLeave = () => {
+      pointerX = 0
+      pointerY = 0
+      requestUpdate()
+    }
+
+    update()
+    window.addEventListener('scroll', requestUpdate, { passive: true })
+    window.addEventListener('resize', requestUpdate)
+    window.addEventListener('pointermove', handlePointerMove, { passive: true })
+    document.documentElement.addEventListener('pointerleave', handlePointerLeave)
+
+    return () => {
+      if (frameId) window.cancelAnimationFrame(frameId)
+      window.removeEventListener('scroll', requestUpdate)
+      window.removeEventListener('resize', requestUpdate)
+      window.removeEventListener('pointermove', handlePointerMove)
+      document.documentElement.removeEventListener('pointerleave', handlePointerLeave)
+    }
+  }, [aboutRef, heroRef])
 }
 
-function LandingPublicWorldCard({
-  world,
-  onClick,
-  decorative = false,
-}: {
-  world: StoryCommunityWorldSummary
-  onClick: () => void
-  decorative?: boolean
-}) {
-  const coverImageUrl = resolveApiResourceUrl(world.cover_image_url)
+type AdvantageSlide = {
+  id: string
+  number: string
+  title: string
+  description: string
+  preview: string
+}
 
+const advantageSlides: AdvantageSlide[] = [
+  {
+    id: 'templates',
+    number: '01',
+    title: 'Шаблоны карточек',
+    description:
+      'Устали каждый раз заново прописывать персонажей и инструкции? Оставьте это в прошлом. Создавайте свои карточки персонажей и инструкций и используйте их в любой игре в два клика.',
+    preview: slideTemplatesPreview,
+  },
+  {
+    id: 'avatars',
+    number: '02',
+    title: 'Аватарки персонажей',
+    description:
+      'Читать историю интереснее, когда у героев есть лица. Диалоги устроены так, чтобы вы сразу видели аватар и имя собеседника.',
+    preview: advantageAvatarsPreview,
+  },
+  {
+    id: 'storytellers',
+    number: '03',
+    title: 'Рассказчики',
+    description:
+      'Мы подбираем и тестируем лучшие модели на роль мастера игры — для живых диалогов, сильных сцен и долгих приключений.',
+    preview: advantageStorytellersPreview,
+  },
+  {
+    id: 'images',
+    number: '04',
+    title: 'Генерация картинок',
+    description:
+      'Визуализируйте сцены и переключайтесь между разными художниками: от экономичных до самых выразительных моделей.',
+    preview: advantageImagesPreview,
+  },
+  {
+    id: 'community',
+    number: '05',
+    title: 'Сообщество',
+    description:
+      'Делитесь персонажами, мирами и инструкциями, добавляйте карточки других игроков и собирайте свою библиотеку идей.',
+    preview: advantageCommunityPreview,
+  },
+  {
+    id: 'memory',
+    number: '06',
+    title: 'Оптимизация памяти',
+    description:
+      'Механизм оптимизации памяти помогает сохранять важные события истории: тратьте меньше, помните больше.',
+    preview: advantageMemoryPreview,
+  },
+]
+
+const gameSteps = [
+  { number: '01', title: 'Создай героя' },
+  { number: '02', title: 'Сделай ход' },
+  { number: '03', title: 'Сюжет движется' },
+]
+
+type TariffPlan = {
+  id: string
+  title: string
+  price: string
+  coins: string
+  details: string[]
+  icon: string
+  accent: string
+}
+
+const tariffPlans: TariffPlan[] = [
+  {
+    id: 'pathfinder',
+    title: 'Путник',
+    price: '399 ₽',
+    coins: '400',
+    icon: planCompassIcon,
+    accent: '#6daeff',
+    details: [
+      'Для старта, тестовых миров и коротких кампаний.',
+      'Работает с лимитом контекста до 64k.',
+      'Один баланс на текст, изображения и эффекты.',
+    ],
+  },
+  {
+    id: 'seeker',
+    title: 'Искатель',
+    price: '1 190 ₽',
+    coins: '1 290',
+    icon: planMagnifierIcon,
+    accent: '#54e4df',
+    details: [
+      'Оптимален для регулярной игры и длинных сцен.',
+      'Лучший баланс между ценой и запасом валюты.',
+      'Один баланс на текст, изображения и эффекты.',
+    ],
+  },
+  {
+    id: 'archon',
+    title: 'Архонт',
+    price: '2 990 ₽',
+    coins: '3 350',
+    icon: planCrownIcon,
+    accent: '#f4b83f',
+    details: [
+      'Для больших кампаний и тяжёлых сцен с запасом.',
+      'Удобен при частом использовании дорогих моделей.',
+      'Один баланс на текст, изображения и эффекты.',
+    ],
+  },
+  {
+    id: 'chronicler',
+    title: 'Летописец',
+    price: '5 990 ₽',
+    coins: '7 000',
+    icon: planFeatherIcon,
+    accent: '#bd78ff',
+    details: [
+      'Максимальный запас для долгих хроник и сложных миров.',
+      'Идеален для дорогих моделей и активных кампаний.',
+      'Один баланс на текст, изображения и эффекты.',
+    ],
+  },
+]
+
+type SubscriptionPlan = {
+  id: string
+  title: string
+  price: string
+  details: string[]
+  icon?: string
+  accent: string
+}
+
+const subscriptionPlans: SubscriptionPlan[] = [
+  {
+    id: 'spark',
+    title: 'Искра',
+    price: '299 ₽',
+    accent: '#47e4ec',
+    details: [
+      '2 модели: DeepSeek V4 Flash и Gemini 2.5 Flash Lite.',
+      'До 40 ходов в день без списания солов.',
+      'Память сцены до 8K токенов.',
+    ],
+  },
+  {
+    id: 'flame',
+    title: 'Пламя',
+    price: '599 ₽',
+    icon: planFlameIcon,
+    accent: '#ff4351',
+    details: [
+      '3 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite и GLM 4.5 Air.',
+      'До 60 ходов в день без списания солов.',
+      'Память сцены до 20K токенов.',
+    ],
+  },
+  {
+    id: 'constellation',
+    title: 'Созвездие',
+    price: '1 190 ₽',
+    icon: planConstellationIcon,
+    accent: '#f3c63c',
+    details: [
+      '4 модели: добавляется Gemini 3 Flash Preview.',
+      'До 90 ходов в день без списания солов.',
+      'Память сцены до 32K токенов.',
+    ],
+  },
+]
+
+type LandingWorldCardData = {
+  id: string
+  numericId: number
+  title: string
+  description: string
+  author: string
+  coverUrl: string | null
+  coverPosition: string
+  launches: number
+  rating: number
+}
+
+function LandingWorldCard({ world, onClick }: { world: LandingWorldCardData; onClick: () => void }) {
   return (
     <Box
       component="button"
       type="button"
-      disabled={decorative}
-      tabIndex={decorative ? -1 : undefined}
-      onClick={decorative ? undefined : onClick}
+      onClick={onClick}
       sx={{
-        p: 0,
-        border: `0.5px solid ${CARD_BORDER}`,
-        borderRadius: '8px',
-        overflow: 'hidden',
-        backgroundColor: CARD_BG,
-        color: TEXT_HEADING,
-        width: { xs: 270, sm: 292, md: 324 },
-        height: { xs: 380, md: 420 },
+        width: { xs: 238, sm: 270, md: 292 },
+        height: { xs: 338, md: 388 },
         flex: '0 0 auto',
+        p: 0,
+        overflow: 'hidden',
+        borderRadius: '10px',
+        border: '1px solid rgba(141, 202, 255, 0.18)',
+        background: '#07111a',
+        color: TEXT_HEADING,
         textAlign: 'left',
-        cursor: decorative ? 'default' : 'pointer',
-        boxShadow: '0 20px 48px rgba(0,0,0,0.34)',
-        transition: 'transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease',
-        '&:hover': decorative
-          ? undefined
-          : {
-              transform: 'translateY(-6px)',
-              borderColor: 'var(--morius-hover-border)',
-              boxShadow: 'var(--morius-neutral-shadow)',
-            },
-        '&:focus-visible': {
-          outline: '2px solid color-mix(in srgb, var(--accent, #4c8dff) 48%, transparent)',
-          outlineOffset: '3px',
+        cursor: 'pointer',
+        boxShadow: '0 28px 70px rgba(0,0,0,0.62)',
+        transition: 'transform 220ms ease, border-color 220ms ease, filter 220ms ease',
+        '&:hover': {
+          transform: 'translateY(-8px)',
+          borderColor: 'rgba(117, 188, 255, 0.55)',
+          filter: 'brightness(1.08)',
         },
-        '&:disabled': {
-          color: TEXT_HEADING,
-        },
+        '&:focus-visible': { outline: `2px solid ${ACCENT}`, outlineOffset: 4 },
       }}
     >
-      <Box
-        sx={{
-          position: 'relative',
-          height: { xs: 188, md: 210 },
-          overflow: 'hidden',
-          ...(!coverImageUrl ? buildWorldFallbackArtwork(world.id) : {}),
-        }}
-      >
-        {coverImageUrl ? (
+      <Box sx={{ position: 'relative', height: { xs: 176, md: 205 }, overflow: 'hidden' }}>
+        {world.coverUrl ? (
           <Box
             component="img"
-            src={coverImageUrl}
+            src={world.coverUrl}
             alt=""
             loading="lazy"
             decoding="async"
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              objectPosition: `${world.cover_position_x ?? 50}% ${world.cover_position_y ?? 50}%`,
-            }}
+            sx={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: world.coverPosition }}
           />
-        ) : null}
+        ) : (
+          <Box sx={{ position: 'absolute', inset: 0, ...buildWorldFallbackArtwork(world.numericId) }} />
+        )}
         <Box
           aria-hidden
           sx={{
             position: 'absolute',
             inset: 0,
-            background:
-              'linear-gradient(180deg, rgba(4,4,4,0.08) 0%, rgba(9,7,5,0.2) 46%, rgba(17,17,17,0.94) 100%)',
+            background: 'linear-gradient(180deg, transparent 30%, rgba(4,9,14,0.25) 58%, #07111a 100%)',
           }}
         />
+      </Box>
+      <Stack sx={{ px: 2, pb: 2, mt: -1.2, position: 'relative', height: { xs: 162, md: 183 } }}>
         <Typography
-          sx={{
-            position: 'absolute',
-            left: 18,
-            right: 18,
-            bottom: 16,
-            color: '#ffffff',
-            fontFamily: '"Manrope", sans-serif',
-            fontWeight: 900,
-            fontSize: { xs: '1.42rem', md: '1.58rem' },
-            lineHeight: 1.05,
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            textShadow: '0 3px 14px rgba(0,0,0,0.72)',
-          }}
+          component="h3"
+          sx={{ color: TEXT_HEADING, fontFamily: '"Spectral", serif', fontWeight: 700, fontSize: '1.18rem' }}
         >
           {world.title}
         </Typography>
-      </Box>
-
-      <Stack sx={{ p: { xs: 2, md: 2.25 }, gap: 1.35, height: { xs: 192, md: 210 } }}>
         <Typography
           sx={{
+            mt: 0.7,
             color: TEXT_BODY,
-            fontFamily: '"Manrope", sans-serif',
-            fontSize: { xs: '0.9rem', md: '0.95rem' },
-            lineHeight: 1.5,
-            minHeight: '4.5em',
+            fontSize: '0.76rem',
+            lineHeight: 1.52,
             display: '-webkit-box',
             WebkitLineClamp: 3,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
           }}
         >
-          {world.description || 'Готовый публичный мир от игроков MoRius.'}
+          {world.description}
         </Typography>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 'auto', minWidth: 0 }}>
-          <Typography
-            sx={{
-              color: TEXT_SUBTITLE,
-              fontFamily: '"Manrope", sans-serif',
-              fontSize: '0.82rem',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              pr: 1,
-            }}
-          >
-            {world.author_name}
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 'auto' }}>
+          <Typography sx={{ color: TEXT_MUTED, fontSize: '0.7rem' }}>{world.author}</Typography>
+          <Typography sx={{ color: '#e6edf5', fontSize: '0.7rem', fontWeight: 800 }}>
+            {world.launches} &nbsp;★ {world.rating.toFixed(1)}
           </Typography>
-          <Stack direction="row" alignItems="center" spacing={1.4} sx={{ color: '#ffffff', flexShrink: 0 }}>
-            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, fontFamily: '"Manrope", sans-serif' }}>
-              ▶ {world.community_launches}
-            </Typography>
-            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, fontFamily: '"Manrope", sans-serif' }}>
-              ★ {world.community_rating_avg.toFixed(1)}
-            </Typography>
-          </Stack>
         </Stack>
       </Stack>
     </Box>
   )
 }
 
-/* --- Component props ------------------------------------------------------ */
+const footerInfoLinks = [
+  { label: 'Политика конфиденциальности', path: '/privacy-policy' },
+  { label: 'Пользовательское соглашение', path: '/terms-of-service' },
+  { label: 'Условия подписки', path: '/subscription-terms' },
+]
+
+function PresentationFooter({ onNavigate }: { onNavigate: (path: string) => void }) {
+  return (
+    <Box component="footer" sx={{ color: '#aaa6a2', backgroundColor: '#020407' }}>
+      <Box
+        sx={{
+          minHeight: { xs: 210, md: 180 },
+          maxWidth: 1500,
+          mx: 'auto',
+          px: { xs: 3, md: 7 },
+          py: { xs: 4, md: 5 },
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', md: '160px 1fr 130px' },
+          alignItems: 'center',
+          justifyItems: { xs: 'center', md: 'stretch' },
+          gap: { xs: 3, md: 4 },
+        }}
+      >
+        <Box
+          component="button"
+          type="button"
+          aria-label="На главную"
+          onClick={() => onNavigate('/')}
+          sx={{ p: 0, border: 0, background: 'none', cursor: 'pointer', justifySelf: { md: 'start' } }}
+        >
+          <Box
+            component="img"
+            src={brandLogo}
+            alt="MoRius"
+            sx={{ display: 'block', width: 66, height: 'auto', filter: 'brightness(0) invert(1)' }}
+          />
+        </Box>
+
+        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="center" spacing={{ xs: 1.5, sm: 5 }}>
+          {footerInfoLinks.slice(0, 2).map((link) => (
+            <Box
+              key={link.path}
+              component="button"
+              type="button"
+              onClick={() => onNavigate(link.path)}
+              sx={{
+                p: 0,
+                border: 0,
+                background: 'none',
+                color: '#aaa6a2',
+                fontFamily: '"Manrope", sans-serif',
+                fontSize: '0.84rem',
+                cursor: 'pointer',
+                '&:hover': { color: '#f0eeeb' },
+              }}
+            >
+              {link.label}
+            </Box>
+          ))}
+        </Stack>
+
+        <Box sx={{ position: 'relative', width: 100, height: 40, justifySelf: { md: 'end' } }}>
+          <Box component="img" src={footerSocialIcons} alt="" sx={{ width: 100, height: 40, display: 'block' }} />
+          <Box component="a" href="https://t.me/+t2ueY4x_KvE4ZWEy" target="_blank" rel="noopener noreferrer" aria-label="Telegram" sx={{ position: 'absolute', inset: '0 54px 0 0' }} />
+          <Box component="a" href="https://vk.com/moriusai" target="_blank" rel="noopener noreferrer" aria-label="ВКонтакте" sx={{ position: 'absolute', inset: '0 0 0 58px' }} />
+        </Box>
+      </Box>
+
+      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.09)', px: 2, py: 2.2 }}>
+        <Typography sx={{ color: '#7d7a77', fontSize: { xs: '0.6rem', md: '0.68rem' }, textAlign: 'center' }}>
+          Бондарук Александр Георгиевич | ИНН: 772702320496 | ОГРНИП: 325774600487692 | Почта: alexunderstood8@gmail.com &nbsp;&nbsp;&nbsp; © 2026
+        </Typography>
+      </Box>
+    </Box>
+  )
+}
 
 type PublicLandingPageProps = {
   isAuthenticated: boolean
@@ -511,263 +576,411 @@ type PublicLandingPageProps = {
   onGoHome: () => void
 }
 
-/* --- Main Component ------------------------------------------------------- */
-
 export default function PublicLandingPage({
   isAuthenticated,
   pendingReferralCode,
   onNavigate,
   onGoHome,
 }: PublicLandingPageProps) {
-  const storySectionRef = useRef<HTMLElement | null>(null)
+  const heroRef = useRef<HTMLElement | null>(null)
+  const aboutRef = useRef<HTMLElement | null>(null)
   const openedReferralCodeRef = useRef<string | null>(null)
-  const [animationStarted, setAnimationStarted] = useState(false)
-  const [typedText, setTypedText] = useState('')
-  const [promptText, setPromptText] = useState('')
   const [currentSlide, setCurrentSlide] = useState(0)
-  const [currentFeatureSlide, setCurrentFeatureSlide] = useState(0)
   const [publicWorlds, setPublicWorlds] = useState<StoryCommunityWorldSummary[]>([])
+  const [worldsLoading, setWorldsLoading] = useState(true)
+  const [worldsLoadFailed, setWorldsLoadFailed] = useState(false)
 
-  /* Story typewriter */
-  useEffect(() => {
-    const node = storySectionRef.current
-    if (!node) return
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) { setAnimationStarted(true); observer.disconnect() }
-      },
-      { threshold: 0.2 },
-    )
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
-
-  useEffect(() => {
-    if (!animationStarted || typedText.length >= STORY_TEXT.length) return
-    const nextChar = STORY_TEXT[typedText.length]
-    const delay = /[,.!?]/.test(nextChar) ? 90 : nextChar === ' ' ? 14 : 20
-    const id = window.setTimeout(() => {
-      setTypedText(STORY_TEXT.slice(0, typedText.length + 1))
-    }, delay)
-    return () => window.clearTimeout(id)
-  }, [animationStarted, typedText])
+  usePresentationParallax(heroRef, aboutRef)
 
   useEffect(() => {
     let active = true
-    void listPublicCommunityWorlds({ limit: 24, sort: 'updated_desc' })
-      .then((worlds) => {
-        if (!active) {
-          return
-        }
-        setPublicWorlds(shuffleLandingWorlds(worlds).slice(0, 12))
+    void Promise.all(
+      FEATURED_PUBLIC_WORLDS.map((featuredWorld) =>
+        listPublicCommunityWorlds({ limit: 20, sort: 'updated_desc', query: featuredWorld.query }),
+      ),
+    )
+      .then((worldGroups) => {
+        if (!active) return
+        const selectedWorlds = FEATURED_PUBLIC_WORLDS.flatMap((featuredWorld, index) => {
+          const expectedTitle = normalizeFeaturedWorldTitle(featuredWorld.title)
+          const match = worldGroups[index]?.find(
+            (world) => normalizeFeaturedWorldTitle(world.title) === expectedTitle,
+          )
+          return match ? [match] : []
+        }).filter((world, index, worlds) => worlds.findIndex((candidate) => candidate.id === world.id) === index)
+        setPublicWorlds(selectedWorlds)
+        setWorldsLoadFailed(false)
       })
       .catch(() => {
-        if (active) {
-          setPublicWorlds([])
-        }
+        if (!active) return
+        setPublicWorlds([])
+        setWorldsLoadFailed(true)
+      })
+      .finally(() => {
+        if (active) setWorldsLoading(false)
       })
     return () => {
       active = false
     }
   }, [])
 
-  const isTyping = animationStarted && typedText.length < STORY_TEXT.length
-
   useEffect(() => {
-    if (isAuthenticated || !pendingReferralCode || openedReferralCodeRef.current === pendingReferralCode) {
-      return
-    }
+    if (isAuthenticated || !pendingReferralCode || openedReferralCodeRef.current === pendingReferralCode) return
     openedReferralCodeRef.current = pendingReferralCode
-    const timerId = window.setTimeout(() => {
-      onNavigate('/auth?mode=register')
-    }, 0)
+    const timerId = window.setTimeout(() => onNavigate('/auth?mode=register'), 0)
     return () => window.clearTimeout(timerId)
   }, [isAuthenticated, onNavigate, pendingReferralCode])
 
-  const openAuthPage = (mode: 'login' | 'register') => {
-    if (isAuthenticated) { onGoHome(); return }
+  const openAuthPage = (mode: 'login' | 'register' = 'register') => {
+    if (isAuthenticated) {
+      onGoHome()
+      return
+    }
     onNavigate(`/auth?mode=${mode}`)
   }
 
-  const handlePrevSlide = () => setCurrentSlide((i) => Math.max(0, i - 1))
-  const handleNextSlide = () => setCurrentSlide((i) => Math.min(advantageSlides.length - 1, i + 1))
-  const handlePrevFeatureSlide = () => setCurrentFeatureSlide((i) => Math.max(0, i - 1))
-  const handleNextFeatureSlide = () => setCurrentFeatureSlide((i) => Math.min(featureCards.length - 1, i + 1))
-  const renderTariffPlanCard = (plan: TariffPlan, index: number) => {
-    const accents = ['#6B9BFF', '#5ADDC7', '#F2B356', '#C47FFF']
-    const accent = accents[index % accents.length]
-    const priceDigits = Number.parseInt(plan.price.replace(/[^\d]/g, ''), 10)
-    const priceLabel = Number.isFinite(priceDigits) ? `${priceDigits.toLocaleString('ru-RU')} ₽` : plan.price
-    return (
-      <Box
-        sx={{
-          borderRadius: '18px',
-          overflow: 'hidden',
-          backgroundColor: CARD_BG,
-          border: `0.5px solid ${CARD_BORDER}`,
-          boxShadow: '0 18px 42px rgba(0,0,0,0.24)',
-          display: 'flex',
-          flexDirection: 'column',
-          minHeight: '100%',
-          transition: 'transform 240ms ease, border-color 240ms ease',
-          '&:hover': { transform: 'translateY(-6px)', borderColor: 'var(--morius-hover-border)', boxShadow: 'var(--morius-neutral-shadow)' },
-        }}
-      >
-        <Box sx={{ height: 84, p: 2, background: `linear-gradient(135deg, ${accent}, color-mix(in srgb, ${accent} 58%, #111 42%))` }}>
-          <Typography sx={{ color: '#101317', fontSize: '1.6rem', fontWeight: 900, lineHeight: 1, fontFamily: '"Manrope", sans-serif' }}>
-            {plan.title}
-          </Typography>
-        </Box>
-        <Stack spacing={1.4} sx={{ p: 2, flex: 1 }}>
-          <Typography sx={{ color: '#ffffff', fontSize: { xs: '2rem', md: '2.15rem' }, fontWeight: 900, lineHeight: 1, fontFamily: '"Manrope", sans-serif' }}>
-            {priceLabel}
-          </Typography>
-          <Stack direction="row" spacing={0.45} alignItems="center">
-            <Typography sx={{ color: accent, fontFamily: '"Manrope", sans-serif', fontSize: '1.05rem', fontWeight: 900 }}>
-              {plan.coins}
-            </Typography>
-            <SoulIcon size={20} sx={{ color: accent, opacity: 0.95, filter: 'none' }} />
-          </Stack>
-          <Stack spacing={0.5} sx={{ flex: 1 }}>
-            {plan.details.map((detail, detailIndex) => (
-              <Typography key={detailIndex} sx={{ color: TEXT_BODY, fontFamily: '"Manrope", sans-serif', fontSize: '0.88rem', lineHeight: 1.45 }}>
-                {detail}
-              </Typography>
-            ))}
-          </Stack>
-          <Button variant="contained" onClick={() => openAuthPage('register')} sx={{ ...ctaButtonSx, width: '100%', mt: 1, borderRadius: '14px', backgroundColor: accent, color: '#101317', fontWeight: 900, '&:hover': { backgroundColor: `color-mix(in srgb, ${accent} 88%, #fff 12%)`, color: '#101317' } }}>
-            {BUY_PLAN_CTA_LABEL}
-          </Button>
-        </Stack>
-      </Box>
-    )
-  }
+  const worldDeck = useMemo<LandingWorldCardData[]>(() => {
+    return publicWorlds.slice(0, 5).map((world) => ({
+      id: String(world.id),
+      numericId: world.id,
+      title: world.title,
+      description: world.description || 'Автор пока не добавил описание мира.',
+      author: world.author_name,
+      coverUrl: resolveApiResourceUrl(world.cover_image_url) || null,
+      coverPosition: `${world.cover_position_x ?? 50}% ${world.cover_position_y ?? 50}%`,
+      launches: world.community_launches,
+      rating: world.community_rating_avg,
+    }))
+  }, [publicWorlds])
 
-  const renderSubscriptionCard = (plan: SubscriptionSet, index: number) => {
-    const accents = ['#F0B24B', '#FF7A66', '#8C7BFF']
-    const accent = accents[index % accents.length]
-    const isFeatured = Boolean(plan.badge)
-    return (
-      <Box
-        sx={{
-          position: 'relative',
-          borderRadius: '18px',
-          overflow: 'hidden',
-          backgroundColor: CARD_BG,
-          border: isFeatured
-            ? `1px solid color-mix(in srgb, ${accent} 55%, ${CARD_BORDER})`
-            : `0.5px solid ${CARD_BORDER}`,
-          boxShadow: isFeatured ? `0 22px 50px color-mix(in srgb, ${accent} 22%, rgba(0,0,0,0.4))` : '0 18px 42px rgba(0,0,0,0.24)',
-          display: 'flex',
-          flexDirection: 'column',
-          minHeight: '100%',
-          transition: 'transform 240ms ease, border-color 240ms ease, box-shadow 240ms ease',
-          '&:hover': { transform: 'translateY(-6px)', borderColor: 'var(--morius-hover-border)', boxShadow: 'var(--morius-neutral-shadow)' },
-        }}
-      >
-        <Box sx={{ position: 'relative', p: 2, pb: 1.6, background: `linear-gradient(135deg, ${accent}, color-mix(in srgb, ${accent} 58%, #111 42%))` }}>
-          <Typography sx={{ color: '#101317', fontSize: '1.5rem', fontWeight: 900, lineHeight: 1.1, fontFamily: '"Manrope", sans-serif' }}>
-            {plan.title}
-          </Typography>
-          <Typography sx={{ color: 'rgba(16,19,23,0.78)', fontSize: '0.82rem', fontWeight: 600, fontFamily: '"Manrope", sans-serif', mt: 0.4 }}>
-            {plan.subtitle}
-          </Typography>
-          {plan.badge ? (
-            <Box
-              sx={{
-                position: 'absolute',
-                top: 12,
-                right: 12,
-                px: 1,
-                py: 0.35,
-                borderRadius: '999px',
-                backgroundColor: '#101317',
-                color: '#fff',
-                fontFamily: '"Manrope", sans-serif',
-                fontSize: '0.68rem',
-                fontWeight: 900,
-                lineHeight: 1,
-              }}
-            >
-              {plan.badge}
-            </Box>
-          ) : null}
-        </Box>
-        <Stack spacing={1.5} sx={{ p: 2, flex: 1 }}>
-          <Stack direction="row" spacing={0.6} alignItems="baseline">
-            <Typography sx={{ color: '#ffffff', fontSize: { xs: '2rem', md: '2.15rem' }, fontWeight: 900, lineHeight: 1, fontFamily: '"Manrope", sans-serif' }}>
-              {plan.price}
-            </Typography>
-            <Typography sx={{ color: TEXT_BODY, fontSize: '0.95rem', fontWeight: 700, fontFamily: '"Manrope", sans-serif' }}>
-              / {plan.period}
-            </Typography>
-          </Stack>
-          <Stack spacing={1} sx={{ flex: 1 }}>
-            {plan.perks.map((perk, perkIndex) => (
-              <Stack key={perkIndex} direction="row" spacing={1} alignItems="flex-start">
-                <Box
-                  component="svg"
-                  viewBox="0 0 20 20"
-                  sx={{ width: 18, height: 18, flexShrink: 0, mt: '1px', color: accent }}
-                  aria-hidden="true"
-                >
-                  <circle cx="10" cy="10" r="9" fill="currentColor" opacity="0.16" />
-                  <path d="M6 10.5l2.4 2.4L14 7.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                </Box>
-                <Typography sx={{ color: TEXT_BODY, fontFamily: '"Manrope", sans-serif', fontSize: '0.88rem', lineHeight: 1.45 }}>
-                  {perk}
-                </Typography>
-              </Stack>
-            ))}
-          </Stack>
-          <Button variant="contained" onClick={() => openAuthPage('register')} sx={{ ...ctaButtonSx, width: '100%', mt: 1, borderRadius: '14px', backgroundColor: accent, color: '#101317', fontWeight: 900, '&:hover': { backgroundColor: `color-mix(in srgb, ${accent} 88%, #fff 12%)`, color: '#101317' } }}>
-            Оформить подписку
-          </Button>
-        </Stack>
-      </Box>
-    )
-  }
+  const activeAdvantage = advantageSlides[currentSlide]
 
   return (
-    <Box className="morius-app-shell" sx={{ backgroundColor: '#090909', color: TEXT_BODY, overflowX: 'hidden' }}>
+    <Box
+      className="morius-app-shell"
+      sx={{
+        backgroundColor: PAGE_BG,
+        color: TEXT_BODY,
+        overflowX: 'hidden',
+        '@keyframes morius-presentation-float': {
+          '0%, 100%': { transform: 'translate3d(0, 0, 0)' },
+          '50%': { transform: 'translate3d(0, -7px, 0)' },
+        },
+        '@media (prefers-reduced-motion: reduce)': {
+          '& *, & *::before, & *::after': {
+            scrollBehavior: 'auto !important',
+            animationDuration: '0.01ms !important',
+            animationIterationCount: '1 !important',
+            transitionDuration: '0.01ms !important',
+          },
+        },
+      }}
+    >
+      <Box sx={{ position: 'relative', overflow: 'hidden', backgroundColor: '#030914' }}>
+        <Box
+          ref={heroRef}
+          component="section"
+          sx={{
+            position: 'relative',
+            zIndex: 2,
+            minHeight: { xs: '820px', sm: 680 },
+            height: { sm: 'clamp(680px, 100svh, 1000px)' },
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            px: 2,
+            pt: { xs: '11vh', sm: '9vh', md: '8vh' },
+            isolation: 'isolate',
+          }}
+        >
+          <Box
+            component="img"
+            src={heroSkyImg}
+            alt=""
+            fetchPriority="high"
+            decoding="async"
+            sx={{
+              position: 'absolute',
+              inset: '-7%',
+              zIndex: -3,
+              width: '114%',
+              height: '114%',
+              objectFit: 'cover',
+              objectPosition: { xs: '50% 50%', md: '50% 56%' },
+              transform: 'translate3d(var(--hero-bg-x, 0px), var(--hero-bg-y, 0px), 0) scale(1.08)',
+              willChange: 'transform',
+            }}
+          />
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: -2,
+              background:
+                'radial-gradient(circle at 50% 56%, rgba(139,202,255,0.12), transparent 25%), linear-gradient(180deg, rgba(1,5,12,0.04) 0%, rgba(1,5,12,0.1) 58%, rgba(2,7,13,0.78) 100%)',
+            }}
+          />
+          <Box
+            component="img"
+            src={heroWandererImg}
+            alt=""
+            decoding="async"
+            sx={{
+              position: 'absolute',
+              zIndex: 5,
+              left: '50%',
+              bottom: { xs: '23.5%', sm: '17.5%', md: '16%' },
+              width: { xs: 310, sm: 420, md: 'clamp(470px, 28vw, 540px)' },
+              height: 'auto',
+              transform:
+                'translate3d(calc(-50% + var(--hero-person-x, 0px)), var(--hero-person-y, 0px), 0)',
+              filter: 'drop-shadow(0 24px 34px rgba(0,0,0,0.72))',
+              willChange: 'transform',
+              '@media (min-width: 1500px) and (max-height: 850px)': {
+                width: 385,
+                bottom: '16%',
+              },
+            }}
+          />
+          <Box
+            component="img"
+            src={heroCliffImg}
+            alt=""
+            decoding="async"
+            sx={{
+              position: 'absolute',
+              zIndex: 4,
+              left: '50%',
+              top: { xs: '22%', sm: '28%', md: '30%' },
+              width: { xs: '190%', sm: '136%', md: '100%' },
+              maxWidth: 'none',
+              height: '102%',
+              objectFit: 'fill',
+              transform:
+                'translate3d(calc(-50% + var(--hero-cliff-x, 0px)), var(--hero-cliff-y, 0px), 0)',
+              filter: 'drop-shadow(0 -20px 40px rgba(0,0,0,0.36))',
+              willChange: 'transform',
+              pointerEvents: 'none',
+              '@media (min-width: 1500px) and (max-height: 850px)': {
+                top: '30%',
+              },
+            }}
+          />
 
-      {/* ==================================================================
-          1. HERO
-      ================================================================== */}
+          <Stack
+            alignItems="center"
+            textAlign="center"
+            sx={{
+              position: 'relative',
+              zIndex: 6,
+              width: '100%',
+              maxWidth: 850,
+              transform: 'translate3d(0, var(--hero-copy-y, 0px), 0)',
+              willChange: 'transform',
+            }}
+          >
+            <Box
+              component="img"
+              src={brandLogo}
+              alt="MoRius"
+              sx={{
+                width: { xs: 82, sm: 98, md: 112 },
+                height: 'auto',
+                filter: 'brightness(0) invert(1) drop-shadow(0 8px 22px rgba(255,255,255,0.2))',
+                animation: 'morius-presentation-float 5.5s ease-in-out infinite',
+                '@media (min-width: 1500px) and (max-height: 850px)': {
+                  width: 96,
+                },
+              }}
+            />
+            <Typography
+              component="h1"
+              sx={{
+                mt: { xs: 1.3, md: 1.8 },
+                color: TEXT_HEADING,
+                fontFamily: '"Spectral", "Times New Roman", serif',
+                fontSize: { xs: '2.15rem', sm: '3rem', md: '3.8rem' },
+                fontWeight: 700,
+                lineHeight: 1.04,
+                textShadow: '0 5px 28px rgba(0,0,0,0.72), 0 0 24px rgba(118,188,255,0.12)',
+                '@media (min-width: 1500px) and (max-height: 850px)': {
+                  mt: 0.8,
+                  fontSize: '2.35rem',
+                },
+              }}
+            >
+              История начинается сейчас
+            </Typography>
+            <Typography
+              sx={{
+                mt: 1.1,
+                maxWidth: 650,
+                color: '#c3ccd7',
+                fontSize: { xs: '0.82rem', sm: '0.95rem', md: '1.02rem' },
+                lineHeight: 1.65,
+                textShadow: '0 2px 12px rgba(0,0,0,0.9)',
+                '@media (min-width: 1500px) and (max-height: 850px)': {
+                  mt: 0.6,
+                  maxWidth: 560,
+                  fontSize: '0.82rem',
+                  lineHeight: 1.5,
+                },
+              }}
+            >
+              Текстовое приключение, где ИИ ведёт игру, а ты решаешь, кем стать и как закончится история
+            </Typography>
+            <Button
+              variant="contained"
+              onClick={() => openAuthPage('register')}
+              sx={{
+                ...primaryButtonSx,
+                mt: 2.4,
+                '@media (min-width: 1500px) and (max-height: 850px)': {
+                  minWidth: 132,
+                  height: 36,
+                  mt: 1.4,
+                  px: 2.5,
+                  fontSize: '0.74rem',
+                },
+              }}
+            >
+              Начать играть
+            </Button>
+          </Stack>
+        </Box>
+
+        <Box
+          ref={aboutRef}
+          component="section"
+          sx={{
+            position: 'relative',
+            zIndex: 1,
+            minHeight: { xs: 760, md: '100svh' },
+            height: { md: '100svh' },
+            display: 'grid',
+            placeItems: 'center',
+            px: 2,
+            pt: { xs: 18, md: 12 },
+            pb: { xs: 10, md: 12 },
+            isolation: 'isolate',
+          }}
+        >
+          <Box
+            component="img"
+            src={aboutCavernImg}
+            alt=""
+            loading="eager"
+            decoding="async"
+            sx={{
+              position: 'absolute',
+              inset: '-10%',
+              zIndex: -3,
+              width: '120%',
+              height: '120%',
+              objectFit: 'cover',
+              objectPosition: 'center',
+              transform: 'translate3d(var(--about-bg-x, 0px), var(--about-bg-y, 0px), 0) scale(1.06)',
+              willChange: 'transform',
+            }}
+          />
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: -2,
+              background:
+                'linear-gradient(180deg, rgba(1,5,10,0.18) 0%, rgba(2,9,17,0.14) 34%, rgba(2,8,15,0.32) 74%, #03101a 100%)',
+            }}
+          />
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              zIndex: -1,
+              left: '50%',
+              top: '46%',
+              width: { xs: 380, md: 720 },
+              height: { xs: 320, md: 480 },
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(126,201,255,0.16), rgba(75,144,202,0.05) 44%, transparent 70%)',
+              transform:
+                'translate3d(calc(-50% + var(--about-glow-x, 0px)), calc(-50% + var(--about-glow-y, 0px)), 0)',
+              filter: 'blur(6px)',
+              willChange: 'transform',
+            }}
+          />
+
+          <RevealOnView>
+            <Stack
+              alignItems="center"
+              textAlign="center"
+              sx={{
+                maxWidth: 770,
+                transform: 'translate3d(0, calc(10vh + var(--about-copy-y, 0px)), 0)',
+                willChange: 'transform',
+              }}
+            >
+              <Typography
+                component="h2"
+                sx={{
+                  ...sectionTitleSx,
+                  fontSize: { xs: '2.15rem', sm: '2.75rem', md: '3.25rem' },
+                  textTransform: 'none',
+                }}
+              >
+                О проекте
+              </Typography>
+              <Typography
+                sx={{
+                  mt: { xs: 2, md: 2.4 },
+                  maxWidth: 820,
+                  color: '#c9d2dc',
+                  fontSize: { xs: '0.94rem', sm: '1.04rem', md: '1.18rem' },
+                  lineHeight: 1.85,
+                }}
+              >
+                Morius AI — это текстовая MMORPG с искусственным интеллектом, где сюжет, персонажи и развитие мира
+                формируются в живом взаимодействии с игроком
+              </Typography>
+              <Button variant="contained" onClick={() => openAuthPage('register')} sx={{ ...primaryButtonSx, mt: 3 }}>
+                Начать играть
+              </Button>
+            </Stack>
+          </RevealOnView>
+        </Box>
+      </Box>
+
       <Box
+        id="how-it-works"
         component="section"
         sx={{
-          minHeight: '100svh',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
           position: 'relative',
+          minHeight: { xs: 830, md: '100svh' },
+          height: { md: '100svh' },
+          display: 'grid',
+          placeItems: 'center',
           overflow: 'hidden',
-          textAlign: 'center',
-          px: { xs: 2, md: 4 },
-          pt: { xs: 8, md: 10 },
-          pb: { xs: 10, md: 14 },
-          backgroundColor: '#090909',
+          px: 2,
+          py: { xs: 10, md: 13 },
+          backgroundColor: '#03101a',
         }}
       >
-        <ProgressiveImage
-          src={heroNewBg}
+        <Box
+          component="img"
+          src={underwaterCavernImg}
           alt=""
-          loading="eager"
-          fetchPriority="high"
-          objectFit="cover"
-          objectPosition="center 54%"
-          loaderSize={34}
-          containerSx={{
+          loading="lazy"
+          decoding="async"
+          sx={{
             position: 'absolute',
-            inset: 0,
-            zIndex: 0,
-            backgroundColor: '#090909',
-          }}
-          imgSx={{
-            objectPosition: { xs: '58% 54%', md: 'center 54%' },
-            transform: 'scale(1.01)',
+            inset: '-2% 0 0',
+            width: '100%',
+            height: '102%',
+            objectFit: 'cover',
+            objectPosition: { xs: '52% 26%', md: '50% 24%' },
+            opacity: 0.84,
           }}
         />
         <Box
@@ -776,1132 +989,523 @@ export default function PublicLandingPage({
             position: 'absolute',
             inset: 0,
             background:
-              'linear-gradient(180deg, rgba(4,8,18,0.2) 0%, rgba(4,8,18,0.36) 48%, rgba(17,17,17,0.98) 100%)',
-            zIndex: 1,
+              'linear-gradient(180deg, #03101a 0%, rgba(3,16,26,0.18) 12%, rgba(2,9,16,0.18) 45%, rgba(2,6,11,0.86) 100%)',
           }}
         />
-        {/* Content */}
-        <Stack spacing={2.5} alignItems="center" sx={{ position: 'relative', zIndex: 3, maxWidth: 860 }}>
-          <Box sx={{ position: 'relative', display: 'inline-flex', animation: 'morius-fade-up 620ms cubic-bezier(0.22,1,0.36,1) both' }}>
-            <Box
-              component="img"
-              src={brandLogo}
-              alt="Morius"
-              sx={{
-                width: { xs: 200, sm: 280, md: 340 },
-                maxWidth: '85vw',
-                display: 'block',
-              }}
-            />
-            <Box
-              sx={{
-                position: 'absolute',
-                right: { xs: -18, sm: -28, md: -34 },
-                top: { xs: 8, sm: 12, md: 14 },
-                px: { xs: 1, md: 1.25 },
-                py: 0.42,
-                borderRadius: '999px',
-                border: '1px solid color-mix(in srgb, var(--accent, #4c8dff) 56%, transparent)',
-                background: `linear-gradient(180deg, color-mix(in srgb, ${ACCENT} 82%, #ffffff 18%), ${ACCENT})`,
-                boxShadow: 'none',
-                color: '#ffffff',
-                fontFamily: '"Manrope", sans-serif',
-                fontSize: { xs: '0.72rem', md: '0.82rem' },
-                fontWeight: 900,
-                lineHeight: 1,
-                letterSpacing: 0,
-              }}
-            >
-              2.0
-            </Box>
-          </Box>
-          <Typography
-            component="h1"
-            sx={{
-              ...sectionHeadingSx,
-              fontSize: { xs: '1.8rem', sm: '2.4rem', md: '3rem' },
-              lineHeight: 1.18,
-              animation: 'morius-fade-up 680ms cubic-bezier(0.22,1,0.36,1) both',
-              animationDelay: '80ms',
-            }}
-          >
-            Твой ход. Твоя игра.{'\n'}История начинается сейчас
-          </Typography>
-          <Typography
-            sx={{
-              color: TEXT_SUBTITLE,
-              fontSize: { xs: '0.9rem', md: '1.05rem' },
-              fontFamily: '"Manrope", sans-serif',
-              fontWeight: 400,
-              maxWidth: 620,
-              animation: 'morius-fade-up 720ms cubic-bezier(0.22,1,0.36,1) both',
-              animationDelay: '140ms',
-            }}
-          >
-            Текстовое приключение, где ИИ ведёт игру, а ты решаешь, кем стать и как закончится история
-          </Typography>
-          <Box
-            sx={{
-              animation: 'morius-fade-up 760ms cubic-bezier(0.22,1,0.36,1) both',
-              animationDelay: '200ms',
-            }}
-          >
-            <Button variant="contained" onClick={() => openAuthPage('login')} sx={ctaButtonSx}>
-              Начать играть
-            </Button>
-          </Box>
-        </Stack>
-      </Box>
-
-      {/* ==================================================================
-          2. О ПРОЕКТЕ
-      ================================================================== */}
-      <Box
-        component="section"
-        sx={{
-          position: 'relative',
-          background: 'linear-gradient(180deg, #111111 0%, #11151d 24%, #101216 72%, #111111 100%)',
-          py: { xs: 0, md: 0 },
-          overflow: 'hidden',
-          '&::before': {
-            content: '""',
-            position: 'absolute',
-            inset: 0,
-            background: 'radial-gradient(ellipse 55% 78% at 20% 54%, rgba(76,141,255,0.12) 0%, rgba(76,141,255,0.06) 42%, transparent 78%)',
-            pointerEvents: 'none',
-            zIndex: 0,
-          },
-          '&::after': {
-            content: '""',
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: { xs: 140, md: 190 },
-            background: 'linear-gradient(180deg, transparent 0%, #111111 100%)',
-            pointerEvents: 'none',
-            zIndex: 0,
-          },
-        }}
-      >
         <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 1 }}>
           <RevealOnView>
+            <Stack alignItems="center" textAlign="center">
+              <Typography component="h2" sx={sectionTitleSx}>
+                Как устроена игра
+              </Typography>
+              <Typography sx={{ mt: 1.3, color: '#aebdca', fontSize: { xs: '0.82rem', md: '0.96rem' } }}>
+                Ты выбираешь действия. ИИ ведёт мир: описывает сцены, персонажей и последствия
+              </Typography>
+            </Stack>
+          </RevealOnView>
+
+          <Box
+            sx={{
+              position: 'relative',
+              mt: { xs: 6, md: 7 },
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+              gap: { xs: 3.2, md: 3 },
+            }}
+          >
             <Box
+              aria-hidden
               sx={{
-                display: 'flex',
-                flexDirection: { xs: 'column', md: 'row' },
-                alignItems: { xs: 'center', md: 'flex-end' },
-                gap: { xs: 0, md: 0 },
-                minHeight: { md: 560 },
+                display: { xs: 'none', md: 'block' },
+                position: 'absolute',
+                zIndex: 0,
+                top: 23,
+                left: '16.67%',
+                right: '16.67%',
+                height: '1px',
+                backgroundColor: 'rgba(102,168,255,0.72)',
+                boxShadow: '0 0 12px rgba(102,168,255,0.22)',
               }}
-            >
-              {/* Character image full height with bottom fade */}
-              <Box
-                sx={{
-                  flex: { md: '0 0 48%' },
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  justifyContent: 'center',
-                  position: 'relative',
-                  pt: { xs: 4, md: 0 },
-                }}
-              >
-                <Box
-                  component="img"
-                  src={characterAboutImg}
-                  alt="Morius character"
-                  loading="lazy"
-                  decoding="async"
-                  sx={{
-                    width: { xs: '90%', sm: '70%', md: '100%' },
-                    maxWidth: { xs: 380, md: 620 },
-                    objectFit: 'contain',
-                    display: 'block',
-                    transform: { xs: 'translateY(8px)', md: 'translate(-4%, 16px) scale(1.08)' },
-                    WebkitMaskImage: 'linear-gradient(180deg, black 55%, transparent 100%)',
-                    maskImage: 'linear-gradient(180deg, black 55%, transparent 100%)',
-                    filter: 'none',
-                  }}
-                />
-              </Box>
-
-              {/* Text */}
-              <Stack
-                spacing={2.5}
-                justifyContent="center"
-                sx={{
-                  flex: { md: '0 0 52%' },
-                  py: { xs: 5, md: 10 },
-                  pl: { md: 4 },
-                }}
-              >
-                <Typography
-                  component="h2"
-                  sx={{ ...sectionHeadingSx, fontSize: { xs: '1.8rem', md: '2.5rem' } }}
-                >
-                  О проекте
-                </Typography>
-                <Typography
-                  sx={{
-                    color: TEXT_BODY,
-                    fontSize: { xs: '0.95rem', md: '1.05rem' },
-                    fontFamily: '"Manrope", sans-serif',
-                    fontWeight: 400,
-                    lineHeight: 1.7,
-                  }}
-                >
-                  Morius AI — это текстовая MMORPG с искусственным интеллектом, где сюжет, персонажи
-                  и развитие мира формируются в живом взаимодействии с игроком
-                  <br /><br />
-                  Проект объединяет возможности современных AI-технологий и атмосферу классических RPG,
-                  создавая пространство для уникальных приключений, диалогов и нелинейных историй
-                </Typography>
-                <Box>
-                  <Button variant="contained" onClick={() => openAuthPage('login')} sx={ctaButtonSx}>
-                    Начать играть
-                  </Button>
-                </Box>
-              </Stack>
-            </Box>
-          </RevealOnView>
-        </Container>
-      </Box>
-
-      {/* ==================================================================
-          3. ВАШЕ ПРИКЛЮЧЕНИЕ
-      ================================================================== */}
-      <Box
-        component="section"
-        ref={storySectionRef}
-        sx={{
-          backgroundColor: '#090909',
-          py: { xs: 10, md: 14 },
-          textAlign: 'center',
-        }}
-      >
-        <Container maxWidth="md">
-          <RevealOnView>
-            <Typography
-              component="h2"
-              sx={{
-                ...sectionHeadingSx,
-                fontSize: { xs: '1.8rem', sm: '2.2rem', md: '2.8rem' },
-                lineHeight: 1.2,
-                mb: { xs: 5, md: 7 },
-              }}
-            >
-              Ваше приключение начинается здесь и сейчас
-            </Typography>
-          </RevealOnView>
-
-          <RevealOnView delay={80}>
-            <Box sx={{ maxWidth: 870, mx: 'auto', textAlign: 'left' }}>
-              {/* Story text box */}
-              <Box
-                sx={{
-                  borderRadius: '12px',
-                  border: `0.5px solid ${CARD_BORDER}`,
-                  backgroundColor: CARD_BG,
-                  p: { xs: 2.5, md: 3 },
-                  minHeight: { xs: 120, md: 160 },
-                  mb: 1.5,
-                }}
-              >
-                <Typography
-                  sx={{
-                    color: TEXT_BODY,
-                    fontSize: { xs: '0.9rem', md: '1rem' },
-                    fontFamily: '"Manrope", sans-serif',
-                    lineHeight: 1.7,
-                    minHeight: { xs: 80, md: 100 },
-                  }}
-                >
-                  {typedText}
-                  {isTyping && (
-                    <Box component="span" className="typing-caret" sx={{ ml: 0.15 }}>|</Box>
-                  )}
-                </Typography>
-              </Box>
-
-              {/* Controls row */}
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.5,
-                  mb: 0.5,
-                  px: 0.5,
-                }}
-              >
-                {/* Coin badge */}
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.5,
-                    px: 1,
-                    py: 0.4,
-                    borderRadius: '6px',
-                    border: `0.5px solid ${CARD_BORDER}`,
-                    backgroundColor: 'rgba(23,23,22,0.9)',
-                  }}
-                >
-                  <SoulIcon size={17} sx={{ color: TEXT_HEADING, opacity: 0.86, filter: 'none' }} />
-                  <Typography sx={{ fontSize: '0.85rem', color: TEXT_HEADING, fontFamily: '"Manrope", sans-serif', fontWeight: 500 }}>5</Typography>
-                </Box>
-                <Box component="img" src={landingControlsIcon} alt="controls" sx={{ height: 28, opacity: 0.75 }} />
-              </Box>
-
-              {/* Textarea row */}
-              <Box
-                sx={{
-                  borderRadius: '12px',
-                  border: `0.5px solid ${CARD_BORDER}`,
-                  backgroundColor: 'rgba(23,23,22,0.9)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  px: 2,
-                  py: 1.2,
-                  gap: 1,
-                }}
-              >
-                <Box
-                  component="textarea"
-                  value={promptText}
-                  onChange={(e) => setPromptText(e.target.value.slice(0, LANDING_PROMPT_MAX_LENGTH))}
-                  placeholder="Что вы будете делать дальше?"
-                  rows={1}
-                  sx={{
-                    flex: 1,
-                    border: 'none',
-                    outline: 'none',
-                    resize: 'none',
-                    background: 'transparent',
-                    color: TEXT_HEADING,
-                    fontFamily: '"Manrope", sans-serif',
-                    fontSize: '0.9rem',
-                    lineHeight: 1.5,
-                    '&::placeholder': { color: '#808080', opacity: 1 },
-                  }}
-                />
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <TextLimitIndicator currentLength={promptText.length} maxLength={LANDING_PROMPT_MAX_LENGTH} />
-                  <IconButton
-                    size="small"
-                    aria-label="send"
+            />
+            {gameSteps.map((step, index) => (
+              <RevealOnView key={step.number} delay={index * 100}>
+                <Stack alignItems="center" textAlign="center">
+                  <Box
                     sx={{
-                      width: 32,
-                      height: 32,
-                      backgroundColor: '#dbdde7',
-                      borderRadius: '8px',
-                      '&:hover': { backgroundColor: '#e8eaf0' },
+                      position: 'relative',
+                      zIndex: 1,
+                      width: 48,
+                      height: 48,
+                      display: 'grid',
+                      placeItems: 'center',
+                      borderRadius: '50%',
+                      border: '1.5px solid rgba(103,171,255,0.9)',
+                      background: '#06121d',
+                      color: '#8fc4ff',
+                      fontFamily: '"Spectral", serif',
+                      fontSize: '1.08rem',
+                      fontWeight: 700,
+                      boxShadow: '0 0 26px rgba(70,137,255,0.16)',
                     }}
                   >
-                    <Box component="img" src={landingSendIcon} alt="" sx={{ width: 14, height: 14 }} />
-                  </IconButton>
-                </Box>
-              </Box>
+                    {step.number}
+                  </Box>
+                  <Typography
+                    component="h3"
+                    sx={{
+                      mt: 1.8,
+                      color: TEXT_HEADING,
+                      fontFamily: '"Spectral", serif',
+                      fontSize: { xs: '1.08rem', md: '1.32rem' },
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {step.title}
+                  </Typography>
+                </Stack>
+              </RevealOnView>
+            ))}
+          </Box>
 
-              <Box sx={{ textAlign: 'center', mt: 5 }}>
-                <Button variant="contained" onClick={() => openAuthPage('register')} sx={ctaButtonSx}>
-                  Начать играть
-                </Button>
-              </Box>
-            </Box>
+          <RevealOnView delay={220}>
+            <Typography
+              sx={{
+                maxWidth: 850,
+                mx: 'auto',
+                mt: { xs: 5, md: 4.5 },
+                color: '#9aa8b5',
+                fontSize: { xs: '0.78rem', md: '0.88rem' },
+                lineHeight: 1.75,
+                textAlign: 'center',
+              }}
+            >
+              Выбери готовый образ или собери персонажа под себя: задай внешность, характер, роль и мотивацию и
+              стартовую ситуацию. Это может быть благородный рыцарь, хитрый вор, изгнанный маг, случайный путник или
+              герой, которого ты полностью придумал сам. С этого начинается твоя личная история в мире MoRius.
+            </Typography>
           </RevealOnView>
         </Container>
       </Box>
 
-      {publicWorlds.length > 0 ? (
+      <Box id="advantages" component="section" sx={{ position: 'relative', overflow: 'hidden', py: { xs: 10, md: 14 }, background: '#02070d' }}>
         <Box
-          component="section"
+          aria-hidden
           sx={{
-            position: 'relative',
-            backgroundColor: '#090909',
-            py: { xs: 9, md: 13 },
-            overflow: 'hidden',
-            '@keyframes morius-public-worlds-scroll': {
-              '0%': { transform: 'translateX(0)' },
-              '100%': { transform: 'translateX(-50%)' },
-            },
+            position: 'absolute',
+            inset: 0,
+            background:
+              'radial-gradient(ellipse at 50% 0%, rgba(36,91,137,0.18), transparent 52%), linear-gradient(180deg, #02070d 0%, #02050a 100%)',
           }}
-        >
-          <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 2, textAlign: 'center', mb: { xs: 4.5, md: 6 } }}>
-            <RevealOnView>
-              <Typography
-                component="h2"
-                sx={{
-                  ...sectionHeadingSx,
-                  fontSize: { xs: '1.8rem', sm: '2.2rem', md: '2.8rem' },
-                  lineHeight: 1.14,
-                }}
-              >
-                Публичные готовые миры
-              </Typography>
-              <Typography
-                sx={{
-                  mt: 1.5,
-                  color: TEXT_BODY,
-                  fontFamily: '"Manrope", sans-serif',
-                  fontSize: { xs: '0.95rem', md: '1.08rem' },
-                  lineHeight: 1.55,
-                }}
-              >
-                Создавай миры и делись ими, или играй в готовые созданные другими игроками!
-              </Typography>
-            </RevealOnView>
-          </Container>
-
-          <RevealOnView delay={80} threshold={0.08}>
-            <Box
-              sx={{
-                position: 'relative',
-                width: '100%',
-                overflow: 'hidden',
-                px: { xs: 0, md: 0 },
-                WebkitMaskImage: {
-                  xs: 'linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%)',
-                  md: 'linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%)',
-                },
-                maskImage: {
-                  xs: 'linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%)',
-                  md: 'linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%)',
-                },
-              }}
-            >
-              <Box
-                aria-hidden
-                sx={{
-                  position: 'absolute',
-                  inset: { xs: '24px 0 12px', md: '32px 0 16px' },
-                  display: 'flex',
-                  gap: { xs: 2, md: 2.5 },
-                  width: 'max-content',
-                  animation: 'morius-public-worlds-scroll 44s linear infinite',
-                  filter: 'blur(16px)',
-                  opacity: 0.28,
-                  transform: 'scale(0.96)',
-                  transformOrigin: 'center',
-                  pointerEvents: 'none',
-                }}
-              >
-                {[...publicWorlds, ...publicWorlds].map((world, index) => (
-                  <LandingPublicWorldCard
-                    key={`public-world-blur-${world.id}-${index}`}
-                    world={world}
-                    onClick={() => undefined}
-                    decorative
-                  />
-                ))}
-              </Box>
-              <Box
-                sx={{
-                  position: 'relative',
-                  zIndex: 1,
-                  display: 'flex',
-                  gap: { xs: 2, md: 2.5 },
-                  width: 'max-content',
-                  animation: 'morius-public-worlds-scroll 44s linear infinite',
-                  '&:hover': { animationPlayState: 'paused' },
-                }}
-              >
-                {[...publicWorlds, ...publicWorlds].map((world, index) => (
-                  <LandingPublicWorldCard
-                    key={`public-world-${world.id}-${index}`}
-                    world={world}
-                    onClick={() => openAuthPage('register')}
-                  />
-                ))}
-              </Box>
-            </Box>
-          </RevealOnView>
-        </Box>
-      ) : null}
-
-      {/* ==================================================================
-          4. ПРЕИМУЩЕСТВА И ОСОБЕННОСТИ
-      ================================================================== */}
-      <Box component="section" sx={{ backgroundColor: '#090909', py: { xs: 10, md: 14 } }}>
-        <Container maxWidth="lg">
+        />
+        <Container maxWidth="lg" sx={{ position: 'relative' }}>
           <RevealOnView>
-            <Typography
-              component="h2"
-              sx={{
-                ...sectionHeadingSx,
-                fontSize: { xs: '1.8rem', sm: '2.2rem', md: '2.8rem' },
-                textAlign: 'center',
-                mb: { xs: 6, md: 8 },
-              }}
-            >
+            <Typography component="h2" sx={{ ...sectionTitleSx, mb: { xs: 6, md: 8 } }}>
               Преимущества и особенности
             </Typography>
           </RevealOnView>
 
-          {/* Carousel */}
           <Box
             sx={{
-              position: 'relative',
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: '520px 560px' },
-              justifyContent: 'center',
+              gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 0.9fr) minmax(420px, 1.1fr)' },
               alignItems: 'center',
-              gap: { xs: 4, md: 6 },
-              minHeight: { xs: 'auto', md: 500 },
+              gap: { xs: 5, md: 8 },
+              minHeight: { md: 480 },
             }}
           >
-            {/* Left: numbered slide content */}
-            <Box
-              sx={{
-                width: '100%',
-                overflow: 'hidden',
-                minHeight: { xs: 'auto', md: 430 },
-              }}
-            >
+            <RevealOnView key={`advantage-copy-${activeAdvantage.id}`}>
+              <Box>
+                <Typography
+                  aria-hidden
+                  sx={{
+                    color: 'transparent',
+                    WebkitTextStroke: `2px ${ACCENT}`,
+                    fontFamily: '"Manrope", sans-serif',
+                    fontSize: { xs: '8rem', md: '12rem' },
+                    fontWeight: 700,
+                    lineHeight: 0.78,
+                    opacity: 0.82,
+                    WebkitMaskImage: 'linear-gradient(180deg, #000 0%, #000 48%, transparent 92%)',
+                    maskImage: 'linear-gradient(180deg, #000 0%, #000 48%, transparent 92%)',
+                  }}
+                >
+                  {activeAdvantage.number}
+                </Typography>
+                <Typography
+                  component="h3"
+                  sx={{ mt: -0.5, color: '#d8e0e8', fontFamily: '"Spectral", serif', fontSize: { xs: '1.35rem', md: '1.7rem' }, textTransform: 'uppercase' }}
+                >
+                  {activeAdvantage.title}
+                </Typography>
+                <Typography sx={{ mt: 1.5, maxWidth: 520, color: TEXT_BODY, fontSize: { xs: '0.84rem', md: '0.94rem' }, lineHeight: 1.72 }}>
+                  {activeAdvantage.description}
+                </Typography>
+              </Box>
+            </RevealOnView>
+
+            <RevealOnView key={`advantage-image-${activeAdvantage.id}`} delay={80}>
               <Box
                 sx={{
-                  display: 'flex',
-                  transform: `translateX(-${currentSlide * 100}%)`,
-                  transition: 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
-                  willChange: 'transform',
+                  position: 'relative',
+                  display: 'grid',
+                  placeItems: 'center',
+                  minHeight: { xs: 330, md: 460 },
+                  '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    inset: '8%',
+                    borderRadius: '50%',
+                    background: 'radial-gradient(circle, rgba(58,133,216,0.19), transparent 68%)',
+                    filter: 'blur(18px)',
+                  },
                 }}
               >
-                {advantageSlides.map((item) => (
-                  <Box
-                    key={`text-${item.id}`}
-                    sx={{
-                      minWidth: '100%',
-                      width: '100%',
-                      flexShrink: 0,
-                      position: 'relative',
-                      minHeight: { xs: 'auto', md: 430 },
-                      pb: { xs: 0, md: 9 },
-                    }}
-                  >
-                    {/* Big stroke number */}
-              <Typography
-                aria-hidden
-                sx={{
-                  fontFamily: '"Manrope", sans-serif',
-                  fontWeight: 700,
-                  fontSize: { xs: '9rem', md: '13rem' },
-                  lineHeight: 0.85,
-                  WebkitTextFillColor: 'transparent',
-                  WebkitTextStroke: `2px ${ACCENT}`,
-                  letterSpacing: 0,
-                  fontVariantNumeric: 'tabular-nums',
-                  WebkitMaskImage: 'linear-gradient(180deg, #000 0%, #000 36%, rgba(0,0,0,0.28) 56%, transparent 78%)',
-                  maskImage: 'linear-gradient(180deg, #000 0%, #000 36%, rgba(0,0,0,0.28) 56%, transparent 78%)',
-                  userSelect: 'none',
-                  mb: -2,
-                  opacity: 0.9,
-                }}
-              >
-                {item.number}
-              </Typography>
-              <Typography
-                component="h3"
-                sx={{
-                  ...sectionHeadingSx,
-                  fontSize: { xs: '1.3rem', md: '1.7rem' },
-                  mb: 2,
-                }}
-              >
-                {item.title}
-              </Typography>
-              <Typography
-                sx={{
-                  color: TEXT_BODY,
-                  fontSize: { xs: '0.9rem', md: '1rem' },
-                  fontFamily: '"Manrope", sans-serif',
-                  lineHeight: 1.7,
-                  maxWidth: 520,
-                  mb: 4,
-                  opacity: 0.85,
-                }}
-              >
-                {item.description}
-              </Typography>
-
-              {/* Navigation arrows */}
-              <Box sx={{ position: 'absolute', left: 0, bottom: 38, display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 2, mb: 0 }}>
-                <IconButton
-                  onClick={handlePrevSlide}
-                  disabled={currentSlide === 0}
-                  aria-label="Предыдущее"
-                  sx={{
-                    p: 0,
-                    width: 36,
-                    height: 36,
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    opacity: currentSlide === 0 ? 0.35 : 1,
-                      transition: 'opacity 220ms ease, transform 220ms ease',
-                    '&:hover:not(:disabled)': { transform: 'translateX(-2px)', backgroundColor: 'transparent' },
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={arrowPrevIcon}
-                    alt="prev"
-                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
-                  />
-                </IconButton>
-                <IconButton
-                  onClick={handleNextSlide}
-                  disabled={currentSlide === advantageSlides.length - 1}
-                  aria-label="Следующее"
-                  sx={{
-                    p: 0,
-                    width: 36,
-                    height: 36,
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    opacity: currentSlide === advantageSlides.length - 1 ? 0.35 : 1,
-                      transition: 'opacity 220ms ease, transform 220ms ease',
-                    '&:hover:not(:disabled)': { transform: 'translateX(2px)', backgroundColor: 'transparent' },
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={arrowNextIcon}
-                    alt="next"
-                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
-                  />
-                </IconButton>
-              </Box>
-
-              {/* Dot indicators */}
-              <Box sx={{ position: 'absolute', left: 0, bottom: 0, display: { xs: 'none', md: 'flex' }, gap: 1 }}>
-                {advantageSlides.map((_, i) => (
-                  <Box
-                    key={i}
-                    component="button"
-                    onClick={() => setCurrentSlide(i)}
-                    aria-label={`Слайд ${i + 1}`}
-                    sx={{
-                      width: i === currentSlide ? 52 : 44,
-                      height: 3,
-                      borderRadius: '2px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      backgroundColor: i === currentSlide ? ACCENT : 'rgba(217,217,217,0.5)',
-                      transition: 'background-color 220ms ease, width 220ms ease',
-                      p: 0,
-                    }}
-                  />
-                ))}
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-
-            {/* Right: preview image with accent glow */}
-            <Box
-              sx={{
-                width: '100%',
-                overflow: 'hidden',
-                minHeight: { xs: 320, md: 500 },
-              }}
-            >
-              <Box
-                sx={{
-                  display: 'flex',
-                  transform: `translateX(-${currentSlide * 100}%)`,
-                  transition: 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
-                  willChange: 'transform',
-                }}
-              >
-                {advantageSlides.map((item) => (
-                  <Box
-                    key={`img-${item.id}`}
-                    sx={{
-                      minWidth: '100%',
-                      width: '100%',
-                      flexShrink: 0,
-                      display: 'flex',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      position: 'relative',
-                      minHeight: { xs: 320, md: 500 },
-                    }}
-                  >
-                    <Box
-                      aria-hidden
-                      sx={{
-                        position: 'absolute',
-                        inset: { xs: '10% 0 8%', md: '5% -6% 4%' },
-                        background:
-                          'radial-gradient(ellipse at center, rgba(76,141,255,0.11) 0%, rgba(76,141,255,0.06) 34%, rgba(76,141,255,0.03) 54%, transparent 76%)',
-                        zIndex: 0,
-                        pointerEvents: 'none',
-                      }}
-                    />
-                    <Box
-                      sx={{
-                        position: 'relative',
-                        zIndex: 1,
-                        width: { xs: '85%', md: '90%' },
-                        maxWidth: 560,
-                        transform: 'rotate(4deg)',
-                        '&::after': {
-                          content: '""',
-                          position: 'absolute',
-                          inset: -1,
-                          borderRadius: '12px',
-                          background:
-                            'linear-gradient(90deg, #111111 0%, transparent 13%, transparent 87%, #111111 100%), linear-gradient(180deg, #111111 0%, transparent 13%, transparent 87%, #111111 100%)',
-                          pointerEvents: 'none',
-                        },
-                      }}
-                    >
-                      <Box
-                        component="img"
-                        src={item.preview}
-                        alt={item.title}
-                        loading="lazy"
-                        decoding="async"
-                        sx={{
-                          width: '100%',
-                          display: 'block',
-                          borderRadius: '12px',
-                          boxShadow: '0 24px 48px rgba(0,0,0,0.55)',
-                        }}
-                      />
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-            <Box
-              sx={{
-                display: { xs: 'flex', md: 'none' },
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                gap: 2,
-                width: '100%',
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <IconButton
-                  onClick={handlePrevSlide}
-                  disabled={currentSlide === 0}
-                  aria-label={PREVIOUS_SLIDE_ARIA_LABEL}
-                  sx={{
-                    p: 0,
-                    width: 36,
-                    height: 36,
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    opacity: currentSlide === 0 ? 0.35 : 1,
-                    transition: 'opacity 220ms ease, transform 220ms ease',
-                    '&:hover:not(:disabled)': { transform: 'translateX(-2px)', backgroundColor: 'transparent' },
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={arrowPrevIcon}
-                    alt="prev"
-                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
-                  />
-                </IconButton>
-                <IconButton
-                  onClick={handleNextSlide}
-                  disabled={currentSlide === advantageSlides.length - 1}
-                  aria-label={NEXT_SLIDE_ARIA_LABEL}
-                  sx={{
-                    p: 0,
-                    width: 36,
-                    height: 36,
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    opacity: currentSlide === advantageSlides.length - 1 ? 0.35 : 1,
-                    transition: 'opacity 220ms ease, transform 220ms ease',
-                    '&:hover:not(:disabled)': { transform: 'translateX(2px)', backgroundColor: 'transparent' },
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={arrowNextIcon}
-                    alt="next"
-                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
-                  />
-                </IconButton>
-              </Box>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                {advantageSlides.map((_, i) => (
-                  <Box
-                    key={`mobile-dot-${i}`}
-                    component="button"
-                    onClick={() => setCurrentSlide(i)}
-                    aria-label={getSlideAriaLabel(i)}
-                    sx={{
-                      width: i === currentSlide ? 52 : 44,
-                      height: 3,
-                      borderRadius: '2px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      backgroundColor: i === currentSlide ? ACCENT : 'rgba(217,217,217,0.5)',
-                      transition: 'background-color 220ms ease, width 220ms ease',
-                      p: 0,
-                    }}
-                  />
-                ))}
-              </Box>
-            </Box>
-          </Box>
-        </Container>
-      </Box>
-
-      {/* ==================================================================
-          5. КАК УСТРОЕНА ИГРА
-      ================================================================== */}
-      <Box component="section" sx={{ backgroundColor: '#090909', py: { xs: 10, md: 14 } }}>
-        <Container maxWidth="lg">
-          <RevealOnView>
-            <Stack spacing={1.5} alignItems="center" textAlign="center" mb={{ xs: 5, md: 7 }}>
-              <Typography
-                component="h2"
-                sx={{ ...sectionHeadingSx, fontSize: { xs: '1.8rem', md: '2.5rem' } }}
-              >
-                Как устроена игра
-              </Typography>
-              <Typography
-                sx={{
-                  color: TEXT_BODY,
-                  fontFamily: '"Manrope", sans-serif',
-                  fontSize: { xs: '0.9rem', md: '1rem' },
-                  maxWidth: 720,
-                }}
-              >
-                Ты выбираешь действия. ИИ ведет мир: описывает сцены, персонажей и последствия
-              </Typography>
-            </Stack>
-          </RevealOnView>
-
-          <RevealOnView delay={60} sx={{ display: { xs: 'block', sm: 'none' } }}>
-            <Box sx={{ overflow: 'hidden' }}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  transform: `translateX(-${currentFeatureSlide * 100}%)`,
-                  transition: 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
-                  willChange: 'transform',
-                }}
-              >
-                {featureCards.map((card) => (
-                  <Box key={`mobile-feature-${card.id}`} sx={{ minWidth: '100%', width: '100%', flexShrink: 0 }}>
-                    <Box
-                      sx={{
-                        backgroundColor: CARD_BG,
-                        border: `0.5px solid ${CARD_BORDER}`,
-                        borderRadius: '12px',
-                        p: 3,
-                        minHeight: 180,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 2,
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          justifyContent: 'space-between',
-                          gap: 2,
-                        }}
-                      >
-                        <Typography
-                          component="h3"
-                          sx={{
-                            fontFamily: '"Manrope", sans-serif',
-                            fontWeight: 700,
-                            fontSize: '1rem',
-                            color: TEXT_HEADING,
-                            lineHeight: 1.3,
-                          }}
-                        >
-                          {card.title}
-                        </Typography>
-                        <Box
-                          component="img"
-                          src={card.icon}
-                          alt=""
-                          sx={{
-                            width: 40,
-                            height: 40,
-                            flexShrink: 0,
-                            filter: ACCENT_ICON_FILTER,
-                          }}
-                        />
-                      </Box>
-                      <Typography
-                        sx={{
-                          color: TEXT_BODY,
-                          fontFamily: '"Manrope", sans-serif',
-                          fontSize: '0.85rem',
-                          lineHeight: 1.6,
-                          opacity: 0.82,
-                        }}
-                      >
-                        {card.description}
-                      </Typography>
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, mt: 2.5 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <IconButton
-                  onClick={handlePrevFeatureSlide}
-                  disabled={currentFeatureSlide === 0}
-                  aria-label={PREVIOUS_SLIDE_ARIA_LABEL}
-                  sx={{
-                    p: 0,
-                    width: 36,
-                    height: 36,
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    opacity: currentFeatureSlide === 0 ? 0.35 : 1,
-                    transition: 'opacity 220ms ease, transform 220ms ease',
-                    '&:hover:not(:disabled)': { transform: 'translateX(-2px)', backgroundColor: 'transparent' },
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={arrowPrevIcon}
-                    alt="prev"
-                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
-                  />
-                </IconButton>
-                <IconButton
-                  onClick={handleNextFeatureSlide}
-                  disabled={currentFeatureSlide === featureCards.length - 1}
-                  aria-label={NEXT_SLIDE_ARIA_LABEL}
-                  sx={{
-                    p: 0,
-                    width: 36,
-                    height: 36,
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    opacity: currentFeatureSlide === featureCards.length - 1 ? 0.35 : 1,
-                    transition: 'opacity 220ms ease, transform 220ms ease',
-                    '&:hover:not(:disabled)': { transform: 'translateX(2px)', backgroundColor: 'transparent' },
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={arrowNextIcon}
-                    alt="next"
-                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
-                  />
-                </IconButton>
-              </Box>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                {featureCards.map((_, i) => (
-                  <Box
-                    key={`feature-dot-${i}`}
-                    component="button"
-                    onClick={() => setCurrentFeatureSlide(i)}
-                    aria-label={getSlideAriaLabel(i)}
-                    sx={{
-                      width: i === currentFeatureSlide ? 52 : 44,
-                      height: 3,
-                      borderRadius: '2px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      backgroundColor: i === currentFeatureSlide ? ACCENT : 'rgba(217,217,217,0.5)',
-                      transition: 'background-color 220ms ease, width 220ms ease',
-                      p: 0,
-                    }}
-                  />
-                ))}
-              </Box>
-            </Box>
-          </RevealOnView>
-
-          <Box
-            sx={{
-              display: { xs: 'none', sm: 'grid' },
-              gridTemplateColumns: { sm: 'repeat(2,1fr)', lg: 'repeat(4,1fr)' },
-              gap: 2,
-            }}
-          >
-            {tariffPlans.map((plan, i) => (
-              <RevealOnView key={`shop-style-plan-${plan.id}`} delay={i * 80 + 100} y={28}>
-                {renderTariffPlanCard(plan, i)}
-              </RevealOnView>
-            ))}
-          </Box>
-
-          <Box
-            sx={{
-              display: 'none',
-              gridTemplateColumns: { sm: 'repeat(2,1fr)', md: 'repeat(3,1fr)' },
-              gap: 2,
-            }}
-          >
-            {featureCards.map((card, i) => (
-              <RevealOnView key={card.id} delay={i * 80} y={28}>
                 <Box
+                  component="img"
+                  src={activeAdvantage.preview}
+                  alt={activeAdvantage.title}
+                  loading="lazy"
+                  decoding="async"
                   sx={{
-                    backgroundColor: CARD_BG,
-                    border: `0.5px solid ${CARD_BORDER}`,
-                    borderRadius: '12px',
-                    p: 3,
-                    height: '100%',
-                    minHeight: 180,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 2,
-                    transition: 'border-color 240ms ease, transform 240ms ease',
-                    '&:hover': {
-                      borderColor: 'rgba(49,48,46,0.8)',
-                      transform: 'translateY(-4px)',
-                    },
+                    position: 'relative',
+                    width: { xs: '94%', md: '100%' },
+                    maxWidth: 570,
+                    maxHeight: 470,
+                    objectFit: 'contain',
+                    transform: 'rotate(4deg)',
+                    filter: 'drop-shadow(0 28px 46px rgba(0,0,0,0.7))',
+                  }}
+                />
+              </Box>
+            </RevealOnView>
+          </Box>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={2.2} sx={{ mt: { xs: 3, md: 1 } }}>
+            <Stack direction="row" spacing={1}>
+              <Box
+                component="button"
+                type="button"
+                onClick={() => setCurrentSlide((index) => Math.max(0, index - 1))}
+                disabled={currentSlide === 0}
+                aria-label={PREVIOUS_SLIDE_ARIA_LABEL}
+                sx={{
+                  width: 48,
+                  height: 38,
+                  p: 0,
+                  border: 0,
+                  background: 'transparent',
+                  color: currentSlide === 0 ? 'rgba(102,168,255,0.28)' : ACCENT,
+                  fontSize: '2.1rem',
+                  lineHeight: 1,
+                  cursor: currentSlide === 0 ? 'default' : 'pointer',
+                  textShadow: currentSlide === 0 ? 'none' : '0 0 16px rgba(102,168,255,0.48)',
+                  transition: 'color 180ms ease, transform 180ms ease',
+                  '&:not(:disabled):hover': { color: '#a5d0ff', transform: 'translateX(-3px)' },
+                  '&:focus-visible': { outline: `2px solid ${ACCENT}`, outlineOffset: 3 },
+                }}
+              >
+                ←
+              </Box>
+              <Box
+                component="button"
+                type="button"
+                onClick={() => setCurrentSlide((index) => Math.min(advantageSlides.length - 1, index + 1))}
+                disabled={currentSlide === advantageSlides.length - 1}
+                aria-label={NEXT_SLIDE_ARIA_LABEL}
+                sx={{
+                  width: 48,
+                  height: 38,
+                  p: 0,
+                  border: 0,
+                  background: 'transparent',
+                  color: currentSlide === advantageSlides.length - 1 ? 'rgba(102,168,255,0.28)' : ACCENT,
+                  fontSize: '2.1rem',
+                  lineHeight: 1,
+                  cursor: currentSlide === advantageSlides.length - 1 ? 'default' : 'pointer',
+                  textShadow: currentSlide === advantageSlides.length - 1 ? 'none' : '0 0 16px rgba(102,168,255,0.48)',
+                  transition: 'color 180ms ease, transform 180ms ease',
+                  '&:not(:disabled):hover': { color: '#a5d0ff', transform: 'translateX(3px)' },
+                  '&:focus-visible': { outline: `2px solid ${ACCENT}`, outlineOffset: 3 },
+                }}
+              >
+                →
+              </Box>
+            </Stack>
+            <Stack direction="row" spacing={0.7}>
+              {advantageSlides.map((slide, index) => (
+                <Box
+                  key={slide.id}
+                  component="button"
+                  type="button"
+                  aria-label={`Слайд ${index + 1}`}
+                  onClick={() => setCurrentSlide(index)}
+                  sx={{
+                    width: index === currentSlide ? 52 : 38,
+                    height: 3,
+                    p: 0,
+                    border: 0,
+                    borderRadius: 2,
+                    cursor: 'pointer',
+                    backgroundColor: index === currentSlide ? ACCENT : 'rgba(196,207,218,0.34)',
+                    transition: 'width 180ms ease, background-color 180ms ease',
+                  }}
+                />
+              ))}
+            </Stack>
+          </Stack>
+        </Container>
+      </Box>
+
+      <Box id="public-worlds" component="section" sx={{ position: 'relative', overflow: 'hidden', py: { xs: 10, md: 14 }, backgroundColor: '#02050a' }}>
+        <Box
+          component="img"
+          src={dragonDepthsImg}
+          alt=""
+          loading="lazy"
+          sx={{
+            position: 'absolute',
+            left: 0,
+            bottom: '-6%',
+            width: '100%',
+            height: '82%',
+            objectFit: 'cover',
+            objectPosition: 'left center',
+            opacity: 0.62,
+          }}
+        />
+        <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, #02050a 0%, rgba(2,5,10,0.42) 34%, #02050a 100%)' }} />
+        <Container maxWidth="lg" sx={{ position: 'relative' }}>
+          <RevealOnView>
+            <Typography component="h2" sx={{ ...sectionTitleSx, textTransform: 'none' }}>
+              Публичные готовые миры
+            </Typography>
+            <Typography sx={{ mt: 1.4, color: TEXT_BODY, fontSize: { xs: '0.82rem', md: '0.94rem' }, textAlign: 'center' }}>
+              Создавай миры и делись ими, или играй в готовые созданные другими игроками!
+            </Typography>
+          </RevealOnView>
+
+          <Box
+            sx={{
+              mt: { xs: 5, md: 7 },
+              height: { xs: 374, md: 500 },
+              mx: { xs: -2, md: 0 },
+              px: { xs: 2, md: 0 },
+              overflowX: { xs: 'auto', md: 'visible' },
+              overflowY: 'visible',
+              scrollbarWidth: 'none',
+              '&::-webkit-scrollbar': { display: 'none' },
+            }}
+          >
+            <Box
+              sx={{
+                position: 'relative',
+                display: { xs: 'flex', md: 'block' },
+                gap: 2,
+                width: { xs: 'max-content', md: '100%' },
+                height: '100%',
+                perspective: { md: '1300px' },
+              }}
+            >
+              {worldsLoading || worldsLoadFailed || worldDeck.length === 0 ? (
+                <Typography
+                  role="status"
+                  sx={{
+                    position: { md: 'absolute' },
+                    top: { md: '50%' },
+                    left: { md: '50%' },
+                    transform: { md: 'translate(-50%, -50%)' },
+                    width: '100%',
+                    color: TEXT_MUTED,
+                    fontSize: '0.9rem',
+                    textAlign: 'center',
                   }}
                 >
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      justifyContent: 'space-between',
-                      gap: 2,
-                    }}
-                  >
-                    <Typography
-                      component="h3"
+                  {worldsLoading
+                    ? 'Загружаем опубликованные миры игроков…'
+                    : worldsLoadFailed
+                      ? 'Не удалось загрузить опубликованные миры.'
+                      : 'Игроки пока не опубликовали ни одного мира.'}
+                </Typography>
+              ) : (
+                worldDeck.map((world, index) => {
+                  const centerOffset = index - (worldDeck.length - 1) / 2
+                  const distance = Math.abs(centerOffset)
+                  const x = centerOffset * 220
+                  const y = distance * 30 - 20
+                  const z = 50 - distance * 70
+                  const rotationY = centerOffset * -4
+                  const rotationZ = centerOffset * 1.1
+                  const scale = 1.06 - distance * 0.11
+                  return (
+                    <Box
+                      key={world.id}
                       sx={{
-                        fontFamily: '"Manrope", sans-serif',
-                        fontWeight: 700,
-                        fontSize: { xs: '1rem', md: '1.1rem' },
-                        color: TEXT_HEADING,
-                        lineHeight: 1.3,
+                        position: { xs: 'relative', md: 'absolute' },
+                        zIndex: { md: Math.max(1, 6 - Math.round(distance * 2)) },
+                        top: { md: '50%' },
+                        left: { md: '50%' },
+                        transform: {
+                          xs: 'none',
+                          md: `translate(-50%, -50%) translate3d(${x}px, ${y}px, ${z}px) rotateY(${rotationY}deg) rotateZ(${rotationZ}deg) scale(${scale})`,
+                        },
+                        transformOrigin: 'center',
+                        transition: 'transform 240ms ease',
                       }}
                     >
-                      {card.title}
-                    </Typography>
-                    <Box
-                      component="img"
-                      src={card.icon}
-                      alt=""
-                      sx={{
-                        width: 40,
-                        height: 40,
-                        flexShrink: 0,
-                        filter: ACCENT_ICON_FILTER,
-                      }}
-                    />
-                  </Box>
-                  <Typography
-                    sx={{
-                      color: TEXT_BODY,
-                      fontFamily: '"Manrope", sans-serif',
-                      fontSize: '0.85rem',
-                      lineHeight: 1.6,
-                      opacity: 0.82,
-                    }}
-                  >
-                    {card.description}
-                  </Typography>
-                </Box>
-              </RevealOnView>
-            ))}
+                      <LandingWorldCard world={world} onClick={() => openAuthPage('register')} />
+                    </Box>
+                  )
+                })
+              )}
+            </Box>
           </Box>
         </Container>
       </Box>
 
-
-      {/* ==================================================================
-          6b. ПОДПИСКИ
-      ================================================================== */}
-      <Box component="section" sx={{ backgroundColor: '#090909', pt: { xs: 2, md: 3 }, pb: { xs: 10, md: 14 } }}>
-        <Container maxWidth="lg">
+      <Box id="packages" component="section" sx={{ position: 'relative', overflow: 'hidden', py: { xs: 10, md: 13 }, background: '#02050a' }}>
+        <Box
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'radial-gradient(ellipse at 14% 0%, rgba(31,94,151,0.14), transparent 38%), radial-gradient(ellipse at 85% 70%, rgba(78,40,110,0.08), transparent 38%)',
+          }}
+        />
+        <Container maxWidth="lg" sx={{ position: 'relative' }}>
           <RevealOnView>
-            <Stack spacing={1.5} alignItems="center" textAlign="center" mb={{ xs: 5, md: 7 }}>
-              <Typography
-                component="h2"
-                sx={{ ...sectionHeadingSx, fontSize: { xs: '1.8rem', md: '2.5rem' } }}
-              >
-                Подписки
-              </Typography>
-              <Typography
-                sx={{
-                  color: TEXT_BODY,
-                  fontFamily: '"Manrope", sans-serif',
-                  fontSize: { xs: '0.9rem', md: '1rem' },
-                  maxWidth: 720,
-                }}
-              >
-                Играй на топовых моделях без списания солов — фиксированная цена и ежедневный запас ходов
-              </Typography>
-            </Stack>
+            <Typography component="h2" sx={{ ...sectionTitleSx, mb: { xs: 5, md: 6 } }}>
+              Пакеты
+            </Typography>
           </RevealOnView>
-
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2,1fr)', md: 'repeat(3,1fr)' },
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
               gap: 2,
-              maxWidth: 1040,
+              maxWidth: 1180,
               mx: 'auto',
             }}
           >
-            {subscriptionSets.map((plan, i) => (
-              <RevealOnView key={`subscription-${plan.id}`} delay={i * 80 + 100} y={28}>
-                {renderSubscriptionCard(plan, i)}
+            {tariffPlans.map((plan, index) => (
+              <RevealOnView key={plan.id} delay={index * 80} y={30}>
+                <PresentationPlanCard
+                  title={plan.title}
+                  price={plan.price}
+                  accent={plan.accent}
+                  details={plan.details}
+                  iconSrc={plan.icon}
+                  balance={plan.coins}
+                  buttonLabel="Купить"
+                  onClick={() => openAuthPage('register')}
+                  minHeight={500}
+                />
               </RevealOnView>
             ))}
           </Box>
         </Container>
       </Box>
 
-      {/* ==================================================================
-          7. ГОТОВ СДЕЛАТЬ ПЕРВЫЙ ХОД?
-      ================================================================== */}
+      <Box id="subscriptions" component="section" sx={{ position: 'relative', py: { xs: 10, md: 13 }, background: '#02050a' }}>
+        <Container maxWidth="lg">
+          <RevealOnView>
+            <Typography component="h2" sx={{ ...sectionTitleSx, mb: { xs: 5, md: 6 } }}>
+              Подписки
+            </Typography>
+          </RevealOnView>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' },
+              gap: 2.2,
+              maxWidth: 940,
+              mx: 'auto',
+            }}
+          >
+            {subscriptionPlans.map((plan, index) => (
+              <RevealOnView key={plan.id} delay={index * 90} y={30}>
+                <PresentationPlanCard
+                  title={plan.title}
+                  price={plan.price}
+                  accent={plan.accent}
+                  details={plan.details}
+                  iconSrc={plan.icon}
+                  sparkleIcon={plan.id === 'spark'}
+                  priceCaption="в месяц"
+                  buttonLabel="Купить"
+                  onClick={() => openAuthPage('register')}
+                  minHeight={455}
+                />
+              </RevealOnView>
+            ))}
+          </Box>
+        </Container>
+      </Box>
+
       <Box
+        id="start-playing"
         component="section"
         sx={{
-          backgroundColor: '#090909',
-          py: { xs: 10, md: 14 },
+          position: 'relative',
+          minHeight: { xs: 400, md: 470 },
           display: 'grid',
           placeItems: 'center',
-          textAlign: 'center',
-          px: 3,
+          overflow: 'hidden',
+          px: 2,
+          backgroundColor: '#03101a',
         }}
       >
-        <RevealOnView>
-          <Stack spacing={2} alignItems="center">
+        <Box
+          component="img"
+          src={ctaCavernImg}
+          alt=""
+          loading="eager"
+          decoding="async"
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: { xs: '50% 48%', md: '50% 54%' },
+            clipPath: { xs: 'polygon(0 5%, 100% 0, 100% 95%, 0 100%)', md: 'polygon(0 10%, 100% 0, 100% 90%, 0 100%)' },
+          }}
+        />
+        <Box
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'radial-gradient(circle at 50% 42%, rgba(127,185,231,0.12), transparent 34%), linear-gradient(180deg, rgba(2,6,11,0.38), rgba(3,14,24,0.22), rgba(2,5,10,0.64))',
+            clipPath: { xs: 'polygon(0 5%, 100% 0, 100% 95%, 0 100%)', md: 'polygon(0 10%, 100% 0, 100% 90%, 0 100%)' },
+          }}
+        />
+        <Stack alignItems="center" textAlign="center" sx={{ position: 'relative', zIndex: 1 }}>
             <Typography
               component="h2"
-              sx={{ ...sectionHeadingSx, fontSize: { xs: '1.8rem', md: '2.5rem' } }}
+              sx={{
+                ...sectionTitleSx,
+                fontFamily: '"Manrope", sans-serif',
+                fontSize: { xs: '1.55rem', md: '2rem' },
+                fontWeight: 800,
+                letterSpacing: 0,
+                textShadow: 'none',
+              }}
             >
               Готов сделать первый ход?
             </Typography>
-            <Typography
-              sx={{
-                color: TEXT_BODY,
-                fontFamily: '"Manrope", sans-serif',
-                fontSize: { xs: '0.9rem', md: '1rem' },
-              }}
-            >
+            <Typography sx={{ mt: 1.4, color: '#9eacba', fontSize: { xs: '0.8rem', md: '0.92rem' } }}>
               Зарегистрируйся и начни играть
             </Typography>
-            <Box sx={{ pt: 1 }}>
-              <Button variant="contained" onClick={() => openAuthPage('register')} sx={ctaButtonSx}>
-                Начать играть
-              </Button>
-            </Box>
-          </Stack>
-        </RevealOnView>
+            <Button variant="contained" onClick={() => openAuthPage('register')} sx={{ ...primaryButtonSx, mt: 2.7 }}>
+              Начать игру
+            </Button>
+        </Stack>
       </Box>
 
-      {/* ==================================================================
-          8. FOOTER
-      ================================================================== */}
-      <Footer socialLinks={footerSocialLinks} infoLinks={footerInfoLinks} onNavigate={onNavigate} />
-
+      <PresentationFooter onNavigate={onNavigate} />
     </Box>
   )
 }

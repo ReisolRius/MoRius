@@ -26,6 +26,13 @@ import SoulAmount from '../components/currency/SoulAmount'
 import ProgressiveImage from '../components/media/ProgressiveImage'
 import UserAvatar from '../components/profile/UserAvatar'
 import AvatarFrame from '../components/profile/AvatarFrame'
+import PresentationPlanCard from '../components/shop/PresentationPlanCard'
+import planCompassIcon from '../assets/images/presentation/plan-compass.png'
+import planMagnifierIcon from '../assets/images/presentation/plan-magnifier.png'
+import planCrownIcon from '../assets/images/presentation/plan-crown.png'
+import planFeatherIcon from '../assets/images/presentation/plan-feather.png'
+import planFlameIcon from '../assets/images/presentation/plan-flame.png'
+import planConstellationIcon from '../assets/images/presentation/plan-constellation.png'
 import {
   cancelSubscription,
   createCoinTopUpPayment,
@@ -176,6 +183,35 @@ const DEFAULT_PLANS: CoinTopUpPlan[] = [
   { id: 'mega', title: 'Архонт', description: 'Большой запас для активных миров, артов и покупок.', price_rub: 2990, coins: 3350 },
   { id: 'legendary', title: 'Летописец', description: 'Максимальный запас для хронистов: дорогие модели, долгие кампании.', price_rub: 5990, coins: 7000 },
 ]
+
+const COIN_PLAN_PRESENTATION = [
+  {
+    accent: '#6daeff',
+    icon: planCompassIcon,
+    details: ['Для старта, тестовых миров и коротких кампаний.', 'Работает с лимитом контекста до 64k.'],
+  },
+  {
+    accent: '#54e4df',
+    icon: planMagnifierIcon,
+    details: ['Оптимален для регулярной игры и длинных сцен.', 'Лучший баланс между ценой и запасом валюты.'],
+  },
+  {
+    accent: '#f4b83f',
+    icon: planCrownIcon,
+    details: ['Для больших кампаний и тяжёлых сцен с запасом.', 'Удобен при частом использовании дорогих моделей.'],
+  },
+  {
+    accent: '#bd78ff',
+    icon: planFeatherIcon,
+    details: ['Максимальный запас для долгих хроник и сложных миров.', 'Идеален для дорогих моделей и активных кампаний.'],
+  },
+] as const
+
+const SUBSCRIPTION_PRESENTATION = [
+  { accent: '#47e4ec', icon: undefined, sparkleIcon: true },
+  { accent: '#ff4351', icon: planFlameIcon, sparkleIcon: false },
+  { accent: '#f3c63c', icon: planConstellationIcon, sparkleIcon: false },
+] as const
 
 const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   {
@@ -850,134 +886,45 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   }
 
   const renderSubscriptionCard = (plan: SubscriptionPlan, index: number) => {
-    const accents = ['#6B9BFF', '#C47FFF', '#F2B356']
-    const accent = accents[index % accents.length]
+    const presentation = SUBSCRIPTION_PRESENTATION[index % SUBSCRIPTION_PRESENTATION.length]
     const isLocked = !subscriptionsAvailable
     return (
-      <Box
+      <PresentationPlanCard
         key={plan.id}
-        sx={{
-          position: 'relative',
-          display: 'flex',
-          flexDirection: 'column',
-          borderRadius: '18px',
-          overflow: 'hidden',
-          backgroundColor: 'var(--morius-card-bg)',
-          border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          boxShadow: '0 18px 42px rgba(0,0,0,0.24)',
-          opacity: isLocked ? 0.78 : 1,
-        }}
-      >
-        {plan.badge ? (
-          <Chip
-            label={plan.badge}
-            size="small"
-            sx={{
-              position: 'absolute',
-              top: 12,
-              right: 12,
-              zIndex: 3,
-              height: 24,
-              fontWeight: 900,
-              fontSize: '0.72rem',
-              color: '#101317',
-              backgroundColor: accent,
-            }}
-          />
-        ) : null}
-        <Box sx={{ p: 2, pb: 1.6, background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 26%, var(--morius-card-bg)), var(--morius-card-bg))` }}>
-          <Typography sx={{ color: accent, fontSize: '0.82rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            Подписка
-          </Typography>
-          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.7rem', fontWeight: 950, lineHeight: 1.05, mt: 0.4 }}>
-            {plan.title}
-          </Typography>
-          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', lineHeight: 1.35, mt: 0.4 }}>
-            {plan.subtitle}
-          </Typography>
-        </Box>
-        <Stack spacing={1.4} sx={{ p: 2, pt: 1.6, flex: 1 }}>
-          <Stack direction="row" alignItems="baseline" spacing={0.6}>
-            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2rem', fontWeight: 950, lineHeight: 1 }}>
-              {formatPrice(plan.price_rub)}
-            </Typography>
-            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', fontWeight: 700 }}>/ мес</Typography>
-          </Stack>
-          <Stack spacing={0.9} sx={{ flex: 1 }}>
-            {plan.perks.map((perk) => (
-              <Stack key={perk} direction="row" spacing={1} alignItems="flex-start">
-                <Box component="span" sx={{ color: accent, fontWeight: 900, lineHeight: 1.4, flexShrink: 0 }}>✓</Box>
-                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.92rem', lineHeight: 1.4 }}>{perk}</Typography>
-              </Stack>
-            ))}
-          </Stack>
-          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.4, opacity: 0.85 }}>
-            Автопродление каждый месяц. Отмена в любой момент в разделе «Способы оплаты».
-          </Typography>
-          <Button
-            onClick={() => handleOpenSubscribe(plan)}
-            disabled={isLocked}
-            sx={{
-              minHeight: 48,
-              borderRadius: '14px',
-              textTransform: 'none',
-              color: isLocked ? 'var(--morius-text-secondary)' : '#101317',
-              fontWeight: 900,
-              backgroundColor: isLocked ? 'var(--morius-elevated-bg)' : accent,
-              '&.Mui-disabled': { color: 'var(--morius-text-secondary)', backgroundColor: 'var(--morius-elevated-bg)' },
-              '&:hover': { backgroundColor: `color-mix(in srgb, ${accent} 88%, #fff 12%)` },
-            }}
-          >
-            {isLocked ? 'Скоро добавим' : `Оформить за ${formatPricePerMonth(plan.price_rub)}`}
-          </Button>
-        </Stack>
-      </Box>
+        title={plan.title}
+        price={formatPrice(plan.price_rub)}
+        accent={presentation.accent}
+        details={plan.perks}
+        iconSrc={presentation.icon}
+        sparkleIcon={presentation.sparkleIcon}
+        priceCaption="в месяц"
+        badge={plan.badge}
+        note="Автопродление каждый месяц. Отмена в любой момент в разделе «Способы оплаты»."
+        buttonLabel={isLocked ? 'Скоро добавим' : `Оформить за ${formatPricePerMonth(plan.price_rub)}`}
+        onClick={() => handleOpenSubscribe(plan)}
+        disabled={isLocked}
+        minHeight={540}
+      />
     )
   }
 
   const renderPlanCard = (plan: CoinTopUpPlan, index: number) => {
-    const accents = ['#6B9BFF', '#5ADDC7', '#F2B356', '#C47FFF']
-    const accent = accents[index % accents.length]
+    const presentation = COIN_PLAN_PRESENTATION[index % COIN_PLAN_PRESENTATION.length]
     const isPaying = payingPlanId === plan.id
     return (
-      <Box
+      <PresentationPlanCard
         key={plan.id}
-        sx={{
-          borderRadius: '18px',
-          overflow: 'hidden',
-          backgroundColor: 'var(--morius-card-bg)',
-          border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          boxShadow: '0 18px 42px rgba(0,0,0,0.24)',
-        }}
-      >
-        <Box sx={{ height: 84, p: 2, background: `linear-gradient(135deg, ${accent}, color-mix(in srgb, ${accent} 58%, #111 42%))` }}>
-          <Typography sx={{ color: '#101317', fontSize: '1.6rem', fontWeight: 900, lineHeight: 1 }}>{plan.title}</Typography>
-        </Box>
-        <Stack spacing={1.4} sx={{ p: 2 }}>
-          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2.15rem', fontWeight: 900, lineHeight: 1 }}>
-            {formatPrice(plan.price_rub)}
-          </Typography>
-          <SoulAmount amount={plan.coins} iconSize={20} color={accent} fontSize="1.05rem" />
-          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', lineHeight: 1.45 }}>
-            {normalizePlanDescription(plan.description)}
-          </Typography>
-          <Button
-            onClick={() => void handleBuyPlan(plan)}
-            disabled={isPaying}
-            sx={{
-              minHeight: 48,
-              borderRadius: '14px',
-              textTransform: 'none',
-              color: '#101317',
-              fontWeight: 900,
-              backgroundColor: accent,
-              '&:hover': { backgroundColor: `color-mix(in srgb, ${accent} 88%, #fff 12%)` },
-            }}
-          >
-            {isPaying ? 'Открываем оплату...' : 'Купить'}
-          </Button>
-        </Stack>
-      </Box>
+        title={plan.title}
+        price={formatPrice(plan.price_rub)}
+        accent={presentation.accent}
+        details={[...presentation.details, normalizePlanDescription(plan.description)]}
+        iconSrc={presentation.icon}
+        balance={plan.coins.toLocaleString('ru-RU')}
+        buttonLabel={isPaying ? 'Открываем оплату...' : 'Купить'}
+        onClick={() => void handleBuyPlan(plan)}
+        disabled={isPaying}
+        minHeight={500}
+      />
     )
   }
 

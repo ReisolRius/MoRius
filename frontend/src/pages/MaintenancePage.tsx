@@ -84,6 +84,7 @@ function MaintenancePage({ settings }: MaintenancePageProps) {
             width: { xs: 112, sm: 132 },
             height: 'auto',
             opacity: 0.98,
+            filter: 'brightness(0) invert(1)',
             mb: { xs: 0.4, md: 0.7 },
           }}
         />

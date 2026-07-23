@@ -19519,7 +19519,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   width: 68,
                   height: 'auto',
                   display: 'block',
-                  filter: 'drop-shadow(0 8px 18px rgba(0, 0, 0, 0.34))',
+                  filter: 'brightness(0) invert(1) drop-shadow(0 8px 18px rgba(0, 0, 0, 0.34))',
                   userSelect: 'none',
                   pointerEvents: 'none',
                 }}

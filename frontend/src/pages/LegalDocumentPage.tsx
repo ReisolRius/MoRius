@@ -22,7 +22,12 @@ function LegalDocumentPage({ title, content, onNavigate }: LegalDocumentPageProp
       <Container maxWidth="md">
         <Stack spacing={2}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ gap: 1 }}>
-            <Box component="img" src={brandLogo} alt="Morius" sx={{ width: { xs: 112, md: 136 }, opacity: 0.9 }} />
+            <Box
+              component="img"
+              src={brandLogo}
+              alt="Morius"
+              sx={{ width: { xs: 112, md: 136 }, opacity: 0.96, filter: 'brightness(0) invert(1)' }}
+            />
             <Button
               onClick={() => onNavigate('/')}
               sx={{
