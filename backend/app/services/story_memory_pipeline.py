@@ -1230,10 +1230,25 @@ def _rebalance_story_memory_layers(
     # Failed blocks keep their original order and are retried before newer stale turns.
     # The newest full turn is already excluded by _get_story_stale_raw_memory_blocks,
     # so it remains intact for response editing.
-    raw_compaction_candidates = [
-        *pending_raw_blocks,
-        *new_raw_blocks,
-    ][: max(0, requests_left - reserved_for_promotion)]
+    raw_compaction_capacity = max(0, requests_left - reserved_for_promotion)
+    pending_retry_candidates = pending_raw_blocks[:raw_compaction_capacity]
+    new_block_capacity = max(0, raw_compaction_capacity - len(pending_retry_candidates))
+    new_block_candidates = new_raw_blocks[:new_block_capacity]
+    most_recently_stale_block = new_raw_blocks[-1] if new_raw_blocks else None
+    if (
+        prioritize_recent_transitions
+        and most_recently_stale_block is not None
+        and new_block_capacity > 0
+        and most_recently_stale_block not in new_block_candidates
+    ):
+        # A backlog larger than the per-turn budget must never starve compaction of the
+        # turn that JUST became stale ("the previous turn") -- otherwise a large older
+        # backlog blocks every recent turn from ever compressing and the whole pipeline
+        # looks like it does nothing, even while ancient FIFO backlog slowly drains in the
+        # background. Guarantee it a slot within the "new backlog" share specifically,
+        # without displacing a pending-retry slot (those keep strict FIFO priority).
+        new_block_candidates = new_block_candidates[:-1] + [most_recently_stale_block]
+    raw_compaction_candidates = pending_retry_candidates + new_block_candidates
 
     try:
         player_name = _get_story_main_hero_name_for_memory(db, game_id=game.id)

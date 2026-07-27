@@ -402,7 +402,11 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
             ["compressed pending turn"],
         )
 
-    def test_recent_transition_preference_does_not_reorder_raw_fifo(self) -> None:
+    def test_recent_transition_preference_guarantees_the_previous_turn_over_older_fifo_backlog(self) -> None:
+        # A backlog bigger than the per-turn budget must never starve the turn that JUST
+        # became stale: with prioritize_recent_transitions=True (the default), it always
+        # gets a compaction attempt even when an older FIFO backlog would otherwise fill
+        # the whole per-turn budget first.
         blocks = [
             _block(1, 100, "latest_full", "old stale turn"),
             _block(2, 101, "latest_full", "new stale turn"),
@@ -439,9 +443,80 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
                 prioritize_recent_transitions=True,
             )
 
+        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "new stale turn")
+        self.assertEqual([block.assistant_message_id for block in blocks if block.layer == "latest_full"], [100, 102])
+        self.assertEqual([block.assistant_message_id for block in blocks if block.layer == "fresh_detailed"], [101])
+
+    def test_recent_transition_preference_disabled_keeps_plain_fifo(self) -> None:
+        blocks = [
+            _block(1, 100, "latest_full", "old stale turn"),
+            _block(2, 101, "latest_full", "new stale turn"),
+            _block(3, 102, "latest_full", "latest turn"),
+        ]
+
+        def create_memory_block(**kwargs):
+            block = _block(
+                max(item.id for item in blocks) + 1,
+                kwargs["assistant_message_id"],
+                kwargs["layer"],
+                kwargs["content"],
+                token_count=5,
+            )
+            block.title = kwargs["title"]
+            blocks.append(block)
+            return block
+
+        with (
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget()),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
+            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
+            patch.object(
+                story_memory_pipeline,
+                "_compress_story_memory_block_with_model",
+                return_value=("Подробная память", "fresh oldest stale"),
+            ) as compress_mock,
+            patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
+        ):
+            story_memory_pipeline._rebalance_story_memory_layers(
+                db=_FakeSession(blocks),
+                game=_game(),
+                max_model_requests=1,
+                prioritize_recent_transitions=False,
+            )
+
         self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "old stale turn")
         self.assertEqual([block.assistant_message_id for block in blocks if block.layer == "latest_full"], [101, 102])
         self.assertEqual([block.assistant_message_id for block in blocks if block.layer == "fresh_detailed"], [100])
+
+    def test_recent_transition_preference_never_displaces_a_pending_retry_slot(self) -> None:
+        # Retrying a previously failed block keeps strict priority over the "guarantee the
+        # previous turn" recency rule -- the recency guarantee only claims capacity within
+        # the *new* backlog's own share, never a slot already claimed by a pending retry.
+        blocks = [
+            _block(1, 100, "raw_pending", "old turn awaiting retry"),
+            _block(2, 101, "latest_full", "new stale turn"),
+            _block(3, 102, "latest_full", "latest turn"),
+        ]
+
+        with (
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget()),
+            patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
+            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
+            patch.object(
+                story_memory_pipeline,
+                "_compress_story_memory_block_with_model",
+                return_value=("Подробная память", "compressed pending turn"),
+            ) as compress_mock,
+            patch.object(story_memory_pipeline, "_create_story_memory_block"),
+        ):
+            story_memory_pipeline._rebalance_story_memory_layers(
+                db=_FakeSession(blocks),
+                game=_game(),
+                max_model_requests=1,
+                prioritize_recent_transitions=True,
+            )
+
+        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "old turn awaiting retry")
 
     def test_fresh_over_budget_promotes_detailed_blocks_to_compressed(self) -> None:
         blocks = [
