@@ -1202,13 +1202,38 @@ def _rebalance_story_memory_layers(
         ),
         key=lambda item: int(getattr(item, "id", 0) or 0),
     )
+    # Reserve at least one request for promoting already-detailed blocks onward. Compacting
+    # a raw block into fresh_detailed never removes it from the "fresh" tier/bucket — only
+    # promotion (fresh_detailed -> compressed -> facts) does. Without a reservation, a
+    # standing backlog of stale raw blocks consumes every request on compaction every turn
+    # and permanently starves promotion even while a tier stays over its budget, so the
+    # fresh bucket only ever grows.
+    reserved_for_promotion = 0
+    if requests_left > 1:
+        pre_fresh_blocks = _layer_blocks(
+            db,
+            game,
+            {STORY_MEMORY_LAYER_LATEST_FULL, STORY_MEMORY_LAYER_FRESH_DETAILED, STORY_MEMORY_LAYER_RAW_PENDING},
+        )
+        fresh_promotable_now = any(
+            _normalize_story_memory_layer(getattr(block, "layer", "")) == STORY_MEMORY_LAYER_FRESH_DETAILED
+            for block in pre_fresh_blocks
+        )
+        fresh_over_budget = _sum_block_tokens(pre_fresh_blocks) > budget.fresh_budget
+        compressed_blocks_pre = _layer_blocks(db, game, {STORY_MEMORY_LAYER_COMPRESSED_SUMMARY})
+        compressed_over_budget = bool(compressed_blocks_pre) and (
+            _sum_block_tokens(compressed_blocks_pre) > budget.compressed_budget
+        )
+        if (fresh_over_budget and fresh_promotable_now) or compressed_over_budget:
+            reserved_for_promotion = 1
+
     # Failed blocks keep their original order and are retried before newer stale turns.
     # The newest full turn is already excluded by _get_story_stale_raw_memory_blocks,
     # so it remains intact for response editing.
     raw_compaction_candidates = [
         *pending_raw_blocks,
         *new_raw_blocks,
-    ][:requests_left]
+    ][: max(0, requests_left - reserved_for_promotion)]
 
     try:
         player_name = _get_story_main_hero_name_for_memory(db, game_id=game.id)

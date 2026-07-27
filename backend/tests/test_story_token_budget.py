@@ -85,6 +85,52 @@ class StoryTokenBudgetTests(unittest.TestCase):
 
         self.assertIn("Место", [card["title"] for card in fitted])
 
+    def test_compact_facts_survive_context_pressure_over_raw_backlog(self) -> None:
+        # The compression tiers exist so that old history stays cheap and safe under any
+        # budget. Under pressure the trimmer must drop uncompacted raw/pending backlog
+        # first, never the compact facts/compressed summaries those blocks were promoted
+        # into.
+        cards = [
+            {
+                "title": "Факты памяти: старая история",
+                "content": "Алекс нашёл артефакт в руинах.",
+                "source_kind": "memory",
+                "memory_layer": "facts",
+            },
+            {
+                "title": "Сжатая память: средняя история",
+                "content": "Алекс и Марина исследовали пещеру.",
+                "source_kind": "memory",
+                "memory_layer": "compressed",
+            },
+            {
+                "title": "Последний полный ход: свежий бэклог",
+                "content": "PLAYER_TURN: слово " * 4_000,
+                "source_kind": "memory",
+                "memory_layer": "latest_full",
+            },
+            {
+                "title": "Ожидает сжатия: недавний бэклог",
+                "content": "PLAYER_TURN: слово " * 4_000,
+                "source_kind": "memory",
+                "memory_layer": "raw_pending",
+            },
+        ]
+
+        fitted = main._fit_story_plot_cards_to_context_limit(
+            instruction_cards=[],
+            plot_cards=cards,
+            world_cards=[],
+            context_limit_tokens=2_200,
+            reserved_history_tokens=0,
+        )
+
+        fitted_titles = [card["title"] for card in fitted]
+        self.assertIn("Факты памяти: старая история", fitted_titles)
+        self.assertIn("Сжатая память: средняя история", fitted_titles)
+        self.assertNotIn("Последний полный ход: свежий бэклог", fitted_titles)
+        self.assertNotIn("Ожидает сжатия: недавний бэклог", fitted_titles)
+
 
 if __name__ == "__main__":
     unittest.main()
