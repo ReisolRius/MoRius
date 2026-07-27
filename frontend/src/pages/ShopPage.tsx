@@ -27,6 +27,11 @@ import ProgressiveImage from '../components/media/ProgressiveImage'
 import UserAvatar from '../components/profile/UserAvatar'
 import AvatarFrame from '../components/profile/AvatarFrame'
 import PresentationPlanCard from '../components/shop/PresentationPlanCard'
+import {
+  CheckoutContents,
+  CheckoutPriceSummary,
+  VoluntaryCommissionControl,
+} from '../components/shop/PurchaseConfirmation'
 import planCompassIcon from '../assets/images/presentation/plan-compass.png'
 import planMagnifierIcon from '../assets/images/presentation/plan-magnifier.png'
 import planCrownIcon from '../assets/images/presentation/plan-crown.png'
@@ -60,6 +65,7 @@ import type { AuthUser } from '../types/auth'
 import { moriusThemeTokens } from '../theme'
 import { withKnownCosmeticImageUrl } from '../utils/cosmeticImageFallbacks'
 import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
+import { formatCheckoutPrice } from '../utils/paymentPricing'
 
 type CosmeticSortMode = 'newest' | 'price'
 
@@ -366,6 +372,8 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   const [buyingItemId, setBuyingItemId] = useState<number | null>(null)
   const [purchaseConfirmItem, setPurchaseConfirmItem] = useState<CosmeticItem | null>(null)
   const [payingPlanId, setPayingPlanId] = useState<string | null>(null)
+  const [topUpPlan, setTopUpPlan] = useState<CoinTopUpPlan | null>(null)
+  const [topUpCoverCommission, setTopUpCoverCommission] = useState(false)
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null)
   const [editingItem, setEditingItem] = useState<CosmeticItem | null>(null)
   const [editingPrice, setEditingPrice] = useState('')
@@ -383,6 +391,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   const [subscriptionsEnabled, setSubscriptionsEnabled] = useState(false)
   const [subscribePlan, setSubscribePlan] = useState<SubscriptionPlan | null>(null)
   const [subscribeConsent, setSubscribeConsent] = useState(false)
+  const [subscribeCoverCommission, setSubscribeCoverCommission] = useState(false)
   const [subscribeInfo, setSubscribeInfo] = useState(false)
   const [isTermsOpen, setIsTermsOpen] = useState(false)
   const [isCardsOpen, setIsCardsOpen] = useState(false)
@@ -394,6 +403,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   const [deletingMethodId, setDeletingMethodId] = useState<number | null>(null)
   const [isCreatingDemoCard, setIsCreatingDemoCard] = useState(false)
   const [checkoutPlan, setCheckoutPlan] = useState<SubscriptionPlan | null>(null)
+  const [checkoutCoverCommission, setCheckoutCoverCommission] = useState(false)
   const [checkoutNumber, setCheckoutNumber] = useState('')
   const [checkoutExpiry, setCheckoutExpiry] = useState('')
   const [checkoutCvc, setCheckoutCvc] = useState('')
@@ -487,6 +497,17 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   }, [loadPaymentMethods, loadSubscriptions])
 
   const plans = catalog?.plans.length ? catalog.plans : DEFAULT_PLANS
+  const topUpPlanIndex = topUpPlan ? plans.findIndex((plan) => plan.id === topUpPlan.id) : -1
+  const topUpPresentation = COIN_PLAN_PRESENTATION[
+    Math.max(0, topUpPlanIndex) % COIN_PLAN_PRESENTATION.length
+  ]
+  const topUpDetails = topUpPlan
+    ? [
+        `${topUpPlan.coins.toLocaleString('ru-RU')} солов`,
+        ...topUpPresentation.details,
+        normalizePlanDescription(topUpPlan.description),
+      ]
+    : []
   const paidFrames = useMemo(() => (catalog?.avatar_frames ?? []).map(withKnownCosmeticImageUrl), [catalog?.avatar_frames])
   const paidBanners = useMemo(() => (catalog?.profile_banners ?? []).map(withKnownCosmeticImageUrl), [catalog?.profile_banners])
   // Cosmetic sections: 2 rows shown by default, "Показать больше" loads +2 rows, with a per-section sort.
@@ -511,14 +532,32 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   const ownedSelectionIds = useMemo(() => new Set(catalog?.owned_selection_ids ?? []), [catalog?.owned_selection_ids])
   const previewAvatarUser = useMemo(() => ({ ...user, avatar_frame_id: 'none', avatar_frame_image_url: null }), [user])
 
-  const handleBuyPlan = async (plan: CoinTopUpPlan) => {
+  const handleOpenTopUpPlan = (plan: CoinTopUpPlan) => {
+    setTopUpCoverCommission(false)
+    setTopUpPlan(plan)
+    setError('')
+  }
+
+  const handleCloseTopUpPlan = () => {
+    if (payingPlanId) {
+      return
+    }
+    setTopUpPlan(null)
+    setTopUpCoverCommission(false)
+  }
+
+  const handleBuyPlan = async (plan: CoinTopUpPlan, coverCommission: boolean) => {
     if (payingPlanId) {
       return
     }
     setPayingPlanId(plan.id)
     setError('')
     try {
-      const response = await createCoinTopUpPayment({ token: authToken, plan_id: plan.id })
+      const response = await createCoinTopUpPayment({
+        token: authToken,
+        plan_id: plan.id,
+        cover_commission: coverCommission,
+      })
       try {
         localStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, response.payment_id)
       } catch {
@@ -723,13 +762,19 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
 
   const handleOpenSubscribe = (plan: SubscriptionPlan) => {
     setSubscribeConsent(false)
+    setSubscribeCoverCommission(false)
     setSubscribeInfo(false)
     setSubscribePlan(plan)
+    setError('')
   }
 
   const handleCloseSubscribe = () => {
+    if (isPaying) {
+      return
+    }
     setSubscribePlan(null)
     setSubscribeConsent(false)
+    setSubscribeCoverCommission(false)
     setSubscribeInfo(false)
   }
 
@@ -740,20 +785,24 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
     // Administrators keep an internal mock checkout (no real charge) for quick UI/screenshot tests;
     // everyone else goes through the real ЮKassa redirect checkout that saves the card for renewals.
     if (isAdmin) {
-      handleOpenCheckout(subscribePlan)
+      handleOpenCheckout(subscribePlan, subscribeCoverCommission)
       return
     }
-    void startRealSubscriptionCheckout(subscribePlan)
+    void startRealSubscriptionCheckout(subscribePlan, subscribeCoverCommission)
   }
 
-  const startRealSubscriptionCheckout = async (plan: SubscriptionPlan) => {
+  const startRealSubscriptionCheckout = async (plan: SubscriptionPlan, coverCommission: boolean) => {
     if (isPaying) {
       return
     }
     setIsPaying(true)
     setError('')
     try {
-      const response = await createSubscriptionCheckout({ token: authToken, plan_id: plan.id })
+      const response = await createSubscriptionCheckout({
+        token: authToken,
+        plan_id: plan.id,
+        cover_commission: coverCommission,
+      })
       window.location.href = response.confirmation_url
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Не удалось перейти к оплате подписки')
@@ -761,8 +810,9 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
     }
   }
 
-  const handleOpenCheckout = (plan: SubscriptionPlan) => {
+  const handleOpenCheckout = (plan: SubscriptionPlan, coverCommission = false) => {
     setCheckoutPlan(plan)
+    setCheckoutCoverCommission(coverCommission)
     setCheckoutNumber('')
     setCheckoutExpiry('')
     setCheckoutCvc('')
@@ -775,6 +825,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
       return
     }
     setCheckoutPlan(null)
+    setCheckoutCoverCommission(false)
   }
 
   const handlePayCheckout = async () => {
@@ -921,7 +972,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         iconSrc={presentation.icon}
         balance={plan.coins.toLocaleString('ru-RU')}
         buttonLabel={isPaying ? 'Открываем оплату...' : 'Купить'}
-        onClick={() => void handleBuyPlan(plan)}
+        onClick={() => handleOpenTopUpPlan(plan)}
         disabled={isPaying}
         minHeight={500}
       />
@@ -1442,33 +1493,86 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         </DialogActions>
       </Dialog>
 
+      <Dialog
+        open={Boolean(topUpPlan)}
+        onClose={handleCloseTopUpPlan}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }}
+        BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}
+      >
+        <DialogTitle sx={{ color: 'var(--morius-title-text)', fontWeight: 900 }}>
+          Покупка пакета «{topUpPlan?.title ?? ''}»
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 0.4 }}>
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', lineHeight: 1.45 }}>
+              Вы собираетесь купить пакет солов «{topUpPlan?.title ?? ''}». Проверьте состав и итоговую стоимость.
+            </Typography>
+            <CheckoutPriceSummary
+              priceRub={topUpPlan?.price_rub ?? 0}
+              coverCommission={topUpCoverCommission}
+            />
+            <CheckoutContents title="В пакет входит" items={topUpDetails} />
+            <VoluntaryCommissionControl
+              checked={topUpCoverCommission}
+              onChange={setTopUpCoverCommission}
+            />
+            {error ? <Alert severity="error">{error}</Alert> : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.4 }}>
+          <Button
+            onClick={handleCloseTopUpPlan}
+            disabled={Boolean(payingPlanId)}
+            sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={() => topUpPlan && void handleBuyPlan(topUpPlan, topUpCoverCommission)}
+            disabled={!topUpPlan || Boolean(payingPlanId)}
+            sx={{
+              borderRadius: '12px',
+              textTransform: 'none',
+              fontWeight: 900,
+              color: 'var(--morius-title-text)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))',
+              '&.Mui-disabled': { color: 'var(--morius-text-secondary)' },
+            }}
+          >
+            {payingPlanId
+              ? 'Открываем оплату...'
+              : `Купить за ${formatCheckoutPrice(topUpPlan?.price_rub ?? 0, topUpCoverCommission)}`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={Boolean(subscribePlan)} onClose={handleCloseSubscribe} maxWidth="xs" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}>
         <DialogTitle sx={{ color: 'var(--morius-title-text)', fontWeight: 900 }}>
-          Оформление подписки «{subscribePlan?.title ?? ''}»
+          Покупка подписки «{subscribePlan?.title ?? ''}»
         </DialogTitle>
         <DialogContent>
           <Stack spacing={1.6} sx={{ pt: 0.4 }}>
-            <Stack direction="row" alignItems="baseline" spacing={0.6}>
-              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.8rem', fontWeight: 950, lineHeight: 1 }}>
-                {formatPrice(subscribePlan?.price_rub ?? 0)}
-              </Typography>
-              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', fontWeight: 700 }}>/ мес</Typography>
-            </Stack>
-            {subscribePlan ? (
-              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', fontWeight: 700, lineHeight: 1.4 }}>
-                {subscribePlan.models.length} модел{subscribePlan.models.length === 1 ? 'ь' : (subscribePlan.models.length < 5 ? 'и' : 'ей')} по подписке · до {subscribePlan.daily_turn_limit} ходов/день · память до {Math.round(subscribePlan.memory_token_cap / 1000)}K токенов
-              </Typography>
-            ) : null}
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', lineHeight: 1.45 }}>
+              Вы собираетесь купить подписку «{subscribePlan?.title ?? ''}». Проверьте преимущества и условия списания.
+            </Typography>
+            <CheckoutPriceSummary
+              priceRub={subscribePlan?.price_rub ?? 0}
+              coverCommission={subscribeCoverCommission}
+              suffix="сегодня"
+            />
+            <CheckoutContents title="В подписку входит" items={subscribePlan?.perks ?? []} />
             <Box sx={{ borderRadius: '14px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-elevated-bg)', p: 1.4 }}>
               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 900, mb: 0.8 }}>
                 Условия списания
               </Typography>
               <Stack spacing={0.6}>
                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem', lineHeight: 1.4 }}>
-                  • Стоимость: {formatPrice(subscribePlan?.price_rub ?? 0)} в месяц
+                  • Первое списание сегодня: {formatCheckoutPrice(subscribePlan?.price_rub ?? 0, subscribeCoverCommission)}
                 </Typography>
                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem', lineHeight: 1.4 }}>
-                  • Первое списание — сегодня, далее ежемесячно
+                  • Далее ежемесячно: {formatPrice(subscribePlan?.price_rub ?? 0)}
                 </Typography>
                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem', lineHeight: 1.4 }}>
                   • Следующее списание: {formatNextChargeDate()}
@@ -1501,6 +1605,11 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
             >
               Читать условия подписки и автосписаний
             </Link>
+            <VoluntaryCommissionControl
+              checked={subscribeCoverCommission}
+              onChange={setSubscribeCoverCommission}
+            />
+            {error ? <Alert severity="error">{error}</Alert> : null}
             {subscribeInfo ? (
               <Alert severity="info" sx={{ borderRadius: '12px' }}>
                 Оформление готово. Оплата подписок включится автоматически после одобрения автоплатежей ЮKassa — повторно настраивать ничего не нужно.
@@ -1509,12 +1618,16 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.4 }}>
-          <Button onClick={handleCloseSubscribe} sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}>
+          <Button
+            onClick={handleCloseSubscribe}
+            disabled={isPaying}
+            sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}
+          >
             Отмена
           </Button>
           <Button
             onClick={handleStartSubscription}
-            disabled={!subscribeConsent || subscribeInfo}
+            disabled={!subscribeConsent || subscribeInfo || isPaying}
             sx={{
               borderRadius: '12px',
               textTransform: 'none',
@@ -1524,7 +1637,9 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
               '&.Mui-disabled': { color: 'var(--morius-text-secondary)' },
             }}
           >
-            Перейти к оплате
+            {isPaying
+              ? 'Открываем оплату...'
+              : `Купить за ${formatCheckoutPrice(subscribePlan?.price_rub ?? 0, subscribeCoverCommission)}`}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1841,7 +1956,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
                   {checkoutPlan?.title ?? ''}
                 </Typography>
                 <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.1rem', fontWeight: 900 }}>
-                  {formatPrice(checkoutPlan?.price_rub ?? 0)} / мес
+                  {formatCheckoutPrice(checkoutPlan?.price_rub ?? 0, checkoutCoverCommission)}
                 </Typography>
               </Stack>
             </Box>
@@ -1901,7 +2016,9 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
               '&.Mui-disabled': { color: 'var(--morius-text-secondary)', backgroundColor: 'var(--morius-elevated-bg)' },
             }}
           >
-            {isPaying ? 'Оплата...' : `Оплатить ${formatPrice(checkoutPlan?.price_rub ?? 0)}`}
+            {isPaying
+              ? 'Оплата...'
+              : `Оплатить ${formatCheckoutPrice(checkoutPlan?.price_rub ?? 0, checkoutCoverCommission)}`}
           </Button>
         </DialogActions>
       </Dialog>

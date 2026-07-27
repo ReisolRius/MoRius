@@ -230,6 +230,39 @@ def _list_subscriptions(
     ]
 
 
+def _list_followers(
+    db: Session,
+    *,
+    user_id: int,
+    limit: int = PROFILE_LIST_LIMIT,
+    offset: int = 0,
+) -> list[ProfileSubscriptionUserOut]:
+    rows = db.execute(
+        select(UserFollow, User)
+        .join(User, User.id == UserFollow.follower_user_id)
+        .where(UserFollow.following_user_id == user_id)
+        .order_by(UserFollow.created_at.desc(), UserFollow.id.desc())
+        .offset(max(int(offset), 0))
+        .limit(max(int(limit), 1))
+    ).all()
+    return [
+        ProfileSubscriptionUserOut(
+            id=follower.id,
+            display_name=story_author_name(follower),
+            avatar_url=resolve_media_display_url(
+                getattr(follower, "avatar_url", None),
+                kind="user-avatar",
+                entity_id=int(follower.id),
+                version=getattr(follower, "updated_at", None),
+            ),
+            avatar_scale=_normalize_user_avatar_scale(follower),
+            avatar_frame_id=_normalize_profile_cosmetic_id(getattr(follower, "avatar_frame_id", None)),
+            avatar_frame_image_url=story_author_avatar_frame_image_url(db, follower),
+        )
+        for _, follower in rows
+    ]
+
+
 def _load_world_rating_by_id(db: Session, *, viewer_user_id: int, world_ids: list[int]) -> dict[int, int]:
     rating_rows = db.scalars(
         select(StoryCommunityWorldRating).where(
@@ -589,7 +622,7 @@ def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) ->
         ) is not None
 
     followers_count = _count_followers(db, user_id=target_user.id)
-    subscriptions_count = _count_subscriptions(db, user_id=target_user.id)
+    subscriptions_count = _count_subscriptions(db, user_id=target_user.id) if can_view_subscriptions else 0
     world_card_templates_count = _count_world_card_templates(db, user_id=target_user.id) if is_self else 0
     games_count = _count_owned_rows(db, StoryGame, user_id=target_user.id) if is_self else 0
     characters_count = _count_owned_rows(db, StoryCharacter, user_id=target_user.id) if is_self else 0
@@ -882,6 +915,36 @@ def list_profile_content_page(
         )
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile content section not found")
+
+
+@router.get(
+    "/api/auth/profiles/{user_id}/connections/{connection_kind}",
+    response_model=list[ProfileSubscriptionUserOut],
+)
+def list_profile_connections(
+    user_id: int,
+    connection_kind: str,
+    limit: int = Query(default=PROFILE_LIST_LIMIT, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[ProfileSubscriptionUserOut]:
+    viewer_user = get_current_user(db, authorization)
+    target_user = _resolve_user_or_404(db, user_id)
+    is_self = int(viewer_user.id) == int(target_user.id)
+    normalized_kind = str(connection_kind or "").strip().lower()
+
+    if normalized_kind == "following":
+        if not (is_self or _serialize_privacy(target_user).show_subscriptions):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Profile subscriptions are private")
+        return _list_subscriptions(db, user_id=int(target_user.id), limit=limit, offset=offset)
+    if normalized_kind == "followers":
+        # There is no public "show followers" setting. Keep this relationship list
+        # private to its owner instead of exposing it implicitly.
+        if not is_self:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Profile followers are private")
+        return _list_followers(db, user_id=int(target_user.id), limit=limit, offset=offset)
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile connection section not found")
 
 
 @router.get("/api/auth/profiles/{user_id}", response_model=ProfileViewOut)

@@ -17,7 +17,7 @@ x-backend-polza-env: &backend_polza_env
   POLZA_ACCELERATED_SERVICE_MODEL: "${POLZA_ACCELERATED_SERVICE_MODEL:-google/gemini-2.5-flash-lite}"
   POLZA_ACCELERATED_SERVICE_FALLBACK_MODEL: "${POLZA_ACCELERATED_SERVICE_FALLBACK_MODEL:-openai/gpt-oss-120b}"
   POLZA_IMAGE_URL: "${POLZA_IMAGE_URL:-https://routerai.ru/api/v1/images}"
-  POLZA_IMAGE_MODEL: "${POLZA_IMAGE_MODEL:-black-forest-labs/flux.2-pro}"
+  POLZA_IMAGE_MODEL: "${POLZA_IMAGE_MODEL:-google/gemini-2.5-flash-image}"
   POLZA_IMAGE_SIZE: "${POLZA_IMAGE_SIZE:-1024x1024}"
   POLZA_SITE_URL: "${POLZA_SITE_URL:-https://morius-ai.ru}"
   POLZA_APP_NAME: "${POLZA_APP_NAME:-MoRius}"

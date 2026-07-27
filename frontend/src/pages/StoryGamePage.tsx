@@ -954,12 +954,10 @@ const STORY_TEMPERATURE_MIN = 0
 const STORY_TEMPERATURE_MAX = 2
 const STORY_DEFAULT_TEMPERATURE = 0.75
 const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-chat-v3-0324'
-const STORY_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
-const STORY_IMAGE_MODEL_FLUX_KLEIN_4B_ID: StoryImageModelId = 'black-forest-labs/flux.2-klein-4b'
 const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
 const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
-const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_FLUX_ID
+const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_NANO_BANANO_ID
 const STORY_APPEARANCE_DEFAULT_BACKGROUND_MODE: StoryAppearanceBackgroundMode = 'custom'
 const STORY_APPEARANCE_DEFAULT_GRADIENT_ENABLED = true
 const STORY_APPEARANCE_DEFAULT_GRADIENT_FROM = '#050506'
@@ -1621,12 +1619,6 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
   priceLabel: string
 }> = [
   {
-    id: STORY_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
-    title: 'Flux.2 Klein 4B',
-    description: 'RouterAI. 6 единиц валюты за генерацию кадра.',
-    priceLabel: '6',
-  },
-  {
     id: STORY_IMAGE_MODEL_NANO_BANANO_ID,
     title: 'Nano Banano',
     description: '9 единиц валюты за генерацию кадра.',
@@ -1637,12 +1629,6 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
     title: 'Nano Banano 2',
     description: '13 единиц валюты за генерацию кадра.',
     priceLabel: '13',
-  },
-  {
-    id: STORY_IMAGE_MODEL_FLUX_ID,
-    title: 'Flux 2 Pro',
-    description: 'RouterAI. 18 единиц валюты за генерацию кадра.',
-    priceLabel: '18',
   },
   {
     id: STORY_IMAGE_MODEL_SEEDREAM_ID,
@@ -1666,9 +1652,9 @@ const STORY_SETTINGS_INFO_TEXT = {
   memoryOptimization:
     'Помогает дольше помнить старые события, ужимая память без потери смысла и важных деталей.',
   memoryOptimizationMode:
-    'Вы можете изменить уровень оптимизации памяти, чтобы замедлить заполнение контекста. Важно: чем выше уровень, тем раньше могут начать пропадать детали.',
+    'Определяет, как быстро сжимаются старые ходы. Более сильный режим экономит контекст, но раньше убирает детали.',
   ambient:
-    'Бета. Подсветка вокруг поля ввода меняется по окружению сцены: фон, свет, погода и локация.',
+    'Подсветка вокруг поля ввода меняется по окружению сцены: фон, свет, погода и локация.',
   advancedRegeneration:
     'Перед перегенерацией позволяет выбрать, что именно исправить: язык, длину, стиль, факты, повторения и т.д.',
   canonicalStatePipeline:
@@ -6167,10 +6153,11 @@ function getStoryNarratorSamplingDefaults(modelId: StoryNarratorModelId): StoryN
 function normalizeStoryImageModelId(value: string | null | undefined): StoryImageModelId {
   const rawValue = (value ?? '').trim()
   const legacyImageModelAliases: Record<string, StoryImageModelId> = {
-    'flux.2-pro': STORY_IMAGE_MODEL_FLUX_ID,
-    'flux.2-klein-4b': STORY_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
+    'flux.2-pro': STORY_DEFAULT_IMAGE_MODEL_ID,
+    'flux.2-klein-4b': STORY_DEFAULT_IMAGE_MODEL_ID,
     'seedream-4.5': STORY_IMAGE_MODEL_SEEDREAM_ID,
-    'black-forest-labs/flux.2-pro': STORY_IMAGE_MODEL_FLUX_ID,
+    'black-forest-labs/flux.2-pro': STORY_DEFAULT_IMAGE_MODEL_ID,
+    'black-forest-labs/flux.2-klein-4b': STORY_DEFAULT_IMAGE_MODEL_ID,
     'bytedance/seedream-4.5': STORY_IMAGE_MODEL_SEEDREAM_ID,
     'bytedance-seed/seedream-4.5': STORY_IMAGE_MODEL_SEEDREAM_ID,
     'qwen-image-edit': STORY_DEFAULT_IMAGE_MODEL_ID,
@@ -9037,7 +9024,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     currentRerollAssistantMessage !== null &&
     continueHiddenForMessageId !== currentRerollAssistantMessage.id
   const canEditStoryAppearance = Boolean(user)
-  const canViewDevMemoryTab = canUseStoryGraph
+  const canViewDevMemoryTab = isAdministrator
   const rightPanelSectionMeta: Record<RightPanelSection, { title: string; eyebrow?: string }> = {
     narrator: { title: 'Рассказчик' },
     characters: { title: 'Персонажи' },
@@ -19013,13 +19000,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     void syncPendingPayment(pendingPaymentId)
   }, [syncPendingPayment])
 
-  const handlePurchasePlan = async (planId: string) => {
+  const handlePurchasePlan = async (planId: string, coverCommission = false) => {
     setTopUpError('')
     setActivePlanPurchaseId(planId)
     try {
       const response = await createCoinTopUpPayment({
         token: authToken,
         plan_id: planId,
+        cover_commission: coverCommission,
       })
       localStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, response.payment_id)
       window.location.assign(response.confirmation_url)
@@ -23858,7 +23846,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               title="RPG pipeline v1"
                               description="Расширенная обработка правил и механик"
                               checked={canonicalStatePipelineEnabled}
-                              visible={canUseVisualNovel}
+                              visible={isAdministrator}
                               onToggle={() => {
                                 void toggleCanonicalStatePipelineEnabled()
                               }}
@@ -23869,7 +23857,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               title="Safe fallback"
                               description="Подстраховка, если модель отвечает некорректно"
                               checked={canonicalStatePipelineEnabled && canonicalStateSafeFallbackEnabled}
-                              visible={canUseVisualNovel}
+                              visible={isAdministrator}
                               onToggle={() => {
                                 void toggleCanonicalStateSafeFallbackEnabled()
                               }}
@@ -23877,7 +23865,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               tooltip={STORY_SETTINGS_INFO_TEXT.canonicalStateSafeFallback}
                             />
 
-                            <Stack direction="row" spacing={0.85}>
+                            <SettingsSectionLabel
+                              text="Режим оптимизации памяти"
+                              tooltip={STORY_SETTINGS_INFO_TEXT.memoryOptimizationMode}
+                            />
+                            <Stack direction="row" spacing={0.85} sx={{ mt: 0.85 }}>
                               <FormControl fullWidth size="small">
                                 <Select
                                   value={memoryOptimizationMode}
@@ -24610,7 +24602,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 85%, transparent)',
                           }}
                         >
-                          <SettingsSectionLabel text="Оптимизация памяти" tooltip={STORY_SETTINGS_INFO_TEXT.memoryOptimizationMode} />
+                          <SettingsSectionLabel text="Режим оптимизации памяти" tooltip={STORY_SETTINGS_INFO_TEXT.memoryOptimizationMode} />
                           <FormControl fullWidth size="small" sx={{ mt: 0.85 }}>
                             <Select
                               value={memoryOptimizationMode}
@@ -25274,7 +25266,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             />
                           </Stack>
 
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: canUseVisualNovel ? 'flex' : 'none' }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                                 RPG pipeline v1
@@ -25295,7 +25287,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             />
                           </Stack>
 
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: canUseVisualNovel ? 'flex' : 'none' }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ display: isAdministrator ? 'flex' : 'none' }}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                                 Safe fallback
@@ -32615,7 +32607,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         authToken={authToken}
         transitionComponent={DialogTransition}
         onClose={handleCloseTopUpDialog}
-        onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
+        onPurchasePlan={(planId, coverCommission) => void handlePurchasePlan(planId, coverCommission)}
       />
 
       <PaymentSuccessDialog

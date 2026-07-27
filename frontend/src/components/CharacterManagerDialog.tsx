@@ -99,8 +99,6 @@ const DEFAULT_CHARACTER_RACE_VALUES = [
 const CHARACTER_EDITOR_AVATAR_SIZE = 248
 const CHARACTER_AI_AVATAR_OUTPUT_SIZE = 640
 const CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH = 320
-const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
-const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_KLEIN_4B_ID: StoryImageModelId = 'black-forest-labs/flux.2-klein-4b'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
@@ -110,12 +108,6 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
   description: string
   cost: number
 }> = [
-  {
-    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
-    title: 'Flux.2 Klein 4B',
-    description: 'RouterAI. Fast economical image generation.',
-    cost: 6,
-  },
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID,
     title: 'Nano Banano',
@@ -127,12 +119,6 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
     title: 'Nano Banano 2',
     description: 'Maximum detail and depth rendering.',
     cost: 13,
-  },
-  {
-    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID,
-    title: 'Flux 2 Pro',
-    description: 'Быстрая и сбалансированная генерация.',
-    cost: 18,
   },
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID,
@@ -589,7 +575,7 @@ function CharacterManagerDialog({
   const [uploadingEmotionId, setUploadingEmotionId] = useState<StoryCharacterEmotionId | null>(null)
   const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
   const [isAiAvatarDialogOpen, setIsAiAvatarDialogOpen] = useState(false)
-  const [aiAvatarModelDraft, setAiAvatarModelDraft] = useState<StoryImageModelId>(CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID)
+  const [aiAvatarModelDraft, setAiAvatarModelDraft] = useState<StoryImageModelId>(CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID)
   const [aiAvatarStylePromptDraft, setAiAvatarStylePromptDraft] = useState('')
   const [isGeneratingAiAvatar, setIsGeneratingAiAvatar] = useState(false)
   const [isEditorOpen, setIsEditorOpen] = useState(false)
@@ -718,7 +704,7 @@ function CharacterManagerDialog({
     clearEmotionPresetDraft()
     setAvatarCropSource(null)
     setIsAiAvatarDialogOpen(false)
-    setAiAvatarModelDraft(CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID)
+    setAiAvatarModelDraft(CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID)
     setAiAvatarStylePromptDraft('')
     setIsGeneratingAiAvatar(false)
     setUploadingEmotionId(null)

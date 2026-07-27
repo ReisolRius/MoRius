@@ -38,7 +38,6 @@ from app.schemas import (
     StoryGraphOut,
     StoryGraphSuggestionOut,
 )
-from app.services.auth_identity import ROLE_ADMINISTRATOR, ROLE_BETA_TESTER, ROLE_MODERATOR
 from app.services.media import resolve_media_display_url
 from app.services.story_cards import deserialize_story_plot_card_triggers, story_plot_card_to_out
 from app.services.story_memory import story_memory_block_to_out
@@ -49,7 +48,6 @@ from app.services.text_encoding import sanitize_likely_utf8_mojibake
 
 logger = logging.getLogger(__name__)
 
-GRAPH_ACCESS_ROLES = {ROLE_ADMINISTRATOR, ROLE_MODERATOR, ROLE_BETA_TESTER}
 GRAPH_CARD_TYPE_WORLD_CARD = "world_card"
 GRAPH_CARD_TYPE_INSTRUCTION_CARD = "instruction_card"
 GRAPH_CARD_TYPE_PLOT_CARD = "plot_card"
@@ -318,14 +316,7 @@ def _default_node_color(card: StoryGraphCardSummaryOut | None) -> str:
 
 
 def require_story_graph_access(user: User) -> None:
-    role = _compact_text(getattr(user, "role", "")).casefold()
-    if role not in GRAPH_ACCESS_ROLES:
-        logger.warning(
-            "Story graph access denied: user_id=%s role=%s",
-            getattr(user, "id", None),
-            role or "unknown",
-        )
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Graph access is restricted")
+    _ = user
 
 
 def get_user_story_game_for_graph_or_404(db: Session, user: User, game_id: int) -> StoryGame:

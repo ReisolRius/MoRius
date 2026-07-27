@@ -73,13 +73,13 @@ export function isAdministratorRole(role: string | null | undefined): boolean {
 }
 
 export function canUseVisualNovelFeatures(role: string | null | undefined): boolean {
-  const normalizedRole = normalizeUserRole(role)
-  return normalizedRole === 'administrator' || normalizedRole === 'beta_tester'
+  void role
+  return true
 }
 
 export function canUseStoryGraphFeatures(role: string | null | undefined): boolean {
-  const normalizedRole = normalizeUserRole(role)
-  return normalizedRole === 'administrator' || normalizedRole === 'moderator' || normalizedRole === 'beta_tester'
+  void role
+  return true
 }
 
 export function getRoleBadgeLabel(role: string | null | undefined): string {

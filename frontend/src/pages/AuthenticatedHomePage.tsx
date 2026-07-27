@@ -1662,13 +1662,14 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     void syncPendingPayment(pendingPaymentId)
   }, [syncPendingPayment])
 
-  const handlePurchasePlan = async (planId: string) => {
+  const handlePurchasePlan = async (planId: string, coverCommission = false) => {
     setTopUpError('')
     setActivePlanPurchaseId(planId)
     try {
       const response = await createCoinTopUpPayment({
         token: authToken,
         plan_id: planId,
+        cover_commission: coverCommission,
       })
       localStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, response.payment_id)
       window.location.assign(response.confirmation_url)
@@ -1998,7 +1999,13 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       <ButtonBase
         key={`creator-month-${place}`}
         aria-label={creator ? `Открыть профиль ${creator.display_name}` : `Место ${place}`}
-        onClick={() => handleOpenCreatorDialog(slot)}
+        onClick={() => {
+          if (creator) {
+            onNavigate(`/profile/${creator.id}`)
+            return
+          }
+          handleOpenCreatorDialog(slot)
+        }}
         disabled={!creator && !isCreatorMonthEditor}
         sx={{
           position: 'relative',
@@ -2027,6 +2034,45 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           },
         }}
       >
+        {isCreatorMonthEditor && creator ? (
+          <Box
+            role="button"
+            tabIndex={0}
+            aria-label={`Изменить креатора на ${place} месте`}
+            onClick={(event) => {
+              event.stopPropagation()
+              handleOpenCreatorDialog(slot)
+            }}
+            onKeyDown={(event) => {
+              event.stopPropagation()
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                handleOpenCreatorDialog(slot)
+              }
+            }}
+            sx={{
+              position: 'absolute',
+              top: 12,
+              left: 12,
+              zIndex: 5,
+              minHeight: 30,
+              px: 1.15,
+              display: 'inline-flex',
+              alignItems: 'center',
+              borderRadius: '999px',
+              border: 'var(--morius-border-width) solid rgba(255,255,255,0.24)',
+              backgroundColor: 'rgba(8, 10, 14, 0.76)',
+              color: '#fff',
+              fontSize: '0.72rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              '&:hover': { backgroundColor: 'rgba(8, 10, 14, 0.94)' },
+              '&:focus-visible': { outline: `2px solid ${placeStyle.accent}`, outlineOffset: '2px' },
+            }}
+          >
+            Изменить
+          </Box>
+        ) : null}
         {creatorBannerSrc ? (
           <Box
             component="img"
@@ -4244,7 +4290,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         authToken={authToken}
         transitionComponent={DialogTransition}
         onClose={handleCloseTopUpDialog}
-        onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
+        onPurchasePlan={(planId, coverCommission) => void handlePurchasePlan(planId, coverCommission)}
       />
 
       <ConfirmLogoutDialog

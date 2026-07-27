@@ -15,24 +15,11 @@ logger = logging.getLogger(__name__)
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 
-class ImportantEntityPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    name: str = ""
-    type: str = "other"
-    note: str = ""
-
-
 class DetailedMemoryPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     summary: str
-    important_entities: list[ImportantEntityPayload] = Field(default_factory=list)
-    state_changes: list[str] = Field(default_factory=list)
     open_threads: list[str] = Field(default_factory=list)
-    scene_anchor: list[str] = Field(default_factory=list)
-    presence_changes: list[str] = Field(default_factory=list)
-    character_knowledge: list[str] = Field(default_factory=list)
     active_plans: list[str] = Field(default_factory=list)
 
 
@@ -40,21 +27,16 @@ class CompressedMemoryPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     summary: str
-    key_facts: list[str] = Field(default_factory=list)
     open_threads: list[str] = Field(default_factory=list)
-    scene_state: list[str] = Field(default_factory=list)
-    character_knowledge: list[str] = Field(default_factory=list)
     active_plans: list[str] = Field(default_factory=list)
 
 
 class FactMemoryPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    facts: list[str] = Field(default_factory=list)
-    persistent_state: list[str] = Field(default_factory=list)
+    summary: str
     open_threads: list[str] = Field(default_factory=list)
-    character_knowledge: list[str] = Field(default_factory=list)
-    active_commitments: list[str] = Field(default_factory=list)
+    active_plans: list[str] = Field(default_factory=list)
 
 
 class ImportantMemoryPayload(BaseModel):
@@ -479,6 +461,8 @@ class LlmModuleService:
         temperature: float = 0.0,
         max_attempts: int = 2,
         request_timeout: tuple[float, float] | None = (8.0, 60.0),
+        single_http_attempt: bool = False,
+        translate_input: bool = True,
     ) -> tuple[SchemaT, dict[str, Any]]:
         attempts = max(1, int(max_attempts or 1))
         candidate_models = list(
@@ -496,17 +480,20 @@ class LlmModuleService:
             fallback_used = candidate_model != self.primary_model
             raw_response = ""
             try:
-                raw_response = self._request_text(
-                    messages,
-                    model_name=candidate_model,
-                    fallback_model_names=[],
-                    allow_service_fallback=False,
-                    include_configured_service_fallback=False,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    request_timeout=request_timeout,
-                    retry_on_rate_limit=True,
-                )
+                request_kwargs: dict[str, Any] = {
+                    "model_name": candidate_model,
+                    "fallback_model_names": [],
+                    "allow_service_fallback": False,
+                    "include_configured_service_fallback": False,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "request_timeout": request_timeout,
+                    "retry_on_rate_limit": not single_http_attempt,
+                    "translate_input": translate_input,
+                }
+                if single_http_attempt:
+                    request_kwargs["retry_on_temporary_failure"] = False
+                raw_response = self._request_text(messages, **request_kwargs)
                 parsed = strict_json_loads(raw_response)
                 payload = schema.model_validate(parsed)
                 provider_meta = {

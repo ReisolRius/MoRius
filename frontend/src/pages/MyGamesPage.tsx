@@ -73,7 +73,7 @@ type MyGamesPageProps = {
 
 
 type GamesSortMode = 'updated_desc' | 'updated_asc' | 'created_desc' | 'created_asc'
-type CloneSectionKey = 'instructions' | 'plot' | 'world' | 'main_hero' | 'history'
+type CloneSectionKey = 'instructions' | 'plot' | 'world' | 'main_hero' | 'history' | 'nodes'
 type CloneSelectionState = Record<CloneSectionKey, boolean>
 
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
@@ -96,6 +96,7 @@ const DEFAULT_CLONE_SELECTION: CloneSelectionState = {
   world: true,
   main_hero: true,
   history: true,
+  nodes: true,
 }
 const CLONE_SECTION_ITEMS: Array<{ key: CloneSectionKey; label: string }> = [
   { key: 'instructions', label: 'Инструкции' },
@@ -103,6 +104,7 @@ const CLONE_SECTION_ITEMS: Array<{ key: CloneSectionKey; label: string }> = [
   { key: 'world', label: 'Мир' },
   { key: 'main_hero', label: 'ГГ' },
   { key: 'history', label: 'История' },
+  { key: 'nodes', label: 'Ноды' },
 ]
 
 const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
@@ -528,6 +530,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         copy_world: cloneSelection.world,
         copy_main_hero: cloneSelection.main_hero,
         copy_history: cloneSelection.history,
+        copy_nodes: cloneSelection.nodes,
       })
       setCloneDialogSourceGame(null)
       setCloneSelection({ ...DEFAULT_CLONE_SELECTION })
@@ -752,13 +755,14 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     void syncPendingPayment(pendingPaymentId)
   }, [syncPendingPayment])
 
-  const handlePurchasePlan = async (planId: string) => {
+  const handlePurchasePlan = async (planId: string, coverCommission = false) => {
     setTopUpError('')
     setActivePlanPurchaseId(planId)
     try {
       const response = await createCoinTopUpPayment({
         token: authToken,
         plan_id: planId,
+        cover_commission: coverCommission,
       })
       localStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, response.payment_id)
       window.location.assign(response.confirmation_url)
@@ -1571,7 +1575,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         authToken={authToken}
         transitionComponent={DialogTransition}
         onClose={handleCloseTopUpDialog}
-        onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
+        onPurchasePlan={(planId, coverCommission) => void handlePurchasePlan(planId, coverCommission)}
       />
 
       <ConfirmLogoutDialog

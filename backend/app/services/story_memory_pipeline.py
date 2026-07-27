@@ -123,16 +123,95 @@ STORY_IMPORTANT_MEMORY_MODEL_MAX_ATTEMPTS = 1
 STORY_IMPORTANT_MEMORY_MIN_SIGNIFICANCE = 7
 STORY_MEMORY_HTTP_MAX_REQUESTS = 1
 STORY_MEMORY_MAX_TRANSITIONS_PER_TURN = 3
-STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO = 900
-STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO = 0.78
-STORY_MEMORY_DETAILED_COPY_NGRAM_SIZE = 12
-STORY_MEMORY_DETAILED_COPY_RATIO_LIMIT = 0.32
-STORY_MEMORY_TERMINAL_EVIDENCE_MAX_CHARS = 700
+STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO = 40
+STORY_MEMORY_DETAILED_MIN_SOURCE_RATIO = 0.50
+STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO = 0.95
+STORY_MEMORY_DETAILED_COPY_NGRAM_SIZE = 16
+STORY_MEMORY_DETAILED_COPY_RATIO_LIMIT = 0.85
 STORY_SERVICE_WORLD_CONTEXT_MAX_CARDS = 12
 STORY_SERVICE_WORLD_CONTEXT_CARD_MAX_CHARS = 1_200
 STORY_SERVICE_CHARACTER_DESCRIPTION_MAX_CHARS = 600
 STORY_SERVICE_IMPORTANT_MEMORY_MAX_ITEMS = 20
 STORY_SERVICE_IMPORTANT_MEMORY_MAX_CHARS = 600
+
+_STORY_MEMORY_AMBIGUOUS_PRONOUN_PATTERN = re.compile(
+    r"\b(?:я|меня|мне|мной|мой|моя|моё|мое|мои|он|она|оно|они|его|её|ее|ему|ей|ею|им|ими|"
+    r"их|него|неё|нее|ней|нему|них|ними|i|me|my|mine|he|she|it|they|him|her|them|his|hers|"
+    r"their|theirs)\b",
+    flags=re.IGNORECASE,
+)
+_STORY_MEMORY_ACTIVE_PLAN_PATTERN = re.compile(
+    r"\b(?:должен|должна|должны|предстоит|планирует|намерен|намерена|намерены|собирается|"
+    r"собираются|пообещал|пообещала|пообещали|договорились|must|needs?\s+to|(?:is|are)\s+going\s+to|"
+    r"plans?\s+to|intends?\s+to|promised|agreed\s+to)\b",
+    flags=re.IGNORECASE,
+)
+_STORY_MEMORY_OPEN_THREAD_PATTERN = re.compile(
+    r"\b(?:неизвестно|неясно|нереш[её]н\w*|без\s+ответа|жд[её]т|ожидает|требует\s+ответа|"
+    r"хочет\s+узнать|unknown|unclear|unresolved|awaits?|waiting|wants?\s+to\s+know)\b",
+    flags=re.IGNORECASE,
+)
+_STORY_MEMORY_TERMINAL_TARGET_RU = (
+    r"(?:задани\w*|мисси\w*|цел\w*|квест\w*|операци\w*|поручени\w*|"
+    r"задач\w*|контракт\w*|заказ\w*|этап\w*|план\w*)"
+)
+_STORY_MEMORY_TERMINAL_TARGET_EN = (
+    r"(?:mission\w*|quest\w*|objective\w*|goal\w*|assignment\w*|task\w*|"
+    r"operation\w*|contract\w*|job\w*|stage\w*|plan\w*)"
+)
+_STORY_MEMORY_COMPLETED_RU = (
+    r"(?<!не\s)(?<!не было\s)(?:выполн(?:ен\w*|ил\w*)|заверш(?:ён\w*|ен\w*|ил\w*)|окончен\w*|"
+    r"закончил\w*|достиг(?:нут(?:а|о|ы)?|ла|ли)?)"
+)
+_STORY_MEMORY_FAILED_RU = (
+    r"(?:провал(?:ен\w*|ил\w*)|не\s+(?:было\s+)?выполнен\w*|"
+    r"не\s+(?:было\s+)?заверш[её]н\w*|не\s+удал(?:ось|ась|ись)\s+(?:выполнить|завершить))"
+)
+_STORY_MEMORY_CANCELLED_RU = r"(?:отмен(?:ен\w*|ён\w*|ил\w*)|аннулир(?:ован\w*|овал\w*)|отказал\w*\s+от)"
+_STORY_MEMORY_COMPLETED_EN = r"(?<!not\s)(?<!not been\s)(?:completed|finished|accomplished|achieved|successful)"
+_STORY_MEMORY_FAILED_EN = r"(?:failed|failure|unsuccessful|not\s+(?:been\s+)?(?:completed|finished))"
+_STORY_MEMORY_CANCELLED_EN = r"(?:cancelled|canceled|abandoned|called\s+off)"
+
+
+def _compile_story_terminal_status_pattern(*, target: str, status: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"(?:\b{target}\b[^.!?;\n]{{0,96}}\b{status}\b|\b{status}\b[^.!?;\n]{{0,96}}\b{target}\b)",
+        flags=re.IGNORECASE,
+    )
+
+
+_STORY_MEMORY_TERMINAL_STATUS_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
+    "completed": (
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_RU,
+            status=_STORY_MEMORY_COMPLETED_RU,
+        ),
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_EN,
+            status=_STORY_MEMORY_COMPLETED_EN,
+        ),
+    ),
+    "failed": (
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_RU,
+            status=_STORY_MEMORY_FAILED_RU,
+        ),
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_EN,
+            status=_STORY_MEMORY_FAILED_EN,
+        ),
+    ),
+    "cancelled": (
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_RU,
+            status=_STORY_MEMORY_CANCELLED_RU,
+        ),
+        _compile_story_terminal_status_pattern(
+            target=_STORY_MEMORY_TERMINAL_TARGET_EN,
+            status=_STORY_MEMORY_CANCELLED_EN,
+        ),
+    ),
+}
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -154,7 +233,19 @@ def _normalize_story_assistant_text_for_memory(content: Any) -> str:
     normalized = _normalize_story_message_content(content)
     if not normalized:
         return ""
-    cleaned = re.sub(r"\[\[\s*(?:NPC|GG|NPC_THOUGHT|GG_THOUGHT|NARRATOR)[^\]]*\]\]", " ", normalized)
+    cleaned = re.sub(
+        r"\[\[\s*(?:NPC|GG)\s*:\s*([^\]]+?)\s*\]\]",
+        lambda match: f"{' '.join(match.group(1).split()).strip()}: ",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\[\[\s*(?:NPC_THOUGHT|GG_THOUGHT)\s*:\s*([^\]]+?)\s*\]\]",
+        lambda match: f"Мысль {' '.join(match.group(1).split()).strip()}: ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\[\[\s*NARRATOR[^\]]*\]\]", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\[\[[^\]]*$", " ", cleaned)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
@@ -542,26 +633,9 @@ def _upsert_story_archive_memory_block(
 
 def _format_detailed_memory_content(payload: DetailedMemoryPayload) -> str:
     lines = [payload.summary.strip()]
-    if payload.important_entities:
-        lines.append("\nImportant entities:")
-        for entity in payload.important_entities:
-            note = f" — {entity.note.strip()}" if entity.note.strip() else ""
-            lines.append(f"- {entity.name.strip()} ({entity.type.strip() or 'other'}){note}")
-    if payload.state_changes:
-        lines.append("\nState changes:")
-        lines.extend(f"- {item.strip()}" for item in payload.state_changes if item.strip())
     if payload.open_threads:
         lines.append("\nOpen threads:")
         lines.extend(f"- {item.strip()}" for item in payload.open_threads if item.strip())
-    if payload.scene_anchor:
-        lines.append("\nScene anchor:")
-        lines.extend(f"- {item.strip()}" for item in payload.scene_anchor if item.strip())
-    if payload.presence_changes:
-        lines.append("\nPresence changes:")
-        lines.extend(f"- {item.strip()}" for item in payload.presence_changes if item.strip())
-    if payload.character_knowledge:
-        lines.append("\nCharacter knowledge:")
-        lines.extend(f"- {item.strip()}" for item in payload.character_knowledge if item.strip())
     if payload.active_plans:
         lines.append("\nActive plans:")
         lines.extend(f"- {item.strip()}" for item in payload.active_plans if item.strip())
@@ -570,18 +644,9 @@ def _format_detailed_memory_content(payload: DetailedMemoryPayload) -> str:
 
 def _format_compressed_memory_content(payload: CompressedMemoryPayload) -> str:
     lines = [payload.summary.strip()]
-    if payload.key_facts:
-        lines.append("\nKey facts:")
-        lines.extend(f"- {item.strip()}" for item in payload.key_facts if item.strip())
     if payload.open_threads:
         lines.append("\nOpen threads:")
         lines.extend(f"- {item.strip()}" for item in payload.open_threads if item.strip())
-    if payload.scene_state:
-        lines.append("\nScene state:")
-        lines.extend(f"- {item.strip()}" for item in payload.scene_state if item.strip())
-    if payload.character_knowledge:
-        lines.append("\nCharacter knowledge:")
-        lines.extend(f"- {item.strip()}" for item in payload.character_knowledge if item.strip())
     if payload.active_plans:
         lines.append("\nActive plans:")
         lines.extend(f"- {item.strip()}" for item in payload.active_plans if item.strip())
@@ -589,22 +654,13 @@ def _format_compressed_memory_content(payload: CompressedMemoryPayload) -> str:
 
 
 def _format_fact_memory_content(payload: FactMemoryPayload) -> str:
-    lines: list[str] = []
-    if payload.facts:
-        lines.append("Facts:")
-        lines.extend(f"- {item.strip()}" for item in payload.facts if item.strip())
-    if payload.persistent_state:
-        lines.append("\nPersistent state:")
-        lines.extend(f"- {item.strip()}" for item in payload.persistent_state if item.strip())
+    lines = [payload.summary.strip()]
     if payload.open_threads:
         lines.append("\nOpen threads:")
         lines.extend(f"- {item.strip()}" for item in payload.open_threads if item.strip())
-    if payload.character_knowledge:
-        lines.append("\nCharacter knowledge:")
-        lines.extend(f"- {item.strip()}" for item in payload.character_knowledge if item.strip())
-    if payload.active_commitments:
-        lines.append("\nActive commitments:")
-        lines.extend(f"- {item.strip()}" for item in payload.active_commitments if item.strip())
+    if payload.active_plans:
+        lines.append("\nActive plans:")
+        lines.extend(f"- {item.strip()}" for item in payload.active_plans if item.strip())
     return "\n".join(lines).strip()
 
 
@@ -638,71 +694,33 @@ def _story_memory_copied_ngram_ratio(
     return copied / candidate_total
 
 
-_STORY_MEMORY_TERMINAL_TARGET_RU = (
-    r"(?:задани\w*|мисси\w*|цел\w*|квест\w*|операци\w*|поручени\w*|"
-    r"задач\w*|контракт\w*|заказ\w*|этап\w*|план\w*)"
-)
-_STORY_MEMORY_TERMINAL_TARGET_EN = (
-    r"(?:mission\w*|quest\w*|objective\w*|goal\w*|assignment\w*|task\w*|"
-    r"operation\w*|contract\w*|job\w*|stage\w*|plan\w*)"
-)
-_STORY_MEMORY_COMPLETED_RU = (
-    r"(?<!не\s)(?<!не было\s)(?:выполн(?:ен\w*|ил\w*)|заверш(?:ён\w*|ен\w*|ил\w*)|окончен\w*|"
-    r"закончил\w*|достиг(?:нут(?:а|о|ы)?|ла|ли)?)"
-)
-_STORY_MEMORY_FAILED_RU = (
-    r"(?:провал(?:ен\w*|ил\w*)|не\s+(?:было\s+)?выполнен\w*|"
-    r"не\s+(?:было\s+)?заверш[её]н\w*|не\s+удал(?:ось|ась|ись)\s+(?:выполнить|завершить))"
-)
-_STORY_MEMORY_CANCELLED_RU = r"(?:отмен(?:ен\w*|ён\w*|ил\w*)|аннулир(?:ован\w*|овал\w*)|отказал\w*\s+от)"
-_STORY_MEMORY_COMPLETED_EN = r"(?<!not\s)(?<!not been\s)(?:completed|finished|accomplished|achieved|successful)"
-_STORY_MEMORY_FAILED_EN = r"(?:failed|failure|unsuccessful|not\s+(?:been\s+)?(?:completed|finished))"
-_STORY_MEMORY_CANCELLED_EN = r"(?:cancelled|canceled|abandoned|called\s+off)"
-
-
-def _compile_story_terminal_status_pattern(*, target: str, status: str) -> re.Pattern[str]:
-    return re.compile(
-        rf"(?:\b{target}\b.{{0,96}}\b{status}\b|\b{status}\b.{{0,96}}\b{target}\b)",
-        re.IGNORECASE | re.DOTALL,
-    )
-
-
-_STORY_MEMORY_TERMINAL_STATUS_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
-    "completed": (
-        _compile_story_terminal_status_pattern(
-            target=_STORY_MEMORY_TERMINAL_TARGET_RU,
-            status=_STORY_MEMORY_COMPLETED_RU,
-        ),
-        _compile_story_terminal_status_pattern(
-            target=_STORY_MEMORY_TERMINAL_TARGET_EN,
-            status=_STORY_MEMORY_COMPLETED_EN,
-        ),
-    ),
-    "failed": (
-        _compile_story_terminal_status_pattern(
-            target=_STORY_MEMORY_TERMINAL_TARGET_RU,
-            status=_STORY_MEMORY_FAILED_RU,
-        ),
-        _compile_story_terminal_status_pattern(
-            target=_STORY_MEMORY_TERMINAL_TARGET_EN,
-            status=_STORY_MEMORY_FAILED_EN,
-        ),
-    ),
-    "cancelled": (
-        _compile_story_terminal_status_pattern(
-            target=_STORY_MEMORY_TERMINAL_TARGET_RU,
-            status=_STORY_MEMORY_CANCELLED_RU,
-        ),
-        _compile_story_terminal_status_pattern(
-            target=_STORY_MEMORY_TERMINAL_TARGET_EN,
-            status=_STORY_MEMORY_CANCELLED_EN,
-        ),
-    ),
-}
+def _story_memory_deduplicated_length(value: str) -> int:
+    unique_parts: list[str] = []
+    seen: set[str] = set()
+    for part in re.split(r"(?:\r?\n)+|(?<=[.!?…])\s+", _normalize_story_message_content(value)):
+        normalized_part = " ".join(part.split()).strip()
+        comparable = normalized_part.casefold()
+        if not comparable or comparable in seen:
+            continue
+        seen.add(comparable)
+        unique_parts.append(normalized_part)
+    return len(" ".join(unique_parts))
 
 
 def _story_memory_terminal_statuses(value: str) -> set[str]:
     normalized = _normalize_story_message_content(value)
+    normalized = re.sub(
+        r"\b(?:закончил\w*|завершил\w*|окончил\w*)\s+(?:фраз\w*|предложени\w*|реч\w*|рассказ\w*|объяснени\w*)\b",
+        "закончил говорить",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\b(?:finished|completed)\s+(?:the\s+)?(?:sentence|phrase|speech|story|explanation)\b",
+        "stopped speaking",
+        normalized,
+        flags=re.IGNORECASE,
+    )
     return {
         status_name
         for status_name, patterns in _STORY_MEMORY_TERMINAL_STATUS_PATTERNS.items()
@@ -711,87 +729,144 @@ def _story_memory_terminal_statuses(value: str) -> set[str]:
 
 
 def _validate_story_memory_terminal_statuses(*, source_content: str, result_content: str) -> None:
-    source_statuses = _story_memory_terminal_statuses(source_content)
-    if not source_statuses:
-        return
-    missing_statuses = source_statuses - _story_memory_terminal_statuses(result_content)
+    missing_statuses = _story_memory_terminal_statuses(source_content) - _story_memory_terminal_statuses(result_content)
     if missing_statuses:
         raise RuntimeError(
-            "Service model memory omitted terminal story status: "
-            + ", ".join(sorted(missing_statuses))
+            "Service model memory omitted terminal story status: " + ", ".join(sorted(missing_statuses))
         )
 
 
-def _extract_story_memory_terminal_status_evidence(
+def _validate_story_memory_unambiguous_references(result_content: str) -> None:
+    match = _STORY_MEMORY_AMBIGUOUS_PRONOUN_PATTERN.search(_normalize_story_message_content(result_content))
+    if match is not None:
+        raise RuntimeError(f"Service model memory kept ambiguous pronoun: {match.group(0)}")
+
+
+def _story_memory_mentions_character(value: str, character_name: str) -> bool:
+    text_words = re.findall(r"\w+", _normalize_story_message_content(value).casefold(), flags=re.UNICODE)
+    name_words = re.findall(r"\w+", str(character_name or "").casefold(), flags=re.UNICODE)
+    for name_word in reversed(name_words):
+        if len(name_word) >= 5:
+            stem = name_word[:-1]
+            if any(text_word.startswith(stem) for text_word in text_words):
+                return True
+        elif name_word in text_words:
+            return True
+    return False
+
+
+def _validate_detailed_memory_factual_anchors(
     *,
+    player_turn: str,
     source_content: str,
-    missing_statuses: set[str],
-) -> list[str]:
-    normalized_source = _normalize_story_message_content(source_content)
-    if not normalized_source or not missing_statuses:
-        return []
-
-    source_parts = [
-        re.sub(r"^(?:PLAYER_TURN|NARRATOR_RESPONSE)\s*:\s*", "", part, flags=re.IGNORECASE).strip()
-        for part in re.split(r"(?:\r?\n)+|(?<=[.!?…])\s+", normalized_source)
-    ]
-    evidence: list[str] = []
-    for status_name in sorted(missing_statuses):
-        patterns = _STORY_MEMORY_TERMINAL_STATUS_PATTERNS.get(status_name, ())
-        matches: list[tuple[str, re.Match[str]]] = []
-        for part in source_parts:
-            if not part:
-                continue
-            for pattern in patterns:
-                match = pattern.search(part)
-                if match is not None:
-                    matches.append((part, match))
-                    break
-        if not matches:
-            continue
-
-        # The narrator response follows the player turn, so the last matching sentence is
-        # normally the canonical resolution rather than an earlier plan or recollection.
-        sentence, match = matches[-1]
-        sentence = " ".join(sentence.split()).strip(" -")
-        if len(sentence) > STORY_MEMORY_TERMINAL_EVIDENCE_MAX_CHARS:
-            half_window = STORY_MEMORY_TERMINAL_EVIDENCE_MAX_CHARS // 2
-            start = max(match.start() - half_window, 0)
-            end = min(start + STORY_MEMORY_TERMINAL_EVIDENCE_MAX_CHARS, len(sentence))
-            start = max(end - STORY_MEMORY_TERMINAL_EVIDENCE_MAX_CHARS, 0)
-            sentence = (
-                ("…" if start > 0 else "")
-                + sentence[start:end].strip()
-                + ("…" if end < len(sentence) else "")
+    result_content: str,
+    player_name: str,
+    known_character_names: list[str] | None,
+) -> None:
+    normalized_player_name = str(player_name or "").strip()
+    character_names = list(
+        dict.fromkeys(
+            name
+            for name in (
+                normalized_player_name,
+                *(str(item or "").strip() for item in (known_character_names or [])),
             )
-        if sentence and sentence not in evidence:
-            evidence.append(sentence)
-    return evidence
-
-
-def _repair_story_memory_terminal_statuses(*, source_content: str, result_content: str) -> str:
-    normalized_result = _normalize_story_message_content(result_content)
-    missing_statuses = _story_memory_terminal_statuses(source_content) - _story_memory_terminal_statuses(
-        normalized_result
-    )
-    if not missing_statuses:
-        return normalized_result
-
-    evidence = _extract_story_memory_terminal_status_evidence(
-        source_content=source_content,
-        missing_statuses=missing_statuses,
-    )
-    if not evidence:
-        return normalized_result
-    repaired = "\n\n".join(
-        part
-        for part in (
-            normalized_result,
-            "Canonical terminal outcomes:\n" + "\n".join(f"- {item}" for item in evidence),
+            if name
         )
-        if part
     )
-    return repaired.strip()
+    first_person_player_turn = bool(
+        re.search(
+            r"\b(?:я|меня|мне|мной|мой|моя|моё|мое|мои|i|me|my|mine)\b",
+            _normalize_story_message_content(player_turn),
+            flags=re.IGNORECASE,
+        )
+    )
+    for character_name in character_names:
+        required = _story_memory_mentions_character(source_content, character_name)
+        if normalized_player_name and character_name == normalized_player_name and first_person_player_turn:
+            required = True
+        if required and not _story_memory_mentions_character(result_content, character_name):
+            raise RuntimeError(f"Service model detailed memory omitted character: {character_name}")
+
+    source_numbers = set(re.findall(r"\b\d+(?:[.,]\d+)?\b", source_content))
+    result_numbers = set(re.findall(r"\b\d+(?:[.,]\d+)?\b", result_content))
+    missing_numbers = source_numbers - result_numbers
+    if missing_numbers:
+        raise RuntimeError(
+            "Service model detailed memory omitted numeric facts: " + ", ".join(sorted(missing_numbers))
+        )
+
+
+def _story_memory_formatted_section_has_items(content: str, heading: str) -> bool:
+    return bool(_story_memory_formatted_section_items(content, heading))
+
+
+def _story_memory_formatted_section_items(content: str, heading: str) -> list[str]:
+    match = re.search(
+        rf"(?:^|\n){re.escape(heading)}:\s*\n(?P<body>.*?)(?=\n(?:Open threads|Active plans):|\Z)",
+        _normalize_story_message_content(content),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if match is None:
+        return []
+    return [
+        line.strip().lstrip("-").strip()
+        for line in match.group("body").splitlines()
+        if line.strip().startswith("-") and line.strip().lstrip("-").strip()
+    ]
+
+
+def _story_memory_distinct_items(values: list[str]) -> list[str]:
+    distinct: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = " ".join(str(value or "").split()).strip()
+        comparable = normalized.casefold()
+        if not comparable or comparable in seen:
+            continue
+        seen.add(comparable)
+        distinct.append(normalized)
+    return distinct
+
+
+def _validate_promoted_memory_model_result(
+    *,
+    source_contents: list[str],
+    result_content: str,
+    open_threads: list[str],
+    active_plans: list[str],
+) -> None:
+    summary = re.split(
+        r"(?:^|\n)(?:Open threads|Active plans):",
+        _normalize_story_message_content(result_content),
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip()
+    if not summary.strip():
+        raise RuntimeError("Service model promoted memory returned empty summary")
+    _validate_story_memory_unambiguous_references(result_content)
+    source_content = "\n\n".join(source_contents)
+    _validate_story_memory_terminal_statuses(source_content=source_content, result_content=result_content)
+    source_open_threads = _story_memory_distinct_items(
+        [
+            thread
+            for item in source_contents
+            for thread in _story_memory_formatted_section_items(item, "Open threads")
+        ]
+    )
+    result_open_threads = _story_memory_distinct_items(open_threads)
+    if source_open_threads and len(result_open_threads) < len(source_open_threads):
+        raise RuntimeError("Service model memory omitted open threads")
+    source_active_plans = _story_memory_distinct_items(
+        [
+            plan
+            for item in source_contents
+            for plan in _story_memory_formatted_section_items(item, "Active plans")
+        ]
+    )
+    result_active_plans = _story_memory_distinct_items(active_plans)
+    if source_active_plans and len(result_active_plans) < len(source_active_plans):
+        raise RuntimeError("Service model memory omitted active plans")
 
 
 def _validate_detailed_memory_model_result(
@@ -799,24 +874,42 @@ def _validate_detailed_memory_model_result(
     source_content: str,
     payload: DetailedMemoryPayload,
     result_content: str,
+    player_name: str = "",
+    known_character_names: list[str] | None = None,
 ) -> None:
     source = _normalize_story_message_content(source_content)
-    result = _normalize_story_message_content(result_content)
     summary = _normalize_story_message_content(payload.summary)
     if not summary:
         raise RuntimeError("Service model detailed memory returned empty summary")
     if re.search(
-        r"\b(?:PLAYER_TURN|NARRATOR_RESPONSE|Important entities|State changes|Open threads)\s*:",
+        r"\b(?:PLAYER_TURN|NARRATOR_RESPONSE|Open threads|Active plans)\s*:",
         summary,
         flags=re.IGNORECASE,
     ):
         raise RuntimeError("Service model detailed memory leaked raw memory markers into summary")
-    if len(source) >= STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO:
-        max_result_length = max(
-            STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO,
-            int(len(source) * STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO),
-        )
-        if len(result) > max_result_length:
+    player_turn, narrator_response = _parse_full_turn_content(source)
+    source_body = _normalize_story_message_content("\n".join(part for part in (player_turn, narrator_response) if part))
+    _validate_story_memory_unambiguous_references(result_content)
+    _validate_story_memory_terminal_statuses(source_content=source, result_content=result_content)
+    if _STORY_MEMORY_OPEN_THREAD_PATTERN.search(summary) and not _story_memory_distinct_items(payload.open_threads):
+        raise RuntimeError("Service model detailed memory omitted open threads")
+    if _STORY_MEMORY_ACTIVE_PLAN_PATTERN.search(summary) and not _story_memory_distinct_items(payload.active_plans):
+        raise RuntimeError("Service model detailed memory omitted active plans")
+    _validate_detailed_memory_factual_anchors(
+        player_turn=player_turn,
+        source_content=source_body,
+        result_content=result_content,
+        player_name=player_name,
+        known_character_names=known_character_names,
+    )
+    deduplicated_source_length = _story_memory_deduplicated_length(source_body)
+    deduplicated_summary_length = _story_memory_deduplicated_length(summary)
+    if len(source_body) >= STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO:
+        min_summary_length = int(deduplicated_source_length * STORY_MEMORY_DETAILED_MIN_SOURCE_RATIO)
+        max_summary_length = int(len(source_body) * STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO)
+        if deduplicated_summary_length < min_summary_length:
+            raise RuntimeError("Service model detailed memory over-compressed the source turn")
+        if len(summary) > max_summary_length:
             raise RuntimeError("Service model detailed memory was not shorter than the source turn")
     copied_ratio = _story_memory_copied_ngram_ratio(source_content=source, candidate_content=summary)
     if copied_ratio > STORY_MEMORY_DETAILED_COPY_RATIO_LIMIT:
@@ -832,7 +925,7 @@ def _compress_story_memory_block_with_model(
     player_name: str | None = None,
     known_character_names: list[str] | None = None,
 ) -> tuple[str, str]:
-    _ = (model_name, fallback_model_names, player_name, known_character_names)
+    _ = (model_name, fallback_model_names)
     content = _normalize_story_message_content(raw_content)
     if not content:
         raise ValueError("Cannot compress empty memory block")
@@ -845,62 +938,49 @@ def _compress_story_memory_block_with_model(
                 module=LLM_FACT_MEMORY_PROMPT_NAME,
                 max_tokens=900,
                 max_attempts=STORY_MEMORY_MODEL_MAX_ATTEMPTS,
+                single_http_attempt=True,
+                translate_input=False,
             )
             result_content = _format_fact_memory_content(payload)
+            _validate_promoted_memory_model_result(
+                source_contents=[content],
+                result_content=result_content,
+                open_threads=payload.open_threads,
+                active_plans=payload.active_plans,
+            )
             return "Факты памяти", result_content
         player_turn, narrator_response = _parse_full_turn_content(content)
-        messages = build_detailed_memory_messages(player_turn=player_turn, narrator_response=narrator_response)
-        for attempt_index in range(STORY_MEMORY_MODEL_MAX_ATTEMPTS):
-            try:
-                payload, _meta = service.call_json(
-                    messages=messages,
-                    schema=DetailedMemoryPayload,
-                    module=LLM_DETAILED_MEMORY_PROMPT_NAME,
-                    max_tokens=1_100,
-                    max_attempts=1,
-                )
-            except Exception:
-                if attempt_index + 1 >= STORY_MEMORY_MODEL_MAX_ATTEMPTS:
-                    raise
-                continue
-            result_content = _format_detailed_memory_content(payload)
-            try:
-                _validate_detailed_memory_model_result(
-                    source_content=content,
-                    payload=payload,
-                    result_content=result_content,
-                )
-                result_content = _repair_story_memory_terminal_statuses(
-                    source_content=content,
-                    result_content=result_content,
-                )
-                _validate_story_memory_terminal_statuses(
-                    source_content=content,
-                    result_content=result_content,
-                )
-            except RuntimeError as exc:
-                logger.warning(
-                    "Service model detailed memory semantic validation failed",
-                    extra={
-                        "attempt": attempt_index + 1,
-                        "validationErrors": str(exc),
-                    },
-                )
-                if attempt_index + 1 >= STORY_MEMORY_MODEL_MAX_ATTEMPTS:
-                    raise RuntimeError(f"Service model detailed memory failed semantic validation: {exc}") from exc
-                messages = [
-                    *messages,
-                    {
-                        "role": "user",
-                        "content": (
-                            "Previous JSON was valid, but it was rejected because the summary was too close to the "
-                            "source text or too long. Return a shorter factual retelling, not copied prose. "
-                            "Use the internal service model to compress the same turn again. Return only strict JSON."
-                        ),
-                    },
-                ]
-                continue
-            break
+        source_token_count = max(_estimate_story_tokens(content), 1)
+        detailed_max_tokens = min(max(int(source_token_count * 0.9) + 256, 1_200), 3_200)
+        payload, _meta = service.call_json(
+            messages=build_detailed_memory_messages(
+                player_turn=player_turn,
+                narrator_response=narrator_response,
+                player_name=str(player_name or "").strip(),
+                known_character_names=known_character_names,
+            ),
+            schema=DetailedMemoryPayload,
+            module=LLM_DETAILED_MEMORY_PROMPT_NAME,
+            max_tokens=detailed_max_tokens,
+            max_attempts=1,
+            single_http_attempt=True,
+            translate_input=False,
+        )
+        result_content = _format_detailed_memory_content(payload)
+        try:
+            _validate_detailed_memory_model_result(
+                source_content=content,
+                payload=payload,
+                result_content=result_content,
+                player_name=str(player_name or "").strip(),
+                known_character_names=known_character_names,
+            )
+        except RuntimeError as exc:
+            logger.warning(
+                "Service model detailed memory semantic validation failed",
+                extra={"attempt": 1, "validationErrors": str(exc)},
+            )
+            raise RuntimeError(f"Service model detailed memory failed semantic validation: {exc}") from exc
     return "Подробная память", result_content
 
 
@@ -1012,9 +1092,13 @@ def _promote_blocks(
                 game_id=game.id,
                 max_tokens=1_100,
                 max_attempts=STORY_MEMORY_MODEL_MAX_ATTEMPTS,
+                single_http_attempt=True,
+                translate_input=False,
             )
             content = _format_compressed_memory_content(payload)
             title = "Сжатая память"
+            open_threads = payload.open_threads
+            active_plans = payload.active_plans
         else:
             payload, _meta = service.call_json(
                 messages=build_fact_memory_messages(compressed_blocks=block_payloads),
@@ -1023,20 +1107,21 @@ def _promote_blocks(
                 game_id=game.id,
                 max_tokens=900,
                 max_attempts=STORY_MEMORY_MODEL_MAX_ATTEMPTS,
+                single_http_attempt=True,
+                translate_input=False,
             )
             content = _format_fact_memory_content(payload)
             title = "Факты памяти"
+            open_threads = payload.open_threads
+            active_plans = payload.active_plans
 
     if not content:
         raise RuntimeError(f"{prompt_name} returned empty content")
-    source_content = "\n\n".join(str(block.get("content", "") or "") for block in block_payloads)
-    content = _repair_story_memory_terminal_statuses(
-        source_content=source_content,
+    _validate_promoted_memory_model_result(
+        source_contents=[str(item.get("content") or "") for item in block_payloads],
         result_content=content,
-    )
-    _validate_story_memory_terminal_statuses(
-        source_content=source_content,
-        result_content=content,
+        open_threads=open_threads,
+        active_plans=active_plans,
     )
     assistant_ids = [int(getattr(block, "assistant_message_id", 0) or 0) for block in source_blocks]
     assistant_id = max([value for value in assistant_ids if value > 0], default=None)
@@ -1077,9 +1162,8 @@ def _rebalance_story_memory_layers(
 ) -> bool:
     _ = backfill_existing_compact_layers
     budget = _calculate_memory_budget(db, game)
-    # The total number of model transitions remains capped. If prior raw compactions are
-    # pending, spare transition slots repair that backlog while one slot stays reserved for
-    # the newly stale turn. This prevents a recoverable failure from accumulating forever.
+    # The total number of model transitions remains capped. Failed raw blocks are retried in
+    # chronological order before newer stale turns, so the queue drains without skipping text.
     requested_model_calls = (
         STORY_MEMORY_MAX_TRANSITIONS_PER_TURN
         if max_model_requests is None
@@ -1107,30 +1191,34 @@ def _rebalance_story_memory_layers(
             if _normalize_story_memory_layer(getattr(block, "layer", ""))
             != STORY_MEMORY_LAYER_RAW_PENDING
         ),
-        key=lambda item: (
-            -int(getattr(item, "id", 0) or 0)
-            if prioritize_recent_transitions
-            else int(getattr(item, "id", 0) or 0)
-        ),
+        key=lambda item: int(getattr(item, "id", 0) or 0),
     )
-    if pending_raw_blocks and new_raw_blocks and requests_left > 1:
-        raw_compaction_candidates = [
-            *pending_raw_blocks[: max(requests_left - 1, 0)],
-            new_raw_blocks[0],
-        ]
-    elif new_raw_blocks:
-        # With a single request, keep the live queue moving instead of letting a broken
-        # pending block starve every newer accepted turn.
-        raw_compaction_candidates = new_raw_blocks[:1]
-    else:
-        raw_compaction_candidates = pending_raw_blocks[:requests_left]
+    # Failed blocks keep their original order and are retried before newer stale turns.
+    # The newest full turn is already excluded by _get_story_stale_raw_memory_blocks,
+    # so it remains intact for response editing.
+    raw_compaction_candidates = [
+        *pending_raw_blocks,
+        *new_raw_blocks,
+    ][:requests_left]
+
+    try:
+        player_name = _get_story_main_hero_name_for_memory(db, game_id=game.id)
+        known_character_names = _list_story_known_character_names_for_memory(db, game_id=game.id)
+    except Exception:
+        logger.warning("Failed to resolve character names for detailed memory", exc_info=True)
+        player_name = ""
+        known_character_names = []
 
     for block in raw_compaction_candidates:
         if requests_left <= 0:
             break
         block_id = int(getattr(block, "id", 0) or 0)
         try:
-            title, content = _compress_story_memory_block_with_model(raw_content=str(block.content or ""))
+            title, content = _compress_story_memory_block_with_model(
+                raw_content=str(block.content or ""),
+                player_name=player_name,
+                known_character_names=known_character_names,
+            )
         except Exception as exc:
             requests_left -= 1
             raw_compaction_failures.append(exc)

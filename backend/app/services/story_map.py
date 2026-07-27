@@ -38,7 +38,8 @@ from app.schemas import (
 from app.services.auth_identity import get_current_user
 from app.services.media import _load_pillow_modules
 from app.services.story_games import (
-    STORY_IMAGE_MODEL_FLUX,
+    STORY_IMAGE_MODEL_NANO_BANANO,
+    STORY_IMAGE_MODEL_NANO_BANANO_2,
     STORY_IMAGE_MODEL_SEEDREAM,
     coerce_story_image_model,
     deserialize_story_environment_datetime,
@@ -75,11 +76,13 @@ STORY_MAP_IMAGE_SCOPES = {
     STORY_MAP_IMAGE_SCOPE_SETTLEMENT,
 }
 STORY_MAP_IMAGE_ALLOWED_MODELS = {
-    STORY_IMAGE_MODEL_FLUX,
+    STORY_IMAGE_MODEL_NANO_BANANO,
+    STORY_IMAGE_MODEL_NANO_BANANO_2,
     STORY_IMAGE_MODEL_SEEDREAM,
 }
 STORY_MAP_IMAGE_COST_BY_MODEL = {
-    STORY_IMAGE_MODEL_FLUX: 18,
+    STORY_IMAGE_MODEL_NANO_BANANO: 9,
+    STORY_IMAGE_MODEL_NANO_BANANO_2: 13,
     STORY_IMAGE_MODEL_SEEDREAM: 20,
 }
 STORY_MAP_IMAGE_ACTIVE_LIMIT = 12
@@ -1635,7 +1638,7 @@ def _coerce_story_map_image_model(value: str | None) -> str:
     normalized = coerce_story_image_model(value)
     if normalized in STORY_MAP_IMAGE_ALLOWED_MODELS:
         return normalized
-    return STORY_IMAGE_MODEL_FLUX
+    return STORY_IMAGE_MODEL_NANO_BANANO
 
 
 def _get_story_map_image_cost_tokens(model_name: str | None) -> int:

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   Alert,
   Box,
+  Button,
   CircularProgress,
   Dialog,
   DialogContent,
@@ -14,12 +15,18 @@ import {
 import { getCurrentUserReferralSummary, type CoinTopUpPlan } from '../../services/authApi'
 import SoulAmount from '../currency/SoulAmount'
 import PresentationPlanCard from '../shop/PresentationPlanCard'
+import {
+  CheckoutContents,
+  CheckoutPriceSummary,
+  VoluntaryCommissionControl,
+} from '../shop/PurchaseConfirmation'
 import mobileCloseIcon from '../../assets/icons/mobile-close.svg'
 import planCompassIcon from '../../assets/images/presentation/plan-compass.png'
 import planMagnifierIcon from '../../assets/images/presentation/plan-magnifier.png'
 import planCrownIcon from '../../assets/images/presentation/plan-crown.png'
 import planFeatherIcon from '../../assets/images/presentation/plan-feather.png'
 import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
+import { formatCheckoutPrice } from '../../utils/paymentPricing'
 
 type TopUpDialogProps = {
   open: boolean
@@ -32,7 +39,7 @@ type TopUpDialogProps = {
   referralBonusAmount?: number
   transitionComponent?: DialogProps['TransitionComponent']
   onClose: () => void
-  onPurchasePlan: (planId: string) => void
+  onPurchasePlan: (planId: string, coverCommission: boolean) => void
 }
 
 const PLAN_LOOKUP: Record<
@@ -106,11 +113,32 @@ function TopUpDialog({
   onClose,
   onPurchasePlan,
 }: TopUpDialogProps) {
-  const mobileSheet = useMobileDialogSheet({ onClose })
   const [fetchedReferralBonusPending, setFetchedReferralBonusPending] = useState(false)
   const [fetchedReferralBonusAmount, setFetchedReferralBonusAmount] = useState(500)
+  const [purchasePlan, setPurchasePlan] = useState<CoinTopUpPlan | null>(null)
+  const [coverCommission, setCoverCommission] = useState(false)
   const resolvedReferralBonusPending = referralBonusPending ?? fetchedReferralBonusPending
   const resolvedReferralBonusAmount = referralBonusAmount ?? fetchedReferralBonusAmount
+  const handleCloseDialog = () => {
+    if (activePlanPurchaseId) {
+      return
+    }
+    setPurchasePlan(null)
+    setCoverCommission(false)
+    onClose()
+  }
+  const mobileSheet = useMobileDialogSheet({ onClose: handleCloseDialog })
+
+  useEffect(() => {
+    if (open) {
+      return undefined
+    }
+    const resetTimer = window.setTimeout(() => {
+      setPurchasePlan(null)
+      setCoverCommission(false)
+    }, 0)
+    return () => window.clearTimeout(resetTimer)
+  }, [open])
 
   useEffect(() => {
     if (!open || !authToken || referralBonusPending !== undefined) {
@@ -137,8 +165,8 @@ function TopUpDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
-      maxWidth="lg"
+      onClose={handleCloseDialog}
+      maxWidth={purchasePlan ? 'xs' : 'lg'}
       fullWidth
       TransitionComponent={transitionComponent}
       sx={mobileSheet.dialogSx}
@@ -158,13 +186,17 @@ function TopUpDialog({
       }}
     >
       <DialogTitle sx={{ pb: 1, pr: 7, position: 'relative' }}>
-        <Typography sx={{ fontWeight: 900, fontSize: { xs: '1.6rem', sm: '1.9rem' }, lineHeight: 1.12 }}>Пакеты валюты</Typography>
+        <Typography sx={{ fontWeight: 900, fontSize: { xs: '1.6rem', sm: '1.9rem' }, lineHeight: 1.12 }}>
+          {purchasePlan ? `Покупка пакета «${purchasePlan.title}»` : 'Пакеты валюты'}
+        </Typography>
         <Typography sx={{ color: 'var(--morius-text-secondary)', mt: 0.45, fontSize: '0.98rem', lineHeight: 1.35 }}>
-          Выберите пакет и перейдите к оплате.
+          {purchasePlan
+            ? `Вы собираетесь купить пакет солов «${purchasePlan.title}». Проверьте состав и итоговую стоимость.`
+            : 'Выберите пакет и перейдите к оплате.'}
         </Typography>
         <IconButton
           aria-label="Закрыть"
-          onClick={onClose}
+          onClick={handleCloseDialog}
           sx={{
             position: 'absolute',
             top: 14,
@@ -211,7 +243,54 @@ function TopUpDialog({
               После первой покупки по приглашению начислим <SoulAmount amount={`+${Math.max(0, Math.trunc(resolvedReferralBonusAmount)).toLocaleString('ru-RU')}`} iconSize={17} /> вам и другу.
             </Alert>
           ) : null}
-          {isTopUpPlansLoading ? (
+          {purchasePlan ? (
+            <Stack spacing={1.5}>
+              <CheckoutPriceSummary
+                priceRub={purchasePlan.price_rub}
+                coverCommission={coverCommission}
+              />
+              <CheckoutContents
+                title="В пакет входит"
+                items={[
+                  `${purchasePlan.coins.toLocaleString('ru-RU')} солов`,
+                  ...(PLAN_LOOKUP[purchasePlan.id] ?? DEFAULT_PLAN_CARD).lines,
+                ]}
+              />
+              <VoluntaryCommissionControl
+                checked={coverCommission}
+                onChange={setCoverCommission}
+              />
+              <Stack direction={{ xs: 'column-reverse', sm: 'row' }} justifyContent="flex-end" spacing={1}>
+                <Button
+                  onClick={() => {
+                    setPurchasePlan(null)
+                    setCoverCommission(false)
+                  }}
+                  disabled={Boolean(activePlanPurchaseId)}
+                  sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}
+                >
+                  Назад
+                </Button>
+                <Button
+                  variant="contained"
+                  onClick={() => onPurchasePlan(purchasePlan.id, coverCommission)}
+                  disabled={Boolean(activePlanPurchaseId)}
+                  sx={{
+                    borderRadius: '12px',
+                    textTransform: 'none',
+                    fontWeight: 900,
+                    color: 'var(--morius-title-text)',
+                    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))',
+                    '&.Mui-disabled': { color: 'var(--morius-text-secondary)' },
+                  }}
+                >
+                  {activePlanPurchaseId
+                    ? 'Открываем оплату…'
+                    : `Купить за ${formatCheckoutPrice(purchasePlan.price_rub, coverCommission)}`}
+                </Button>
+              </Stack>
+            </Stack>
+          ) : isTopUpPlansLoading ? (
             <Stack alignItems="center" justifyContent="center" sx={{ py: 6 }}>
               <CircularProgress size={30} />
             </Stack>
@@ -238,7 +317,10 @@ function TopUpDialog({
                     balance={plan.coins.toLocaleString('ru-RU')}
                     badge={card.badge}
                     buttonLabel={isBuying ? 'Открываем оплату…' : 'Купить'}
-                    onClick={() => onPurchasePlan(plan.id)}
+                    onClick={() => {
+                      setPurchasePlan(plan)
+                      setCoverCommission(false)
+                    }}
                     disabled={Boolean(activePlanPurchaseId)}
                     minHeight={500}
                   />

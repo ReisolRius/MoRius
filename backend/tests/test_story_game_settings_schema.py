@@ -14,6 +14,7 @@ from app.models import StoryMessage  # noqa: E402
 from app import main as monolith_main  # noqa: E402
 from app.services import story_generation_provider  # noqa: E402
 from app.services.story_games import (  # noqa: E402
+    STORY_DEFAULT_IMAGE_MODEL,
     STORY_DEFAULT_LLM_MODEL,
     STORY_DEFAULT_REPETITION_PENALTY,
     STORY_DEFAULT_TEMPERATURE,
@@ -471,6 +472,20 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             coerce_story_image_model("bytedance-seed/seedream-4.5"),
             "bytedance-seed/seedream-4.5",
         )
+
+    def test_nano_banano_is_default_and_removed_flux_models_migrate_to_it(self) -> None:
+        self.assertEqual(STORY_DEFAULT_IMAGE_MODEL, "google/gemini-2.5-flash-image")
+        for old_flux_model in (
+            "flux.2-pro",
+            "black-forest-labs/flux.2-pro",
+            "flux.2-klein-4b",
+            "black-forest-labs/flux.2-klein-4b",
+        ):
+            with self.subTest(old_flux_model=old_flux_model):
+                self.assertEqual(
+                    coerce_story_image_model(old_flux_model),
+                    "google/gemini-2.5-flash-image",
+                )
 
     def test_appearance_fields_are_tracked_when_sent(self) -> None:
         payload = StoryGameSettingsUpdateRequest(

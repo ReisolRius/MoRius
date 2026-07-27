@@ -5,6 +5,7 @@ import ipaddress
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
 import requests
@@ -20,6 +21,8 @@ from app.services.referrals import grant_referral_rewards_after_purchase
 
 PAYMENT_PROVIDER = "yookassa"
 FINAL_PAYMENT_STATUSES = {"succeeded", "canceled"}
+VOLUNTARY_COMMISSION_RATE = Decimal("0.035")
+_RUBLE_QUANTUM = Decimal("0.01")
 COIN_TOP_UP_PLANS: tuple[dict[str, Any], ...] = (
     {
         "id": "standard",
@@ -392,9 +395,26 @@ def _perform_yookassa_request(
     return payload
 
 
-def create_payment_in_provider(plan: dict[str, Any], user: User) -> dict[str, Any]:
+def calculate_checkout_amount_rub(base_price_rub: int, *, cover_commission: bool = False) -> Decimal:
+    """Calculate the trusted checkout amount from the server-side catalog price."""
+    base_amount = Decimal(base_price_rub)
+    if cover_commission:
+        base_amount *= Decimal("1") + VOLUNTARY_COMMISSION_RATE
+    return base_amount.quantize(_RUBLE_QUANTUM, rounding=ROUND_HALF_UP)
+
+
+def create_payment_in_provider(
+    plan: dict[str, Any],
+    user: User,
+    *,
+    cover_commission: bool = False,
+) -> dict[str, Any]:
     idempotence_key = secrets.token_hex(16)
-    amount_value = f"{plan['price_rub']:.2f}"
+    amount_value = format(
+        calculate_checkout_amount_rub(int(plan["price_rub"]), cover_commission=cover_commission),
+        ".2f",
+    )
+    description = f"MoRius оплата покупки солов: {plan['title']} ({amount_value} руб)"
     payment_payload = {
         "amount": {
             "value": amount_value,
@@ -405,14 +425,20 @@ def create_payment_in_provider(plan: dict[str, Any], user: User) -> dict[str, An
             "type": "redirect",
             "return_url": settings.payments_return_url,
         },
-        "description": f"MoRius оплата покупки солов: {plan['title']} ({plan['price_rub']} руб)",
+        "description": description,
         "metadata": {
             "app": "morius",
             "user_id": str(user.id),
             "plan_id": str(plan["id"]),
+            "cover_commission": "true" if cover_commission else "false",
         },
     }
-    receipt_payload = _build_receipt_payload(plan, user, amount_value)
+    receipt_payload = _build_receipt_payload(
+        plan,
+        user,
+        amount_value,
+        description_override=description,
+    )
     if receipt_payload is not None:
         payment_payload["receipt"] = receipt_payload
     return _perform_yookassa_request(
@@ -427,19 +453,27 @@ def fetch_payment_from_provider(payment_id: str) -> dict[str, Any]:
     return _perform_yookassa_request("GET", f"/payments/{payment_id}")
 
 
-def _subscription_description(plan: dict[str, Any]) -> str:
-    return f"MoRius подписка: {plan['title']} ({plan['price_rub']} руб/мес)"
+def _subscription_description(plan: dict[str, Any], amount_value: str) -> str:
+    return f"MoRius подписка: {plan['title']} ({amount_value} руб)"
 
 
-def create_subscription_payment_in_provider(plan: dict[str, Any], user: User) -> dict[str, Any]:
+def create_subscription_payment_in_provider(
+    plan: dict[str, Any],
+    user: User,
+    *,
+    cover_commission: bool = False,
+) -> dict[str, Any]:
     """First subscription payment: redirect checkout that also SAVES the card for auto-renewal.
 
     On success ЮKassa returns ``payment_method.id`` (because ``save_payment_method=true``); we store
     it so subsequent months are charged merchant-initiated, without the user re-entering the card.
     """
     idempotence_key = secrets.token_hex(16)
-    amount_value = f"{plan['price_rub']:.2f}"
-    description = _subscription_description(plan)
+    amount_value = format(
+        calculate_checkout_amount_rub(int(plan["price_rub"]), cover_commission=cover_commission),
+        ".2f",
+    )
+    description = _subscription_description(plan, amount_value)
     payment_payload: dict[str, Any] = {
         "amount": {"value": amount_value, "currency": "RUB"},
         "capture": True,
@@ -454,6 +488,7 @@ def create_subscription_payment_in_provider(plan: dict[str, Any], user: User) ->
             "kind": "subscription",
             "user_id": str(user.id),
             "plan_id": str(plan["id"]),
+            "cover_commission": "true" if cover_commission else "false",
         },
     }
     receipt_payload = _build_receipt_payload(plan, user, amount_value, description_override=description)
@@ -475,7 +510,7 @@ def create_subscription_recurring_payment_in_provider(
     """Merchant-initiated monthly renewal charge against a previously saved card (no confirmation)."""
     idempotence_key = secrets.token_hex(16)
     amount_value = f"{plan['price_rub']:.2f}"
-    description = _subscription_description(plan)
+    description = _subscription_description(plan, amount_value)
     payment_payload: dict[str, Any] = {
         "amount": {"value": amount_value, "currency": "RUB"},
         "capture": True,

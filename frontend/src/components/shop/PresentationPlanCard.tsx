@@ -39,8 +39,10 @@ function GemBullet({ accent }: { accent: string }) {
       dangerouslySetInnerHTML={{ __html: perkGemMarkup }}
       sx={{
         width: 13,
-        height: 13,
-        mt: '3px',
+        height: '1.48em',
+        display: 'grid',
+        placeItems: 'center',
+        fontSize: '0.74rem',
         flex: '0 0 13px',
         lineHeight: 0,
         filter: `drop-shadow(0 0 5px ${accent})`,

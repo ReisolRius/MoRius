@@ -112,16 +112,12 @@ class StoryGraphTests(unittest.TestCase):
         self.assertIn("/api/story/games/{game_id}/graph/nodes", route_paths)
         self.assertIn("/api/story/games/{game_id}/graph/edges", route_paths)
 
-    def test_story_graph_access_includes_beta_tester(self) -> None:
+    def test_story_graph_access_is_available_to_every_authenticated_role(self) -> None:
         ordinary_user = User(email="player@example.com", role="user")
         moderator = User(email="mod@example.com", role="moderator")
         beta_tester = User(email="beta@example.com", role="beta_tester")
 
-        with self.assertLogs("app.services.story_graph", level="WARNING"):
-            with self.assertRaises(HTTPException) as exc_info:
-                require_story_graph_access(ordinary_user)
-
-        self.assertEqual(exc_info.exception.status_code, 403)
+        require_story_graph_access(ordinary_user)
         require_story_graph_access(moderator)
         require_story_graph_access(beta_tester)
 

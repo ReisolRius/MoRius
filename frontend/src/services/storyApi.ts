@@ -510,7 +510,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     image_model:
       typeof game.image_model === 'string'
         ? (game.image_model as StoryGameSummary['image_model'])
-        : 'black-forest-labs/flux.2-pro',
+        : 'google/gemini-2.5-flash-image',
     image_style_prompt: typeof game.image_style_prompt === 'string' ? game.image_style_prompt : '',
     memory_optimization_enabled: Boolean(game.memory_optimization_enabled),
     memory_optimization_mode:
@@ -1964,6 +1964,7 @@ export async function cloneStoryGame(payload: {
   copy_world?: boolean
   copy_main_hero?: boolean
   copy_history?: boolean
+  copy_nodes?: boolean
 }): Promise<StoryGameSummary> {
   return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/clone`, {
     method: 'POST',
@@ -1976,6 +1977,7 @@ export async function cloneStoryGame(payload: {
       copy_world: payload.copy_world ?? true,
       copy_main_hero: payload.copy_main_hero ?? true,
       copy_history: payload.copy_history ?? true,
+      copy_nodes: payload.copy_nodes ?? true,
     }),
   })
 }

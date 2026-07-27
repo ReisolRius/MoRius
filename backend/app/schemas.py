@@ -657,6 +657,7 @@ class WikiReorderRequest(BaseModel):
 
 class CoinTopUpCreateRequest(BaseModel):
     plan_id: str = Field(min_length=1, max_length=32)
+    cover_commission: bool = False
 
 
 class CoinTopUpCreateResponse(BaseModel):
@@ -743,6 +744,7 @@ class SubscriptionCreateResponse(BaseModel):
 
 class SubscriptionCheckoutRequest(BaseModel):
     plan_id: str = Field(min_length=1, max_length=32)
+    cover_commission: bool = False
 
 
 class SubscriptionCheckoutResponse(BaseModel):
@@ -932,6 +934,7 @@ class StoryGameCloneRequest(BaseModel):
     copy_world: bool = True
     copy_main_hero: bool = True
     copy_history: bool = True
+    copy_nodes: bool = True
 
 
 class StoryGameSettingsUpdateRequest(BaseModel):

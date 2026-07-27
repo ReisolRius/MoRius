@@ -6106,10 +6106,13 @@ def _story_output_translation_model_name(model_name: str | None = None) -> str:
 
 def _normalize_story_model_id(value: str | None) -> str:
     normalized = (value or "").strip().lower()
-    if normalized == STORY_TURN_IMAGE_MODEL_FLUX_LEGACY:
-        return STORY_TURN_IMAGE_MODEL_FLUX
-    if normalized == STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY:
-        return STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B
+    if normalized in {
+        STORY_TURN_IMAGE_MODEL_FLUX,
+        STORY_TURN_IMAGE_MODEL_FLUX_LEGACY,
+        STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B,
+        STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY,
+    }:
+        return STORY_TURN_IMAGE_MODEL_NANO_BANANO
     if normalized in {
         STORY_TURN_IMAGE_MODEL_SEEDREAM_SHORT_LEGACY,
         STORY_TURN_IMAGE_MODEL_SEEDREAM_LEGACY,
@@ -6120,7 +6123,7 @@ def _normalize_story_model_id(value: str | None) -> str:
         STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT,
         STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY,
     }:
-        return STORY_TURN_IMAGE_MODEL_FLUX
+        return STORY_TURN_IMAGE_MODEL_NANO_BANANO
     return STORY_LEGACY_MODEL_ALIASES.get(normalized, normalized)
 
 
@@ -10976,6 +10979,7 @@ def _request_polza_story_text(
     max_tokens: int | None = None,
     request_timeout: tuple[int, int] | None = None,
     retry_on_rate_limit: bool = True,
+    retry_on_temporary_failure: bool = True,
 ) -> str:
     headers = {
         "Authorization": f"Bearer {settings.polza_api_key}",
@@ -11003,6 +11007,7 @@ def _request_polza_story_text(
 
     last_error: RuntimeError | None = None
     timeout_value = request_timeout or (20, 120)
+    retry_delays = STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS if retry_on_temporary_failure else ()
     prepared_messages_payload = _prepare_story_messages_for_model(
         messages_payload,
         translate_input=translate_input,
@@ -11027,7 +11032,7 @@ def _request_polza_story_text(
             payload["max_tokens"] = normalized_limit
             payload["max_completion_tokens"] = normalized_limit
         _apply_polza_story_reasoning_preferences(payload, model_name=candidate_model)
-        for attempt_index in range(len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS) + 1):
+        for attempt_index in range(len(retry_delays) + 1):
             consume_story_service_http_request()
             request_started_at = time.monotonic()
             logger.info(
@@ -11045,14 +11050,14 @@ def _request_polza_story_text(
                 )
             except requests.RequestException as exc:
                 last_error = RuntimeError("Failed to reach RouterAI chat endpoint")
-                if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
+                if attempt_index < len(retry_delays):
                     logger.warning(
                         "RouterAI service transport failed; retrying same model: model=%s attempt=%s error=%s",
                         candidate_model,
                         attempt_index + 1,
                         exc,
                     )
-                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                    time.sleep(retry_delays[attempt_index])
                     continue
                 if candidate_model != candidate_models[-1]:
                     break
@@ -11081,7 +11086,7 @@ def _request_polza_story_text(
                 )
                 if response.status_code == 429 and not retry_on_rate_limit:
                     retryable = False
-                if retryable and attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
+                if retryable and attempt_index < len(retry_delays):
                     logger.warning(
                         "RouterAI service temporary failure; retrying same model: model=%s status=%s attempt=%s detail=%s",
                         candidate_model,
@@ -11089,7 +11094,7 @@ def _request_polza_story_text(
                         attempt_index + 1,
                         detail or "n/a",
                     )
-                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                    time.sleep(retry_delays[attempt_index])
                     continue
 
                 if (
@@ -11110,8 +11115,8 @@ def _request_polza_story_text(
                 payload_value = response.json()
             except ValueError as exc:
                 last_error = RuntimeError("Polza.ai chat returned invalid payload")
-                if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
-                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                if attempt_index < len(retry_delays):
+                    time.sleep(retry_delays[attempt_index])
                     continue
                 if candidate_model != candidate_models[-1]:
                     break
@@ -11119,8 +11124,8 @@ def _request_polza_story_text(
 
             if not isinstance(payload_value, dict):
                 last_error = RuntimeError("RouterAI chat returned an invalid payload")
-                if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
-                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                if attempt_index < len(retry_delays):
+                    time.sleep(retry_delays[attempt_index])
                     continue
                 if candidate_model != candidate_models[-1]:
                     break
@@ -11128,8 +11133,8 @@ def _request_polza_story_text(
             choices = payload_value.get("choices")
             if not isinstance(choices, list) or not choices:
                 last_error = RuntimeError("RouterAI chat returned no choices")
-                if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
-                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                if attempt_index < len(retry_delays):
+                    time.sleep(retry_delays[attempt_index])
                     continue
                 if candidate_model != candidate_models[-1]:
                     break
@@ -11138,8 +11143,8 @@ def _request_polza_story_text(
             message_value = choice.get("message")
             if not isinstance(message_value, dict):
                 last_error = RuntimeError("RouterAI chat returned no message")
-                if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
-                    time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+                if attempt_index < len(retry_delays):
+                    time.sleep(retry_delays[attempt_index])
                     continue
                 if candidate_model != candidate_models[-1]:
                     break
@@ -11148,8 +11153,8 @@ def _request_polza_story_text(
             if response_text:
                 return response_text
             last_error = RuntimeError("RouterAI chat returned empty text")
-            if attempt_index < len(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS):
-                time.sleep(STORY_BACKGROUND_AI_RETRY_DELAYS_SECONDS[attempt_index])
+            if attempt_index < len(retry_delays):
+                time.sleep(retry_delays[attempt_index])
                 continue
             if candidate_model != candidate_models[-1]:
                 break
@@ -11161,7 +11166,7 @@ def _request_polza_story_text(
 
 
 def _validate_story_turn_image_provider_config(model_name: str | None = None) -> None:
-    normalized_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_FLUX
+    normalized_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_NANO_BANANO
     if not settings.polza_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -11204,8 +11209,8 @@ def _normalize_story_turn_image_style_prompt(value: str | None) -> str:
 def _get_story_turn_image_cost_tokens(model_name: str | None) -> int:
     normalized_model = _normalize_story_model_id(str(model_name or "").strip())
     if not normalized_model:
-        normalized_model = STORY_TURN_IMAGE_MODEL_FLUX
-    return max(int(STORY_TURN_IMAGE_COST_BY_MODEL.get(normalized_model, STORY_TURN_IMAGE_COST_BY_MODEL[STORY_TURN_IMAGE_MODEL_FLUX])), 0)
+        normalized_model = STORY_TURN_IMAGE_MODEL_NANO_BANANO
+    return max(int(STORY_TURN_IMAGE_COST_BY_MODEL.get(normalized_model, STORY_TURN_IMAGE_COST_BY_MODEL[STORY_TURN_IMAGE_MODEL_NANO_BANANO])), 0)
 
 
 def _get_story_turn_image_read_timeout_seconds(model_name: str | None) -> int:
@@ -12424,7 +12429,7 @@ def _build_story_turn_image_prompt_composer_messages(
         )
 
     composer_input = (
-        f"SELECTED IMAGE MODEL: {_normalize_story_model_id(str(model_name or '')) or STORY_TURN_IMAGE_MODEL_FLUX}\n\n"
+        f"SELECTED IMAGE MODEL: {_normalize_story_model_id(str(model_name or '')) or STORY_TURN_IMAGE_MODEL_NANO_BANANO}\n\n"
         f"STYLE DIRECTIVE (ABSOLUTE, MUST WIN OVER ALL CARD WORDING):\n{normalized_style_prompt or 'No custom style was specified; use a coherent cinematic scene style.'}"
         f"{text_ban_instruction}\n\n"
         "LATEST PLAYER TURN:\n"
@@ -12536,7 +12541,7 @@ def _compose_story_turn_image_prompt_with_model(
         logger.info(
             "Story turn image prompt composer started: composer_model=%s target_image_model=%s",
             STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL,
-            _normalize_story_model_id(str(model_name or "")) or STORY_TURN_IMAGE_MODEL_FLUX,
+            _normalize_story_model_id(str(model_name or "")) or STORY_TURN_IMAGE_MODEL_NANO_BANANO,
         )
         composed_prompt = _request_polza_story_text(
             messages_payload,
@@ -13121,7 +13126,7 @@ def _request_aitunnel_story_turn_image(
     reference_image_url: str | None = None,
     reference_image_data_url: str | None = None,
 ) -> dict[str, str | None]:
-    selected_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_FLUX
+    selected_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_NANO_BANANO
     if selected_model not in STORY_AITUNNEL_IMAGE_MODELS:
         raise RuntimeError(f"AITunnel image model is not supported: {selected_model}")
     if not settings.aitunnel_api_key:
@@ -13251,7 +13256,7 @@ def _request_polza_story_turn_image(
     if settings.polza_app_name:
         headers["X-Title"] = settings.polza_app_name
 
-    selected_model = (model_name or settings.polza_image_model or STORY_TURN_IMAGE_MODEL_FLUX).strip()
+    selected_model = (model_name or settings.polza_image_model or STORY_TURN_IMAGE_MODEL_NANO_BANANO).strip()
     selected_model = _normalize_story_model_id(selected_model) or selected_model
     if not selected_model:
         raise RuntimeError("Polza.ai image model is not configured")
@@ -13394,7 +13399,7 @@ def _request_proxyapi_story_turn_image_fallback(
 ) -> dict[str, str | None]:
     from app.services.proxyapi_fallback import request_image as _request_proxyapi_image
 
-    selected_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_FLUX
+    selected_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_NANO_BANANO
     payload = _request_proxyapi_image(
         prompt=prompt,
         model_name=selected_model,
@@ -13424,7 +13429,7 @@ def _request_story_turn_image(
     reference_image_url: str | None = None,
     reference_image_data_url: str | None = None,
 ) -> dict[str, str | None]:
-    selected_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_FLUX
+    selected_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_NANO_BANANO
     payload = _request_polza_story_turn_image(
         prompt=prompt,
         model_name=selected_model,

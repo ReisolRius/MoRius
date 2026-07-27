@@ -5,6 +5,15 @@
 .DS_Store
 Thumbs.db
 
+# Local tool caches / recovery artifacts
+.pytest_cache/
+.codex-chrome-profile/
+.kombai/
+.claude/*.lock
+.claude/settings.local.json
+/recovery/
+.tmp_*
+
 # Environment files
 .env
 .env.*

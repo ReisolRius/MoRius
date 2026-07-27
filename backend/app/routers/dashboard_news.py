@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import DashboardNewsCard
 from app.schemas import DashboardNewsCardOut, DashboardNewsCardUpdateRequest, DashboardNewsReorderRequest
-from app.services.auth_identity import ADMIN_PANEL_ALLOWED_ROLES, get_current_user
+from app.services.auth_identity import ADMIN_PANEL_ALLOWED_ROLES, ROLE_ADMINISTRATOR, get_current_user
 from app.services.media import resolve_media_storage_value, validate_avatar_url
 
 router = APIRouter()
@@ -80,6 +80,23 @@ def _require_dashboard_news_editor(user) -> None:
     )
 
 
+def _require_dashboard_news_reorderer(user) -> None:
+    role = str(getattr(user, "role", "") or "").strip().lower()
+    if role == ROLE_ADMINISTRATOR:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only administrators can reorder dashboard news",
+    )
+
+
+def _disable_dashboard_news_cache(response: Response) -> None:
+    # News order is shared by every player and can be changed by an administrator.
+    # Never let a browser reuse an older ordering after it was persisted.
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+
+
 def _list_dashboard_news_cards(db: Session) -> list[DashboardNewsCard]:
     cards = db.scalars(select(DashboardNewsCard).order_by(DashboardNewsCard.slot.asc(), DashboardNewsCard.id.asc())).all()
     if len(cards) >= len(DEFAULT_DASHBOARD_NEWS_CARDS):
@@ -110,10 +127,12 @@ def _list_dashboard_news_cards(db: Session) -> list[DashboardNewsCard]:
 
 @router.get("/api/auth/dashboard-news", response_model=list[DashboardNewsCardOut])
 def list_dashboard_news(
+    response: Response,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[DashboardNewsCardOut]:
     _ = get_current_user(db, authorization)
+    _disable_dashboard_news_cache(response)
     cards = _list_dashboard_news_cards(db)
     return [DashboardNewsCardOut.model_validate(card) for card in cards]
 
@@ -121,11 +140,13 @@ def list_dashboard_news(
 @router.patch("/api/auth/dashboard-news/reorder", response_model=list[DashboardNewsCardOut])
 def reorder_dashboard_news(
     payload: DashboardNewsReorderRequest,
+    response: Response,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[DashboardNewsCardOut]:
     user = get_current_user(db, authorization)
-    _require_dashboard_news_editor(user)
+    _require_dashboard_news_reorderer(user)
+    _disable_dashboard_news_cache(response)
     cards = _list_dashboard_news_cards(db)
 
     cards_by_id = {card.id: card for card in cards}

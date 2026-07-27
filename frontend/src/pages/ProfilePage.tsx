@@ -64,6 +64,7 @@ import {
   getCurrentUserReferralSummary,
   getShopCatalog,
   listCurrentUserNotifications,
+  listProfileConnections,
   markAllCurrentUserNotificationsRead,
   markCurrentUserNotificationRead,
   getProfileView,
@@ -80,6 +81,8 @@ import {
   type ProfileGalleryImage,
   type ProfileContentItem,
   type ProfileContentKind,
+  type ProfileConnectionKind,
+  type ProfileSubscriptionUser,
   type ProfileView,
   type ReferralSummary,
   type UserNotificationCounters,
@@ -150,7 +153,7 @@ type TabId = 'games' | 'characters' | 'world_cards' | 'instructions' | 'gallery'
 type ProfileMainSection = 'library' | 'publications'
 type NotificationSortMode = 'newest' | 'oldest'
 type ProfileContentSortMode = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'popular_desc' | 'rating_desc'
-type CloneSectionKey = 'instructions' | 'plot' | 'world' | 'main_hero' | 'history'
+type CloneSectionKey = 'instructions' | 'plot' | 'world' | 'main_hero' | 'history' | 'nodes'
 type CloneSelectionState = Record<CloneSectionKey, boolean>
 type ProfileServerPage<T> = {
   items: T[]
@@ -165,6 +168,7 @@ const PROFILE_CONTENT_SEARCH_DEBOUNCE_MS = 280
 const PROFILE_CARD_BATCH_SIZE = 12
 const PROFILE_SERVER_REQUEST_SIZE = PROFILE_CARD_BATCH_SIZE + 1
 const PROFILE_NOTIFICATION_PAGE_SIZE = 12
+const PROFILE_CONNECTION_PAGE_SIZE = 48
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PLACE_IMAGE_MAX_BYTES = 8 * 1024 * 1024
 const PLACE_TRIGGER_MAX_COUNT = 12
@@ -234,6 +238,7 @@ const DEFAULT_CLONE_SELECTION: CloneSelectionState = {
   world: true,
   main_hero: true,
   history: true,
+  nodes: true,
 }
 const CLONE_SECTION_ITEMS: Array<{ key: CloneSectionKey; label: string }> = [
   { key: 'instructions', label: 'Инструкции' },
@@ -241,6 +246,7 @@ const CLONE_SECTION_ITEMS: Array<{ key: CloneSectionKey; label: string }> = [
   { key: 'world', label: 'Мир' },
   { key: 'main_hero', label: 'ГГ' },
   { key: 'history', label: 'История' },
+  { key: 'nodes', label: 'Ноды' },
 ]
 
 const BASE_PROFILE_TABS: Array<{ id: TabId; label: string }> = [
@@ -815,6 +821,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [referralError, setReferralError] = useState('')
   const [isReferralCopied, setIsReferralCopied] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [connectionDialogKind, setConnectionDialogKind] = useState<ProfileConnectionKind | null>(null)
+  const [profileConnections, setProfileConnections] = useState<ProfileSubscriptionUser[]>([])
+  const [isProfileConnectionsLoading, setIsProfileConnectionsLoading] = useState(false)
+  const [profileConnectionsHasMore, setProfileConnectionsHasMore] = useState(false)
+  const [profileConnectionsError, setProfileConnectionsError] = useState('')
   const [appDownloadDialogOpen, setAppDownloadDialogOpen] = useState(false)
   const [shopProfileBanners, setShopProfileBanners] = useState<CosmeticItem[]>([])
 
@@ -826,6 +837,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const placeImageInputRef = useRef<HTMLInputElement | null>(null)
+  const profileConnectionsRequestIdRef = useRef(0)
   const lastContentTabRef = useRef<TabId>('characters')
   const notificationsLoadMoreTriggeredRef = useRef(0)
 
@@ -2691,13 +2703,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }, [syncPendingPayment])
 
   const handlePurchasePlan = useCallback(
-    async (planId: string) => {
+    async (planId: string, coverCommission = false) => {
       setTopUpError('')
       setActivePlanPurchaseId(planId)
       try {
         const response = await createCoinTopUpPayment({
           token: authToken,
           plan_id: planId,
+          cover_commission: coverCommission,
         })
         localStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, response.payment_id)
         window.location.assign(response.confirmation_url)
@@ -2779,6 +2792,68 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       setIsFollowSaving(false)
     }
   }, [applyFollowState, authToken, isFollowSaving, isOwnProfile, profileView])
+
+  const loadProfileConnections = useCallback(async (kind: ProfileConnectionKind, offset: number) => {
+    if (!isOwnProfile || isProfileConnectionsLoading) {
+      return
+    }
+    const normalizedOffset = Math.max(0, Math.trunc(offset))
+    const requestId = profileConnectionsRequestIdRef.current + 1
+    profileConnectionsRequestIdRef.current = requestId
+    setIsProfileConnectionsLoading(true)
+    setProfileConnectionsError('')
+    try {
+      const page = await listProfileConnections({
+        token: authToken,
+        userId: user.id,
+        kind,
+        limit: PROFILE_CONNECTION_PAGE_SIZE,
+        offset: normalizedOffset,
+      })
+      if (profileConnectionsRequestIdRef.current !== requestId) {
+        return
+      }
+      setProfileConnections((previous) => {
+        if (normalizedOffset === 0) {
+          return page
+        }
+        const byId = new Map(previous.map((item) => [item.id, item]))
+        page.forEach((item) => byId.set(item.id, item))
+        return Array.from(byId.values())
+      })
+      setProfileConnectionsHasMore(page.length === PROFILE_CONNECTION_PAGE_SIZE)
+    } catch (requestError) {
+      if (profileConnectionsRequestIdRef.current === requestId) {
+        setProfileConnectionsError(
+          requestError instanceof Error ? requestError.message : 'Не удалось загрузить список пользователей',
+        )
+      }
+    } finally {
+      if (profileConnectionsRequestIdRef.current === requestId) {
+        setIsProfileConnectionsLoading(false)
+      }
+    }
+  }, [authToken, isOwnProfile, isProfileConnectionsLoading, user.id])
+
+  const handleOpenProfileConnections = useCallback((kind: ProfileConnectionKind) => {
+    if (!isOwnProfile) {
+      return
+    }
+    setConnectionDialogKind(kind)
+    setProfileConnections([])
+    setProfileConnectionsHasMore(false)
+    setProfileConnectionsError('')
+    void loadProfileConnections(kind, 0)
+  }, [isOwnProfile, loadProfileConnections])
+
+  const handleCloseProfileConnections = useCallback(() => {
+    profileConnectionsRequestIdRef.current += 1
+    setConnectionDialogKind(null)
+    setProfileConnections([])
+    setProfileConnectionsHasMore(false)
+    setProfileConnectionsError('')
+    setIsProfileConnectionsLoading(false)
+  }, [])
 
   const handleSavePrivacy = useCallback(async () => {
     if (!isOwnProfile || isSavingPrivacy) {
@@ -3338,6 +3413,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         copy_world: cloneSelection.world,
         copy_main_hero: cloneSelection.main_hero,
         copy_history: cloneSelection.history,
+        copy_nodes: cloneSelection.nodes,
       })
       setOwnGames((previousGames) => [clonedGame, ...previousGames.filter((game) => game.id !== clonedGame.id)])
       void loadProfileView()
@@ -6236,13 +6312,49 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem', fontWeight: 700 }}>{user.email}</Typography>
                     </Stack>
                   ) : null}
-                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
-                    {followersCount.toLocaleString('ru-RU')} {followersCount === 1 ? '\u043F\u043E\u0434\u043F\u0438\u0441\u0447\u0438\u043A' : '\u043F\u043E\u0434\u043F\u0438\u0441\u0447\u0438\u043A\u0430'}
-                  </Typography>
-                  {isOwnProfile || canViewSubscriptions ? (
+                  {isOwnProfile ? (
+                    <ButtonBase
+                      onClick={() => handleOpenProfileConnections('followers')}
+                      aria-label="Открыть список подписчиков"
+                      sx={{
+                        p: 0,
+                        color: 'var(--morius-text-secondary)',
+                        fontSize: '0.84rem',
+                        lineHeight: 1.45,
+                        borderRadius: '4px',
+                        '&:hover': { color: 'var(--morius-title-text)', textDecoration: 'underline' },
+                        '&:focus-visible': { outline: '2px solid var(--morius-accent)', outlineOffset: '2px' },
+                      }}
+                    >
+                      {followersCount.toLocaleString('ru-RU')} {followersCount === 1 ? '\u043F\u043E\u0434\u043F\u0438\u0441\u0447\u0438\u043A' : '\u043F\u043E\u0434\u043F\u0438\u0441\u0447\u0438\u043A\u0430'}
+                    </ButtonBase>
+                  ) : (
                     <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
-                      {subscriptionsCount.toLocaleString('ru-RU')} {subscriptionsCount === 1 ? '\u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0430' : '\u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0438'}
+                      {followersCount.toLocaleString('ru-RU')} {followersCount === 1 ? '\u043F\u043E\u0434\u043F\u0438\u0441\u0447\u0438\u043A' : '\u043F\u043E\u0434\u043F\u0438\u0441\u0447\u0438\u043A\u0430'}
                     </Typography>
+                  )}
+                  {isOwnProfile || canViewSubscriptions ? (
+                    isOwnProfile ? (
+                      <ButtonBase
+                        onClick={() => handleOpenProfileConnections('following')}
+                        aria-label="Открыть список подписок"
+                        sx={{
+                          p: 0,
+                          color: 'var(--morius-text-secondary)',
+                          fontSize: '0.84rem',
+                          lineHeight: 1.45,
+                          borderRadius: '4px',
+                          '&:hover': { color: 'var(--morius-title-text)', textDecoration: 'underline' },
+                          '&:focus-visible': { outline: '2px solid var(--morius-accent)', outlineOffset: '2px' },
+                        }}
+                      >
+                        {subscriptionsCount.toLocaleString('ru-RU')} {subscriptionsCount === 1 ? '\u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0430' : '\u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0438'}
+                      </ButtonBase>
+                    ) : (
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
+                        {subscriptionsCount.toLocaleString('ru-RU')} {subscriptionsCount === 1 ? '\u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0430' : '\u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0438'}
+                      </Typography>
+                    )
                   ) : null}
                   {isOwnProfile ? (
                     <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
@@ -7023,6 +7135,121 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       </Popover>
 
       <Dialog
+        open={Boolean(connectionDialogKind)}
+        onClose={handleCloseProfileConnections}
+        fullWidth
+        maxWidth="sm"
+        PaperProps={{
+          sx: {
+            borderRadius: 'var(--morius-radius)',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ color: 'var(--morius-title-text)', fontWeight: 800 }}>
+          {connectionDialogKind === 'followers' ? 'Подписчики' : 'Подписки'}
+        </DialogTitle>
+        <DialogContent dividers sx={{ borderColor: 'var(--morius-divider-color)' }}>
+          {profileConnectionsError ? (
+            <Alert severity="error" sx={{ mb: 1.2, borderRadius: '12px' }}>
+              {profileConnectionsError}
+            </Alert>
+          ) : null}
+
+          {isProfileConnectionsLoading && profileConnections.length === 0 ? (
+            <Stack alignItems="center" sx={{ py: 4 }}>
+              <CircularProgress size={28} sx={{ color: 'var(--morius-accent)' }} />
+            </Stack>
+          ) : profileConnections.length === 0 && !profileConnectionsError ? (
+            <Typography sx={{ color: 'var(--morius-text-secondary)', py: 2, textAlign: 'center' }}>
+              {connectionDialogKind === 'followers'
+                ? 'На вас пока никто не подписан.'
+                : 'Вы пока ни на кого не подписаны.'}
+            </Typography>
+          ) : (
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
+                gap: 1,
+              }}
+            >
+              {profileConnections.map((connection) => (
+                <ButtonBase
+                  key={`${connectionDialogKind}-${connection.id}`}
+                  onClick={() => {
+                    handleCloseProfileConnections()
+                    onNavigate(`/profile/${connection.id}`)
+                  }}
+                  aria-label={`Открыть профиль ${connection.display_name || 'игрока'}`}
+                  sx={{
+                    minWidth: 0,
+                    justifyContent: 'flex-start',
+                    gap: 1,
+                    p: 1,
+                    borderRadius: '14px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    color: 'var(--morius-text-primary)',
+                    textAlign: 'left',
+                    '&:hover': {
+                      borderColor: 'color-mix(in srgb, var(--morius-accent) 55%, var(--morius-card-border))',
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, var(--morius-accent) 12%)',
+                    },
+                  }}
+                >
+                  <ProgressiveAvatar
+                    src={connection.avatar_url}
+                    alt={connection.display_name || 'Игрок'}
+                    fallbackLabel={connection.display_name || 'Игрок'}
+                    size={46}
+                    scale={connection.avatar_scale}
+                    frameId={connection.avatar_frame_id}
+                    frameImageUrl={connection.avatar_frame_image_url ?? null}
+                    sx={{ flexShrink: 0 }}
+                  />
+                  <Typography
+                    sx={{
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      fontSize: '0.92rem',
+                      fontWeight: 800,
+                    }}
+                  >
+                    {connection.display_name || `Игрок #${connection.id}`}
+                  </Typography>
+                </ButtonBase>
+              ))}
+            </Box>
+          )}
+
+          {profileConnectionsHasMore ? (
+            <Stack alignItems="center" sx={{ pt: 1.5 }}>
+              <Button
+                onClick={() => {
+                  if (connectionDialogKind) {
+                    void loadProfileConnections(connectionDialogKind, profileConnections.length)
+                  }
+                }}
+                disabled={isProfileConnectionsLoading}
+                sx={{ color: 'var(--morius-title-text)', textTransform: 'none', fontWeight: 750 }}
+              >
+                {isProfileConnectionsLoading ? 'Загружаем...' : 'Показать ещё'}
+              </Button>
+            </Stack>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseProfileConnections} sx={{ color: 'var(--morius-title-text)', textTransform: 'none' }}>
+            Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
         open={privacyDialogOpen}
         onClose={() => {
           if (!isSavingPrivacy) {
@@ -7626,7 +7853,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         activePlanPurchaseId={activePlanPurchaseId}
         authToken={authToken}
         onClose={handleCloseTopUpDialog}
-        onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
+        onPurchasePlan={(planId, coverCommission) => void handlePurchasePlan(planId, coverCommission)}
       />
 
       <PaymentSuccessDialog

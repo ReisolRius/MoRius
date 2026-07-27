@@ -410,8 +410,8 @@ class StoryGame(Base):
     image_model: Mapped[str] = mapped_column(
         String(120),
         nullable=False,
-        default="black-forest-labs/flux.2-pro",
-        server_default="black-forest-labs/flux.2-pro",
+        default="google/gemini-2.5-flash-image",
+        server_default="google/gemini-2.5-flash-image",
     )
     image_style_prompt: Mapped[str] = mapped_column(
         Text,

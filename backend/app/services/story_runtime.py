@@ -133,17 +133,14 @@ STORY_VISUAL_NOVEL_MATERIALIZATION_ERROR_DETAIL = (
 )
 # Max discarded reroll variants kept alongside the current assistant message (oldest dropped first).
 STORY_MESSAGE_VARIANT_HISTORY_MAX = 8
-# Жёсткий потолок на ВСЕ Gemini-вызовы пост-обработки одного хода (единый общий бюджет на
-# Call A «Мир», Call B «Персонажи», сжатие памяти и граф). Логический максимум при всех
-# включённых модулях: 1 (A) + 1 (B) + 2 (память) + 1 (граф) = 5. Ретраи валидации используют
-# только остаток бюджета; упёршись в потолок, запрос отклоняется штатно (модуль → pending,
-# повтор следующим ходом), без локального синтеза.
+# Жёсткий потолок на служебные вызовы пост-обработки хода: Call A «Мир», Call B
+# «Персонажи», память и baseline. Граф имеет отдельный бюджет ниже. Ретраи используют
+# только остаток бюджета; упёршись в потолок, модуль уходит в pending до следующего хода.
 STORY_TURN_MAX_SERVICE_REQUESTS = 5
 STORY_MEMORY_POSTPROCESS_MAX_SERVICE_REQUESTS = 5
-# Граф-анализ хода делает ровно один структурированный запрос (max_attempts=1). Прежний
-# потолок 5 позволял на ретраях/сбоях раздувать ход до 10+ вызовов. Держим 1 запрос на ход,
-# как и заявлено в бюджете выше; при рейт-лимите модуль штатно уходит в pending до след. хода.
-STORY_GRAPH_MAX_SERVICE_REQUESTS = 1
+# Граф-анализ делает одну семантическую попытку, но его транспорт может повторить запрос
+# при временном сбое. Ноды используют отдельный бюджет и не зависят от общего лимита хода.
+STORY_GRAPH_MAX_SERVICE_REQUESTS = 5
 STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES = 7
 STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 1_800
 STORY_ENVIRONMENT_TIME_TURN_SURCHARGE_TOKENS = 1
@@ -2312,11 +2309,8 @@ def _stream_story_response(
             )
 
     unified_postprocess_payload: dict[str, Any] | None = None
-    # Жёсткий потолок ≤5 на ВСЕ служебные вызовы хода. Каждый модуль сохраняет свой отдельный
-    # бюджет (чтобы не голодать друг у друга), но КАЖДЫЙ запрос дополнительно списывается из
-    # этого общего счётчика — независимо от того, сколько путей кода сработало (пере-запуски
-    # baseline-синхронизации, ретраи и т.п.). Упёршись в потолок, следующий вызов штатно
-    # отклоняется, модуль уходит в pending и повторяется следующим ходом.
+    # Общий потолок ≤5 применяется к служебной пост-обработке и baseline. Граф создаёт свой
+    # отдельный бюджет ниже, поэтому исчерпанный бюджет остальных модулей не блокирует ноды.
     turn_service_hard_budget = StoryServiceHttpRequestBudget(
         max_requests=STORY_TURN_MAX_SERVICE_REQUESTS
     )
@@ -2514,7 +2508,7 @@ def _stream_story_response(
             try:
                 from app.services.story_graph import analyze_story_graph_after_turn
 
-                with use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(graph_request_budget):
+                with use_story_service_http_request_budget(graph_request_budget):
                     graph_analysis_result = analyze_story_graph_after_turn(
                         db=db,
                         game=game,

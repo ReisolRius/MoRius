@@ -19,16 +19,22 @@ function CommunityCharacterCard({
   actionSlot,
   minHeight = 420,
 }: CommunityCharacterCardProps) {
-  const authorName = item.author_name.trim() || 'Неизвестный автор'
+  // Some legacy community records contain nulls despite the current API type.
+  // Normalize server text at the card boundary so one old publication cannot
+  // crash the whole profile page.
+  const authorName = String(item.author_name ?? '').trim() || 'Неизвестный автор'
+  const title = String(item.name ?? '').trim() || 'Без названия'
+  const description = String(item.description ?? '').trim() || 'Описание не заполнено.'
+  const note = String(item.note ?? '').trim()
 
   return (
     <CharacterShowcaseCard
       variant="community"
-      title={item.name}
-      description={item.description}
+      title={title}
+      description={description}
       imageUrl={item.avatar_url}
       imageScale={item.avatar_scale}
-      eyebrow={item.note.trim() || null}
+      eyebrow={note || null}
       heroHeader={(
         <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0 }}>
           <ProgressiveAvatar

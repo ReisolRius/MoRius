@@ -42,7 +42,7 @@ class NormalizeStoryGameModeTests(unittest.TestCase):
 
 
 class VisualNovelRoleGatingTests(unittest.TestCase):
-    def test_administrator_and_beta_tester_can_use_visual_novel(self) -> None:
+    def test_every_authenticated_role_can_use_visual_novel(self) -> None:
         admin = SimpleNamespace(role="administrator")
         beta_tester = SimpleNamespace(role="beta_tester")
         player = SimpleNamespace(role="user")
@@ -50,10 +50,11 @@ class VisualNovelRoleGatingTests(unittest.TestCase):
 
         self.assertTrue(can_user_use_story_visual_novel(admin))
         self.assertTrue(can_user_use_story_visual_novel(beta_tester))
-        self.assertFalse(can_user_use_story_visual_novel(player))
-        self.assertFalse(can_user_use_story_visual_novel(moderator))
+        self.assertTrue(can_user_use_story_visual_novel(player))
+        self.assertTrue(can_user_use_story_visual_novel(moderator))
+        self.assertFalse(can_user_use_story_visual_novel(None))
 
-    def test_is_story_visual_novel_enabled_requires_access_and_game_mode(self) -> None:
+    def test_is_story_visual_novel_enabled_requires_visual_novel_game_mode(self) -> None:
         admin = SimpleNamespace(role="administrator")
         beta_tester = SimpleNamespace(role="beta_tester")
         player = SimpleNamespace(role="user")
@@ -64,7 +65,7 @@ class VisualNovelRoleGatingTests(unittest.TestCase):
         self.assertFalse(is_story_visual_novel_game(rpg_game))
         self.assertTrue(is_story_visual_novel_enabled(vn_game, admin))
         self.assertTrue(is_story_visual_novel_enabled(vn_game, beta_tester))
-        self.assertFalse(is_story_visual_novel_enabled(vn_game, player))
+        self.assertTrue(is_story_visual_novel_enabled(vn_game, player))
         self.assertFalse(is_story_visual_novel_enabled(rpg_game, admin))
 
     def test_beta_tester_role_survives_auth_role_sync(self) -> None:

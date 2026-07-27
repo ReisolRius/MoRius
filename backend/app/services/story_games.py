@@ -263,22 +263,22 @@ STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT = "qwen-image-edit"
 STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY = "qwen/qwen-image-edit"
 STORY_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
-STORY_DEFAULT_IMAGE_MODEL = STORY_IMAGE_MODEL_FLUX
+STORY_DEFAULT_IMAGE_MODEL = STORY_IMAGE_MODEL_NANO_BANANO
 STORY_SUPPORTED_IMAGE_MODELS = {
-    STORY_IMAGE_MODEL_FLUX_KLEIN_4B,
-    STORY_IMAGE_MODEL_FLUX,
     STORY_IMAGE_MODEL_SEEDREAM,
     STORY_IMAGE_MODEL_NANO_BANANO,
     STORY_IMAGE_MODEL_NANO_BANANO_2,
 }
 STORY_IMAGE_MODEL_LEGACY_ALIASES = {
-    STORY_IMAGE_MODEL_FLUX_LEGACY: STORY_IMAGE_MODEL_FLUX,
-    STORY_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY: STORY_IMAGE_MODEL_FLUX_KLEIN_4B,
+    STORY_IMAGE_MODEL_FLUX: STORY_IMAGE_MODEL_NANO_BANANO,
+    STORY_IMAGE_MODEL_FLUX_LEGACY: STORY_IMAGE_MODEL_NANO_BANANO,
+    STORY_IMAGE_MODEL_FLUX_KLEIN_4B: STORY_IMAGE_MODEL_NANO_BANANO,
+    STORY_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY: STORY_IMAGE_MODEL_NANO_BANANO,
     STORY_IMAGE_MODEL_SEEDREAM_SHORT_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
     STORY_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
     STORY_IMAGE_MODEL_SEEDREAM_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
-    STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT: STORY_IMAGE_MODEL_FLUX,
-    STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY: STORY_IMAGE_MODEL_FLUX,
+    STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT: STORY_IMAGE_MODEL_NANO_BANANO,
+    STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY: STORY_IMAGE_MODEL_NANO_BANANO,
 }
 STORY_TOP_K_MIN = 0
 STORY_TOP_K_MAX = 200
@@ -703,9 +703,8 @@ def normalize_story_image_model(value: str | None) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported image model. "
-                "Use one of: black-forest-labs/flux.2-klein-4b, black-forest-labs/flux.2-pro, "
-                "bytedance-seed/seedream-4.5, "
-                "google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview"
+                "Use one of: google/gemini-2.5-flash-image, "
+                "google/gemini-3.1-flash-image-preview, bytedance-seed/seedream-4.5"
             ),
         )
     return normalized
@@ -1849,7 +1848,8 @@ def clone_story_world_cards_to_game(
     source_instruction_cards_out: list[StoryInstructionCardOut] | None = None,
     source_plot_cards_out: list[StoryPlotCardOut] | None = None,
     source_world_cards_out: list[StoryWorldCardOut] | None = None,
-) -> None:
+) -> dict[tuple[str, int], int]:
+    cloned_card_pairs: list[tuple[str, int, Any]] = []
     if copy_instructions:
         if source_instruction_cards_out is None:
             source_instruction_cards = list_story_instruction_cards(db, source_world_id)
@@ -1861,6 +1861,7 @@ def clone_story_world_cards_to_game(
                     is_active=bool(getattr(card, "is_active", True)),
                 )
                 db.add(cloned_instruction)
+                cloned_card_pairs.append(("instruction_card", int(card.id), cloned_instruction))
         else:
             for card in source_instruction_cards_out:
                 cloned_instruction = StoryInstructionCard(
@@ -1870,6 +1871,7 @@ def clone_story_world_cards_to_game(
                     is_active=bool(getattr(card, "is_active", True)),
                 )
                 db.add(cloned_instruction)
+                cloned_card_pairs.append(("instruction_card", int(card.id), cloned_instruction))
 
     if copy_plot:
         if source_plot_cards_out is None:
@@ -1895,6 +1897,7 @@ def clone_story_world_cards_to_game(
                     source=normalize_story_plot_card_source(getattr(card, "source", "")),
                 )
                 db.add(cloned_plot)
+                cloned_card_pairs.append(("plot_card", int(card.id), cloned_plot))
         else:
             for card in source_plot_cards_out:
                 cloned_plot = StoryPlotCard(
@@ -1917,6 +1920,7 @@ def clone_story_world_cards_to_game(
                     source=normalize_story_plot_card_source(card.source),
                 )
                 db.add(cloned_plot)
+                cloned_card_pairs.append(("plot_card", int(card.id), cloned_plot))
 
     if source_world_cards_out is None:
         source_world_cards = list_story_world_cards(db, source_world_id)
@@ -1958,48 +1962,172 @@ def clone_story_world_cards_to_game(
                 source=_normalize_story_world_card_source(card.source),
             )
             db.add(cloned_world_card)
-        return
+            cloned_card_pairs.append(("world_card", int(card.id), cloned_world_card))
+    else:
+        for card in source_world_cards_out:
+            card_kind = _normalize_story_world_card_kind(card.kind)
+            if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and not copy_main_hero:
+                continue
+            if card_kind != STORY_WORLD_CARD_KIND_MAIN_HERO and not copy_world:
+                continue
+            cloned_world_card = StoryWorldCard(
+                game_id=target_game_id,
+                title=card.title,
+                content=card.content,
+                race=normalize_story_character_race(getattr(card, "race", "")),
+                clothing=normalize_story_character_clothing(getattr(card, "clothing", "")),
+                inventory=normalize_story_character_inventory(getattr(card, "inventory", "")),
+                health_status=normalize_story_character_health_status(getattr(card, "health_status", "")),
+                triggers=serialize_story_world_card_triggers(
+                    normalize_story_world_card_triggers(
+                        list(card.triggers),
+                        fallback_title=card.title,
+                    )
+                ),
+                name_color=normalize_story_character_text_color(getattr(card, "name_color", "")),
+                speech_color=normalize_story_character_text_color(getattr(card, "speech_color", "")),
+                bubble_color=normalize_story_character_text_color(getattr(card, "bubble_color", "")),
+                thought_bubble_color=normalize_story_character_text_color(getattr(card, "thought_bubble_color", "")),
+                kind=card_kind,
+                detail_type=" ".join(str(getattr(card, "detail_type", "") or "").replace("\r\n", " ").split()).strip(),
+                avatar_url=normalize_story_character_avatar_url(card.avatar_url, db=db),
+                avatar_original_url=(
+                    normalize_story_character_avatar_original_url(
+                        getattr(card, "avatar_original_url", None),
+                        db=db,
+                    )
+                    if getattr(card, "avatar_url", None)
+                    else None
+                ),
+                avatar_scale=normalize_story_avatar_scale(card.avatar_scale),
+                character_id=None,
+                memory_turns=_normalize_story_world_card_memory_turns_for_storage(card.memory_turns, kind=card_kind),
+                is_locked=bool(card.is_locked),
+                ai_edit_enabled=bool(card.ai_edit_enabled),
+                source=_normalize_story_world_card_source(card.source),
+            )
+            db.add(cloned_world_card)
+            cloned_card_pairs.append(("world_card", int(card.id), cloned_world_card))
 
-    for card in source_world_cards_out:
-        card_kind = _normalize_story_world_card_kind(card.kind)
-        if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and not copy_main_hero:
+    if not cloned_card_pairs:
+        return {}
+    db.flush()
+    return {
+        (card_type, source_card_id): int(cloned_card.id)
+        for card_type, source_card_id, cloned_card in cloned_card_pairs
+    }
+
+
+def clone_story_graph_to_game(
+    db: Session,
+    *,
+    source_game_id: int,
+    target_game_id: int,
+    card_id_map: dict[tuple[str, int], int],
+    message_id_map: dict[int, int] | None = None,
+) -> tuple[int, int]:
+    """Clone active graph nodes and edges without leaving cross-game references."""
+
+    if not card_id_map:
+        return (0, 0)
+
+    turn_id_map = message_id_map or {}
+    source_nodes = db.scalars(
+        select(StoryGraphNode)
+        .where(
+            StoryGraphNode.game_id == int(source_game_id),
+            StoryGraphNode.undone_at.is_(None),
+        )
+        .order_by(StoryGraphNode.id.asc())
+    ).all()
+    cloned_node_pairs: list[tuple[StoryGraphNode, StoryGraphNode]] = []
+    for source_node in source_nodes:
+        card_key = (str(source_node.card_type or ""), int(source_node.card_id))
+        target_card_id = card_id_map.get(card_key)
+        if target_card_id is None:
             continue
-        if card_kind != STORY_WORLD_CARD_KIND_MAIN_HERO and not copy_world:
-            continue
-        cloned_world_card = StoryWorldCard(
-            game_id=target_game_id,
-            title=card.title,
-            content=card.content,
-            race=normalize_story_character_race(getattr(card, "race", "")),
-            clothing=normalize_story_character_clothing(getattr(card, "clothing", "")),
-            inventory=normalize_story_character_inventory(getattr(card, "inventory", "")),
-            health_status=normalize_story_character_health_status(getattr(card, "health_status", "")),
-            triggers=serialize_story_world_card_triggers(
-                normalize_story_world_card_triggers(
-                    list(card.triggers),
-                    fallback_title=card.title,
-                )
-            ),
-            name_color=normalize_story_character_text_color(getattr(card, "name_color", "")),
-            speech_color=normalize_story_character_text_color(getattr(card, "speech_color", "")),
-            bubble_color=normalize_story_character_text_color(getattr(card, "bubble_color", "")),
-            thought_bubble_color=normalize_story_character_text_color(getattr(card, "thought_bubble_color", "")),
-            kind=card_kind,
-            detail_type=" ".join(str(getattr(card, "detail_type", "") or "").replace("\r\n", " ").split()).strip(),
-            avatar_url=normalize_story_character_avatar_url(card.avatar_url, db=db),
-            avatar_original_url=(
-                normalize_story_character_avatar_original_url(
-                    getattr(card, "avatar_original_url", None),
-                    db=db,
-                )
-                if getattr(card, "avatar_url", None)
+        source_turn_id = getattr(source_node, "source_turn_id", None)
+        cloned_node = StoryGraphNode(
+            game_id=int(target_game_id),
+            card_type=card_key[0],
+            card_id=int(target_card_id),
+            x=float(source_node.x),
+            y=float(source_node.y),
+            width=float(source_node.width),
+            height=float(source_node.height),
+            collapsed=bool(source_node.collapsed),
+            color=str(source_node.color or ""),
+            created_by=str(source_node.created_by or "user"),
+            source_turn_id=(
+                turn_id_map.get(int(source_turn_id))
+                if source_turn_id is not None
                 else None
             ),
-            avatar_scale=normalize_story_avatar_scale(card.avatar_scale),
-            character_id=None,
-            memory_turns=_normalize_story_world_card_memory_turns_for_storage(card.memory_turns, kind=card_kind),
-            is_locked=bool(card.is_locked),
-            ai_edit_enabled=bool(card.ai_edit_enabled),
-            source=_normalize_story_world_card_source(card.source),
         )
-        db.add(cloned_world_card)
+        db.add(cloned_node)
+        cloned_node_pairs.append((source_node, cloned_node))
+
+    if not cloned_node_pairs:
+        return (0, 0)
+    db.flush()
+    node_id_map = {
+        int(source_node.id): int(cloned_node.id)
+        for source_node, cloned_node in cloned_node_pairs
+    }
+
+    source_edges = db.scalars(
+        select(StoryGraphEdge)
+        .where(
+            StoryGraphEdge.game_id == int(source_game_id),
+            StoryGraphEdge.undone_at.is_(None),
+        )
+        .order_by(StoryGraphEdge.id.asc())
+    ).all()
+    cloned_edge_count = 0
+    for source_edge in source_edges:
+        target_source_node_id = node_id_map.get(int(source_edge.source_node_id))
+        target_target_node_id = node_id_map.get(int(source_edge.target_node_id))
+        target_source_card_id = card_id_map.get(
+            (str(source_edge.source_card_type or ""), int(source_edge.source_card_id))
+        )
+        target_target_card_id = card_id_map.get(
+            (str(source_edge.target_card_type or ""), int(source_edge.target_card_id))
+        )
+        if (
+            target_source_node_id is None
+            or target_target_node_id is None
+            or target_source_card_id is None
+            or target_target_card_id is None
+        ):
+            continue
+        source_turn_id = getattr(source_edge, "source_turn_id", None)
+        db.add(
+            StoryGraphEdge(
+                game_id=int(target_game_id),
+                source_node_id=target_source_node_id,
+                target_node_id=target_target_node_id,
+                source_card_type=str(source_edge.source_card_type or ""),
+                source_card_id=int(target_source_card_id),
+                target_card_type=str(source_edge.target_card_type or ""),
+                target_card_id=int(target_target_card_id),
+                relation_type=str(source_edge.relation_type or "custom"),
+                label=str(source_edge.label or ""),
+                description=str(source_edge.description or ""),
+                direction=str(source_edge.direction or "directed"),
+                scope=str(source_edge.scope or "both"),
+                importance=int(source_edge.importance),
+                active=bool(source_edge.active),
+                created_by=str(source_edge.created_by or "user"),
+                confidence=source_edge.confidence,
+                source_turn_id=(
+                    turn_id_map.get(int(source_turn_id))
+                    if source_turn_id is not None
+                    else None
+                ),
+            )
+        )
+        cloned_edge_count += 1
+
+    if cloned_edge_count:
+        db.flush()
+    return (len(cloned_node_pairs), cloned_edge_count)

@@ -72,6 +72,16 @@ from app.services.story_world_cards import story_world_card_to_out
 router = APIRouter()
 logger = logging.getLogger(__name__)
 _DEV_MEMORY_LAYERS = {"raw", "compressed", "super"}
+_ADMIN_ONLY_MEMORY_LAYERS = {
+    "raw",
+    "latest_full",
+    "fresh_detailed",
+    "compressed",
+    "super",
+    "facts",
+    "raw_pending",
+    "archive",
+}
 _STORY_GAME_MESSAGES_DEFAULT_ASSISTANT_TURNS = 20
 
 
@@ -414,7 +424,7 @@ def _build_story_game_out_resilient(
         else [
             block
             for block in memory_blocks
-            if str(getattr(block, "layer", "") or "").strip().lower() != "archive"
+            if str(getattr(block, "layer", "") or "").strip().lower() not in _ADMIN_ONLY_MEMORY_LAYERS
         ]
     )
     if not can_use_visual_novel:

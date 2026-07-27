@@ -2228,13 +2228,14 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   }, [hasTopUpPlansLoaded, isTopUpPlansLoading, loadTopUpPlans, topUpDialogOpen])
 
   const handlePurchaseTopUpPlan = useCallback(
-    async (planId: string) => {
+    async (planId: string, coverCommission = false) => {
       setActivePlanPurchaseId(planId)
       setTopUpError('')
       try {
         const response = await createCoinTopUpPayment({
           token: authToken,
           plan_id: planId,
+          cover_commission: coverCommission,
         })
         const paymentUrl = String(response.confirmation_url || '').trim()
         if (!paymentUrl) {
@@ -2786,7 +2787,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                   label="Тип игры"
                   value={gameMode}
                   onChange={(event) => setGameMode(event.target.value as StoryGameMode)}
-                  helperText="Доступно администратору и бета-тестеру. Режим нельзя изменить после создания мира."
+                  helperText="Доступно всем игрокам. Режим нельзя изменить после создания мира."
                   fullWidth
                 >
                   <MenuItem value="rpg">Текстовая РПГ</MenuItem>

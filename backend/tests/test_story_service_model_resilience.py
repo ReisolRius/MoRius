@@ -211,6 +211,28 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
                     [model_name, model_name],
                 )
 
+    def test_background_text_request_can_disable_temporary_retries_and_waits(self) -> None:
+        temporary_failure = _FakeResponse(
+            500,
+            {"error": {"message": "temporary upstream failure"}},
+        )
+        with (
+            patch.object(monolith_main.HTTP_SESSION, "post", return_value=temporary_failure) as post_mock,
+            patch.object(monolith_main.time, "sleep", return_value=None) as sleep_mock,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "temporary upstream failure"):
+                monolith_main._request_polza_story_text(
+                    [{"role": "user", "content": "test"}],
+                    model_name="z-ai/glm-4.7-flash",
+                    fallback_model_names=[],
+                    allow_service_fallback=False,
+                    retry_on_rate_limit=False,
+                    retry_on_temporary_failure=False,
+                )
+
+        self.assertEqual(post_mock.call_count, 1)
+        sleep_mock.assert_not_called()
+
     def test_background_text_request_never_retries_content_policy_error(self) -> None:
         prohibited = _FakeResponse(
             400,
@@ -620,7 +642,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
     def test_memory_compression_uses_one_request_when_primary_returns_valid_json(self) -> None:
         valid_memory_json = (
             '{"summary":"Alex вошел в зал и закрыл дверь.",'
-            '"important_entities":[],"state_changes":[],"open_threads":[]}'
+            '"open_threads":[],"active_plans":[]}'
         )
         with (
             patch.object(
@@ -647,12 +669,13 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         self.assertEqual(request_mock.call_count, 1)
         self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_STORY_SERVICE_TEXT_MODEL)
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
-        self.assertTrue(request_mock.call_args.kwargs["retry_on_rate_limit"])
+        self.assertFalse(request_mock.call_args.kwargs["retry_on_rate_limit"])
+        self.assertFalse(request_mock.call_args.kwargs["retry_on_temporary_failure"])
 
     def test_memory_compression_does_not_retry_after_invalid_json(self) -> None:
         valid_memory_json = (
             '{"summary":"Alex entered the hall.",'
-            '"important_entities":[],"state_changes":[],"open_threads":[]}'
+            '"open_threads":[],"active_plans":[]}'
         )
 
         with patch.object(

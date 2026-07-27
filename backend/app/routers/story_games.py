@@ -78,6 +78,7 @@ from app.services.story_games import (
     STORY_GAME_VISIBILITY_PUBLIC,
     STORY_WORLD_CARD_KIND_MAIN_HERO,
     count_story_completed_turns,
+    clone_story_graph_to_game,
     clone_story_world_cards_to_game,
     coerce_story_llm_model,
     coerce_story_image_model,
@@ -3017,7 +3018,7 @@ def clone_story_game(
     db.add(cloned_game)
     db.flush()
 
-    clone_story_world_cards_to_game(
+    cloned_card_id_map = clone_story_world_cards_to_game(
         db,
         source_world_id=source_game.id,
         target_game_id=cloned_game.id,
@@ -3049,9 +3050,9 @@ def clone_story_game(
                 )
             )
 
+    message_id_map: dict[int, int] = {}
     if payload.copy_history:
         source_messages = list_story_messages(db, source_game.id)
-        message_id_map: dict[int, int] = {}
         for message in source_messages:
             cloned_message = StoryMessage(
                 game_id=cloned_game.id,
@@ -3088,6 +3089,7 @@ def clone_story_game(
             )
 
         source_memory_blocks = list_story_memory_blocks(db, source_game.id)
+        cloned_memory_pairs: list[tuple[int, StoryMemoryBlock]] = []
         for block in source_memory_blocks:
             block_layer = normalize_story_memory_layer(getattr(block, "layer", None))
             if block_layer in {
@@ -3109,6 +3111,25 @@ def clone_story_game(
                 token_count=max(int(getattr(block, "token_count", 0) or 0), 0),
             )
             db.add(cloned_memory_block)
+            cloned_memory_pairs.append((int(block.id), cloned_memory_block))
+
+        if cloned_memory_pairs:
+            db.flush()
+            cloned_card_id_map.update(
+                {
+                    ("memory_block", source_memory_id): int(cloned_memory_block.id)
+                    for source_memory_id, cloned_memory_block in cloned_memory_pairs
+                }
+            )
+
+    if payload.copy_nodes:
+        clone_story_graph_to_game(
+            db,
+            source_game_id=int(source_game.id),
+            target_game_id=int(cloned_game.id),
+            card_id_map=cloned_card_id_map,
+            message_id_map=message_id_map,
+        )
 
     touch_story_game(cloned_game)
     db.commit()
@@ -3169,6 +3190,16 @@ def update_story_game_settings(
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
     can_use_visual_novel_mode = can_user_use_story_visual_novel(user)
+    is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+    admin_only_settings_requested = bool(
+        {
+            "canonical_state_pipeline_enabled",
+            "canonical_state_safe_fallback_enabled",
+        }
+        & payload.model_fields_set
+    )
+    if admin_only_settings_requested and not is_administrator:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     current_environment_enabled = normalize_story_environment_enabled(getattr(game, "environment_enabled", None))
     next_environment_time_enabled = normalize_story_environment_time_enabled(
         getattr(game, "environment_time_enabled", None),
@@ -3357,11 +3388,11 @@ def update_story_game_settings(
         manual_location_label = _normalize_story_environment_location_label(payload.current_location_label)
         game.current_location_label = manual_location_label
         game.current_location_manual_override_label = manual_location_label
-    if payload.canonical_state_pipeline_enabled is not None and can_use_visual_novel_mode:
+    if payload.canonical_state_pipeline_enabled is not None and is_administrator:
         game.canonical_state_pipeline_enabled = normalize_story_canonical_state_pipeline_enabled(
             payload.canonical_state_pipeline_enabled
         )
-    if payload.canonical_state_safe_fallback_enabled is not None and can_use_visual_novel_mode:
+    if payload.canonical_state_safe_fallback_enabled is not None and is_administrator:
         game.canonical_state_safe_fallback_enabled = normalize_story_canonical_state_safe_fallback_enabled(
             payload.canonical_state_safe_fallback_enabled
         )

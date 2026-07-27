@@ -995,13 +995,14 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
   }, [syncPendingPayment])
 
   const handlePurchasePlan = useCallback(
-    async (planId: string) => {
+    async (planId: string, coverCommission = false) => {
       setTopUpError('')
       setActivePlanPurchaseId(planId)
       try {
         const response = await createCoinTopUpPayment({
           token: authToken,
           plan_id: planId,
+          cover_commission: coverCommission,
         })
         localStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, response.payment_id)
         window.location.assign(response.confirmation_url)
@@ -1334,7 +1335,7 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
         activePlanPurchaseId={activePlanPurchaseId}
         authToken={authToken}
         onClose={handleCloseTopUpDialog}
-        onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
+        onPurchasePlan={(planId, coverCommission) => void handlePurchasePlan(planId, coverCommission)}
       />
 
       <ConfirmLogoutDialog

@@ -139,6 +139,8 @@ export type ProfileSubscriptionUser = {
   avatar_frame_image_url?: string | null
 }
 
+export type ProfileConnectionKind = 'followers' | 'following'
+
 export type ProfileGalleryImage = {
   id: number
   turn_image_id: number
@@ -1366,6 +1368,31 @@ export async function listProfileContentPage<T extends ProfileContentItem>(paylo
   return response
 }
 
+export async function listProfileConnections(payload: {
+  token: string
+  userId: number
+  kind: ProfileConnectionKind
+  limit?: number
+  offset?: number
+}): Promise<ProfileSubscriptionUser[]> {
+  const query = new URLSearchParams({
+    limit: String(Math.max(1, Math.min(100, Math.trunc(payload.limit ?? 48)))),
+    offset: String(Math.max(0, Math.trunc(payload.offset ?? 0))),
+  })
+  const response = await requestJson<ProfileSubscriptionUser[]>(
+    `/api/auth/profiles/${Math.max(1, Math.trunc(payload.userId))}/connections/${payload.kind}?${query.toString()}`,
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeProfileSubscriptionUsers(response)
+}
+
 export async function listCurrentUserGalleryImages(payload: { token: string } | string): Promise<ProfileGalleryImage[]> {
   const token = extractCompatToken(payload)
   const response = await requestJson<ProfileGalleryImage[]>(
@@ -1490,6 +1517,7 @@ export async function listDashboardNews(payload: { token: string }): Promise<Das
     '/api/auth/dashboard-news',
     {
       method: 'GET',
+      cache: 'no-store',
       headers: {
         Authorization: `Bearer ${payload.token}`,
       },
@@ -1985,6 +2013,7 @@ export async function createMockSubscription(payload: {
 export async function createSubscriptionCheckout(payload: {
   token: string
   plan_id: string
+  cover_commission?: boolean
 }): Promise<SubscriptionCheckoutResponse> {
   return requestJson<SubscriptionCheckoutResponse>(
     '/api/payments/subscriptions/checkout',
@@ -1993,7 +2022,10 @@ export async function createSubscriptionCheckout(payload: {
       headers: {
         Authorization: `Bearer ${payload.token}`,
       },
-      body: JSON.stringify({ plan_id: payload.plan_id }),
+      body: JSON.stringify({
+        plan_id: payload.plan_id,
+        cover_commission: payload.cover_commission === true,
+      }),
     },
     AUTH_NETWORK_ERROR,
   )
@@ -2226,6 +2258,7 @@ export async function listCreatorCandidates(payload: {
 export async function createCoinTopUpPayment(payload: {
   token: string
   plan_id: string
+  cover_commission?: boolean
 }): Promise<CoinTopUpCreateResponse> {
   return requestJson<CoinTopUpCreateResponse>(
     '/api/payments/create',
@@ -2234,7 +2267,10 @@ export async function createCoinTopUpPayment(payload: {
       headers: {
         Authorization: `Bearer ${payload.token}`,
       },
-      body: JSON.stringify({ plan_id: payload.plan_id }),
+      body: JSON.stringify({
+        plan_id: payload.plan_id,
+        cover_commission: payload.cover_commission === true,
+      }),
     },
     AUTH_NETWORK_ERROR,
   )

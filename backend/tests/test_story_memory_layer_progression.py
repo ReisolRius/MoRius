@@ -162,7 +162,7 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
 
         self.assertEqual([block.layer for block in blocks], ["raw_pending", "latest_full"])
 
-    def test_failed_pending_block_does_not_starve_new_full_turn(self) -> None:
+    def test_pending_block_is_retried_before_new_full_turn_with_one_request(self) -> None:
         blocks = [
             _block(1, 100, "raw_pending", "old turn awaiting retry"),
             _block(2, 101, "latest_full", "new full turn"),
@@ -198,8 +198,8 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
                 max_model_requests=1,
             )
 
-        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "new full turn")
-        self.assertEqual([block.content for block in blocks if block.layer == "raw_pending"], ["old turn awaiting retry"])
+        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "old turn awaiting retry")
+        self.assertEqual([block.content for block in blocks if block.layer == "latest_full"], ["new full turn", "latest full turn"])
         self.assertEqual([block.content for block in blocks if block.layer == "fresh_detailed"], ["compressed new turn"])
 
     def test_rebalance_drains_pending_backlog_and_keeps_new_turn_moving(self) -> None:
@@ -311,7 +311,7 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
             [101],
         )
 
-    def test_rebalance_attempts_only_newest_raw_block_even_with_larger_request_budget(self) -> None:
+    def test_rebalance_attempts_each_fifo_raw_block_once_with_larger_request_budget(self) -> None:
         blocks = [
             _block(1, 100, "latest_full", "problematic full turn"),
             _block(2, 101, "latest_full", "healthy full turn"),
@@ -350,10 +350,14 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
                     commit_each_model_compaction=True,
                 )
 
-        self.assertEqual(compress_mock.call_count, 1)
+        self.assertEqual(compress_mock.call_count, 2)
+        self.assertEqual(
+            [call.kwargs["raw_content"] for call in compress_mock.call_args_list],
+            ["problematic full turn", "healthy full turn"],
+        )
         self.assertEqual(
             [(block.assistant_message_id, block.layer) for block in blocks],
-            [(100, "latest_full"), (101, "raw_pending"), (102, "latest_full")],
+            [(100, "raw_pending"), (101, "raw_pending"), (102, "latest_full")],
         )
 
     def test_rebalance_retries_raw_pending_and_replaces_it_with_fresh_detailed(self) -> None:
@@ -398,7 +402,7 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
             ["compressed pending turn"],
         )
 
-    def test_rebalance_can_prioritize_newest_stale_latest_full_block(self) -> None:
+    def test_recent_transition_preference_does_not_reorder_raw_fifo(self) -> None:
         blocks = [
             _block(1, 100, "latest_full", "old stale turn"),
             _block(2, 101, "latest_full", "new stale turn"),
@@ -435,9 +439,9 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
                 prioritize_recent_transitions=True,
             )
 
-        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "new stale turn")
-        self.assertEqual([block.assistant_message_id for block in blocks if block.layer == "latest_full"], [100, 102])
-        self.assertEqual([block.assistant_message_id for block in blocks if block.layer == "fresh_detailed"], [101])
+        self.assertEqual(compress_mock.call_args.kwargs["raw_content"], "old stale turn")
+        self.assertEqual([block.assistant_message_id for block in blocks if block.layer == "latest_full"], [101, 102])
+        self.assertEqual([block.assistant_message_id for block in blocks if block.layer == "fresh_detailed"], [100])
 
     def test_fresh_over_budget_promotes_detailed_blocks_to_compressed(self) -> None:
         blocks = [

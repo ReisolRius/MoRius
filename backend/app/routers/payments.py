@@ -267,7 +267,11 @@ def create_subscription_checkout(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Подписки временно недоступны")
     plan = get_subscription_plan(payload.plan_id)
 
-    provider_payment_payload = create_subscription_payment_in_provider(plan, user)
+    provider_payment_payload = create_subscription_payment_in_provider(
+        plan,
+        user,
+        cover_commission=payload.cover_commission,
+    )
     provider_payment_id = str(provider_payment_payload.get("id", "")).strip()
     if not provider_payment_id:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment provider did not return payment id")
@@ -468,7 +472,11 @@ def create_coin_top_up_payment(
 ) -> CoinTopUpCreateResponse:
     user = get_current_user(db, authorization)
     plan = get_coin_plan(payload.plan_id)
-    provider_payment_payload = create_payment_in_provider(plan, user)
+    provider_payment_payload = create_payment_in_provider(
+        plan,
+        user,
+        cover_commission=payload.cover_commission,
+    )
 
     provider_payment_id = str(provider_payment_payload.get("id", "")).strip()
     if not provider_payment_id:

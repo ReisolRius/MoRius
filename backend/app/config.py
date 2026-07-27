@@ -20,7 +20,7 @@ POLZA_SERVICE_FALLBACK_MODEL = "nex-agi/nex-n2-pro"
 POLZA_GEMINI_25_FLASH_LITE_MODEL = "google/gemini-2.5-flash-lite"
 POLZA_STORY_SERVICE_TEXT_MODEL = "z-ai/glm-4.7-flash"
 POLZA_DEFAULT_STORY_MODEL = "z-ai/glm-5"
-POLZA_DEFAULT_IMAGE_MODEL = "black-forest-labs/flux.2-pro"
+POLZA_DEFAULT_IMAGE_MODEL = "google/gemini-2.5-flash-image"
 # Subscription-only narrator models (accessible only with an active subscription/admin test,
 # never purchasable with sols). Provider IDs are .env-overridable so routing can be tuned
 # without code changes. Keep these in sync with the tier definitions in
