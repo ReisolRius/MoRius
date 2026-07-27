@@ -129,14 +129,20 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             ):
                 self.assertNotIn(removed_section, content)
 
-    def test_detailed_rejects_omitted_terminal_outcome_without_retry(self) -> None:
+    def test_detailed_logs_but_does_not_reject_omitted_terminal_outcome(self) -> None:
+        # Omitting a terminal status is only logged now, not rejected: each block gets a
+        # single model attempt per turn with no in-call retry, so a hard failure here would
+        # strand the block in raw_pending forever instead of it improving next turn.
         raw_content = (
-            "PLAYER_TURN:\nГруппа возвращается после задания.\n\n"
-            "NARRATOR_RESPONSE:\nГруппа выполнила задание и вернулась в лагерь."
+            "PLAYER_TURN:\nГруппа возвращается в лагерь после долгого похода через лес и горы.\n\n"
+            "NARRATOR_RESPONSE:\nГруппа успешно выполнила задание, обошла ловушки и вернулась в лагерь с трофеями."
         )
         compressed_without_outcome = json.dumps(
             {
-                "summary": "Группа снова находится в лагере.",
+                "summary": (
+                    "Группа успешно вернулась в лагерь через лес и горы, принеся с собой трофеи "
+                    "после долгого похода и множества расставленных по пути ловушек."
+                ),
                 "open_threads": [],
                 "active_plans": [],
             },
@@ -148,9 +154,10 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             "_request_polza_story_text",
             return_value=compressed_without_outcome,
         ) as request_mock:
-            with self.assertRaisesRegex(RuntimeError, "omitted terminal story status"):
-                story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
+            title, content = story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
 
+        self.assertEqual(title, "Подробная память")
+        self.assertIn("вернулась в лагерь", content)
         self.assertEqual(request_mock.call_count, 1)
 
     def test_terminal_validation_ignores_finished_phrase_without_story_goal(self) -> None:
@@ -308,35 +315,35 @@ class StoryMemoryCompressionTests(unittest.TestCase):
                 known_character_names=["Алекс", "Лейра"],
             )
 
-    def test_detailed_rejects_empty_technical_sections_for_explicit_pending_items(self) -> None:
+    def test_detailed_logs_but_does_not_reject_empty_technical_sections_for_explicit_pending_items(self) -> None:
+        # A summary that clearly implies a pending item ("ждёт", "пообещал") but leaves the
+        # structured open_threads/active_plans lists empty is only logged now, not rejected.
         source_content = (
             "PLAYER_TURN:\nАлекс пообещал Лейре рассказать об обеде после разговора.\n\n"
             "NARRATOR_RESPONSE:\nЛейра поблагодарила Алекса и ждёт рассказа Алекса об обеде."
         )
         payload = story_memory_pipeline.DetailedMemoryPayload(
-            summary=(
-                "Алекс пообещал Лейре рассказать об обеде после разговора, а Лейра поблагодарила Алекса "
-                "и всё ещё ждёт рассказа Алекса об обеде."
-            ),
+            summary="Алекс пообещал Лейре рассказать об обеде, а Лейра всё ещё ждёт этого рассказа.",
             open_threads=[],
             active_plans=[],
         )
 
-        with self.assertRaisesRegex(RuntimeError, "omitted open threads|omitted active plans"):
-            story_memory_pipeline._validate_detailed_memory_model_result(
-                source_content=source_content,
-                payload=payload,
-                result_content=payload.summary,
-                player_name="Алекс",
-                known_character_names=["Алекс", "Лейра"],
-            )
+        story_memory_pipeline._validate_detailed_memory_model_result(
+            source_content=source_content,
+            payload=payload,
+            result_content=payload.summary,
+            player_name="Алекс",
+            known_character_names=["Алекс", "Лейра"],
+        )
 
-    def test_detailed_rejects_ambiguous_pronouns_without_retry(self) -> None:
+    def test_detailed_allows_unambiguous_pronoun_reference(self) -> None:
+        # Pronouns are allowed (the prompt asks the model to prefer names, it doesn't ban
+        # pronouns outright) — "его" here unambiguously refers to the key, not a person.
         raw_content = (
             "PLAYER_TURN:\nАлекс протянул Лейре ключ.\n\n"
             "NARRATOR_RESPONSE:\nЛейра взяла ключ у Алекса и положила ключ в карман."
         )
-        ambiguous_payload = json.dumps(
+        payload_with_pronoun = json.dumps(
             {
                 "summary": "Лейра взяла ключ у Алекса и положила его в карман.",
                 "open_threads": [],
@@ -348,14 +355,18 @@ class StoryMemoryCompressionTests(unittest.TestCase):
         with patch.object(
             story_memory_pipeline,
             "_request_polza_story_text",
-            return_value=ambiguous_payload,
+            return_value=payload_with_pronoun,
         ) as request_mock:
-            with self.assertRaisesRegex(RuntimeError, "ambiguous pronoun"):
-                story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
+            title, content = story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
 
+        self.assertEqual(title, "Подробная память")
+        self.assertIn("положила его в карман", content)
         self.assertEqual(request_mock.call_count, 1)
 
-    def test_detailed_rejects_missing_known_character_and_numeric_fact(self) -> None:
+    def test_detailed_logs_but_does_not_reject_missing_known_character(self) -> None:
+        # A dropped character mention is only logged now, not rejected — see the module-level
+        # comment above _validate_promoted_memory_model_result for why hard content-fidelity
+        # gates were removed from this single-attempt pipeline.
         raw_content = (
             "PLAYER_TURN:\nЯ передал Марине 3 ключа.\n\n"
             "NARRATOR_RESPONSE:\nМарина пересчитала 3 ключа и спрятала 3 ключа в сумку."
@@ -374,23 +385,24 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             "_request_polza_story_text",
             return_value=missing_fact_payload,
         ) as request_mock:
-            with self.assertRaisesRegex(RuntimeError, "omitted character: Алекс"):
-                story_memory_pipeline._compress_story_memory_block_with_model(
-                    raw_content=raw_content,
-                    player_name="Алекс",
-                    known_character_names=["Алекс", "Марина"],
-                )
+            title, content = story_memory_pipeline._compress_story_memory_block_with_model(
+                raw_content=raw_content,
+                player_name="Алекс",
+                known_character_names=["Алекс", "Марина"],
+            )
 
+        self.assertEqual(title, "Подробная память")
+        self.assertIn("убрала ключи в сумку", content)
         self.assertEqual(request_mock.call_count, 1)
 
-    def test_detailed_rejects_missing_numeric_fact(self) -> None:
+    def test_detailed_logs_but_does_not_reject_missing_numeric_fact(self) -> None:
         raw_content = (
             "PLAYER_TURN:\nАлекс передал Марине 3 ключа.\n\n"
             "NARRATOR_RESPONSE:\nМарина пересчитала 3 ключа и спрятала 3 ключа в сумку."
         )
         missing_number_payload = json.dumps(
             {
-                "summary": "Алекс передал Марине ключи, после чего Марина пересчитала ключи и убрала ключи в сумку.",
+                "summary": "Алекс передал Марине ключи, а Марина пересчитала их и убрала в сумку.",
                 "open_threads": [],
                 "active_plans": [],
             },
@@ -402,13 +414,14 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             "_request_polza_story_text",
             return_value=missing_number_payload,
         ) as request_mock:
-            with self.assertRaisesRegex(RuntimeError, "omitted numeric facts: 3"):
-                story_memory_pipeline._compress_story_memory_block_with_model(
-                    raw_content=raw_content,
-                    player_name="Алекс",
-                    known_character_names=["Алекс", "Марина"],
-                )
+            title, content = story_memory_pipeline._compress_story_memory_block_with_model(
+                raw_content=raw_content,
+                player_name="Алекс",
+                known_character_names=["Алекс", "Марина"],
+            )
 
+        self.assertEqual(title, "Подробная память")
+        self.assertIn("убрала в сумку", content)
         self.assertEqual(request_mock.call_count, 1)
 
     def test_detailed_minimum_ratio_ignores_exact_source_repetition(self) -> None:
@@ -431,27 +444,28 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             known_character_names=["Алекс", "Марина"],
         )
 
-    def test_deeper_memory_rejects_dropped_threads_and_plans(self) -> None:
+    def test_deeper_memory_logs_but_does_not_reject_dropped_threads_and_plans(self) -> None:
+        # A shrinking open_threads/active_plans count is only logged now, not rejected:
+        # consolidating bullets during compression is legitimate, and this pipeline gives
+        # each block a single model attempt per turn with no in-call retry.
         source_content = (
             "Алекс и Лейра нашли запертую дверь.\n\n"
             "Open threads:\n- Неизвестно, кто запер дверь.\n\n"
             "Active plans:\n- Алекс должен найти ключ."
         )
 
-        with self.assertRaisesRegex(RuntimeError, "omitted open threads"):
-            story_memory_pipeline._validate_promoted_memory_model_result(
-                source_contents=[source_content],
-                result_content="Алекс и Лейра нашли запертую дверь.",
-                open_threads=[],
-                active_plans=["Алекс должен найти ключ."],
-            )
-        with self.assertRaisesRegex(RuntimeError, "omitted active plans"):
-            story_memory_pipeline._validate_promoted_memory_model_result(
-                source_contents=[source_content],
-                result_content="Алекс и Лейра нашли запертую дверь.",
-                open_threads=["Неизвестно, кто запер дверь."],
-                active_plans=[],
-            )
+        story_memory_pipeline._validate_promoted_memory_model_result(
+            source_contents=[source_content],
+            result_content="Алекс и Лейра нашли запертую дверь.",
+            open_threads=[],
+            active_plans=["Алекс должен найти ключ."],
+        )
+        story_memory_pipeline._validate_promoted_memory_model_result(
+            source_contents=[source_content],
+            result_content="Алекс и Лейра нашли запертую дверь.",
+            open_threads=["Неизвестно, кто запер дверь."],
+            active_plans=[],
+        )
 
     def test_deeper_memory_rejects_partial_lists_and_empty_summary(self) -> None:
         source_content = (
@@ -460,13 +474,14 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             "Active plans:\n- Алекс должен осмотреть коридор.\n- Лейра должна проверить окно."
         )
 
-        with self.assertRaisesRegex(RuntimeError, "omitted open threads"):
-            story_memory_pipeline._validate_promoted_memory_model_result(
-                source_contents=[source_content],
-                result_content="Алекс и Лейра нашли дверь.\n\nOpen threads:\n- Неизвестно, кто запер дверь.",
-                open_threads=["Неизвестно, кто запер дверь."],
-                active_plans=["Алекс должен осмотреть коридор.", "Лейра должна проверить окно."],
-            )
+        # Dropping a thread is only logged now (see above), but an empty summary is still
+        # a hard structural failure.
+        story_memory_pipeline._validate_promoted_memory_model_result(
+            source_contents=[source_content],
+            result_content="Алекс и Лейра нашли дверь.\n\nOpen threads:\n- Неизвестно, кто запер дверь.",
+            open_threads=["Неизвестно, кто запер дверь."],
+            active_plans=["Алекс должен осмотреть коридор.", "Лейра должна проверить окно."],
+        )
         with self.assertRaisesRegex(RuntimeError, "empty summary"):
             story_memory_pipeline._validate_promoted_memory_model_result(
                 source_contents=[source_content],

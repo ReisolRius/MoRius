@@ -134,12 +134,6 @@ STORY_SERVICE_CHARACTER_DESCRIPTION_MAX_CHARS = 600
 STORY_SERVICE_IMPORTANT_MEMORY_MAX_ITEMS = 20
 STORY_SERVICE_IMPORTANT_MEMORY_MAX_CHARS = 600
 
-_STORY_MEMORY_AMBIGUOUS_PRONOUN_PATTERN = re.compile(
-    r"\b(?:я|меня|мне|мной|мой|моя|моё|мое|мои|он|она|оно|они|его|её|ее|ему|ей|ею|им|ими|"
-    r"их|него|неё|нее|ней|нему|них|ними|i|me|my|mine|he|she|it|they|him|her|them|his|hers|"
-    r"their|theirs)\b",
-    flags=re.IGNORECASE,
-)
 _STORY_MEMORY_ACTIVE_PLAN_PATTERN = re.compile(
     r"\b(?:должен|должна|должны|предстоит|планирует|намерен|намерена|намерены|собирается|"
     r"собираются|пообещал|пообещала|пообещали|договорились|must|needs?\s+to|(?:is|are)\s+going\s+to|"
@@ -736,12 +730,6 @@ def _validate_story_memory_terminal_statuses(*, source_content: str, result_cont
         )
 
 
-def _validate_story_memory_unambiguous_references(result_content: str) -> None:
-    match = _STORY_MEMORY_AMBIGUOUS_PRONOUN_PATTERN.search(_normalize_story_message_content(result_content))
-    if match is not None:
-        raise RuntimeError(f"Service model memory kept ambiguous pronoun: {match.group(0)}")
-
-
 def _story_memory_mentions_character(value: str, character_name: str) -> bool:
     text_words = re.findall(r"\w+", _normalize_story_message_content(value).casefold(), flags=re.UNICODE)
     name_words = re.findall(r"\w+", str(character_name or "").casefold(), flags=re.UNICODE)
@@ -844,9 +832,16 @@ def _validate_promoted_memory_model_result(
     )[0].strip()
     if not summary.strip():
         raise RuntimeError("Service model promoted memory returned empty summary")
-    _validate_story_memory_unambiguous_references(result_content)
+    # Below this point we only *log* content-fidelity issues (pronoun choice, terminal
+    # status wording, thread/plan counts). These are fuzzy regex heuristics that can't
+    # reliably judge real LLM prose, and the pipeline gives each block exactly one model
+    # attempt per turn with no in-call retry — a hard failure here would strand the block
+    # in raw_pending forever instead of just being retried/improved next turn.
     source_content = "\n\n".join(source_contents)
-    _validate_story_memory_terminal_statuses(source_content=source_content, result_content=result_content)
+    try:
+        _validate_story_memory_terminal_statuses(source_content=source_content, result_content=result_content)
+    except RuntimeError as exc:
+        logger.warning("Promoted memory may have dropped a terminal status", extra={"validationErrors": str(exc)})
     source_open_threads = _story_memory_distinct_items(
         [
             thread
@@ -856,7 +851,10 @@ def _validate_promoted_memory_model_result(
     )
     result_open_threads = _story_memory_distinct_items(open_threads)
     if source_open_threads and len(result_open_threads) < len(source_open_threads):
-        raise RuntimeError("Service model memory omitted open threads")
+        logger.warning(
+            "Promoted memory reduced open thread count",
+            extra={"sourceCount": len(source_open_threads), "resultCount": len(result_open_threads)},
+        )
     source_active_plans = _story_memory_distinct_items(
         [
             plan
@@ -866,7 +864,10 @@ def _validate_promoted_memory_model_result(
     )
     result_active_plans = _story_memory_distinct_items(active_plans)
     if source_active_plans and len(result_active_plans) < len(source_active_plans):
-        raise RuntimeError("Service model memory omitted active plans")
+        logger.warning(
+            "Promoted memory reduced active plan count",
+            extra={"sourceCount": len(source_active_plans), "resultCount": len(result_active_plans)},
+        )
 
 
 def _validate_detailed_memory_model_result(
@@ -889,19 +890,27 @@ def _validate_detailed_memory_model_result(
         raise RuntimeError("Service model detailed memory leaked raw memory markers into summary")
     player_turn, narrator_response = _parse_full_turn_content(source)
     source_body = _normalize_story_message_content("\n".join(part for part in (player_turn, narrator_response) if part))
-    _validate_story_memory_unambiguous_references(result_content)
-    _validate_story_memory_terminal_statuses(source_content=source, result_content=result_content)
+    # Content-fidelity checks below are logged, not enforced: each block gets exactly one
+    # model attempt per turn (no in-call retry), so a hard failure here would strand the
+    # block in raw_pending forever instead of it just being retried/improved next turn.
+    try:
+        _validate_story_memory_terminal_statuses(source_content=source, result_content=result_content)
+    except RuntimeError as exc:
+        logger.warning("Detailed memory may have dropped a terminal status", extra={"validationErrors": str(exc)})
     if _STORY_MEMORY_OPEN_THREAD_PATTERN.search(summary) and not _story_memory_distinct_items(payload.open_threads):
-        raise RuntimeError("Service model detailed memory omitted open threads")
+        logger.warning("Detailed memory summary mentions an open thread but the open_threads list is empty")
     if _STORY_MEMORY_ACTIVE_PLAN_PATTERN.search(summary) and not _story_memory_distinct_items(payload.active_plans):
-        raise RuntimeError("Service model detailed memory omitted active plans")
-    _validate_detailed_memory_factual_anchors(
-        player_turn=player_turn,
-        source_content=source_body,
-        result_content=result_content,
-        player_name=player_name,
-        known_character_names=known_character_names,
-    )
+        logger.warning("Detailed memory summary mentions an active plan but the active_plans list is empty")
+    try:
+        _validate_detailed_memory_factual_anchors(
+            player_turn=player_turn,
+            source_content=source_body,
+            result_content=result_content,
+            player_name=player_name,
+            known_character_names=known_character_names,
+        )
+    except RuntimeError as exc:
+        logger.warning("Detailed memory may have dropped a character or numeric fact", extra={"validationErrors": str(exc)})
     deduplicated_source_length = _story_memory_deduplicated_length(source_body)
     deduplicated_summary_length = _story_memory_deduplicated_length(summary)
     if len(source_body) >= STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO:
