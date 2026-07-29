@@ -911,18 +911,25 @@ def _validate_detailed_memory_model_result(
         )
     except RuntimeError as exc:
         logger.warning("Detailed memory may have dropped a character or numeric fact", extra={"validationErrors": str(exc)})
+    # The length-band and copy-ratio checks below are also logged, not enforced, for the
+    # same reason as everything else in this function: a single attempt per turn with no
+    # in-call retry means a hard failure here can strand a block in raw_pending retrying
+    # (and failing) the exact same way forever, permanently consuming the retry slot every
+    # turn and blocking every other block behind it. A dialogue-heavy turn that legitimately
+    # needs long verbatim quotes, or an already-terse source turn, can trip either check on
+    # every attempt with no way to ever pass.
     deduplicated_source_length = _story_memory_deduplicated_length(source_body)
     deduplicated_summary_length = _story_memory_deduplicated_length(summary)
     if len(source_body) >= STORY_MEMORY_DETAILED_MIN_SOURCE_CHARS_FOR_RATIO:
         min_summary_length = int(deduplicated_source_length * STORY_MEMORY_DETAILED_MIN_SOURCE_RATIO)
         max_summary_length = int(len(source_body) * STORY_MEMORY_DETAILED_MAX_SOURCE_RATIO)
         if deduplicated_summary_length < min_summary_length:
-            raise RuntimeError("Service model detailed memory over-compressed the source turn")
+            logger.warning("Detailed memory summary may be over-compressed relative to the source turn")
         if len(summary) > max_summary_length:
-            raise RuntimeError("Service model detailed memory was not shorter than the source turn")
+            logger.warning("Detailed memory summary was not shorter than the source turn")
     copied_ratio = _story_memory_copied_ngram_ratio(source_content=source, candidate_content=summary)
     if copied_ratio > STORY_MEMORY_DETAILED_COPY_RATIO_LIMIT:
-        raise RuntimeError("Service model detailed memory copied too much source text")
+        logger.warning("Detailed memory summary copied a lot of the source text verbatim")
 
 
 def _compress_story_memory_block_with_model(
@@ -1202,37 +1209,19 @@ def _rebalance_story_memory_layers(
         ),
         key=lambda item: int(getattr(item, "id", 0) or 0),
     )
-    # Reserve at least one request for promoting already-detailed blocks onward. Compacting
-    # a raw block into fresh_detailed never removes it from the "fresh" tier/bucket — only
-    # promotion (fresh_detailed -> compressed -> facts) does. Without a reservation, a
-    # standing backlog of stale raw blocks consumes every request on compaction every turn
-    # and permanently starves promotion even while a tier stays over its budget, so the
-    # fresh bucket only ever grows.
-    reserved_for_promotion = 0
-    if requests_left > 1:
-        pre_fresh_blocks = _layer_blocks(
-            db,
-            game,
-            {STORY_MEMORY_LAYER_LATEST_FULL, STORY_MEMORY_LAYER_FRESH_DETAILED, STORY_MEMORY_LAYER_RAW_PENDING},
-        )
-        fresh_promotable_now = any(
-            _normalize_story_memory_layer(getattr(block, "layer", "")) == STORY_MEMORY_LAYER_FRESH_DETAILED
-            for block in pre_fresh_blocks
-        )
-        fresh_over_budget = _sum_block_tokens(pre_fresh_blocks) > budget.fresh_budget
-        compressed_blocks_pre = _layer_blocks(db, game, {STORY_MEMORY_LAYER_COMPRESSED_SUMMARY})
-        compressed_over_budget = bool(compressed_blocks_pre) and (
-            _sum_block_tokens(compressed_blocks_pre) > budget.compressed_budget
-        )
-        if (fresh_over_budget and fresh_promotable_now) or compressed_over_budget:
-            reserved_for_promotion = 1
-
-    # Failed blocks keep their original order and are retried before newer stale turns.
-    # The newest full turn is already excluded by _get_story_stale_raw_memory_blocks,
-    # so it remains intact for response editing.
-    raw_compaction_capacity = max(0, requests_left - reserved_for_promotion)
-    pending_retry_candidates = pending_raw_blocks[:raw_compaction_capacity]
-    new_block_capacity = max(0, raw_compaction_capacity - len(pending_retry_candidates))
+    # Failed blocks keep their original order and are retried before newer stale turns --
+    # but a queue of pending retries must never be allowed to consume the ENTIRE per-turn
+    # budget, no matter how large it grows: whenever there's more than one request to spend,
+    # at least one is always held back for the new/recent backlog below. Without this, a
+    # pending queue that's merely as long as the per-turn budget (e.g. 2+ blocks stuck
+    # retrying the same failure) silently and permanently starves every other turn from
+    # ever getting a first attempt -- which is indistinguishable from "compression does
+    # nothing" from the player's side. When there's only a single request for the whole
+    # turn, that one slot still goes to the pending retry first, matching the priority the
+    # retry queue has always had.
+    pending_capacity = requests_left if requests_left <= 1 else requests_left - 1
+    pending_retry_candidates = pending_raw_blocks[:pending_capacity]
+    new_block_capacity = max(0, requests_left - len(pending_retry_candidates))
     new_block_candidates = new_raw_blocks[:new_block_capacity]
     most_recently_stale_block = new_raw_blocks[-1] if new_raw_blocks else None
     if (

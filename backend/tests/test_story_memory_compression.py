@@ -172,7 +172,10 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             result_content="Артур объяснил план Марине и замолчал.",
         )
 
-    def test_detailed_rejects_ultra_short_lossy_summary_for_long_turn(self) -> None:
+    def test_detailed_logs_but_does_not_reject_ultra_short_lossy_summary_for_long_turn(self) -> None:
+        # An overly short summary is only logged now, not rejected -- see the module-level
+        # comment above the length-band check in _validate_detailed_memory_model_result for
+        # why a hard failure here can't be afforded on a single-attempt-per-turn pipeline.
         raw_content = (
             "PLAYER_TURN:\n"
             "Алекс передал Лейре три пачки сигарет, спросил о планах на обед и пообещал помочь с домом.\n\n"
@@ -194,12 +197,13 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             "_request_polza_story_text",
             return_value=lossy_payload,
         ) as request_mock:
-            with self.assertRaisesRegex(RuntimeError, "over-compressed"):
-                story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
+            title, content = story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
 
+        self.assertEqual(title, "Подробная память")
+        self.assertIn("поговорили", content)
         self.assertEqual(request_mock.call_count, 1)
 
-    def test_detailed_rejects_lossy_summary_for_short_eventful_turn(self) -> None:
+    def test_detailed_logs_but_does_not_reject_lossy_summary_for_short_eventful_turn(self) -> None:
         raw_content = (
             "PLAYER_TURN:\nАлекс передал Лейре письмо и попросил прочитать письмо.\n\n"
             "NARRATOR_RESPONSE:\nЛейра спрятала письмо, отказалась читать письмо и ушла."
@@ -218,9 +222,10 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             "_request_polza_story_text",
             return_value=lossy_payload,
         ) as request_mock:
-            with self.assertRaisesRegex(RuntimeError, "over-compressed"):
-                story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
+            title, content = story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
 
+        self.assertEqual(title, "Подробная память")
+        self.assertIn("поговорили", content)
         self.assertEqual(request_mock.call_count, 1)
 
     def test_detailed_accepts_clear_high_detail_retelling_with_explicit_names(self) -> None:
@@ -293,7 +298,7 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             known_character_names=["Alex", "Marina"],
         )
 
-    def test_detailed_rejects_repeated_generic_padding(self) -> None:
+    def test_detailed_logs_but_does_not_reject_repeated_generic_padding(self) -> None:
         source_content = (
             "PLAYER_TURN:\nАлекс передал Лейре 3 пачки сигарет и спросил Лейру об обеде.\n\n"
             "NARRATOR_RESPONSE:\nЛейра открыла пачку сигарет, надорвала футболку, обняла Алекса, напомнила "
@@ -306,14 +311,13 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             active_plans=[],
         )
 
-        with self.assertRaisesRegex(RuntimeError, "over-compressed"):
-            story_memory_pipeline._validate_detailed_memory_model_result(
-                source_content=source_content,
-                payload=payload,
-                result_content=payload.summary,
-                player_name="Алекс",
-                known_character_names=["Алекс", "Лейра"],
-            )
+        story_memory_pipeline._validate_detailed_memory_model_result(
+            source_content=source_content,
+            payload=payload,
+            result_content=payload.summary,
+            player_name="Алекс",
+            known_character_names=["Алекс", "Лейра"],
+        )
 
     def test_detailed_logs_but_does_not_reject_empty_technical_sections_for_explicit_pending_items(self) -> None:
         # A summary that clearly implies a pending item ("ждёт", "пообещал") but leaves the
@@ -573,7 +577,12 @@ class StoryMemoryCompressionTests(unittest.TestCase):
         self.assertEqual(STORY_GRAPH_MAX_SERVICE_REQUESTS, 5)
         self.assertEqual(graph_budget.used_requests, 5)
 
-    def test_copy_like_detailed_memory_payload_is_not_retried(self) -> None:
+    def test_copy_like_detailed_memory_payload_logs_but_is_not_rejected(self) -> None:
+        # A summary that's just the source copied verbatim is only logged now, not
+        # rejected: it's still a lossless, valid compaction result (the block leaves
+        # raw_pending/latest_full either way), and this pipeline can't afford a hard
+        # failure that permanently strands a block whose content deterministically trips
+        # the same check on every retry.
         narrator_response = (
             "Marina raises the silver lantern beside the broken arch and tells Alex to wait until the guard patrol passes. "
             * 16
@@ -594,40 +603,13 @@ class StoryMemoryCompressionTests(unittest.TestCase):
             "_request_polza_story_text",
             return_value=copied_payload,
         ) as request_mock:
-            with self.assertRaisesRegex(RuntimeError, "semantic validation"):
-                story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
+            title, content = story_memory_pipeline._compress_story_memory_block_with_model(raw_content=raw_content)
 
+        self.assertEqual(title, "Подробная память")
+        self.assertIn("Marina raises the silver lantern", content)
         self.assertEqual(request_mock.call_count, 1)
         self.assertEqual(request_mock.call_args.kwargs["model_name"], story_memory_pipeline.POLZA_STORY_SERVICE_TEXT_MODEL)
         self.assertEqual(request_mock.call_args.kwargs["fallback_model_names"], [])
-
-    def test_copy_like_detailed_memory_payload_raises_without_manual_fallback(self) -> None:
-        narrator_response = (
-            "Marina raises the silver lantern beside the broken arch and tells Alex to wait until the guard patrol passes. "
-            * 16
-        ).strip()
-        copied_payload = json.dumps(
-            {
-                "summary": narrator_response,
-                "open_threads": [],
-                "active_plans": [],
-            }
-        )
-
-        with patch.object(
-            story_memory_pipeline,
-            "_request_polza_story_text",
-            return_value=copied_payload,
-        ) as request_mock:
-            with self.assertRaisesRegex(RuntimeError, "semantic validation"):
-                story_memory_pipeline._compress_story_memory_block_with_model(
-                    raw_content=(
-                        "PLAYER_TURN:\nAlex signals Marina to stop near the arch.\n\n"
-                        f"NARRATOR_RESPONSE:\n{narrator_response}"
-                    )
-                )
-
-        self.assertEqual(request_mock.call_count, story_memory_pipeline.STORY_MEMORY_MODEL_MAX_ATTEMPTS)
 
     def test_super_mode_formats_fact_memory_from_strict_json(self) -> None:
         with patch.object(

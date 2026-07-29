@@ -539,16 +539,17 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
         )
         self.assertEqual(promote_mock.call_args.kwargs["target_layer"], "compressed")
 
-    def test_backlog_does_not_starve_promotion_when_fresh_tier_is_over_budget(self) -> None:
-        # A standing raw backlog must not permanently starve promotion: compacting a raw
-        # block into fresh_detailed never removes it from the "fresh" bucket, only
-        # promotion does. With two stale blocks waiting but only two requests available,
-        # one must still be reserved for promoting the already-over-budget fresh tier.
+    def test_pending_backlog_never_consumes_the_entire_turn_budget(self) -> None:
+        # However large the pending-retry queue gets, it must never consume every request
+        # this turn: whenever there's more than one request available, at least one is
+        # always held back for new/recent backlog, so a run of stuck pending blocks can't
+        # permanently starve every other turn from ever getting a first attempt.
         blocks = [
-            _block(1, 100, "latest_full", "stale turn one", token_count=5),
-            _block(2, 101, "latest_full", "stale turn two", token_count=5),
-            _block(3, 90, "fresh_detailed", "already compacted turn", token_count=50),
-            _block(4, 102, "latest_full", "latest full turn", token_count=5),
+            _block(1, 97, "raw_pending", "stuck pending turn one", token_count=5),
+            _block(2, 98, "raw_pending", "stuck pending turn two", token_count=5),
+            _block(3, 99, "raw_pending", "stuck pending turn three", token_count=5),
+            _block(4, 100, "latest_full", "brand new stale turn", token_count=5),
+            _block(5, 101, "latest_full", "latest full turn", token_count=5),
         ]
 
         def create_memory_block(**kwargs):
@@ -564,16 +565,15 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
             return block
 
         with (
-            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget(fresh=10)),
+            patch.object(story_memory_pipeline, "_calculate_memory_budget", return_value=_budget()),
             patch.object(story_memory_pipeline, "_list_story_memory_blocks", side_effect=lambda _db, _game_id: list(blocks)),
-            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[102]),
+            patch.object(story_memory_pipeline, "_list_story_latest_assistant_message_ids", return_value=[101]),
             patch.object(
                 story_memory_pipeline,
                 "_compress_story_memory_block_with_model",
-                return_value=("Detailed memory", "compressed stale turn"),
+                return_value=("Подробная память", "compressed"),
             ) as compress_mock,
             patch.object(story_memory_pipeline, "_create_story_memory_block", side_effect=create_memory_block),
-            patch.object(story_memory_pipeline, "_promote_blocks", return_value=(True, 0)) as promote_mock,
         ):
             story_memory_pipeline._rebalance_story_memory_layers(
                 db=_FakeSession(blocks),
@@ -581,9 +581,9 @@ class StoryMemoryLayerProgressionTests(unittest.TestCase):
                 max_model_requests=2,
             )
 
-        self.assertEqual(compress_mock.call_count, 1)
-        self.assertEqual(promote_mock.call_count, 1)
-        self.assertEqual(promote_mock.call_args.kwargs["target_layer"], "compressed")
+        attempted_contents = [call.kwargs["raw_content"] for call in compress_mock.call_args_list]
+        self.assertEqual(len(attempted_contents), 2)
+        self.assertIn("brand new stale turn", attempted_contents)
 
     def test_terminal_fact_blocks_are_never_recompressed(self) -> None:
         blocks = [

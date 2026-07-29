@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Response
 from sqlalchemy import select
@@ -72,17 +73,25 @@ from app.services.story_world_cards import story_world_card_to_out
 router = APIRouter()
 logger = logging.getLogger(__name__)
 _DEV_MEMORY_LAYERS = {"raw", "compressed", "super"}
-_ADMIN_ONLY_MEMORY_LAYERS = {
-    "raw",
-    "latest_full",
-    "fresh_detailed",
-    "compressed",
-    "super",
-    "facts",
-    "raw_pending",
-    "archive",
-}
+# Only the lossless recovery copy is withheld from clients: it duplicates the full text of
+# every accepted turn, so shipping it would roughly double the payload and double-count in
+# the client-side context estimate. Every other layer MUST reach regular players -- the
+# player-facing "Память контекста" panel builds its usage bar from exactly these blocks, so
+# filtering them by role made memory look permanently empty (and the turn cost look flat)
+# for everyone except administrators, even while the server-side prompt used them normally.
+# The admin-only "Дев-память" debug tab is gated separately, in the UI (canViewDevMemoryTab).
+_ADMIN_ONLY_MEMORY_LAYERS = {"archive"}
 _STORY_GAME_MESSAGES_DEFAULT_ASSISTANT_TURNS = 20
+
+
+def _select_client_story_memory_blocks(memory_blocks: list[Any], user: Any) -> list[Any]:
+    if str(getattr(user, "role", "") or "").strip().lower() == "administrator":
+        return list(memory_blocks)
+    return [
+        block
+        for block in memory_blocks
+        if str(getattr(block, "layer", "") or "").strip().lower() not in _ADMIN_ONLY_MEMORY_LAYERS
+    ]
 
 
 def _safe_story_read_map(
@@ -418,15 +427,7 @@ def _build_story_game_out_resilient(
     if resolved_current_location_label != getattr(game_summary, "current_location_label", None):
         game_summary = game_summary.model_copy(update={"current_location_label": resolved_current_location_label})
     can_use_visual_novel = can_user_use_story_visual_novel(user)
-    client_memory_blocks = (
-        list(memory_blocks)
-        if str(getattr(user, "role", "") or "").strip().lower() == "administrator"
-        else [
-            block
-            for block in memory_blocks
-            if str(getattr(block, "layer", "") or "").strip().lower() not in _ADMIN_ONLY_MEMORY_LAYERS
-        ]
-    )
+    client_memory_blocks = _select_client_story_memory_blocks(memory_blocks, user)
     if not can_use_visual_novel:
         game_summary = game_summary.model_copy(update={"game_mode": STORY_GAME_MODE_RPG})
 
