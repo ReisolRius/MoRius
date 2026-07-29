@@ -139,7 +139,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
 
     def test_cost_tiers_respect_model_context_caps(self) -> None:
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 20)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 35)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 36)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.2"), 20)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.2"), 20)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 16)
@@ -170,11 +170,11 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-v4-pro"), 5)
         self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-v4-pro"), 6)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-v4-pro"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v4-pro"), 10)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v4-pro"), 12)
         self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-r1-0528"), 5)
         self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-r1-0528"), 6)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-r1-0528"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-r1-0528"), 10)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-r1-0528"), 12)
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="deepseek/deepseek-v4-pro"),
             64_000,
@@ -189,28 +189,34 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         )
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-2.5-pro"), 22)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 40)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 65)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 72)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-pro-preview"), 30)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "z-ai/glm-4.7"), 8)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "minimax/minimax-m2-her"), 10)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-flash-lite"), 10)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-flash-lite"), 8)
 
     def test_turn_cost_table_matches_product_matrix(self) -> None:
+        # The last column is the cost actually charged past 64k, not the raw 5th tier
+        # constant: usage is clamped to the model's own context ceiling first, so for the
+        # models capped at 64k it necessarily equals their 64k price. Only GLM 5.1 (128k)
+        # and Aion 2.0 (108k) can reach their 5th tier at all.
         expected_rows = {
             "z-ai/glm-4.7-flash": (4, 4, 4, 5, 5),
             "deepseek/deepseek-v3.2": (4, 5, 6, 7, 7),
-            "deepseek/deepseek-v4-pro": (5, 6, 8, 10, 10),
-            "deepseek/deepseek-r1-0528": (5, 6, 8, 10, 10),
+            "deepseek/deepseek-v4-pro": (5, 6, 8, 12, 12),
+            "deepseek/deepseek-r1-0528": (5, 6, 8, 12, 12),
             "z-ai/glm-4.7": (6, 7, 8, 10, 10),
             "z-ai/glm-5": (6, 8, 10, 14, 14),
             "aion-labs/aion-2.0": (6, 8, 10, 16, 28),
+            "aion-labs/aion-3.0": (16, 18, 22, 32, 32),
+            "deepcogito/cogito-v2.1-671b": (7, 9, 14, 24, 24),
             "minimax/minimax-m2-her": (6, 8, 10, 16, 16),
-            "google/gemini-3.1-flash-lite": (7, 9, 10, 14, 14),
-            "z-ai/glm-5.1": (8, 10, 14, 20, 35),
+            "google/gemini-3.1-flash-lite": (5, 6, 8, 12, 12),
+            "z-ai/glm-5.1": (8, 10, 14, 20, 36),
             "z-ai/glm-5.2": (8, 10, 14, 20, 20),
-            "google/gemini-2.5-pro": (16, 18, 22, 30, 30),
-            "google/gemini-3.1-pro-preview": (18, 24, 30, 45, 45),
-            "anthropic/claude-sonnet-4.6": (22, 30, 40, 65, 65),
+            "google/gemini-2.5-pro": (16, 18, 22, 32, 32),
+            "google/gemini-3.1-pro-preview": (18, 24, 30, 50, 50),
+            "anthropic/claude-sonnet-4.6": (22, 30, 40, 72, 72),
         }
         usage_by_tier = (6_000, 6_001, 16_001, 32_001, 64_001)
         for model_name, expected_costs in expected_rows.items():
