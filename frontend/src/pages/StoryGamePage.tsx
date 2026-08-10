@@ -3178,15 +3178,15 @@ const RIGHT_PANEL_PLOT_ROW_CARD_HEIGHT = 108
 const ASSISTANT_DIALOGUE_AVATAR_SIZE = 30
 // Portrait ("Вид диалогов") mode: a taller card-like avatar standing to the left of the
 // whole reply, instead of a small round one above it.
-const ASSISTANT_DIALOGUE_PORTRAIT_WIDTH = 46
-const ASSISTANT_DIALOGUE_PORTRAIT_HEIGHT = 62
-const ASSISTANT_DIALOGUE_PORTRAIT_WIDTH_MOBILE = 36
-const ASSISTANT_DIALOGUE_PORTRAIT_HEIGHT_MOBILE = 48
+const ASSISTANT_DIALOGUE_PORTRAIT_WIDTH = 54
+const ASSISTANT_DIALOGUE_PORTRAIT_HEIGHT = 72
+const ASSISTANT_DIALOGUE_PORTRAIT_WIDTH_MOBILE = 42
+const ASSISTANT_DIALOGUE_PORTRAIT_HEIGHT_MOBILE = 56
 
 type AssistantDialogueBlockLayoutProps = {
   portraitMode: boolean
   isMobile: boolean
-  renderAvatar: (options: { size: number; height?: number }) => ReactNode
+  renderAvatar: (options: { size: number; height?: number; rounded?: boolean }) => ReactNode
   speakerName: string
   kindLabel: string
   speakerLabelColor: string
@@ -3247,6 +3247,7 @@ function AssistantDialogueBlockLayout({
           {renderAvatar({
             size: isMobile ? ASSISTANT_DIALOGUE_PORTRAIT_WIDTH_MOBILE : ASSISTANT_DIALOGUE_PORTRAIT_WIDTH,
             height: isMobile ? ASSISTANT_DIALOGUE_PORTRAIT_HEIGHT_MOBILE : ASSISTANT_DIALOGUE_PORTRAIT_HEIGHT,
+            rounded: true,
           })}
         </Box>
         <Stack spacing={0.28} sx={{ minWidth: 0, flexGrow: 1 }}>
@@ -5391,6 +5392,7 @@ type StreamingAssistantMessageContentProps = {
     profileCharacter?: StoryCharacter | null
     avatarBgColor?: string
     avatarHeight?: number
+    avatarRounded?: boolean
   }) => ReactNode
   resolveDialogueAvatar: (speakerName: string) => string | null
   resolveDialogueAvatarPreview: (speakerName: string) => string | null
@@ -5481,13 +5483,14 @@ function StreamingAssistantMessageContent({
               kindLabel={isThoughtBlock ? '· В ГОЛОВЕ' : '· РЕПЛИКА'}
               speakerLabelColor={speakerLabelColor}
               bubbleColor={bubbleColor}
-              renderAvatar={({ size, height }) =>
+              renderAvatar={({ size, height, rounded }) =>
                 renderPreviewableCharacterAvatar({
                   avatarUrl: speakerAvatar,
                   previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
                   fallbackLabel: resolvedSpeakerName,
                   size,
                   avatarHeight: height,
+                  avatarRounded: rounded,
                   profileCard: speakerEntry?.card ?? null,
                   profileCharacter: speakerEntry?.character ?? null,
                   avatarBgColor: bubbleColor,
@@ -7366,9 +7369,20 @@ type CharacterAvatarProps = {
   bgColor?: string
   // Portrait dialogue view needs a taller-than-wide avatar; everything else stays square.
   height?: number
+  // Asked for explicitly rather than inferred from height != size, so the rounded-rectangle
+  // shape cannot silently revert to a circle if the two ever happen to match.
+  rounded?: boolean
 }
 
-function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44, bgColor, height }: CharacterAvatarProps) {
+function CharacterAvatar({
+  avatarUrl,
+  avatarScale = 1,
+  fallbackLabel,
+  size = 44,
+  bgColor,
+  height,
+  rounded = false,
+}: CharacterAvatarProps) {
   const resolvedHeight = height ?? size
   return (
     <ProgressiveAvatar
@@ -7381,7 +7395,11 @@ function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44,
         height: resolvedHeight,
         minWidth: size,
         minHeight: resolvedHeight,
-        ...(resolvedHeight === size ? { aspectRatio: '1 / 1' } : { borderRadius: '10px' }),
+        // ProgressiveAvatar is a circle by default; this entry comes later in its sx array
+        // and wins.
+        ...(rounded
+          ? { aspectRatio: 'auto', borderRadius: '12px' }
+          : { aspectRatio: '1 / 1', borderRadius: '50%' }),
         ...(bgColor ? { backgroundColor: bgColor } : {}),
       }}
     />
@@ -8410,6 +8428,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       profileCharacter?: StoryCharacter | null
       avatarBgColor?: string
       avatarHeight?: number
+      avatarRounded?: boolean
     }) => {
       const avatarNode = (
         <CharacterAvatar
@@ -8419,6 +8438,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           size={options.size}
           bgColor={options.avatarBgColor}
           height={options.avatarHeight}
+          rounded={options.avatarRounded}
         />
       )
 
@@ -27709,13 +27729,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   kindLabel={isThoughtH ? '· В ГОЛОВЕ' : '· РЕПЛИКА'}
                                   speakerLabelColor={speakerLabelColor}
                                   bubbleColor={bubbleColorH}
-                                  renderAvatar={({ size, height }) =>
+                                  renderAvatar={({ size, height, rounded }) =>
                                     renderPreviewableCharacterAvatar({
                                       avatarUrl: speakerAvatar,
                                       previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
                                       fallbackLabel: resolvedSpeakerName,
                                       size,
                                       avatarHeight: height,
+                                      avatarRounded: rounded,
                                       profileCard: speakerEntry?.card ?? null,
                                       profileCharacter: speakerEntry?.character ?? null,
                                       avatarBgColor: bubbleColorH,
