@@ -50,6 +50,7 @@ EXPECTED_MODEL_PROMPT_SHA256 = {
     "google/gemini-2.5-pro": "73bb87ac9ebc99446244c23d862debcfda3d33c22aa280c16a4f9ac41c71d1ac",
     "google/gemini-3.1-pro-preview": "b50446db308e6db90300aadc079c7579265a93095bd3998469dcc3ee0ad3bec6",
     "anthropic/claude-sonnet-4.6": "a965aa014e0065aa152f02be9892ae4eca90d4b7753d6e4dcc93b93b6e0c1665",
+    "qwen/qwen3.7-plus": "272b3efb3e04fc44afca8a30d4d14106a08be71e0bc0680502268f213c90216d",
 }
 
 

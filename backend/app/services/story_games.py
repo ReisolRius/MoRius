@@ -201,6 +201,7 @@ STORY_LLM_MODEL_GEMINI_31_FLASH_LITE = "google/gemini-3.1-flash-lite"
 STORY_LLM_MODEL_CLAUDE_SONNET_46 = "anthropic/claude-sonnet-4.6"
 STORY_LLM_MODEL_GEMINI_25_PRO = "google/gemini-2.5-pro"
 STORY_LLM_MODEL_GEMINI_31_PRO = "google/gemini-3.1-pro-preview"
+STORY_LLM_MODEL_QWEN37_PLUS = "qwen/qwen3.7-plus"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V3
 
 # Subscription-only narrator models (accessible ONLY with an active subscription or admin
@@ -240,6 +241,7 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_CLAUDE_SONNET_46,
     STORY_LLM_MODEL_GEMINI_25_PRO,
     STORY_LLM_MODEL_GEMINI_31_PRO,
+    STORY_LLM_MODEL_QWEN37_PLUS,
     *STORY_SUBSCRIPTION_LLM_MODELS,
 }
 STORY_EXTENDED_CONTEXT_LLM_MODELS = {
@@ -319,6 +321,7 @@ STORY_MODEL_SAMPLING_PROFILES: dict[str, dict[str, float]] = {
     STORY_LLM_MODEL_CLAUDE_SONNET_46: {"temperature": 0.90, "top_r": 1.00, "top_k": 0, "repetition_penalty": 1.00},
     STORY_LLM_MODEL_GEMINI_25_PRO: {"temperature": 1.05, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.00},
     STORY_LLM_MODEL_GEMINI_31_PRO: {"temperature": 1.10, "top_r": 0.97, "top_k": 128, "repetition_penalty": 1.00},
+    STORY_LLM_MODEL_QWEN37_PLUS: {"temperature": 0.85, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH: {"temperature": 0.85, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_SUB_GEMINI_25_FLASH_LITE: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.06},
     STORY_LLM_MODEL_SUB_GLM_45_AIR: {"temperature": 0.82, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.06},
@@ -639,6 +642,8 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
         return STORY_TURN_COST_DEEPSEEK_TIERS
     if normalized_model_name in {STORY_LLM_MODEL_DEEPSEEK_V4_PRO, STORY_LLM_MODEL_DEEPSEEK_R1}:
         return STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_QWEN37_PLUS:
+        return STORY_TURN_COST_QWEN_TIERS
     if normalized_model_name == STORY_LLM_MODEL_GLM47_FLASH:
         return STORY_TURN_COST_GLM47_FLASH_TIERS
     if normalized_model_name in STORY_TURN_COST_STANDARD_LLM_MODELS:
@@ -681,7 +686,8 @@ def normalize_story_llm_model(value: str | None) -> str:
                 "deepseek/deepseek-v3.2, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v4-pro, "
                 "deepseek/deepseek-r1-0528, mistralai/mistral-nemo, "
                 "aion-labs/aion-2.0, aion-labs/aion-3.0, deepcogito/cogito-v2.1-671b, minimax/minimax-m2-her, google/gemini-3.1-flash-lite, "
-                "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, google/gemini-3.1-pro-preview"
+                "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, google/gemini-3.1-pro-preview, "
+                "qwen/qwen3.7-plus"
             ),
         )
     return normalized

@@ -334,6 +334,7 @@ def _apply_polza_story_reasoning_preferences(
         "z-ai/glm-5.2",
         "z-ai/glm-4.7-flash",
         "z-ai/glm-4.7",
+        "qwen/qwen3.7-plus",
         STORY_SERVICE_TEXT_MODEL,
         POLZA_GEMINI_25_FLASH_LITE_MODEL,
     }:

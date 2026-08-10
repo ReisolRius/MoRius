@@ -42,6 +42,7 @@ export type StoryNarratorModelId =
   | 'deepcogito/cogito-v2.1-671b'
   | 'google/gemini-2.5-pro'
   | 'google/gemini-3.1-pro-preview'
+  | 'qwen/qwen3.7-plus'
   // Subscription-only narrator models (gated by an active subscription / admin test).
   | 'deepseek/deepseek-v4-flash'
   | 'google/gemini-2.5-flash-lite'

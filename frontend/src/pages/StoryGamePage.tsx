@@ -932,6 +932,7 @@ const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, num
 const STORY_TURN_COST_GLM52_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 36]
 const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [18, 24, 30, 50, 85]
 const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [22, 30, 40, 72, 120]
+const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
 const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-5.1',
 ])
@@ -1251,6 +1252,12 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 128,
     storyTopR: 0.97,
   },
+  'qwen/qwen3.7-plus': {
+    storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 50,
+    storyTopR: 0.92,
+  },
   'deepseek/deepseek-v4-flash': {
     storyTemperature: 0.85,
     storyRepetitionPenalty: 1.08,
@@ -1484,6 +1491,19 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Интеллект', value: 5 },
       { label: 'Скорость', value: 3 },
       { label: 'Глубина', value: 5 },
+    ],
+  },
+  {
+    id: 'qwen/qwen3.7-plus',
+    title: 'Qwen 3.7 Plus',
+    description:
+      'Свежая флагманская модель Qwen: аккуратный русский язык, ровный темп сцены и устойчивые характеры персонажей.',
+    portraitSrc: narratorOgmaPortrait,
+    portraitAlt: 'Qwen 3.7 Plus',
+    stats: [
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 4 },
     ],
   },
   {
@@ -5851,6 +5871,9 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'google/gemini-3.1-pro-preview') {
     return STORY_TURN_COST_GEMINI_31_PRO_TIERS
   }
+  if (modelId === 'qwen/qwen3.7-plus') {
+    return STORY_TURN_COST_QWEN_TIERS
+  }
   if (modelId === 'deepseek/deepseek-v4-pro' || modelId === 'deepseek/deepseek-r1-0528') {
     return STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS
   }
@@ -5944,6 +5967,12 @@ function getStoryTurnCostTooltipText(): string {
     '16001–32000 — 30 ед.',
     '32001–64000 — 50 ед.',
     '',
+    'Qwen 3.7 Plus:',
+    'до 6000 — 6 ед.',
+    '6001–16000 — 8 ед.',
+    '16001–32000 — 10 ед.',
+    '32001–64000 — 16 ед.',
+    '',
     'Claude Sonnet 4.6:',
     'до 6000 — 22 ед.',
     '6001–16000 — 30 ед.',
@@ -5967,6 +5996,7 @@ function StoryTurnCostTooltipContent() {
     { title: 'GLM 5.2', values: ['8', '10', '14', '20', '—'] },
     { title: 'Gemini 2.5 Pro', values: ['16', '18', '22', '32', '—'] },
     { title: 'Gemini 3.1 Pro', values: ['18', '24', '30', '50', '—'] },
+    { title: 'Qwen 3.7 Plus', values: ['6', '8', '10', '16', '—'] },
     { title: 'Claude 4.6', values: ['22', '30', '40', '72', '—'] },
   ]
   const columns = ['6k', '16k', '32k', '64k', '>64k']
