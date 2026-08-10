@@ -1027,8 +1027,10 @@ const COMPOSER_SEND_BUTTON_SIZE = 34
 const COMPOSER_INPUT_MIN_HEIGHT = 58
 const COMPOSER_INPUT_MAX_HEIGHT = 184
 const STORY_COMPOSER_FALLBACK_HEIGHT = 170
+// Must stay in sync with the measured value in measureComposerHeight, otherwise the story
+// visibly jumps the first time the composer is measured.
 const STORY_MESSAGES_VIEWPORT_FALLBACK_BOTTOM =
-  STORY_COMPOSER_FALLBACK_HEIGHT + moriusThemeTokens.layout.interfaceGap + 40
+  STORY_COMPOSER_FALLBACK_HEIGHT + moriusThemeTokens.layout.interfaceGap + 10
 const STORY_CONTINUE_PROMPT = 'Продолжай'
 /* const STORY_STAGE_MAIN_HERO_LOOKUP_ALIASES = [
   'главный герой',
@@ -5316,8 +5318,11 @@ function StreamingAssistantMessageContent({
   }
 
   return (
-    <Box sx={{ position: 'relative', pl: '37px' }}>
-      <Box sx={{ position: 'absolute', left: '1px', top: '4px', pointerEvents: 'none' }}>
+    // The orb sits on its own line above the text instead of in the left gutter: gutter
+    // placement required padding the whole block, which vanished the moment streaming
+    // ended, so every line visibly jumped left at the end of a turn.
+    <Box sx={{ position: 'relative' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', height: '18px', mb: '5px', pointerEvents: 'none' }}>
         <MoriusGenerationOrb size={16} />
       </Box>
       {blocks.map((block, index) => {
@@ -13037,7 +13042,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const nextHeight = Math.ceil(composerNode.getBoundingClientRect().height)
       const viewport = messagesViewportRef.current
       if (viewport) {
-        const nextBottom = nextHeight + moriusThemeTokens.layout.interfaceGap + 40
+        // Keep the dead space above the composer tight. The text no longer stops at a hard
+        // edge here -- the viewport fades it out over its last rows (see maskImage below) --
+        // so a large blank gap is no longer needed to keep the cut-off from looking abrupt.
+        const nextBottom = nextHeight + moriusThemeTokens.layout.interfaceGap + 10
         const nextBottomValue = `${nextBottom}px`
         if (viewport.style.bottom !== nextBottomValue) {
           viewport.style.bottom = nextBottomValue
@@ -26908,6 +26916,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           overflowX: 'hidden',
           overscrollBehavior: 'contain',
           zIndex: 1,
+          // Fade the story out over the last rows instead of clipping it at a hard edge, so
+          // text slides smoothly out of sight behind the composer as it scrolls.
+          ...(isVisualNovelTechDemoEnabled
+            ? null
+            : {
+                maskImage: 'linear-gradient(to bottom, #000 calc(100% - 64px), transparent 100%)',
+                WebkitMaskImage: 'linear-gradient(to bottom, #000 calc(100% - 64px), transparent 100%)',
+              }),
         }}
       >
         <Box
