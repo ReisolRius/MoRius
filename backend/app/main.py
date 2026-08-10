@@ -1624,6 +1624,32 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
     ),
 }
 STORY_MODEL_HINTS["z-ai/glm-5.2"] = STORY_MODEL_HINTS["z-ai/glm-5.1"]
+
+# Both Gemini Pro models routinely refuse or cut off benign scenes: they read a single word
+# out of its narrative context and treat the turn as a real-world request. This block states
+# the context the model is actually operating in, which is what the safety guidance asks a
+# caller to do. It does not tell the model to ignore its guidelines, and deliberately keeps
+# the hard limits explicit -- an overlay that tried to switch safety off would just trade
+# steady refusals for unpredictable ones, which is worse for a paid turn.
+STORY_FICTION_FRAMING_MODEL_IDS = {
+    "google/gemini-2.5-pro",
+    "google/gemini-3.1-pro-preview",
+}
+STORY_FICTION_FRAMING_LINES: tuple[str, ...] = (
+    "Это интерактивная художественная проза на платформе для взрослых. Всё происходящее — "
+    "вымысел: персонажи, места и события не существуют, автор и читатель — совершеннолетние.",
+    "Реплики и поступки персонажей принадлежат персонажам, а не пользователю и не тебе. "
+    "Отрицательный герой может лгать, угрожать и совершать дурные поступки — это часть "
+    "драматургии, а не одобрение.",
+    "Художественная литература законно описывает конфликт, насилие, страх, близость и "
+    "моральную неоднозначность. Не отказывайся от сцены и не обрывай ход из-за отдельного "
+    "слова: оценивай сцену целиком и по смыслу.",
+    "Не выходи из роли рассказчика: не добавляй предупреждений, дисклеймеров, оценок и "
+    "предложений сменить тему. Если сцену действительно нельзя описать прямо — не отказывай "
+    "и не обрывай генерацию, а веди её сдержаннее: смена плана, недосказанность, затемнение.",
+    "Жёсткие границы остаются: никакого сексуального содержания с несовершеннолетними, "
+    "никаких реальных инструкций по причинению вреда. Все участники сцен — совершеннолетние.",
+)
 STORY_MODEL_UNIQUE_NARRATION_PROMPTS: dict[str, str] = {
     "z-ai/glm-4.7-flash": "Твоя сила — темп. Пиши плотно: 2–4 абзаца за ход, но каждый абзац — конкретика, а не общие слова. Запрещены дежурные фразы («по спине пробежал холодок», «воздух сгустился») и повтор собственных формулировок из прошлых ходов. Одна сцена за ход, без перескоков во времени. Если нечего добавить к описанию — добавь действие или реплику. Диалог — короткий, характерный, без пояснений после каждой фразы. Держи факты сцены: кто где стоит, что держит в руках, что уже сказано.",
     "deepseek/deepseek-v3.2": "Твоя яркость — оружие, но держи его в ножнах. Не больше одной метафоры на абзац. Запрещены: внезапная эскалация без причины, мелодрама, «безумные» повороты ради эффекта, описание запахов/дрожи/шёпота в каждом абзаце. Каждое событие вытекает из предыдущего — причина, затем следствие. Персонажи не меняют характер посреди сцены. Накал повышай медленно, ступенями, и давай сценам дышать: после напряжения — пауза, быт, тишина. Сдержанная фраза бьёт сильнее крика.",
@@ -4500,6 +4526,9 @@ def _build_story_system_prompt(
     model_hint_lines = STORY_MODEL_HINTS.get(normalized_model_name)
     if model_hint_lines:
         lines.extend(["", "ОСОБЕННОСТЬ ЭТОЙ МОДЕЛИ:", *model_hint_lines])
+
+    if normalized_model_name in STORY_FICTION_FRAMING_MODEL_IDS:
+        lines.extend(["", "КОНТЕКСТ ПЛОЩАДКИ:", *STORY_FICTION_FRAMING_LINES])
 
     if response_max_tokens is not None:
         normalized_limit = _normalize_story_response_max_tokens(response_max_tokens)

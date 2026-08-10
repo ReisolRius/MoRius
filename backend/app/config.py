@@ -292,6 +292,7 @@ class Settings:
     polza_image_model: str
     polza_image_size: str
     polza_site_url: str
+    polza_gemini_relaxed_safety: bool
     polza_app_name: str
     proxyapi_key: str
     proxyapi_base_routerai: str
@@ -323,6 +324,10 @@ settings = Settings(
         default=_default_db_bootstrap_on_startup(DEFAULT_APP_MODE),
     ),
     app_trust_proxy_headers=_to_bool(os.getenv("APP_TRUST_PROXY_HEADERS"), default=True),
+    # Relaxes Gemini safety thresholds to BLOCK_ONLY_HIGH so benign scenes stop being
+    # refused. Off by default because it depends on the gateway forwarding the field:
+    # if it does not, every Gemini turn would fail. Enable it, take one turn, keep it.
+    polza_gemini_relaxed_safety=_to_bool(os.getenv("POLZA_GEMINI_RELAXED_SAFETY"), default=False),
     app_forwarded_allow_ips=os.getenv("APP_FORWARDED_ALLOW_IPS", "*").strip() or "*",
     app_allowed_hosts=_parse_hosts(os.getenv("APP_ALLOWED_HOSTS", "*")),
     app_gzip_enabled=_to_bool(os.getenv("APP_GZIP_ENABLED"), default=True),

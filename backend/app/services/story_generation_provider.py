@@ -322,6 +322,36 @@ POLZA_TURN_SILENT_RETRY_ATTEMPTS = 1
 POLZA_TURN_RETRY_STATUS_CODES = {400, 408, 409, 425, 429, 499, 500, 502, 503, 504}
 
 
+# Gemini refuses or truncates far more benign fiction than the other narrators. Raising the
+# thresholds to BLOCK_ONLY_HIGH is the supported way to cut those false positives: genuinely
+# high-severity content is still blocked, only the low/medium misfires stop costing the
+# player a paid turn. Gated behind a setting because it relies on the gateway forwarding the
+# field -- if it silently rejects unknown keys instead, every Gemini turn would fail, so this
+# ships off and is switched on after one verified turn.
+STORY_RELAXED_SAFETY_MODEL_IDS = {
+    "google/gemini-2.5-pro",
+    "google/gemini-3.1-pro-preview",
+}
+STORY_RELAXED_SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+]
+
+
+def _apply_polza_story_safety_preferences(
+    payload: dict[str, Any],
+    *,
+    model_name: str | None,
+) -> None:
+    if not getattr(settings, "polza_gemini_relaxed_safety", False):
+        return
+    if _normalize_story_model_id(model_name) not in STORY_RELAXED_SAFETY_MODEL_IDS:
+        return
+    payload["safety_settings"] = [dict(entry) for entry in STORY_RELAXED_SAFETY_SETTINGS]
+
+
 def _apply_polza_story_reasoning_preferences(
     payload: dict[str, Any],
     *,
@@ -1001,6 +1031,7 @@ def _iter_polza_story_stream_chunks(
                 payload["top_p"] = top_p
             _apply_polza_story_response_limit(payload, request_max_tokens)
             _apply_polza_story_reasoning_preferences(payload, model_name=model_name)
+            _apply_polza_story_safety_preferences(payload, model_name=model_name)
             provider_label = _resolve_polza_provider_attempt_label(provider_payload)
             request_started_at_attempt = time.monotonic()
             logger.info(
@@ -1514,6 +1545,7 @@ def _request_polza_story_text(
                 payload["top_p"] = top_p
             _apply_polza_story_response_limit(payload, request_max_tokens)
             _apply_polza_story_reasoning_preferences(payload, model_name=candidate_model)
+            _apply_polza_story_safety_preferences(payload, model_name=candidate_model)
             provider_label = _resolve_polza_provider_attempt_label(provider_payload)
             request_started_at = time.monotonic()
             logger.info(
