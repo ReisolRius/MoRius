@@ -976,6 +976,7 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     environment_time_enabled: bool | None = None
     environment_weather_enabled: bool | None = None
     character_state_enabled: bool | None = None
+    location_module_enabled: bool | None = None
     environment_current_datetime: str | None = Field(default=None, max_length=64)
     environment_current_weather: dict[str, Any] | None = None
     environment_tomorrow_weather: dict[str, Any] | None = None
@@ -1954,6 +1955,7 @@ class StoryGameSummaryOut(BaseModel):
     ambient_enabled: bool
     game_mode: Literal["rpg", "visual_novel"] = "rpg"
     character_state_enabled: bool = False
+    location_module_enabled: bool = True
     appearance_background_mode: str = "custom"
     appearance_gradient_enabled: bool = True
     appearance_dialogue_view: bool = False

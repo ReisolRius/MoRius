@@ -795,6 +795,12 @@ def normalize_story_ambient_enabled(value: bool | None) -> bool:
     return bool(value)
 
 
+def normalize_story_location_module_enabled(value: bool | None) -> bool:
+    if value is None:
+        return True
+    return bool(value)
+
+
 def normalize_story_character_state_enabled(value: bool | None) -> bool:
     if value is None:
         return False
@@ -1351,6 +1357,9 @@ def story_game_summary_to_out(
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)
         ),
+        location_module_enabled=normalize_story_location_module_enabled(
+            getattr(game, "location_module_enabled", None)
+        ),
         appearance_background_mode=normalize_story_appearance_background_mode(
             getattr(game, "appearance_background_mode", None)
         ),
@@ -1517,6 +1526,9 @@ def story_game_summary_to_compact_out(
         game_mode=normalize_story_game_mode(getattr(game, "game_mode", None)),
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)
+        ),
+        location_module_enabled=normalize_story_location_module_enabled(
+            getattr(game, "location_module_enabled", None)
         ),
         appearance_background_mode=normalize_story_appearance_background_mode(
             getattr(game, "appearance_background_mode", None)

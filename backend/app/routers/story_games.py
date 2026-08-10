@@ -98,6 +98,7 @@ from app.services.story_games import (
     normalize_story_auto_graph_edges_enabled,
     normalize_story_auto_graph_nodes_enabled,
     normalize_story_character_state_enabled,
+    normalize_story_location_module_enabled,
     normalize_story_context_limit_chars,
     normalize_story_cover_image_url,
     normalize_story_cover_position,
@@ -1748,6 +1749,9 @@ def _create_story_game_publication_copy_from_source(
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(source_game, "character_state_enabled", None)
         ),
+        location_module_enabled=normalize_story_location_module_enabled(
+            getattr(source_game, "location_module_enabled", None)
+        ),
         environment_enabled=normalize_story_environment_enabled(getattr(source_game, "environment_enabled", None)),
         environment_time_enabled=normalize_story_environment_time_enabled(
             getattr(source_game, "environment_time_enabled", None),
@@ -2998,6 +3002,9 @@ def clone_story_game(
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(source_game, "character_state_enabled", None)
         ),
+        location_module_enabled=normalize_story_location_module_enabled(
+            getattr(source_game, "location_module_enabled", None)
+        ),
         environment_enabled=normalize_story_environment_enabled(getattr(source_game, "environment_enabled", None)),
         environment_time_enabled=normalize_story_environment_time_enabled(
             getattr(source_game, "environment_time_enabled", None),
@@ -3346,6 +3353,8 @@ def update_story_game_settings(
         game.appearance_ui_style = normalize_story_appearance_ui_style(payload.appearance_ui_style)
     if "appearance_text_style" in payload.model_fields_set:
         game.appearance_text_style = normalize_story_appearance_text_style(payload.appearance_text_style)
+    if payload.location_module_enabled is not None:
+        game.location_module_enabled = normalize_story_location_module_enabled(payload.location_module_enabled)
     if payload.character_state_enabled is not None:
         game.character_state_enabled = normalize_story_character_state_enabled(payload.character_state_enabled)
         sync_story_character_state_payload_from_world_cards(

@@ -9709,15 +9709,29 @@ def _build_story_location_fallback_payload_from_scene_text(
     """Local place extraction is disabled; place updates must come from AI postprocess."""
     return None
 
+def _story_location_module_enabled(game: StoryGame) -> bool:
+    # Only an explicit False disables the module. The SQLAlchemy column default applies at
+    # INSERT, so an un-flushed or detached game still reports None here, and treating that
+    # as "off" would silently drop location from turns on those paths.
+    return getattr(game, "location_module_enabled", None) is not False
+
+
 def _build_story_prompt_context_cards(
     *,
     game: StoryGame,
     memory_blocks: list[StoryMemoryBlock],
 ) -> list[dict[str, str]]:
     context_cards: list[dict[str, str]] = []
-    resolved_location_label = _resolve_story_current_location_label(
-        str(getattr(game, "current_location_label", "") or ""),
-        memory_blocks,
+    # A disabled place module contributes nothing to the prompt at all -- not the label, not
+    # the stored location memory. Switching a module off has to mean it is truly absent.
+    location_module_enabled = _story_location_module_enabled(game)
+    resolved_location_label = (
+        _resolve_story_current_location_label(
+            str(getattr(game, "current_location_label", "") or ""),
+            memory_blocks,
+        )
+        if location_module_enabled
+        else ""
     )
     resolved_location_label = _strip_story_location_time_context(resolved_location_label).strip(" .,:;!?…")
     if resolved_location_label:
@@ -10211,7 +10225,7 @@ def _upsert_story_plot_memory_card(
                     previous_assistant_text=previous_assistant_text,
                     world_cards=postprocess_world_cards,
                     raw_memory_enabled=False,
-                    location_enabled=True,
+                    location_enabled=_story_location_module_enabled(game),
                     environment_enabled=environment_enabled,
                     character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
                     important_event_enabled=should_extract_important_payload,
@@ -10262,15 +10276,18 @@ def _upsert_story_plot_memory_card(
         )
 
         try:
-            story_memory_pipeline._upsert_story_location_memory_block(
-                db=db,
-                game=game,
-                assistant_message=assistant_message,
-                latest_user_prompt=latest_user_prompt,
-                latest_assistant_text=latest_assistant_text,
-                previous_assistant_text=previous_assistant_text,
-                resolved_payload_override=location_payload_for_sync,
-            )
+            # Skipped entirely when the place module is off: no location block is written, so
+            # nothing is left behind to leak back into a later prompt.
+            if _story_location_module_enabled(game):
+                story_memory_pipeline._upsert_story_location_memory_block(
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    latest_user_prompt=latest_user_prompt,
+                    latest_assistant_text=latest_assistant_text,
+                    previous_assistant_text=previous_assistant_text,
+                    resolved_payload_override=location_payload_for_sync,
+                )
         except Exception as exc:
             _record_postprocess_failure("location")
             logger.warning(

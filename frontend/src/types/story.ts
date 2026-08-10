@@ -144,6 +144,7 @@ export type StoryGameSummary = {
   ambient_enabled: boolean
   game_mode: StoryGameMode
   character_state_enabled: boolean
+  location_module_enabled: boolean
   appearance_background_mode: StoryAppearanceBackgroundMode
   appearance_gradient_enabled: boolean
   appearance_dialogue_view: boolean

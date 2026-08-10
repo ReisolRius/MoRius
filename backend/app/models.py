@@ -576,6 +576,14 @@ class StoryGame(Base):
         default=False,
         server_default="0",
     )
+    # The place module is on by default; switching it off removes location from the prompt
+    # and skips its share of the per-turn analysis entirely.
+    location_module_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
     character_state_monitor_inactive_always: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

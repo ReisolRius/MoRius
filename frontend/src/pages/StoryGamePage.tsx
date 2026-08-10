@@ -9182,6 +9182,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const environmentWeatherEnabled = Boolean(
     activeGameSummary?.environment_weather_enabled ?? activeGameSummary?.environment_enabled,
   )
+  // On unless explicitly switched off, matching the backend default for the place module.
+  const locationModuleEnabled = activeGameSummary?.location_module_enabled !== false
   const environmentCurrentWeather = activeGameSummary?.environment_current_weather ?? null
   const environmentDateInfo = useMemo(
     () => formatEnvironmentDateInfo(activeGameSummary?.environment_current_datetime, environmentCurrentWeather),
@@ -18667,6 +18669,30 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     ],
   )
 
+  const handleToggleLocationModuleEnabled = useCallback(
+    async (nextEnabled: boolean) => {
+      if (!activeGameId || isSavingEnvironmentPanel) {
+        return
+      }
+      setIsSavingEnvironmentPanel(true)
+      setErrorMessage('')
+      try {
+        const updatedGame = await updateStoryGameSettings({
+          token: authToken,
+          gameId: activeGameId,
+          locationModuleEnabled: nextEnabled,
+        })
+        applyUpdatedGameSummary(updatedGame)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить модуль места'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingEnvironmentPanel(false)
+      }
+    },
+    [activeGameId, applyUpdatedGameSummary, authToken, isSavingEnvironmentPanel],
+  )
+
   const handleToggleEnvironmentWeatherEnabled = useCallback(
     async (nextEnabled: boolean) => {
       if (!activeGameId || isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather) {
@@ -20115,6 +20141,30 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             onReset={handleResetEnvironmentModuleCardPosition}
           >
             <Stack spacing={1.35}>
+              <Box>
+                <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.2}>
+                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 900, lineHeight: 1.2 }}>
+                    Место
+                  </Typography>
+                  <Switch
+                    checked={locationModuleEnabled}
+                    disabled={isSavingEnvironmentPanel}
+                    onChange={(event) => void handleToggleLocationModuleEnabled(event.target.checked)}
+                    color="default"
+                    sx={{
+                      mr: -0.6,
+                      '& .MuiSwitch-switchBase.Mui-checked': {
+                        color: 'var(--morius-accent)',
+                      },
+                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                        backgroundColor: 'var(--morius-accent)',
+                        opacity: 0.86,
+                      },
+                    }}
+                  />
+                </Stack>
+              </Box>
+              {locationModuleEnabled ? (
               <Box
                 role="button"
                 tabIndex={0}
@@ -20127,9 +20177,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 }}
                 sx={{ cursor: 'pointer', outline: 'none' }}
               >
-                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 900, lineHeight: 1.2 }}>
-                  Место
-                </Typography>
                 <Typography sx={{ mt: 0.65, color: 'var(--morius-accent)', fontSize: '1.02rem', fontWeight: 900, lineHeight: 1.22 }}>
                   Действие происходит...
                 </Typography>
@@ -20152,6 +20199,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   </Typography>
                 </Stack>
               </Box>
+              ) : null}
 
               <Box
                 sx={{

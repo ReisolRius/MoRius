@@ -543,6 +543,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     ambient_enabled: Boolean(game.ambient_enabled),
     game_mode: normalizeStoryGameMode(game.game_mode),
     character_state_enabled: Boolean(game.character_state_enabled),
+    location_module_enabled: game.location_module_enabled !== false,
     appearance_background_mode: normalizeStoryAppearanceBackgroundMode(game.appearance_background_mode),
     appearance_gradient_enabled: Boolean(game.appearance_gradient_enabled),
     appearance_dialogue_view: Boolean(game.appearance_dialogue_view),
@@ -2052,6 +2053,7 @@ export async function updateStoryGameSettings(payload: {
   graphAutoApplyConfidence?: number
   ambientEnabled?: boolean
   characterStateEnabled?: boolean
+  locationModuleEnabled?: boolean
   appearanceBackgroundMode?: StoryAppearanceBackgroundMode
   appearanceGradientEnabled?: boolean
   appearanceDialogueView?: boolean
@@ -2136,6 +2138,9 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = payload.ambientEnabled
+  }
+  if (typeof payload.locationModuleEnabled === 'boolean') {
+    requestPayload.location_module_enabled = payload.locationModuleEnabled
   }
   if (typeof payload.characterStateEnabled === 'boolean') {
     requestPayload.character_state_enabled = payload.characterStateEnabled
