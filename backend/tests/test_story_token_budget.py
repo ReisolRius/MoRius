@@ -85,35 +85,36 @@ class StoryTokenBudgetTests(unittest.TestCase):
 
         self.assertIn("Место", [card["title"] for card in fitted])
 
-    def test_compact_facts_survive_context_pressure_over_raw_backlog(self) -> None:
-        # The compression tiers exist so that old history stays cheap and safe under any
-        # budget. Under pressure the trimmer must drop uncompacted raw/pending backlog
-        # first, never the compact facts/compressed summaries those blocks were promoted
-        # into.
+    def test_context_pressure_shortens_the_story_start_and_never_holes_the_middle(self) -> None:
+        # Memory reaches the narrator as one continuous stretch of story, oldest tier first.
+        # Under pressure the trimmer must shorten it from the old end and keep the newest
+        # turns -- including turns still waiting on asynchronous compaction. Dropping those
+        # instead would punch a hole between the summaries and the short exact-history
+        # window, which breaks narrative continuity.
         cards = [
             {
-                "title": "Факты памяти: старая история",
-                "content": "Алекс нашёл артефакт в руинах.",
+                "title": "Факты памяти: начало истории",
+                "content": "Алекс нашёл артефакт в руинах. " * 200,
                 "source_kind": "memory",
                 "memory_layer": "facts",
             },
             {
-                "title": "Сжатая память: средняя история",
-                "content": "Алекс и Марина исследовали пещеру.",
+                "title": "Сжатая память: середина истории",
+                "content": "Алекс и Марина исследовали пещеру. " * 200,
                 "source_kind": "memory",
                 "memory_layer": "compressed",
             },
             {
-                "title": "Последний полный ход: свежий бэклог",
-                "content": "PLAYER_TURN: слово " * 4_000,
+                "title": "Подробная память: недавние ходы",
+                "content": "Алекс вернулся в лагерь.",
                 "source_kind": "memory",
-                "memory_layer": "latest_full",
+                "memory_layer": "fresh_detailed",
             },
             {
-                "title": "Ожидает сжатия: недавний бэклог",
-                "content": "PLAYER_TURN: слово " * 4_000,
+                "title": "Последний полный ход: ещё не сжат",
+                "content": "PLAYER_TURN: Алекс открывает дверь.",
                 "source_kind": "memory",
-                "memory_layer": "raw_pending",
+                "memory_layer": "latest_full",
             },
         ]
 
@@ -126,10 +127,9 @@ class StoryTokenBudgetTests(unittest.TestCase):
         )
 
         fitted_titles = [card["title"] for card in fitted]
-        self.assertIn("Факты памяти: старая история", fitted_titles)
-        self.assertIn("Сжатая память: средняя история", fitted_titles)
-        self.assertNotIn("Последний полный ход: свежий бэклог", fitted_titles)
-        self.assertNotIn("Ожидает сжатия: недавний бэклог", fitted_titles)
+        self.assertIn("Последний полный ход: ещё не сжат", fitted_titles)
+        self.assertIn("Подробная память: недавние ходы", fitted_titles)
+        self.assertNotIn("Факты памяти: начало истории", fitted_titles)
 
 
 if __name__ == "__main__":

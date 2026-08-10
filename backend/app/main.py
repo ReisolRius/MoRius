@@ -2538,7 +2538,7 @@ def _fit_story_plot_cards_to_context_limit(
     location_cards: list[dict[str, str]] = []
     context_cards: list[dict[str, str]] = []
     key_memory_cards: list[dict[str, str]] = []
-    dev_memory_cards_by_layer: dict[str, list[dict[str, str]]] = {}
+    dev_memory_cards: list[dict[str, str]] = []
     plot_memory_cards: list[dict[str, str]] = []
     for card in normalized_plot_cards:
         source_kind = str(card.get("source_kind", "") or "").strip().lower()
@@ -2555,27 +2555,21 @@ def _fit_story_plot_cards_to_context_limit(
         if source_kind == "plot":
             plot_memory_cards.append(card)
             continue
-        dev_memory_cards_by_layer.setdefault(memory_layer, []).append(card)
+        dev_memory_cards.append(card)
 
-    # _trim_story_plot_cards_to_context_limit keeps a *tail* of whatever list it's given
-    # and drops from the front first when the budget is tight. Concatenate the tiers with
-    # the least-compressed, most disposable backlog (raw_pending/latest_full) first and the
-    # compact long-term tiers (compressed/facts) last, so budget pressure trims uncompacted
-    # recent backlog before it ever touches the summaries those tiers exist to protect.
-    dev_memory_layer_priority = (
-        "raw_pending",
-        "latest_full",
-        STORY_MEMORY_LAYER_RAW,
-        "fresh_detailed",
-        STORY_MEMORY_LAYER_COMPRESSED,
-        STORY_MEMORY_LAYER_SUPER,
-        "facts",
-    )
-    dev_memory_cards: list[dict[str, str]] = []
-    for layer_name in dev_memory_layer_priority:
-        dev_memory_cards.extend(dev_memory_cards_by_layer.pop(layer_name, []))
-    for remaining_layer_cards in dev_memory_cards_by_layer.values():
-        dev_memory_cards.extend(remaining_layer_cards)
+    # Order here decides where the story gets cut when the budget is tight, because
+    # _trim_story_plot_cards_to_context_limit keeps a *tail* and drops from the front.
+    #
+    # These cards arrive in narrative order already: _list_story_prompt_memory_cards sorts
+    # them by tier and then by assistant message, and the tiers themselves run oldest to
+    # newest (facts -> compressed -> fresh_detailed -> latest_full -> raw_pending). Keeping
+    # that order means pressure trims the oldest end and the remaining memory stays one
+    # continuous stretch of story.
+    #
+    # Do NOT reorder this to protect the compact tiers by dropping bulky uncompacted turns
+    # first. Compaction is asynchronous, so recent turns are legitimately still uncompacted,
+    # and dropping them punches a hole between the summaries and the short exact-history
+    # window (7 messages / 1800 tokens) instead of shortening the story from its start.
 
     def _estimate_cards_tokens(cards: list[dict[str, str]]) -> int:
         if not cards:
