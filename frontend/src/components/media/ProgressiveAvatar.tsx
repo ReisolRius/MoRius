@@ -14,6 +14,7 @@ type ProgressiveAvatarProps = {
   fallbackLabel: string
   alt?: string
   size?: number
+  height?: number
   scale?: number
   priority?: boolean
   frameId?: string | null
@@ -39,6 +40,7 @@ function ProgressiveAvatar({
   fallbackLabel,
   alt = '',
   size = 44,
+  height,
   scale = 1,
   priority = false,
   frameId,
@@ -140,8 +142,8 @@ function ProgressiveAvatar({
     {
       position: 'relative',
       width: size,
-      height: size,
-      borderRadius: '50%',
+      height: height ?? size,
+      borderRadius: (height ?? size) === size ? '50%' : '12px',
       overflow: 'hidden',
       display: 'grid',
       placeItems: 'center',
@@ -224,7 +226,7 @@ function ProgressiveAvatar({
   )
 
   return (
-    <AvatarFrame frameId={frameId} frameImageUrl={frameImageUrl} size={size}>
+    <AvatarFrame frameId={frameId} frameImageUrl={frameImageUrl} size={size} height={height}>
       {avatarNode}
     </AvatarFrame>
   )

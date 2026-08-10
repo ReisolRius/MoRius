@@ -7389,6 +7389,7 @@ function CharacterAvatar({
       src={avatarUrl}
       fallbackLabel={fallbackLabel}
       size={size}
+      height={resolvedHeight}
       scale={avatarScale}
       sx={{
         width: size,

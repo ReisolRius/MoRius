@@ -9,6 +9,9 @@ type AvatarFrameProps = {
   frameId?: string | null
   frameImageUrl?: string | null
   size: number
+  // Defaults to size. A portrait dialogue avatar is taller than wide, and the frame used
+  // to clip it back to a square.
+  height?: number
 }
 
 type AvatarFrameImageState = {
@@ -37,7 +40,9 @@ function buildFrameImageRequestSrc(imageSrc: string | null, retryNonce: number):
   return `${imageSrc}${separator}morius_frame_retry=${retryNonce}`
 }
 
-function AvatarFrame({ children, frameId, frameImageUrl, size }: AvatarFrameProps) {
+function AvatarFrame({ children, frameId, frameImageUrl, size, height }: AvatarFrameProps) {
+  const resolvedHeight = height ?? size
+  const frameRadius = resolvedHeight === size ? '50%' : '12px'
   const normalizedFrameId = normalizeAvatarFrameId(frameId)
   const preset = getAvatarFramePreset(normalizedFrameId)
   const imageSrc = resolveFrameImage(normalizedFrameId, frameImageUrl)
@@ -106,20 +111,20 @@ function AvatarFrame({ children, frameId, frameImageUrl, size }: AvatarFrameProp
       className="morius-framed-avatar"
       sx={{
         width: size,
-        height: size,
+        height: resolvedHeight,
         position: 'relative',
         flex: '0 0 auto',
         display: 'grid',
         placeItems: 'center',
-        borderRadius: '50%',
+        borderRadius: frameRadius,
         overflow: 'visible',
       }}
     >
       <Box
         sx={{
           width: size,
-          height: size,
-          borderRadius: '50%',
+          height: resolvedHeight,
+          borderRadius: frameRadius,
           overflow: 'hidden',
           position: 'relative',
           boxShadow: hasFrame && preset.ring ? preset.ring.shadow : undefined,
