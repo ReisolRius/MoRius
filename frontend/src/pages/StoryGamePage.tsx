@@ -23175,6 +23175,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Typography>
                   </Stack>
 
+                  <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
+                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', fontWeight: 700 }}>
+                      Место
+                    </Typography>
+                    <Switch
+                      checked={locationModuleEnabled}
+                      disabled={isSavingEnvironmentPanel}
+                      onChange={(event) => void handleToggleLocationModuleEnabled(event.target.checked)}
+                      color="default"
+                      sx={{
+                        mr: -0.5,
+                        '& .MuiSwitch-switchBase.Mui-checked': {
+                          color: 'var(--morius-accent)',
+                        },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                          backgroundColor: 'var(--morius-accent)',
+                          opacity: 0.86,
+                        },
+                      }}
+                    />
+                  </Stack>
+
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="space-between">
                     <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
                       <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', fontWeight: 700 }}>
@@ -24192,6 +24214,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               void persistStoryAppearanceSettings({
                                 appearanceGradientEnabled: nextGradientEnabled,
                                 appearanceBackgroundMode: nextGradientEnabled ? 'custom' : 'default',
+                              })
+                            }}
+                            disabled={isSavingStorySettings || isGenerating}
+                          />
+                          <RightPanelSettingRow
+                            title="Вид диалогов"
+                            description="Крупный портрет слева от реплики"
+                            checked={appearanceDialogueView}
+                            onToggle={() => {
+                              void persistStoryAppearanceSettings({
+                                appearanceDialogueView: !appearanceDialogueView,
                               })
                             }}
                             disabled={isSavingStorySettings || isGenerating}
