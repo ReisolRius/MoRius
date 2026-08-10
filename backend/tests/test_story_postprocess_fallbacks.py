@@ -973,7 +973,7 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
         self.assertIn("important_event", meta["postprocess_failed_modules"])
         self.assertIn("location", meta["postprocess_failed_modules"])
 
-    def test_stale_raw_memory_after_rebalance_marks_retryable(self) -> None:
+    def test_uncompacted_memory_does_not_fail_the_turn_and_is_queued_instead(self) -> None:
         game = StoryGame(id=12, user_id=1, title="Test")
         game.memory_optimization_enabled = True
         game.character_state_enabled = False
@@ -1016,6 +1016,10 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
             patch.object(story_memory_pipeline, "_upsert_story_location_memory_block", return_value=False),
             patch.object(story_memory_pipeline, "_rebalance_story_memory_layers", return_value=False),
             patch.object(story_memory_pipeline, "_has_story_stale_raw_memory_blocks", return_value=True),
+            patch(
+                "app.services.story_memory_background.schedule_story_memory_compaction",
+                return_value=True,
+            ) as schedule_mock,
         ):
             result = main._upsert_story_plot_memory_card(
                 db=session,
@@ -1028,13 +1032,16 @@ class StoryPostprocessFallbackTests(unittest.TestCase):
                 allow_model_postprocess_request=True,
             )
 
+        # Compaction is asynchronous now, so a turn that still has uncompacted memory is the
+        # normal case, not a failure: the narrator simply receives that turn uncompressed
+        # until its summary is ready. Marking it failed used to trigger a second, redundant
+        # rebalance pass on the same turn.
         self.assertTrue(session.committed)
         self.assertEqual(len(result), 3)
         meta = result[2]
-        self.assertTrue(meta["postprocess_pending"])
-        self.assertTrue(meta["postprocess_failed"])
-        self.assertEqual(meta["postprocess_status"], "storyteller_succeeded_postprocessing_failed_retryable")
-        self.assertIn("memory_compression_not_applied", meta["postprocess_failed_modules"])
+        self.assertFalse(meta["postprocess_failed"])
+        self.assertNotIn("memory_compression_not_applied", meta["postprocess_failed_modules"])
+        schedule_mock.assert_called_once_with(game.id)
 
     def test_story_service_budget_caps_postprocess_requests_at_two(self) -> None:
         budget = StoryServiceHttpRequestBudget(max_requests=2)

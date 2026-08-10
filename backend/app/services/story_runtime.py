@@ -1436,21 +1436,20 @@ def _best_effort_sync_story_turn_memory_and_environment(
             changed = direct_raw_changed or changed
 
     if (memory_changed or should_force_memory_rebalance) and story_memory_pipeline is not None:
+        # Queued rather than awaited, exactly like the primary path: this baseline sync runs
+        # while the generation lock is still held, so compacting here would put the
+        # service-model round trip back in front of the player's next turn.
         try:
-            # Совпадает с основным путём (2 запроса на ход); общий потолок хода всё равно
-            # ограничивает суммарные вызовы основного пути + baseline.
-            story_memory_pipeline._rebalance_story_memory_layers(
-                db=db,
-                game=game,
-                max_model_requests=2,
-                backfill_existing_compact_layers=False,
-                prioritize_recent_transitions=True,
-            )
+            from app.services.story_memory_background import schedule_story_memory_compaction
+
+            schedule_story_memory_compaction(game.id)
         except Exception:
-            logger.exception(
-                "Story fallback memory rebalance failed: game_id=%s assistant_message_id=%s",
+            logger.warning(
+                "Could not schedule background memory compaction from baseline sync: "
+                "game_id=%s assistant_message_id=%s",
                 game.id,
                 assistant_message.id,
+                exc_info=True,
             )
 
     current_location_content = ""

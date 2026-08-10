@@ -1793,6 +1793,15 @@ def on_startup() -> None:
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
+    # Drain first: killing the pool mid-run would abort a compaction transaction and leave
+    # its block marked pending. In-flight work is short, and anything still queued is picked
+    # up after restart by the next turn or game load.
+    try:
+        from app.services.story_memory_background import shutdown_story_memory_compaction
+
+        shutdown_story_memory_compaction(wait=True)
+    except Exception:
+        logger.exception("Background memory compaction shutdown failed")
     _close_auth_verification_http_session()
     _close_payments_http_session()
     HTTP_SESSION.close()
@@ -10377,36 +10386,23 @@ def _upsert_story_plot_memory_card(
     commit_with_retry(db)
 
     if should_force_memory_rebalance:
+        # Compaction is deliberately NOT awaited here. It used to run inline, while the
+        # per-game generation lock was still held, so the player waited a full service-model
+        # round trip before they could take another turn. Nothing about the next turn needs
+        # it: an uncompacted turn is simply sent to the narrator as-is until its summary
+        # exists. See story_memory_background for the ordering and restart guarantees.
         try:
-            from app.services import story_memory_pipeline as rebalance_memory_pipeline
+            from app.services.story_memory_background import schedule_story_memory_compaction
 
-            # Постобработку памяти держим на 2 запросах на ход (ранее 3): каждый — отдельная
-            # компакция, коммит независимый, остаток догоняется следующими ходами. Это часть
-            # общего потолка хода 1(A)+1(B)+2(память)+1(граф)=5.
-            _rebalance_story_memory_layers(
-                db=db,
-                game=game,
-                max_model_requests=2,
-                require_model_compaction=True,
-                commit_each_model_compaction=True,
-                prioritize_recent_transitions=True,
-            )
-            if rebalance_memory_pipeline._has_story_stale_raw_memory_blocks(db=db, game=game):
-                _record_postprocess_failure("memory_compression_not_applied")
-                logger.warning(
-                    "Story memory compression not applied after service-model response: game_id=%s assistant_message_id=%s",
-                    game.id,
-                    assistant_message.id,
-                )
-            commit_with_retry(db)
-        except Exception as exc:
-            db.rollback()
-            _record_postprocess_failure("memory_compression_failed")
+            schedule_story_memory_compaction(game.id)
+        except Exception:
+            # Never fail a completed turn over compaction scheduling: the blocks stay
+            # uncompacted and the next turn schedules another run.
             logger.warning(
-                "Final story memory rebalance failed: game_id=%s assistant_message_id=%s error=%s",
+                "Could not schedule background memory compaction: game_id=%s assistant_message_id=%s",
                 game.id,
                 assistant_message.id,
-                exc,
+                exc_info=True,
             )
 
     postprocess_failed = bool(postprocess_failed_modules)

@@ -203,7 +203,10 @@ def _has_stale_raw_dev_memory_blocks(
     )
     for block in memory_blocks:
         layer_value = str(getattr(block, "layer", "") or "").strip().lower()
-        if layer_value != "raw":
+        # "raw" is the legacy name; live games store uncompacted turns as latest_full, and
+        # a turn whose compaction attempt failed as raw_pending. Checking only "raw" made
+        # this test silently blind to every block the current pipeline produces.
+        if layer_value not in {"raw", "latest_full", "raw_pending"}:
             continue
         assistant_message_id = int(getattr(block, "assistant_message_id", 0) or 0)
         if assistant_message_id <= 0:
@@ -258,9 +261,22 @@ def _maybe_self_heal_story_memory_blocks(
     ):
         return memory_blocks
 
-    # Page load must stay cheap and predictable. Heavy memory optimization is now
-    # handled explicitly via POST /api/story/games/{game_id}/memory/optimize
-    # after generation/edit, not during GET /api/story/games/{game_id}.
+    # Page load stays cheap: this only pushes the game onto the background compaction queue
+    # (deduped, no DB or model work in this request) and returns. It is the catch-up for work
+    # a process restart dropped -- without it, a game whose queued run died would stay
+    # uncompacted until its player happened to take another turn.
+    if has_stale_raw_blocks:
+        try:
+            from app.services.story_memory_background import schedule_story_memory_compaction
+
+            schedule_story_memory_compaction(int(getattr(game, "id", 0) or 0))
+        except Exception:
+            logger.warning(
+                "Could not schedule background memory compaction on read: game_id=%s",
+                getattr(game, "id", None),
+                exc_info=True,
+            )
+
     logger.info(
         "Story read skipped auto-heal during page load: game_id=%s raw_blocks=%s has_stale_raw=%s has_markup=%s has_non_compact=%s",
         getattr(game, "id", None),
