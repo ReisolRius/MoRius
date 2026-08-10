@@ -908,6 +908,7 @@ class StoryGameCreateRequest(BaseModel):
     ambient_enabled: bool | None = None
     appearance_background_mode: str | None = Field(default=None, max_length=32)
     appearance_gradient_enabled: bool | None = None
+    appearance_dialogue_view: bool | None = None
     appearance_gradient_from: str | None = Field(default=None, max_length=16)
     appearance_gradient_to: str | None = Field(default=None, max_length=16)
     appearance_solid_color: str | None = Field(default=None, max_length=16)
@@ -963,6 +964,7 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     ambient_enabled: bool | None = None
     appearance_background_mode: str | None = Field(default=None, max_length=32)
     appearance_gradient_enabled: bool | None = None
+    appearance_dialogue_view: bool | None = None
     appearance_gradient_from: str | None = Field(default=None, max_length=16)
     appearance_gradient_to: str | None = Field(default=None, max_length=16)
     appearance_solid_color: str | None = Field(default=None, max_length=16)
@@ -1954,6 +1956,7 @@ class StoryGameSummaryOut(BaseModel):
     character_state_enabled: bool = False
     appearance_background_mode: str = "custom"
     appearance_gradient_enabled: bool = True
+    appearance_dialogue_view: bool = False
     appearance_gradient_from: str = "#050506"
     appearance_gradient_to: str = "#120803"
     appearance_solid_color: str = "#050506"

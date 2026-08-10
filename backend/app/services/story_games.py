@@ -411,6 +411,12 @@ def normalize_story_appearance_gradient_enabled(value: bool | None) -> bool:
     return bool(value)
 
 
+def normalize_story_appearance_dialogue_view(value: bool | None) -> bool:
+    if value is None:
+        return False
+    return bool(value)
+
+
 def normalize_story_appearance_color(value: str | None, *, default: str) -> str:
     normalized = str(value or default).strip()
     if len(normalized) != 7 or not normalized.startswith("#"):
@@ -1351,6 +1357,9 @@ def story_game_summary_to_out(
         appearance_gradient_enabled=normalize_story_appearance_gradient_enabled(
             getattr(game, "appearance_gradient_enabled", None)
         ),
+        appearance_dialogue_view=normalize_story_appearance_dialogue_view(
+            getattr(game, "appearance_dialogue_view", None)
+        ),
         appearance_gradient_from=normalize_story_appearance_color(
             getattr(game, "appearance_gradient_from", None),
             default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
@@ -1514,6 +1523,9 @@ def story_game_summary_to_compact_out(
         ),
         appearance_gradient_enabled=normalize_story_appearance_gradient_enabled(
             getattr(game, "appearance_gradient_enabled", None)
+        ),
+        appearance_dialogue_view=normalize_story_appearance_dialogue_view(
+            getattr(game, "appearance_dialogue_view", None)
         ),
         appearance_gradient_from=normalize_story_appearance_color(
             getattr(game, "appearance_gradient_from", None),

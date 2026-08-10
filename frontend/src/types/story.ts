@@ -146,6 +146,7 @@ export type StoryGameSummary = {
   character_state_enabled: boolean
   appearance_background_mode: StoryAppearanceBackgroundMode
   appearance_gradient_enabled: boolean
+  appearance_dialogue_view: boolean
   appearance_gradient_from: string
   appearance_gradient_to: string
   appearance_solid_color: string

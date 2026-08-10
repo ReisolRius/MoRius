@@ -90,6 +90,7 @@ from app.services.story_games import (
     normalize_story_appearance_background_mode,
     normalize_story_appearance_color,
     normalize_story_appearance_gradient_enabled,
+    normalize_story_appearance_dialogue_view,
     normalize_story_appearance_text_style,
     normalize_story_appearance_ui_style,
     normalize_story_canonical_state_pipeline_enabled,
@@ -1727,6 +1728,9 @@ def _create_story_game_publication_copy_from_source(
         appearance_gradient_enabled=normalize_story_appearance_gradient_enabled(
             getattr(source_game, "appearance_gradient_enabled", None)
         ),
+        appearance_dialogue_view=normalize_story_appearance_dialogue_view(
+            getattr(source_game, "appearance_dialogue_view", None)
+        ),
         appearance_gradient_from=normalize_story_appearance_color(
             getattr(source_game, "appearance_gradient_from", None),
             default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
@@ -2219,6 +2223,9 @@ def launch_story_community_world(
         appearance_gradient_enabled=normalize_story_appearance_gradient_enabled(
             getattr(world, "appearance_gradient_enabled", None)
         ),
+        appearance_dialogue_view=normalize_story_appearance_dialogue_view(
+            getattr(world, "appearance_dialogue_view", None)
+        ),
         appearance_gradient_from=normalize_story_appearance_color(
             getattr(world, "appearance_gradient_from", None),
             default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
@@ -2636,6 +2643,7 @@ def create_story_game(
     ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
     appearance_background_mode = normalize_story_appearance_background_mode(payload.appearance_background_mode)
     appearance_gradient_enabled = normalize_story_appearance_gradient_enabled(payload.appearance_gradient_enabled)
+    appearance_dialogue_view = normalize_story_appearance_dialogue_view(payload.appearance_dialogue_view)
     appearance_gradient_from = normalize_story_appearance_color(
         payload.appearance_gradient_from,
         default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
@@ -2699,6 +2707,7 @@ def create_story_game(
         ambient_enabled=ambient_enabled,
         appearance_background_mode=appearance_background_mode,
         appearance_gradient_enabled=appearance_gradient_enabled,
+        appearance_dialogue_view=appearance_dialogue_view,
         appearance_gradient_from=appearance_gradient_from,
         appearance_gradient_to=appearance_gradient_to,
         appearance_solid_color=appearance_solid_color,
@@ -2968,6 +2977,9 @@ def clone_story_game(
         ),
         appearance_gradient_enabled=normalize_story_appearance_gradient_enabled(
             getattr(source_game, "appearance_gradient_enabled", None)
+        ),
+        appearance_dialogue_view=normalize_story_appearance_dialogue_view(
+            getattr(source_game, "appearance_dialogue_view", None)
         ),
         appearance_gradient_from=normalize_story_appearance_color(
             getattr(source_game, "appearance_gradient_from", None),
@@ -3310,6 +3322,10 @@ def update_story_game_settings(
     if "appearance_gradient_enabled" in payload.model_fields_set:
         game.appearance_gradient_enabled = normalize_story_appearance_gradient_enabled(
             payload.appearance_gradient_enabled
+        )
+    if "appearance_dialogue_view" in payload.model_fields_set:
+        game.appearance_dialogue_view = normalize_story_appearance_dialogue_view(
+            payload.appearance_dialogue_view
         )
     if "appearance_gradient_from" in payload.model_fields_set:
         game.appearance_gradient_from = normalize_story_appearance_color(

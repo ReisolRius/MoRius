@@ -280,6 +280,7 @@ type StorySettingsOverride = {
 type StoryAppearanceSettingsPatch = {
   appearanceBackgroundMode?: StoryAppearanceBackgroundMode
   appearanceGradientEnabled?: boolean
+  appearanceDialogueView?: boolean
   appearanceGradientFrom?: string
   appearanceGradientTo?: string
   appearanceSolidColor?: string
@@ -3175,6 +3176,118 @@ const RIGHT_PANEL_CHARACTER_ROW_CARD_HEIGHT = 112
 const RIGHT_PANEL_TEXT_ROW_CARD_HEIGHT = 92
 const RIGHT_PANEL_PLOT_ROW_CARD_HEIGHT = 108
 const ASSISTANT_DIALOGUE_AVATAR_SIZE = 30
+// Portrait ("Вид диалогов") mode: a taller card-like avatar standing to the left of the
+// whole reply, instead of a small round one above it.
+const ASSISTANT_DIALOGUE_PORTRAIT_WIDTH = 46
+const ASSISTANT_DIALOGUE_PORTRAIT_HEIGHT = 62
+const ASSISTANT_DIALOGUE_PORTRAIT_WIDTH_MOBILE = 36
+const ASSISTANT_DIALOGUE_PORTRAIT_HEIGHT_MOBILE = 48
+
+type AssistantDialogueBlockLayoutProps = {
+  portraitMode: boolean
+  isMobile: boolean
+  renderAvatar: (options: { size: number; height?: number }) => ReactNode
+  speakerName: string
+  kindLabel: string
+  speakerLabelColor: string
+  bubbleColor: string
+  children: ReactNode
+}
+
+// Both the streaming and the persisted renderers draw a reply the same way, so the frame
+// lives here and each of them passes its own body (the persisted one is editable in place).
+// The colored left bar and tinted background are part of the frame and stay in both modes.
+function AssistantDialogueBlockLayout({
+  portraitMode,
+  isMobile,
+  renderAvatar,
+  speakerName,
+  kindLabel,
+  speakerLabelColor,
+  bubbleColor,
+  children,
+}: AssistantDialogueBlockLayoutProps) {
+  const bubbleBg = `color-mix(in srgb, ${bubbleColor} 16%, transparent)`
+  const speakerNameNode = (
+    <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
+      <Typography
+        noWrap
+        sx={{
+          color: speakerLabelColor,
+          fontSize: portraitMode ? { xs: '0.82rem', md: '0.88rem' } : '0.84rem',
+          lineHeight: 1.2,
+          fontWeight: 700,
+          letterSpacing: 0.1,
+        }}
+      >
+        {speakerName}
+      </Typography>
+      <Typography
+        sx={{
+          color: 'var(--morius-text-secondary)',
+          fontSize: '0.65rem',
+          fontWeight: 800,
+          letterSpacing: '0.08em',
+          flexShrink: 0,
+        }}
+      >
+        {kindLabel}
+      </Typography>
+    </Stack>
+  )
+
+  if (portraitMode) {
+    return (
+      <Stack
+        direction="row"
+        spacing={{ xs: 0.7, md: 1 }}
+        sx={{ px: 0.05, py: 0.5, alignItems: 'flex-start' }}
+      >
+        <Box sx={{ flexShrink: 0, pt: '2px' }}>
+          {renderAvatar({
+            size: isMobile ? ASSISTANT_DIALOGUE_PORTRAIT_WIDTH_MOBILE : ASSISTANT_DIALOGUE_PORTRAIT_WIDTH,
+            height: isMobile ? ASSISTANT_DIALOGUE_PORTRAIT_HEIGHT_MOBILE : ASSISTANT_DIALOGUE_PORTRAIT_HEIGHT,
+          })}
+        </Box>
+        <Stack spacing={0.28} sx={{ minWidth: 0, flexGrow: 1 }}>
+          {speakerNameNode}
+          <Box
+            sx={{
+              borderLeft: `2.5px solid ${bubbleColor}`,
+              backgroundColor: bubbleBg,
+              borderRadius: '0 8px 8px 0',
+              px: { xs: 1.05, md: 1.5 },
+              py: 0.85,
+            }}
+          >
+            {children}
+          </Box>
+        </Stack>
+      </Stack>
+    )
+  }
+
+  return (
+    <Stack spacing={0.4} sx={{ px: 0.05, py: 0.45 }}>
+      <Stack direction="row" spacing={0.75} alignItems="center">
+        {renderAvatar({ size: ASSISTANT_DIALOGUE_AVATAR_SIZE })}
+        {speakerNameNode}
+      </Stack>
+      <Box
+        sx={{
+          ml: `${ASSISTANT_DIALOGUE_AVATAR_SIZE + 6}px`,
+          borderLeft: `2.5px solid ${bubbleColor}`,
+          backgroundColor: bubbleBg,
+          borderRadius: '0 8px 8px 0',
+          px: 1.5,
+          py: 0.85,
+        }}
+      >
+        {children}
+      </Box>
+    </Stack>
+  )
+}
 const ASSISTANT_DIALOGUE_AVATAR_GAP = 0.9
 const STRUCTURED_MARKER_START_PATTERN = /^\[\[\s*([^\]:]+?)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]*)$/iu
 const STRUCTURED_MARKER_LINE_START_PATTERN = /^\[\[\s*[^\]:]+?(?:\s*:\s*[^\]]+?)?\s*\]\]/u
@@ -5255,6 +5368,8 @@ function MoriusThinkingIndicator({ onStop }: { onStop?: () => void }) {
 }
 
 type StreamingAssistantMessageContentProps = {
+  dialogueViewEnabled: boolean
+  isDialoguePortraitMobile: boolean
   messageId: number
   store: StreamingAssistantTextStore
   mainHeroName: string
@@ -5275,6 +5390,7 @@ type StreamingAssistantMessageContentProps = {
     profileCard?: StoryWorldCard | null
     profileCharacter?: StoryCharacter | null
     avatarBgColor?: string
+    avatarHeight?: number
   }) => ReactNode
   resolveDialogueAvatar: (speakerName: string) => string | null
   resolveDialogueAvatarPreview: (speakerName: string) => string | null
@@ -5283,6 +5399,8 @@ type StreamingAssistantMessageContentProps = {
 }
 
 function StreamingAssistantMessageContent({
+  dialogueViewEnabled,
+  isDialoguePortraitMobile,
   messageId,
   store,
   mainHeroName,
@@ -5354,59 +5472,28 @@ function StreamingAssistantMessageContent({
                 : 'var(--morius-title-text)',
           )
           const bubbleColor = resolveSpeakerBubbleColor(speakerEntry, isThoughtBlock)
-          const bubbleBg = `color-mix(in srgb, ${bubbleColor} 16%, transparent)`
           return (
-            <Stack
+            <AssistantDialogueBlockLayout
               key={`${messageId}-${index}-stream-character`}
-              spacing={0.4}
-              sx={{ px: 0.05, py: 0.45 }}
-            >
-              <Stack direction="row" spacing={0.75} alignItems="center">
-                {renderPreviewableCharacterAvatar({
+              portraitMode={dialogueViewEnabled}
+              isMobile={isDialoguePortraitMobile}
+              speakerName={resolvedSpeakerName}
+              kindLabel={isThoughtBlock ? '· В ГОЛОВЕ' : '· РЕПЛИКА'}
+              speakerLabelColor={speakerLabelColor}
+              bubbleColor={bubbleColor}
+              renderAvatar={({ size, height }) =>
+                renderPreviewableCharacterAvatar({
                   avatarUrl: speakerAvatar,
                   previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
                   fallbackLabel: resolvedSpeakerName,
-                  size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                  size,
+                  avatarHeight: height,
                   profileCard: speakerEntry?.card ?? null,
                   profileCharacter: speakerEntry?.character ?? null,
                   avatarBgColor: bubbleColor,
-                })}
-                <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
-                  <Typography
-                    noWrap
-                    sx={{
-                      color: speakerLabelColor,
-                      fontSize: '0.84rem',
-                      lineHeight: 1.2,
-                      fontWeight: 700,
-                      letterSpacing: 0.1,
-                    }}
-                  >
-                    {resolvedSpeakerName}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      color: 'var(--morius-text-secondary)',
-                      fontSize: '0.65rem',
-                      fontWeight: 800,
-                      letterSpacing: '0.08em',
-                      flexShrink: 0,
-                    }}
-                  >
-                    ·{isThoughtBlock ? ' В ГОЛОВЕ' : ' РЕПЛИКА'}
-                  </Typography>
-                </Stack>
-              </Stack>
-              <Box
-                sx={{
-                  ml: `${ASSISTANT_DIALOGUE_AVATAR_SIZE + 6}px`,
-                  borderLeft: `2.5px solid ${bubbleColor}`,
-                  backgroundColor: bubbleBg,
-                  borderRadius: '0 8px 8px 0',
-                  px: 1.5,
-                  py: 0.85,
-                }}
-              >
+                })
+              }
+            >
                 <Box
                   component="div"
                   sx={{
@@ -5423,8 +5510,7 @@ function StreamingAssistantMessageContent({
                     <Box component="span" className={STREAMING_CARET_CLASS_NAME} aria-hidden="true" />
                   ) : null}
                 </Box>
-              </Box>
-            </Stack>
+            </AssistantDialogueBlockLayout>
           )
         }
 
@@ -7278,9 +7364,12 @@ type CharacterAvatarProps = {
   fallbackLabel: string
   size?: number
   bgColor?: string
+  // Portrait dialogue view needs a taller-than-wide avatar; everything else stays square.
+  height?: number
 }
 
-function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44, bgColor }: CharacterAvatarProps) {
+function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44, bgColor, height }: CharacterAvatarProps) {
+  const resolvedHeight = height ?? size
   return (
     <ProgressiveAvatar
       src={avatarUrl}
@@ -7289,10 +7378,10 @@ function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44,
       scale={avatarScale}
       sx={{
         width: size,
-        height: size,
+        height: resolvedHeight,
         minWidth: size,
-        minHeight: size,
-        aspectRatio: '1 / 1',
+        minHeight: resolvedHeight,
+        ...(resolvedHeight === size ? { aspectRatio: '1 / 1' } : { borderRadius: '10px' }),
         ...(bgColor ? { backgroundColor: bgColor } : {}),
       }}
     />
@@ -8123,6 +8212,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     STORY_APPEARANCE_DEFAULT_BACKGROUND_MODE,
   )
   const [appearanceGradientEnabled, setAppearanceGradientEnabled] = useState(STORY_APPEARANCE_DEFAULT_GRADIENT_ENABLED)
+  const [appearanceDialogueView, setAppearanceDialogueView] = useState(false)
+  const dialogueViewEnabled = appearanceDialogueView
+  // Same breakpoint the composer already switches on, so the portrait avatar shrinks
+  // together with the rest of the mobile layout.
+  const isDialoguePortraitMobile = isMobileComposer
   const [appearanceGradientFrom, setAppearanceGradientFrom] = useState(STORY_APPEARANCE_DEFAULT_GRADIENT_FROM)
   const [appearanceGradientTo, setAppearanceGradientTo] = useState(STORY_APPEARANCE_DEFAULT_GRADIENT_TO)
   const [appearanceSolidColor, setAppearanceSolidColor] = useState(STORY_APPEARANCE_DEFAULT_SOLID_COLOR)
@@ -8315,6 +8409,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       profileCard?: StoryWorldCard | null
       profileCharacter?: StoryCharacter | null
       avatarBgColor?: string
+      avatarHeight?: number
     }) => {
       const avatarNode = (
         <CharacterAvatar
@@ -8323,6 +8418,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           fallbackLabel={options.fallbackLabel}
           size={options.size}
           bgColor={options.avatarBgColor}
+          height={options.avatarHeight}
         />
       )
 
@@ -8730,6 +8826,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     )
     setAppearanceBackgroundMode(normalizeStoryAppearanceBackgroundMode(runtimeGame.appearance_background_mode))
     setAppearanceGradientEnabled(Boolean(runtimeGame.appearance_gradient_enabled))
+    setAppearanceDialogueView(Boolean(runtimeGame.appearance_dialogue_view))
     setAppearanceGradientFrom(
       normalizeStoryAppearanceColor(runtimeGame.appearance_gradient_from, STORY_APPEARANCE_DEFAULT_GRADIENT_FROM),
     )
@@ -15948,6 +16045,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       )
       const nextUiStyle = normalizeStoryAppearanceUiStyle(patch.appearanceUiStyle ?? appearanceUiStyle)
       const nextTextStyle = normalizeStoryAppearanceTextStyle(patch.appearanceTextStyle ?? appearanceTextStyle)
+      const nextDialogueView = Boolean(patch.appearanceDialogueView ?? appearanceDialogueView)
 
       if (
         nextBackgroundMode === appearanceBackgroundMode &&
@@ -15956,7 +16054,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         nextGradientTo === appearanceGradientTo &&
         nextSolidColor === appearanceSolidColor &&
         nextUiStyle === appearanceUiStyle &&
-        nextTextStyle === appearanceTextStyle
+        nextTextStyle === appearanceTextStyle &&
+        nextDialogueView === appearanceDialogueView
       ) {
         return
       }
@@ -15968,6 +16067,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const previousSolidColor = appearanceSolidColor
       const previousUiStyle = appearanceUiStyle
       const previousTextStyle = appearanceTextStyle
+      const previousDialogueView = appearanceDialogueView
 
       setAppearanceBackgroundMode(nextBackgroundMode)
       setAppearanceGradientEnabled(nextGradientEnabled)
@@ -15976,6 +16076,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setAppearanceSolidColor(nextSolidColor)
       setAppearanceUiStyle(nextUiStyle)
       setAppearanceTextStyle(nextTextStyle)
+      setAppearanceDialogueView(nextDialogueView)
       setErrorMessage('')
       setIsSavingStoryAppearance(true)
 
@@ -15990,6 +16091,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           appearanceSolidColor: nextSolidColor,
           appearanceUiStyle: nextUiStyle,
           appearanceTextStyle: nextTextStyle,
+          appearanceDialogueView: nextDialogueView,
         })
         const persistedBackgroundMode = normalizeStoryAppearanceBackgroundMode(updatedGame.appearance_background_mode)
         const persistedGradientFrom = normalizeStoryAppearanceColor(
@@ -16011,6 +16113,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setAppearanceSolidColor(persistedSolidColor)
         setAppearanceUiStyle(normalizeStoryAppearanceUiStyle(updatedGame.appearance_ui_style))
         setAppearanceTextStyle(normalizeStoryAppearanceTextStyle(updatedGame.appearance_text_style))
+        setAppearanceDialogueView(Boolean(updatedGame.appearance_dialogue_view))
         applyUpdatedGameSummary(updatedGame)
       } catch (error) {
         setAppearanceBackgroundMode(previousBackgroundMode)
@@ -16020,6 +16123,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setAppearanceSolidColor(previousSolidColor)
         setAppearanceUiStyle(previousUiStyle)
         setAppearanceTextStyle(previousTextStyle)
+        setAppearanceDialogueView(previousDialogueView)
         const detail = error instanceof Error ? error.message : 'Не удалось обновить оформление игры'
         setErrorMessage(detail)
       } finally {
@@ -25941,6 +26045,35 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
                                 <Stack spacing={0.12}>
                                   <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.84rem', fontWeight: 900 }}>
+                                    Вид диалогов
+                                  </Typography>
+                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', lineHeight: 1.18 }}>
+                                    Крупный портрет слева от реплики
+                                  </Typography>
+                                </Stack>
+                                <Switch
+                                  checked={appearanceDialogueView}
+                                  onChange={() => {
+                                    void persistStoryAppearanceSettings({
+                                      appearanceDialogueView: !appearanceDialogueView,
+                                    })
+                                  }}
+                                  disabled={isSavingStorySettings || isGenerating}
+                                />
+                              </Stack>
+                            </Box>
+
+                            <Box
+                              sx={{
+                                p: 0.82,
+                                borderRadius: '12px',
+                                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #08090d 18%)',
+                              }}
+                            >
+                              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                                <Stack spacing={0.12}>
+                                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.84rem', fontWeight: 900 }}>
                                     Градиент
                                   </Typography>
                                   <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', lineHeight: 1.18 }}>
@@ -27438,6 +27571,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         <Stack spacing="var(--morius-story-message-gap)">
                           {isStreaming ? (
                             <StreamingAssistantMessageContent
+                              dialogueViewEnabled={dialogueViewEnabled}
+                              isDialoguePortraitMobile={isDialoguePortraitMobile}
                               messageId={message.id}
                               store={streamingAssistantTextStore}
                               mainHeroName={mainHeroDisplayNameForTags}
@@ -27485,57 +27620,27 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 	                              )
 	                              const bubbleColorH = resolveSpeakerBubbleColor(speakerEntry, isThoughtH)
 	                              return (
-	                                <Stack
+	                                <AssistantDialogueBlockLayout
                                   key={`${message.id}-${index}-character`}
-                                  spacing={0.4}
-                                  sx={{ px: 0.05, py: 0.45 }}
-                                >
-                                  <Stack direction="row" spacing={0.75} alignItems="center">
-                                    {renderPreviewableCharacterAvatar({
+                                  portraitMode={dialogueViewEnabled}
+                                  isMobile={isDialoguePortraitMobile}
+                                  speakerName={resolvedSpeakerName}
+                                  kindLabel={isThoughtH ? '· В ГОЛОВЕ' : '· РЕПЛИКА'}
+                                  speakerLabelColor={speakerLabelColor}
+                                  bubbleColor={bubbleColorH}
+                                  renderAvatar={({ size, height }) =>
+                                    renderPreviewableCharacterAvatar({
                                       avatarUrl: speakerAvatar,
                                       previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
                                       fallbackLabel: resolvedSpeakerName,
-                                      size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                                      size,
+                                      avatarHeight: height,
                                       profileCard: speakerEntry?.card ?? null,
                                       profileCharacter: speakerEntry?.character ?? null,
                                       avatarBgColor: bubbleColorH,
-                                    })}
-                                    <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
-                                      <Typography
-                                        noWrap
-                                        sx={{
-                                          color: speakerLabelColor,
-                                          fontSize: '0.84rem',
-                                          lineHeight: 1.2,
-                                          fontWeight: 700,
-                                          letterSpacing: 0.1,
-                                        }}
-                                      >
-                                        {resolvedSpeakerName}
-                                      </Typography>
-                                      <Typography
-                                        sx={{
-                                          color: 'var(--morius-text-secondary)',
-                                          fontSize: '0.65rem',
-                                          fontWeight: 800,
-                                          letterSpacing: '0.08em',
-                                          flexShrink: 0,
-                                        }}
-                                      >
-                                        {isThoughtH ? '· В ГОЛОВЕ' : '· РЕПЛИКА'}
-                                      </Typography>
-                                    </Stack>
-                                  </Stack>
-                                  <Box
-                                    sx={{
-                                      ml: `${ASSISTANT_DIALOGUE_AVATAR_SIZE + 6}px`,
-                                      borderLeft: `2.5px solid ${bubbleColorH}`,
-                                      backgroundColor: `color-mix(in srgb, ${bubbleColorH} 16%, transparent)`,
-                                      borderRadius: '0 8px 8px 0',
-                                      px: 1.5,
-                                      py: 0.85,
-                                    }}
-                                  >
+                                    })
+                                  }
+                                >
                                     <Box
                                       component="div"
                                       contentEditable={!isGenerating && !isSavingMessage}
@@ -27576,8 +27681,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     >
                                       {block.text}
                                     </Box>
-                                  </Box>
-                                </Stack>
+                                </AssistantDialogueBlockLayout>
                               )
                             }
 

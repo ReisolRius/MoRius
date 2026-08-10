@@ -545,6 +545,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     character_state_enabled: Boolean(game.character_state_enabled),
     appearance_background_mode: normalizeStoryAppearanceBackgroundMode(game.appearance_background_mode),
     appearance_gradient_enabled: Boolean(game.appearance_gradient_enabled),
+    appearance_dialogue_view: Boolean(game.appearance_dialogue_view),
     appearance_gradient_from: normalizeStoryAppearanceColor(game.appearance_gradient_from, '#050506'),
     appearance_gradient_to: normalizeStoryAppearanceColor(game.appearance_gradient_to, '#120803'),
     appearance_solid_color: normalizeStoryAppearanceColor(game.appearance_solid_color, '#050506'),
@@ -2053,6 +2054,7 @@ export async function updateStoryGameSettings(payload: {
   characterStateEnabled?: boolean
   appearanceBackgroundMode?: StoryAppearanceBackgroundMode
   appearanceGradientEnabled?: boolean
+  appearanceDialogueView?: boolean
   appearanceGradientFrom?: string
   appearanceGradientTo?: string
   appearanceSolidColor?: string
@@ -2140,6 +2142,9 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.appearanceBackgroundMode === 'string') {
     requestPayload.appearance_background_mode = payload.appearanceBackgroundMode
+  }
+  if (typeof payload.appearanceDialogueView === 'boolean') {
+    requestPayload.appearance_dialogue_view = payload.appearanceDialogueView
   }
   if (typeof payload.appearanceGradientEnabled === 'boolean') {
     requestPayload.appearance_gradient_enabled = payload.appearanceGradientEnabled

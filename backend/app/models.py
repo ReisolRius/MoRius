@@ -624,6 +624,14 @@ class StoryGame(Base):
         default=True,
         server_default="1",
     )
+    # Off by default: the classic inline dialogue layout stays the norm, the portrait
+    # layout is opt-in per game.
+    appearance_dialogue_view: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     appearance_gradient_from: Mapped[str] = mapped_column(
         String(16),
         nullable=False,

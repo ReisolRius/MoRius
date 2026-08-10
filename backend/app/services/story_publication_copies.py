@@ -277,6 +277,7 @@ def upsert_story_game_publication_copy_from_source(
             ambient_enabled=normalized_source.ambient_enabled,
             appearance_background_mode=normalized_source.appearance_background_mode,
             appearance_gradient_enabled=normalized_source.appearance_gradient_enabled,
+            appearance_dialogue_view=normalized_source.appearance_dialogue_view,
             appearance_gradient_from=normalized_source.appearance_gradient_from,
             appearance_gradient_to=normalized_source.appearance_gradient_to,
             appearance_solid_color=normalized_source.appearance_solid_color,
@@ -352,6 +353,7 @@ def upsert_story_game_publication_copy_from_source(
     publication.ambient_enabled = normalized_source.ambient_enabled
     publication.appearance_background_mode = normalized_source.appearance_background_mode
     publication.appearance_gradient_enabled = normalized_source.appearance_gradient_enabled
+    publication.appearance_dialogue_view = normalized_source.appearance_dialogue_view
     publication.appearance_gradient_from = normalized_source.appearance_gradient_from
     publication.appearance_gradient_to = normalized_source.appearance_gradient_to
     publication.appearance_solid_color = normalized_source.appearance_solid_color

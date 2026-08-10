@@ -136,6 +136,7 @@ POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
     (StoryGame.__tablename__, "accelerated_service_enabled"): False,
     (StoryGame.__tablename__, "ambient_enabled"): False,
     (StoryGame.__tablename__, "appearance_gradient_enabled"): True,
+    (StoryGame.__tablename__, "appearance_dialogue_view"): False,
     (StoryGame.__tablename__, "environment_time_enabled"): False,
     (StoryGame.__tablename__, "environment_weather_enabled"): False,
     (StoryGame.__tablename__, "canonical_state_pipeline_enabled"): True,
@@ -585,6 +586,11 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN appearance_background_mode VARCHAR(32) NOT NULL DEFAULT 'custom'"
+        )
+    if "appearance_dialogue_view" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN appearance_dialogue_view INTEGER NOT NULL DEFAULT 0"
         )
     if "appearance_gradient_enabled" not in existing_columns:
         alter_statements.append(
