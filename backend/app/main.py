@@ -5887,89 +5887,31 @@ def _normalize_generated_story_output(
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ) -> str:
+    # Formatting only -- nothing in this function may delete narrative content.
+    #
+    # Earlier revisions ran a second service-model "repair" pass over the already-finished
+    # turn and then pruned the result. That regularly destroyed perfectly good answers:
+    # whole paragraphs disappeared (the GG-roleplay filter dropped every [[GG:]] block, and
+    # could even blank the entire turn down to a canned sentence), and the trailing-fragment
+    # trimming cut back to the last sentence terminator whenever a turn ended on a line of
+    # dialogue. The repair call also spent an extra provider request on every single turn.
     normalized_text = _split_story_inline_markup_paragraphs(_merge_story_orphan_markup_paragraphs(text_value))
     normalized_text = _canonicalize_story_markup_markers(normalized_text)
     normalized_text = _normalize_story_output_markup_paragraphs(normalized_text)
-    if normalized_text and normalized_text[-1] not in STORY_OUTPUT_TERMINAL_CHARS:
-        sentence_end_index = -1
-        for char in STORY_OUTPUT_SENTENCE_END_CHARS:
-            sentence_end_index = max(sentence_end_index, normalized_text.rfind(char))
-        if sentence_end_index >= 0:
-            tail_index = sentence_end_index + 1
-            while tail_index < len(normalized_text) and normalized_text[tail_index] in STORY_OUTPUT_CLOSING_CHARS:
-                tail_index += 1
-            normalized_text = normalized_text[:tail_index].rstrip()
-        else:
-            line_break_index = normalized_text.rfind("\n")
-            if line_break_index > 0:
-                normalized_text = normalized_text[:line_break_index].rstrip()
-    normalized_text = _trim_story_trailing_incomplete_fragment(normalized_text)
-
     if not normalized_text:
         return normalized_text
-    if _is_story_strict_markup_output(normalized_text):
-        strict_output = _enforce_story_output_language(normalized_text, model_name=model_name)
-        strict_output = _normalize_story_output_markup_paragraphs(strict_output)
-        strict_output = _align_story_markup_speaker_names_to_world_cards(strict_output, world_cards)
-        strict_output = _filter_story_gg_roleplay_paragraphs(strict_output, model_name=model_name)
-        return _filter_story_disabled_thought_paragraphs(
-            strict_output,
-            show_gg_thoughts=show_gg_thoughts,
-            show_npc_thoughts=show_npc_thoughts,
-        )
 
-    repaired_text = ""
-    if settings.polza_api_key:
-        try:
-            repaired_text = _repair_story_markup_with_polza(
-                normalized_text,
-                world_cards,
-                model_name=model_name,
-            )
-        except Exception as exc:
-            logger.warning("Story markup normalization failed: %s", exc)
-
-    repaired_normalized = _split_story_inline_markup_paragraphs(repaired_text.replace("\r\n", "\n").strip())
-    repaired_normalized = _normalize_story_output_markup_paragraphs(repaired_normalized)
-    if repaired_normalized and repaired_normalized[-1] not in STORY_OUTPUT_TERMINAL_CHARS:
-        sentence_end_index = -1
-        for char in STORY_OUTPUT_SENTENCE_END_CHARS:
-            sentence_end_index = max(sentence_end_index, repaired_normalized.rfind(char))
-        if sentence_end_index >= 0:
-            tail_index = sentence_end_index + 1
-            while tail_index < len(repaired_normalized) and repaired_normalized[tail_index] in STORY_OUTPUT_CLOSING_CHARS:
-                tail_index += 1
-            repaired_normalized = repaired_normalized[:tail_index].rstrip()
-        else:
-            line_break_index = repaired_normalized.rfind("\n")
-            if line_break_index > 0:
-                repaired_normalized = repaired_normalized[:line_break_index].rstrip()
-    repaired_normalized = _trim_story_trailing_incomplete_fragment(repaired_normalized)
-
-    if repaired_normalized and _is_story_strict_markup_output(repaired_normalized):
-        repaired_output = _enforce_story_output_language(repaired_normalized, model_name=model_name)
-        repaired_output = _normalize_story_output_markup_paragraphs(repaired_output)
-        repaired_output = _align_story_markup_speaker_names_to_world_cards(repaired_output, world_cards)
-        repaired_output = _filter_story_gg_roleplay_paragraphs(repaired_output, model_name=model_name)
-        return _filter_story_disabled_thought_paragraphs(
-            repaired_output,
-            show_gg_thoughts=show_gg_thoughts,
-            show_npc_thoughts=show_npc_thoughts,
-        )
-
-    fallback_output = _enforce_story_output_language(
-        _normalize_story_output_markup_paragraphs(normalized_text),
-        model_name=model_name,
-    )
-    fallback_output = _normalize_story_output_markup_paragraphs(fallback_output)
-    fallback_output = _align_story_markup_speaker_names_to_world_cards(fallback_output, world_cards)
-    if not _is_story_strict_markup_output(fallback_output):
-        fallback_output = _repair_story_markup_locally(fallback_output, world_cards)
-        fallback_output = _normalize_story_output_markup_paragraphs(fallback_output)
-        fallback_output = _align_story_markup_speaker_names_to_world_cards(fallback_output, world_cards)
-    fallback_output = _filter_story_gg_roleplay_paragraphs(fallback_output, model_name=model_name)
+    output = _enforce_story_output_language(normalized_text, model_name=model_name)
+    output = _normalize_story_output_markup_paragraphs(output)
+    output = _align_story_markup_speaker_names_to_world_cards(output, world_cards)
+    if not _is_story_strict_markup_output(output):
+        # Lossless: only tags speech the provider left unmarked, never removes text.
+        output = _repair_story_markup_locally(output, world_cards)
+        output = _normalize_story_output_markup_paragraphs(output)
+        output = _align_story_markup_speaker_names_to_world_cards(output, world_cards)
+    # Thought filtering stays: it is a player-facing display toggle, not a content repair.
     return _filter_story_disabled_thought_paragraphs(
-        fallback_output,
+        output,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
     )

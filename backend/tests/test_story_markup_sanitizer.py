@@ -124,20 +124,21 @@ def test_streamed_guard_calls_existing_model_assisted_repair_for_bare_utterance(
     assert call_kwargs["show_npc_thoughts"] is False
 
 
-def test_generated_output_normalizer_reaches_markup_repair_for_bare_utterance() -> None:
-    repaired = "[[NPC:Аристократ]] Ты хоть понимаешь, к кому обращаешься?!"
-    with (
-        patch.object(main, "settings", SimpleNamespace(polza_api_key="test-key")),
-        patch.object(main, "_repair_story_markup_with_polza", return_value=repaired) as repair_mock,
-    ):
+def test_generated_output_normalizer_marks_bare_utterance_without_a_service_call() -> None:
+    # Finished turns are never sent back to a model for "repair": that pass cost a provider
+    # request per turn and could rewrite away real content. The lossless local guard marks
+    # the unmarked line instead, and every original sentence survives.
+    with patch.object(main, "settings", SimpleNamespace(polza_api_key="test-key")):
         result = main._normalize_generated_story_output(
             text_value=SCREENSHOT_LIKE_UNMARKED_DIALOGUE,
             world_cards=[],
             model_name="z-ai/glm-4.7-flash",
         )
 
-    assert result == repaired
-    repair_mock.assert_called_once()
+    assert main._is_story_strict_markup_output(result)
+    assert "к кому обращаешься" in result
+    assert "напудренные щёки пошли красными пятнами" in result
+    assert "нервно легла на эфес кинжала" in result
 
 
 def test_local_last_resort_marks_exact_screenshot_replica_with_nearby_role() -> None:
@@ -150,15 +151,8 @@ def test_local_last_resort_marks_exact_screenshot_replica_with_nearby_role() -> 
     assert main._is_story_strict_markup_output(repaired)
 
 
-def test_generated_output_normalizer_uses_local_guard_when_model_repair_is_still_invalid() -> None:
-    with (
-        patch.object(main, "settings", SimpleNamespace(polza_api_key="test-key")),
-        patch.object(
-            main,
-            "_repair_story_markup_with_polza",
-            return_value=SCREENSHOT_EXACT_UNMARKED_DIALOGUE,
-        ) as repair_mock,
-    ):
+def test_generated_output_normalizer_uses_local_guard_for_unmarked_dialogue() -> None:
+    with patch.object(main, "settings", SimpleNamespace(polza_api_key="test-key")):
         result = main._normalize_generated_story_output(
             text_value=SCREENSHOT_EXACT_UNMARKED_DIALOGUE,
             world_cards=[],
@@ -167,7 +161,6 @@ def test_generated_output_normalizer_uses_local_guard_when_model_repair_is_still
 
     assert "[[NPC:Юный дворянин]] Ты... смерд!" in result
     assert main._is_story_strict_markup_output(result)
-    repair_mock.assert_called_once()
 
 
 def test_local_last_resort_replaces_forbidden_generic_speaker_consistently() -> None:
