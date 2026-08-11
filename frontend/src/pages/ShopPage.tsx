@@ -66,6 +66,7 @@ import { moriusThemeTokens } from '../theme'
 import { withKnownCosmeticImageUrl } from '../utils/cosmeticImageFallbacks'
 import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
 import { formatCheckoutPrice } from '../utils/paymentPricing'
+import { PromoBanner, isPromoRunning } from '../components/shop/PromoDiscount'
 
 type CosmeticSortMode = 'newest' | 'price'
 
@@ -944,6 +945,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         key={plan.id}
         title={plan.title}
         price={formatPrice(plan.price_rub)}
+        basePrice={promoBasePrice(plan)}
         accent={presentation.accent}
         details={plan.perks}
         iconSrc={presentation.icon}
@@ -959,6 +961,12 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
     )
   }
 
+  // Only rendered while the promo is live and the backend actually sent a higher original.
+  const promoBasePrice = (plan: { price_rub: number; base_price_rub?: number | null }) =>
+    isPromoRunning() && typeof plan.base_price_rub === 'number' && plan.base_price_rub > plan.price_rub
+      ? formatPrice(plan.base_price_rub)
+      : null
+
   const renderPlanCard = (plan: CoinTopUpPlan, index: number) => {
     const presentation = COIN_PLAN_PRESENTATION[index % COIN_PLAN_PRESENTATION.length]
     const isPaying = payingPlanId === plan.id
@@ -967,6 +975,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         key={plan.id}
         title={plan.title}
         price={formatPrice(plan.price_rub)}
+        basePrice={promoBasePrice(plan)}
         accent={presentation.accent}
         details={[...presentation.details, normalizePlanDescription(plan.description)]}
         iconSrc={presentation.icon}
@@ -1172,6 +1181,8 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
           </Stack>
 
           {error ? <Alert severity="error" sx={{ borderRadius: '14px' }}>{error}</Alert> : null}
+
+          <PromoBanner />
 
           <Box>
             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.35rem', fontWeight: 900, mb: 1.2 }}>

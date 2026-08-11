@@ -261,6 +261,9 @@ export type CoinTopUpPlan = {
   title: string
   description: string
   price_rub: number
+  base_price_rub?: number | null
+  promo_active?: boolean
+  promo_discount_percent?: number
   coins: number
 }
 
@@ -288,6 +291,9 @@ export type SubscriptionPlan = {
   title: string
   subtitle: string
   price_rub: number
+  base_price_rub?: number | null
+  promo_active?: boolean
+  promo_discount_percent?: number
   period: string
   monthly_coins: number
   models: string[]
@@ -324,6 +330,9 @@ export type SubscriptionDetail = {
   plan_id: string
   plan_title: string
   price_rub: number
+  base_price_rub?: number | null
+  promo_active?: boolean
+  promo_discount_percent?: number
   status: string
   started_at: string | null
   next_charge_at: string | null

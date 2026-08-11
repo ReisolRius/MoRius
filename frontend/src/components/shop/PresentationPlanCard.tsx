@@ -6,6 +6,8 @@ import perkGemMarkup from '../../assets/images/presentation/perk-gem.svg?raw'
 type PresentationPlanCardProps = {
   title: string
   price: string
+  // Pre-discount price, struck through beside the current one while a promo runs.
+  basePrice?: string | null
   accent: string
   details: string[]
   iconSrc?: string
@@ -56,6 +58,7 @@ function GemBullet({ accent }: { accent: string }) {
 export default function PresentationPlanCard({
   title,
   price,
+  basePrice,
   accent,
   details,
   iconSrc,
@@ -150,6 +153,21 @@ export default function PresentationPlanCard({
           }}
         >
           {price}
+          {basePrice ? (
+            <Box
+              component="span"
+              sx={{
+                ml: 0.8,
+                color: 'rgba(226, 233, 244, 0.62)',
+                textDecoration: 'line-through',
+                fontWeight: 600,
+                fontSize: '0.62em',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {basePrice}
+            </Box>
+          ) : null}
         </Typography>
 
         {balance !== null && balance !== undefined ? (

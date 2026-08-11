@@ -27,6 +27,7 @@ import planCrownIcon from '../../assets/images/presentation/plan-crown.png'
 import planFeatherIcon from '../../assets/images/presentation/plan-feather.png'
 import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 import { formatCheckoutPrice } from '../../utils/paymentPricing'
+import { PromoBanner, isPromoRunning } from '../shop/PromoDiscount'
 
 type TopUpDialogProps = {
   open: boolean
@@ -295,6 +296,8 @@ function TopUpDialog({
               <CircularProgress size={30} />
             </Stack>
           ) : (
+            <Stack spacing={1.6}>
+            <PromoBanner compact />
             <Box
               sx={{
                 display: 'grid',
@@ -311,6 +314,13 @@ function TopUpDialog({
                     key={plan.id}
                     title={plan.title}
                     price={`${plan.price_rub.toLocaleString('ru-RU')} ₽`}
+                    basePrice={
+                      isPromoRunning() &&
+                      typeof plan.base_price_rub === 'number' &&
+                      plan.base_price_rub > plan.price_rub
+                        ? `${plan.base_price_rub.toLocaleString('ru-RU')} ₽`
+                        : null
+                    }
                     accent={card.accent}
                     details={card.lines}
                     iconSrc={card.imageSrc}
@@ -327,6 +337,7 @@ function TopUpDialog({
                 )
               })}
             </Box>
+            </Stack>
           )}
         </Stack>
       </DialogContent>
