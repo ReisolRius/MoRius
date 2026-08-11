@@ -37,6 +37,8 @@ from app.services.auth_identity import (
 )
 from app.services.payments import (
     COIN_TOP_UP_PLANS,
+    get_coin_plans,
+    get_subscription_plans as get_subscription_plans_data,
     FINAL_PAYMENT_STATUSES,
     PAYMENT_PROVIDER,
     SUBSCRIPTION_PERIOD_DAYS,
@@ -99,9 +101,12 @@ def get_coin_top_up_plans() -> CoinPlanListResponse:
                 title=str(plan["title"]),
                 description=str(plan["description"]),
                 price_rub=int(plan["price_rub"]),
+                base_price_rub=int(plan.get("base_price_rub", plan["price_rub"])),
+                promo_active=bool(plan.get("promo_active", False)),
+                promo_discount_percent=int(plan.get("promo_discount_percent", 0)),
                 coins=int(plan["coins"]),
             )
-            for plan in COIN_TOP_UP_PLANS
+            for plan in get_coin_plans()
         ]
     )
 
@@ -122,8 +127,11 @@ def get_subscription_plans() -> SubscriptionPlanListResponse:
                 memory_token_cap=int(plan.get("memory_token_cap", 0)),
                 perks=[str(perk) for perk in plan["perks"]],
                 badge=(str(plan["badge"]) if plan.get("badge") else None),
+                base_price_rub=int(plan.get("base_price_rub", plan["price_rub"])),
+                promo_active=bool(plan.get("promo_active", False)),
+                promo_discount_percent=int(plan.get("promo_discount_percent", 0)),
             )
-            for plan in SUBSCRIPTION_PLANS
+            for plan in get_subscription_plans_data()
         ],
         enabled=is_subscriptions_enabled(),
     )

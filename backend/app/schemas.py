@@ -547,6 +547,9 @@ class CoinPlanOut(BaseModel):
     title: str
     description: str
     price_rub: int
+    base_price_rub: int | None = None
+    promo_active: bool = False
+    promo_discount_percent: int = 0
     coins: int
 
 
@@ -680,6 +683,9 @@ class SubscriptionPlanOut(BaseModel):
     title: str
     subtitle: str
     price_rub: int
+    base_price_rub: int | None = None
+    promo_active: bool = False
+    promo_discount_percent: int = 0
     period: str
     monthly_coins: int
     models: list[str] = Field(default_factory=list)
@@ -718,6 +724,9 @@ class SubscriptionOut(BaseModel):
     plan_id: str
     plan_title: str
     price_rub: int
+    base_price_rub: int | None = None
+    promo_active: bool = False
+    promo_discount_percent: int = 0
     status: str
     started_at: datetime | None = None
     next_charge_at: datetime | None = None

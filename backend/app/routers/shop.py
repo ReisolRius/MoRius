@@ -52,7 +52,7 @@ from app.services.cosmetics import (
     resolve_cosmetic_image_url_by_selection_id,
 )
 from app.services.media import normalize_media_scale, resolve_media_display_url
-from app.services.payments import COIN_TOP_UP_PLANS
+from app.services.payments import COIN_TOP_UP_PLANS, get_coin_plans
 from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC, story_author_avatar_frame_image_url, story_author_name
 from app.services.story_characters import STORY_CHARACTER_VISIBILITY_PUBLIC
 from app.services.story_cards import STORY_TEMPLATE_VISIBILITY_PUBLIC
@@ -146,9 +146,12 @@ def _coin_plans_to_out() -> list[CoinPlanOut]:
             title=str(plan["title"]),
             description=str(plan["description"]),
             price_rub=int(plan["price_rub"]),
+            base_price_rub=int(plan.get("base_price_rub", plan["price_rub"])),
+            promo_active=bool(plan.get("promo_active", False)),
+            promo_discount_percent=int(plan.get("promo_discount_percent", 0)),
             coins=int(plan["coins"]),
         )
-        for plan in COIN_TOP_UP_PLANS
+        for plan in get_coin_plans()
     ]
 
 

@@ -23,6 +23,8 @@ PAYMENT_PROVIDER = "yookassa"
 FINAL_PAYMENT_STATUSES = {"succeeded", "canceled"}
 VOLUNTARY_COMMISSION_RATE = Decimal("0.035")
 _RUBLE_QUANTUM = Decimal("0.01")
+from app.services.promo import apply_promo_to_plan, apply_promo_to_plans
+
 COIN_TOP_UP_PLANS: tuple[dict[str, Any], ...] = (
     {
         "id": "standard",
@@ -147,8 +149,12 @@ def is_subscriptions_enabled() -> bool:
 def get_subscription_plan(plan_id: str) -> dict[str, Any]:
     plan = SUBSCRIPTION_PLANS_BY_ID.get(plan_id)
     if plan:
-        return plan
+        return apply_promo_to_plan(plan)
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown subscription plan")
+
+
+def get_subscription_plans() -> list[dict[str, Any]]:
+    return apply_promo_to_plans(SUBSCRIPTION_PLANS)
 
 
 SUBSCRIPTION_PERIOD_DAYS = 30
@@ -277,8 +283,14 @@ def _raise_if_payments_not_configured() -> None:
 def get_coin_plan(plan_id: str) -> dict[str, Any]:
     plan = COIN_TOP_UP_PLANS_BY_ID.get(plan_id)
     if plan:
-        return plan
+        # Priced here rather than at each call site, so the provider charge, the stored
+        # purchase amount, the receipt and the storefront can never disagree.
+        return apply_promo_to_plan(plan)
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown sol top-up plan")
+
+
+def get_coin_plans() -> list[dict[str, Any]]:
+    return apply_promo_to_plans(COIN_TOP_UP_PLANS)
 
 
 def _normalize_receipt_item_description(raw_value: str) -> str:
