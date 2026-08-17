@@ -33,6 +33,7 @@ import {
   dismissCharacterReportsAsAdmin,
   dismissInstructionTemplateReportsAsAdmin,
   dismissWorldReportsAsAdmin,
+  grantUserSubscriptionAsAdmin,
   getModerationCharacterForAdmin,
   getModerationInstructionTemplateForAdmin,
   getModerationWorldForAdmin,
@@ -308,6 +309,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
   const [userSortMode, setUserSortMode] = useState<AdminUserSortMode>('created_desc')
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
   const [tokenAmountDraft, setTokenAmountDraft] = useState('100')
+  const [subscriptionPlanDraft, setSubscriptionPlanDraft] = useState<'spark' | 'flame' | 'constellation'>('constellation')
   const [banDurationDraft, setBanDurationDraft] = useState('24')
   const [banDurationUnit, setBanDurationUnit] = useState<'hours' | 'days'>('hours')
   const [customTagDraft, setCustomTagDraft] = useState('')
@@ -367,6 +369,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
   )
   useEffect(() => {
     setCustomTagDraft(selectedUser?.profile_tag ?? '')
+    setSubscriptionPlanDraft(selectedUser?.subscription?.plan_id ?? 'constellation')
   }, [selectedUser])
   const usersListContainerRef = useRef<HTMLDivElement | null>(null)
   const usersRequestIdRef = useRef(0)
@@ -875,6 +878,31 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
     },
     [authToken, mergeUpdatedUser, selectedUser, tokenAmountDraft],
   )
+
+  const handleGrantSubscription = useCallback(async () => {
+    if (!selectedUser) {
+      setErrorMessage('Выберите пользователя')
+      return
+    }
+
+    setIsApplyingUserAction(true)
+    setErrorMessage('')
+    setSuccessMessage('')
+    try {
+      const updatedUser = await grantUserSubscriptionAsAdmin({
+        token: authToken,
+        user_id: selectedUser.id,
+        plan_id: subscriptionPlanDraft,
+      })
+      mergeUpdatedUser(updatedUser)
+      setSuccessMessage(`Подписка «${updatedUser.subscription?.plan_title ?? subscriptionPlanDraft}» выдана на 30 дней`)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось выдать подписку'
+      setErrorMessage(detail)
+    } finally {
+      setIsApplyingUserAction(false)
+    }
+  }, [authToken, mergeUpdatedUser, selectedUser, subscriptionPlanDraft])
 
   const handleBan = useCallback(async () => {
     if (!selectedUser) {
@@ -1726,6 +1754,45 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
                           Выдать
                         </Button>
                       </Stack>
+                    </Box>
+
+                    <Box sx={adminActionCardSx}>
+                      <Typography sx={adminActionLabelSx}>Подписка на 30 дней</Typography>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                        <Select
+                          value={subscriptionPlanDraft}
+                          onChange={(event) =>
+                            setSubscriptionPlanDraft(event.target.value as 'spark' | 'flame' | 'constellation')
+                          }
+                          size="small"
+                          disabled={!selectedUser || isApplyingUserAction || !canManageUserRole}
+                          sx={{ flex: 1 }}
+                        >
+                          <MenuItem value="spark">Искра</MenuItem>
+                          <MenuItem value="flame">Пламя</MenuItem>
+                          <MenuItem value="constellation">Созвездие</MenuItem>
+                        </Select>
+                        <Button
+                          onClick={() => void handleGrantSubscription()}
+                          disabled={!selectedUser || isApplyingUserAction || !canManageUserRole}
+                          sx={adminPrimaryButtonSx}
+                        >
+                          Выдать бесплатно
+                        </Button>
+                      </Stack>
+                      <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem', lineHeight: 1.4 }}>
+                        {selectedUser?.subscription
+                          ? `Сейчас: ${selectedUser.subscription.plan_title}. До ${
+                              selectedUser.subscription.next_charge_at
+                                ? new Date(selectedUser.subscription.next_charge_at).toLocaleString('ru-RU')
+                                : 'неизвестной даты'
+                            }. ${
+                              selectedUser.subscription.auto_renew
+                                ? 'Карта привязана — затем сработает обычное автопродление.'
+                                : 'Карты нет — затем подписка закончится.'
+                            }`
+                          : 'Активной подписки нет. Выданный месяц не списывает деньги сразу.'}
+                      </Typography>
                     </Box>
 
                     <Box sx={adminActionCardSx}>

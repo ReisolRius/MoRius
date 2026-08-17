@@ -11,9 +11,8 @@
       "**/*"
     ],
     "android": {
-      "package": "ru.morius.app",
-      "versionCode": 2,
-      "googleServicesFile": "./google-services.json",
+      "package": "morius.ai.rpg",
+      "versionCode": 3,
       "permissions": [
         "android.permission.INTERNET"
       ],

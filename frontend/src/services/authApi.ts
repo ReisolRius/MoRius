@@ -463,6 +463,14 @@ export type AdminManagedUser = {
   ban_expires_at: string | null
   created_at: string
   last_payment_at?: string | null
+  subscription?: {
+    id: number
+    plan_id: 'spark' | 'flame' | 'constellation'
+    plan_title: string
+    next_charge_at: string | null
+    auto_renew: boolean
+    is_admin_grant: boolean
+  } | null
 }
 
 type AdminUserListResponse = {
@@ -1620,6 +1628,24 @@ export async function updateUserTokensAsAdmin(payload: {
         operation: payload.operation,
         amount: payload.amount,
       }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function grantUserSubscriptionAsAdmin(payload: {
+  token: string
+  user_id: number
+  plan_id: 'spark' | 'flame' | 'constellation'
+}): Promise<AdminManagedUser> {
+  return requestJson<AdminManagedUser>(
+    `/api/auth/admin/users/${payload.user_id}/subscription`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({ plan_id: payload.plan_id }),
     },
     AUTH_NETWORK_ERROR,
   )

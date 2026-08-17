@@ -457,6 +457,15 @@ class MaintenanceSettingsOut(BaseModel):
     updated_at: datetime | None = None
 
 
+class AdminUserSubscriptionOut(BaseModel):
+    id: int
+    plan_id: str
+    plan_title: str
+    next_charge_at: datetime | None = None
+    auto_renew: bool = False
+    is_admin_grant: bool = False
+
+
 class AdminUserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -470,6 +479,7 @@ class AdminUserOut(BaseModel):
     ban_expires_at: datetime | None
     created_at: datetime
     last_payment_at: datetime | None = None
+    subscription: AdminUserSubscriptionOut | None = None
 
 
 class AdminUserListResponse(BaseModel):
@@ -481,6 +491,10 @@ class AdminUserListResponse(BaseModel):
 class AdminUserTokensUpdateRequest(BaseModel):
     operation: Literal["add", "subtract"]
     amount: int = Field(ge=1, le=1_000_000_000)
+
+
+class AdminUserSubscriptionGrantRequest(BaseModel):
+    plan_id: Literal["spark", "flame", "constellation"]
 
 
 class AdminUserModeratorUpdateRequest(BaseModel):
@@ -904,6 +918,7 @@ class StoryGameCreateRequest(BaseModel):
     response_max_tokens: int | None = Field(default=None, ge=200, le=3_000)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
+    story_reasoning_enabled: bool | None = None
     image_model: str | None = Field(default=None, max_length=120)
     image_style_prompt: str | None = Field(default=None, max_length=320)
     memory_optimization_enabled: bool | None = None
@@ -953,6 +968,7 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     response_max_tokens_enabled: bool | None = None
     response_token_limit_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
+    story_reasoning_enabled: bool | None = None
     image_model: str | None = Field(default=None, max_length=120)
     image_style_prompt: str | None = Field(default=None, max_length=320)
     memory_optimization_enabled: bool | None = None
@@ -1025,6 +1041,7 @@ class StoryGenerateRequest(BaseModel):
     instructions: list[StoryInstructionCardInput] = Field(default_factory=list, max_length=40)
     smart_regeneration: StorySmartRegenerationRequest | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
+    story_reasoning_enabled: bool | None = None
     response_max_tokens: int | None = Field(default=None, ge=200, le=3_000)
     memory_optimization_enabled: bool | None = None
     story_repetition_penalty: float | None = Field(default=None, ge=1.0, le=2.0)
@@ -1944,6 +1961,7 @@ class StoryGameSummaryOut(BaseModel):
     response_max_tokens_enabled: bool
     response_token_limit_enabled: bool = False
     story_llm_model: str
+    story_reasoning_enabled: bool = False
     image_model: str
     image_style_prompt: str
     memory_optimization_enabled: bool

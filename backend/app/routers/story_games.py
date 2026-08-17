@@ -106,6 +106,7 @@ from app.services.story_games import (
     normalize_story_response_max_tokens,
     normalize_story_response_max_tokens_enabled,
     normalize_story_response_token_limit_enabled,
+    normalize_story_reasoning_enabled,
     normalize_story_game_age_rating,
     normalize_story_game_description,
     normalize_story_game_genres,
@@ -1704,6 +1705,10 @@ def _create_story_game_publication_copy_from_source(
         response_max_tokens_enabled=source_game.response_max_tokens_enabled,
         response_token_limit_enabled=getattr(source_game, "response_token_limit_enabled", False),
         story_llm_model=source_game.story_llm_model,
+        story_reasoning_enabled=normalize_story_reasoning_enabled(
+            getattr(source_game, "story_reasoning_enabled", None),
+            model_name=getattr(source_game, "story_llm_model", None),
+        ),
         image_model=source_game.image_model,
         image_style_prompt=source_game.image_style_prompt,
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(
@@ -1859,6 +1864,7 @@ def list_story_games(
                 StoryGame.response_max_tokens_enabled,
                 StoryGame.response_token_limit_enabled,
                 StoryGame.story_llm_model,
+                StoryGame.story_reasoning_enabled,
                 StoryGame.image_model,
                 StoryGame.memory_optimization_enabled,
                 StoryGame.memory_optimization_mode,
@@ -2198,6 +2204,10 @@ def launch_story_community_world(
             getattr(world, "response_token_limit_enabled", None)
         ),
         story_llm_model=coerce_story_llm_model(getattr(world, "story_llm_model", None)),
+        story_reasoning_enabled=normalize_story_reasoning_enabled(
+            getattr(world, "story_reasoning_enabled", None),
+            model_name=getattr(world, "story_llm_model", None),
+        ),
         image_model=coerce_story_image_model(getattr(world, "image_model", None)),
         image_style_prompt=normalize_story_image_style_prompt(getattr(world, "image_style_prompt", None)),
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(
@@ -2627,6 +2637,10 @@ def create_story_game(
     response_max_tokens = normalize_story_response_max_tokens(payload.response_max_tokens)
     response_max_tokens_enabled = normalize_story_response_max_tokens_enabled(payload.response_max_tokens_enabled)
     story_llm_model = normalize_story_llm_model(payload.story_llm_model)
+    story_reasoning_enabled = normalize_story_reasoning_enabled(
+        payload.story_reasoning_enabled,
+        model_name=story_llm_model,
+    )
     context_limit_chars = normalize_story_context_limit_chars(
         payload.context_limit_chars,
         model_name=story_llm_model,
@@ -2698,6 +2712,7 @@ def create_story_game(
         response_max_tokens_enabled=response_max_tokens_enabled,
         response_token_limit_enabled=False,
         story_llm_model=story_llm_model,
+        story_reasoning_enabled=story_reasoning_enabled,
         image_model=image_model,
         image_style_prompt=image_style_prompt,
         memory_optimization_enabled=memory_optimization_enabled,
@@ -2834,6 +2849,7 @@ def create_story_quick_start_game(
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(None),
         response_token_limit_enabled=False,
         story_llm_model=default_story_llm_model,
+        story_reasoning_enabled=False,
         image_model=normalize_story_image_model(None),
         image_style_prompt=normalize_story_image_style_prompt(None),
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(None),
@@ -2948,6 +2964,10 @@ def clone_story_game(
             getattr(source_game, "response_token_limit_enabled", None)
         ),
         story_llm_model=coerce_story_llm_model(getattr(source_game, "story_llm_model", None)),
+        story_reasoning_enabled=normalize_story_reasoning_enabled(
+            getattr(source_game, "story_reasoning_enabled", None),
+            model_name=getattr(source_game, "story_llm_model", None),
+        ),
         image_model=coerce_story_image_model(getattr(source_game, "image_model", None)),
         image_style_prompt=normalize_story_image_style_prompt(getattr(source_game, "image_style_prompt", None)),
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(
@@ -3234,6 +3254,16 @@ def update_story_game_settings(
         next_story_model = normalize_story_llm_model(payload.story_llm_model)
         game.story_llm_model = next_story_model
     story_model_changed = next_story_model != current_story_model
+    if "story_reasoning_enabled" in payload.model_fields_set:
+        game.story_reasoning_enabled = normalize_story_reasoning_enabled(
+            payload.story_reasoning_enabled,
+            model_name=next_story_model,
+        )
+    elif story_model_changed:
+        game.story_reasoning_enabled = normalize_story_reasoning_enabled(
+            getattr(game, "story_reasoning_enabled", None),
+            model_name=next_story_model,
+        )
     if payload.context_limit_chars is not None:
         game.context_limit_chars = normalize_story_context_limit_chars(
             payload.context_limit_chars,

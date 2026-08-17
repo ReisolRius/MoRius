@@ -618,12 +618,19 @@ def sync_subscription_status(
     if status_value == "succeeded":
         method = _upsert_saved_method_from_payment(db, user, provider_payment_payload)
         now = _utcnow()
+        was_active = subscription.status == "active"
         subscription.status = "active"
         if method is not None:
             subscription.payment_method_id = method.id
-        if subscription.started_at is None:
+        if not was_active:
             subscription.started_at = now
-        subscription.next_charge_at = now + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+            subscription.next_charge_at = now + timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
+            _supersede_other_active_subscriptions(
+                db,
+                user_id=int(user.id),
+                keep_subscription=subscription,
+                now=now,
+            )
         subscription.canceled_at = None
     elif status_value == "canceled":
         subscription.status = "canceled"
@@ -632,6 +639,130 @@ def sync_subscription_status(
     db.commit()
     db.refresh(subscription)
     return subscription
+
+
+def _supersede_other_active_subscriptions(
+    db: Session,
+    *,
+    user_id: int,
+    keep_subscription: Subscription | None,
+    now: datetime,
+) -> None:
+    """Stop every previous active membership when a new tier takes effect.
+
+    A user must never have two subscriptions queued for recurring charges.  Keeping the old row
+    active caused both a stale entitlement (for example Flame after buying Constellation) and a
+    possible second charge at the next billing boundary.
+    """
+    keep_id = int(keep_subscription.id) if keep_subscription is not None and keep_subscription.id is not None else None
+    subscriptions = db.scalars(
+        select(Subscription).where(
+            Subscription.user_id == user_id,
+            Subscription.status == "active",
+        )
+    ).all()
+    for existing in subscriptions:
+        if existing is keep_subscription or (keep_id is not None and int(existing.id) == keep_id):
+            continue
+        existing.status = "canceled"
+        existing.canceled_at = now
+        existing.next_charge_at = None
+
+
+def _recurring_method_for_admin_grant(db: Session, *, user_id: int) -> SavedPaymentMethod | None:
+    """Pick a real saved card, preferring the one used by the current subscription."""
+    active_subscriptions = db.scalars(
+        select(Subscription)
+        .where(Subscription.user_id == user_id, Subscription.status == "active")
+        .order_by(Subscription.started_at.desc(), Subscription.id.desc())
+    ).all()
+    for existing in active_subscriptions:
+        if existing.payment_method_id is None:
+            continue
+        method = db.get(SavedPaymentMethod, existing.payment_method_id)
+        if method is not None and not method.is_demo and str(method.provider_payment_method_id or "").strip():
+            return method
+
+    return db.scalar(
+        select(SavedPaymentMethod)
+        .where(
+            SavedPaymentMethod.user_id == user_id,
+            SavedPaymentMethod.is_demo.is_(False),
+            SavedPaymentMethod.provider_payment_method_id != "",
+        )
+        .order_by(
+            SavedPaymentMethod.is_default.desc(),
+            SavedPaymentMethod.updated_at.desc(),
+            SavedPaymentMethod.id.desc(),
+        )
+    )
+
+
+def grant_subscription_for_one_period(
+    db: Session,
+    *,
+    user: User,
+    plan_id: str,
+    now: datetime | None = None,
+) -> Subscription:
+    """Grant a free 30-day period, then use the ordinary renewal/lapse workflow.
+
+    No payment is created for the granted period.  If the player already has a real saved card,
+    the new subscription is linked to it and the regular recurring job charges the selected tier
+    after 30 days.  Without a card, that job marks the subscription expired instead.
+    """
+    plan = get_subscription_plan(plan_id)
+    current = now or _utcnow()
+    method = _recurring_method_for_admin_grant(db, user_id=int(user.id))
+
+    _supersede_other_active_subscriptions(
+        db,
+        user_id=int(user.id),
+        keep_subscription=None,
+        now=current,
+    )
+    subscription = Subscription(
+        user_id=int(user.id),
+        plan_id=str(plan["id"]),
+        plan_title=str(plan["title"]),
+        price_rub=int(plan["price_rub"]),
+        provider_payment_id=None,
+        status="active",
+        payment_method_id=(int(method.id) if method is not None else None),
+        started_at=current,
+        next_charge_at=current + timedelta(days=SUBSCRIPTION_PERIOD_DAYS),
+        canceled_at=None,
+        is_mock=False,
+    )
+    db.add(subscription)
+    db.flush()
+    return subscription
+
+
+def _repair_duplicate_active_subscriptions(db: Session, *, now: datetime) -> None:
+    """Repair historical users that still have more than one active subscription."""
+    subscriptions = db.scalars(
+        select(Subscription)
+        .where(Subscription.status == "active")
+        .order_by(
+            Subscription.user_id.asc(),
+            Subscription.started_at.desc(),
+            Subscription.id.desc(),
+        )
+    ).all()
+    current_user_id: int | None = None
+    changed = False
+    for subscription in subscriptions:
+        user_id = int(subscription.user_id)
+        if user_id != current_user_id:
+            current_user_id = user_id
+            continue
+        subscription.status = "canceled"
+        subscription.canceled_at = now
+        subscription.next_charge_at = None
+        changed = True
+    if changed:
+        db.commit()
 
 
 def sync_user_pending_subscriptions(db: Session, user: User) -> None:
@@ -666,6 +797,7 @@ def charge_due_subscriptions(db: Session, *, now: datetime | None = None) -> dic
     ``past_due`` (which, combined with the entitlement grace window, ends access).
     """
     current = now or _utcnow()
+    _repair_duplicate_active_subscriptions(db, now=current)
     charged = 0
     failed = 0
     due = db.scalars(

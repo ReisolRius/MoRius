@@ -254,6 +254,7 @@ export type StoryGenerationStreamOptions = {
   }
   instructions?: StoryInstructionCardInput[]
   storyLlmModel?: StoryNarratorModelId
+  storyReasoningEnabled?: boolean
   responseMaxTokens?: number
   memoryOptimizationEnabled?: boolean
   storyRepetitionPenalty?: number
@@ -507,6 +508,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
       typeof game.story_llm_model === 'string'
         ? (game.story_llm_model as StoryGameSummary['story_llm_model'])
         : 'deepseek/deepseek-chat-v3-0324',
+    story_reasoning_enabled: Boolean(game.story_reasoning_enabled),
     image_model:
       typeof game.image_model === 'string'
         ? (game.image_model as StoryGameSummary['image_model'])
@@ -2035,6 +2037,7 @@ export async function updateStoryGameSettings(payload: {
   responseMaxTokensEnabled?: boolean
   responseTokenLimitEnabled?: boolean
   storyLlmModel?: StoryNarratorModelId
+  storyReasoningEnabled?: boolean
   imageModel?: StoryImageModelId
   imageStylePrompt?: string
   memoryOptimizationEnabled?: boolean
@@ -2087,6 +2090,9 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.storyLlmModel === 'string') {
     requestPayload.story_llm_model = payload.storyLlmModel
+  }
+  if (typeof payload.storyReasoningEnabled === 'boolean') {
+    requestPayload.story_reasoning_enabled = payload.storyReasoningEnabled
   }
   if (typeof payload.imageModel === 'string') {
     requestPayload.image_model = payload.imageModel
@@ -2433,6 +2439,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
   if (typeof options.storyLlmModel === 'string') {
     requestPayload.story_llm_model = options.storyLlmModel
+  }
+  if (typeof options.storyReasoningEnabled === 'boolean') {
+    requestPayload.story_reasoning_enabled = options.storyReasoningEnabled
   }
   if (typeof options.responseMaxTokens === 'number') {
     requestPayload.response_max_tokens = options.responseMaxTokens

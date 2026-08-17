@@ -61,8 +61,8 @@ The native Google Sign-In flow is tied to the exact Android package and signing 
 
 Current local APK identity:
 
-- Package name: `ru.morius.app`
-- SHA-1: `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`
+- Package name: `morius.ai.rpg`
+- SHA-1: use the Google Play App Signing certificate fingerprint for production
 - Android OAuth client ID: `990879053044-4u4litr626f2i1s1h19089tovflrovf6.apps.googleusercontent.com`
 - Native sign-in web client ID: `990879053044-vubp6ad3prcllj34ou11rto4vmin6l5k.apps.googleusercontent.com`
 

@@ -73,12 +73,11 @@ GoogleSignin.configure({
 })
 
 const GOOGLE_SIGN_IN_DEVELOPER_ERROR_CODE = '10'
-const GOOGLE_SIGN_IN_ANDROID_PACKAGE = 'ru.morius.app'
-const GOOGLE_SIGN_IN_ANDROID_SHA1 = '5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25'
+const GOOGLE_SIGN_IN_ANDROID_PACKAGE = 'morius.ai.rpg'
 const GOOGLE_SIGN_IN_ANDROID_CONFIG_ERROR_MESSAGE =
   `Google Sign-In is not configured for this Android APK. ` +
   `Create or update an Android OAuth client for package ${GOOGLE_SIGN_IN_ANDROID_PACKAGE} ` +
-  `with SHA-1 ${GOOGLE_SIGN_IN_ANDROID_SHA1}.`
+  `with the SHA-1 of the certificate that signs the installed app.`
 
 function getNativeGoogleSignInErrorMessage(error: unknown): string {
   if (isErrorWithCode(error)) {

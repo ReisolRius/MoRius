@@ -1,4 +1,16 @@
 x-backend-polza-env: &backend_polza_env
+  # Cozy Village. В общем якоре, а не только у контейнера cozy: игра смонтирована ещё и в
+  # gateway с монолитом (см. app/cozy/mount.py), а compose передаёт внутрь только то, что
+  # перечислено у сервиса. Переменные у одного сервиса, а маршруты у другого - это ровно тот
+  # случай, когда всё поднялось, health отвечает, а вход говорит "не настроен".
+  COZY_GOOGLE_CLIENT_ID: "${COZY_GOOGLE_CLIENT_ID:-}"
+  COZY_GOOGLE_CLIENT_SECRET: "${COZY_GOOGLE_CLIENT_SECRET:-}"
+  COZY_GOOGLE_REDIRECT_URI: "${COZY_GOOGLE_REDIRECT_URI:-https://morius-ai.ru/api/cozy/auth/google/callback}"
+  COZY_DATABASE_NAME: "${COZY_DATABASE_NAME:-cozyvillage}"
+  COZY_YOOKASSA_SHOP_ID: "${COZY_YOOKASSA_SHOP_ID:-}"
+  COZY_YOOKASSA_SECRET_KEY: "${COZY_YOOKASSA_SECRET_KEY:-}"
+  COZY_YOOKASSA_RETURN_URL: "${COZY_YOOKASSA_RETURN_URL:-https://morius-ai.ru/api/cozy/payments/done}"
+  COZY_YOOKASSA_WEBHOOK_TOKEN: "${COZY_YOOKASSA_WEBHOOK_TOKEN:-}"
   GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
   YANDEX_CLIENT_ID: "${YANDEX_CLIENT_ID:-3f055a1e58f842b2a514685408003fd4}"
   YANDEX_REDIRECT_URI: "${YANDEX_REDIRECT_URI:-https://morius-ai.ru/api/auth/callback/yandex}"
@@ -156,6 +168,56 @@ services:
       timeout: 5s
       retries: 6
 
+  # Cozy Village. Same image, its own mode, its own database on the same Postgres server -
+  # COZY_DATABASE_NAME is a separate database, not a schema and not a prefix, so a game account
+  # and a MoRius account cannot collide even by accident.
+  cozy:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *backend_polza_env
+      APP_MODE: cozy
+      PORT: 8004
+      DB_BOOTSTRAP_ON_STARTUP: "false"
+      DATABASE_URL: postgresql+psycopg://morius:${POSTGRES_PASSWORD:-change_me}@postgres:5432/morius
+      APP_TRUST_PROXY_HEADERS: "true"
+      APP_FORWARDED_ALLOW_IPS: "*"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_secret_for_production}
+      # Letters go out through the same mailer MoRius uses; only the wording is the game's.
+      RESEND_API_KEY: "${RESEND_API_KEY:-}"
+      RESEND_FROM_EMAIL: "${RESEND_FROM_EMAIL:-}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM_EMAIL: "${SMTP_FROM_EMAIL:-}"
+      SMTP_FROM_NAME: "${SMTP_FROM_NAME:-Rius Games}"
+      SMTP_USE_TLS: "${SMTP_USE_TLS:-true}"
+      SMTP_USE_SSL: "${SMTP_USE_SSL:-false}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      # Left empty on purpose: the settings fall back to GOOGLE_CLIENT_ID above, and a nested
+      # default here would depend on which Compose version is on the box.
+      COZY_GOOGLE_CLIENT_ID: "${COZY_GOOGLE_CLIENT_ID:-}"
+      COZY_GOOGLE_CLIENT_SECRET: "${COZY_GOOGLE_CLIENT_SECRET:-}"
+      COZY_GOOGLE_REDIRECT_URI: "${COZY_GOOGLE_REDIRECT_URI:-https://morius-ai.ru/api/cozy/auth/google/callback}"
+      # Empty until the game's own ЮKassa shop exists; the shop screen reads /payments/status and
+      # says so out loud rather than offering a button that does nothing.
+      COZY_YOOKASSA_SHOP_ID: "${COZY_YOOKASSA_SHOP_ID:-}"
+      COZY_YOOKASSA_SECRET_KEY: "${COZY_YOOKASSA_SECRET_KEY:-}"
+      COZY_YOOKASSA_RETURN_URL: "${COZY_YOOKASSA_RETURN_URL:-https://morius-ai.ru/api/cozy/payments/done}"
+      COZY_YOOKASSA_WEBHOOK_TOKEN: "${COZY_YOOKASSA_WEBHOOK_TOKEN:-}"
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY_COZY:-1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/api/health', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
   frontend:
     build:
       context: ./frontend
@@ -185,6 +247,10 @@ services:
         condition: service_healthy
       payments:
         condition: service_healthy
+      # Started, not healthy: nginx only needs the name to resolve when it comes up, and the site
+      # must not wait on the game - or fail to start because of it.
+      cozy:
+        condition: service_started
       frontend:
         condition: service_healthy
     ports:

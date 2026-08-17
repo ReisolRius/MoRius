@@ -166,21 +166,28 @@ STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32_000
 STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64_000
 STORY_TURN_COST_TIER_5_CONTEXT_LIMIT_MAX = 128_000
 STORY_TURN_COST_DEEPSEEK_TIERS = (4, 5, 6, 7, 12)
-STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS = (5, 6, 8, 12, 22)
+STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS = (5, 6, 8, 12, 20)
+STORY_TURN_COST_DEEPSEEK_R1_TIERS = (7, 8, 10, 14, 22)
 STORY_TURN_COST_GLM47_FLASH_TIERS = (4, 4, 4, 5, 5)
 STORY_TURN_COST_GLM47_TIERS = (6, 7, 8, 10, 16)
-STORY_TURN_COST_AION_TIERS = (6, 8, 10, 16, 28)
-STORY_TURN_COST_AION3_TIERS = (16, 18, 22, 32, 50)
+STORY_TURN_COST_AION_TIERS = (8, 10, 12, 18, 30)
+STORY_TURN_COST_AION3_TIERS = (20, 22, 26, 36, 54)
 STORY_TURN_COST_COGITO_TIERS = (7, 9, 14, 24, 44)
 STORY_TURN_COST_MINIMAX_M2_HER_TIERS = (6, 8, 10, 16, 28)
 STORY_TURN_COST_QWEN_TIERS = (6, 8, 10, 16, 28)
 STORY_TURN_COST_GLM5_TIERS = (6, 8, 10, 14, 24)
-STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS = (5, 6, 8, 12, 20)
-STORY_TURN_COST_GEMINI_25_PRO_TIERS = (16, 18, 22, 32, 50)
+STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS = (6, 7, 9, 13, 21)
+STORY_TURN_COST_GEMINI_25_PRO_TIERS = (17, 19, 23, 33, 51)
 STORY_TURN_COST_GLM51_TIERS = (8, 10, 14, 20, 36)
 STORY_TURN_COST_GLM52_TIERS = (8, 10, 14, 20, 36)
-STORY_TURN_COST_GEMINI_31_PRO_TIERS = (18, 24, 30, 50, 85)
+STORY_TURN_COST_GEMINI_31_PRO_TIERS = (22, 28, 34, 54, 89)
 STORY_TURN_COST_CLAUDE_SONNET_TIERS = (22, 30, 40, 72, 120)
+STORY_TURN_COST_KIMI_K26_TIERS = (5, 6, 8, 12, 20)
+STORY_TURN_COST_KIMI_K3_TIERS = (22, 30, 40, 72, 120)
+STORY_REASONING_MAX_TOKENS = 2_048
+STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS = 128
+STORY_REASONING_GEMINI_31_PRO_BASE_TOKENS = 1_024
+STORY_REASONING_GEMINI_3_MIN_TOKENS = 512
 STORY_ENVIRONMENT_TIME_MODE_SERVICE = "service"
 STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 3
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
@@ -190,7 +197,7 @@ STORY_LLM_MODEL_GLM47_FLASH = "z-ai/glm-4.7-flash"
 STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
 STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
 STORY_LLM_MODEL_DEEPSEEK_V3 = "deepseek/deepseek-chat-v3-0324"
-STORY_LLM_MODEL_DEEPSEEK_V4_PRO = "deepseek/deepseek-v4-pro"
+STORY_LLM_MODEL_DEEPSEEK_V4_PRO = "deepseek/deepseek-v4-pro-0813"
 STORY_LLM_MODEL_DEEPSEEK_R1 = "deepseek/deepseek-r1-0528"
 STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
 STORY_LLM_MODEL_AION_2 = "aion-labs/aion-2.0"
@@ -202,6 +209,8 @@ STORY_LLM_MODEL_CLAUDE_SONNET_46 = "anthropic/claude-sonnet-4.6"
 STORY_LLM_MODEL_GEMINI_25_PRO = "google/gemini-2.5-pro"
 STORY_LLM_MODEL_GEMINI_31_PRO = "google/gemini-3.1-pro-preview"
 STORY_LLM_MODEL_QWEN37_PLUS = "qwen/qwen3.7-plus"
+STORY_LLM_MODEL_KIMI_K26 = "moonshotai/kimi-k2.6"
+STORY_LLM_MODEL_KIMI_K3 = "moonshotai/kimi-k3"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V3
 
 # Subscription-only narrator models (accessible ONLY with an active subscription or admin
@@ -221,6 +230,7 @@ STORY_SUBSCRIPTION_LLM_MODELS = {
 # NOTE: do not alias "google/gemini-3-flash-preview" here — it is a real subscription model id.
 STORY_LLM_MODEL_LEGACY_ALIASES: dict[str, str] = {
     "google/gemini-3-flash": STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
+    "deepseek/deepseek-v4-pro": STORY_LLM_MODEL_DEEPSEEK_V4_PRO,
 }
 STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
@@ -242,10 +252,81 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GEMINI_25_PRO,
     STORY_LLM_MODEL_GEMINI_31_PRO,
     STORY_LLM_MODEL_QWEN37_PLUS,
+    STORY_LLM_MODEL_KIMI_K26,
+    STORY_LLM_MODEL_KIMI_K3,
     *STORY_SUBSCRIPTION_LLM_MODELS,
+}
+
+# Models where the player can buy reasoning above the model's free/base mode. For models
+# with unavoidable thinking, False means the cheapest supported level and True means the
+# enhanced level. Always-reasoning models without a controllable level are intentionally
+# omitted: their cost is already included in the base turn tiers above.
+STORY_REASONING_SUPPORTED_LLM_MODELS = {
+    STORY_LLM_MODEL_GLM5,
+    STORY_LLM_MODEL_GLM51,
+    STORY_LLM_MODEL_GLM52,
+    STORY_LLM_MODEL_GLM47_FLASH,
+    STORY_LLM_MODEL_GLM47,
+    STORY_LLM_MODEL_DEEPSEEK_V32,
+    STORY_LLM_MODEL_DEEPSEEK_V4_PRO,
+    STORY_LLM_MODEL_COGITO,
+    STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
+    STORY_LLM_MODEL_CLAUDE_SONNET_46,
+    STORY_LLM_MODEL_GEMINI_25_PRO,
+    STORY_LLM_MODEL_GEMINI_31_PRO,
+    STORY_LLM_MODEL_QWEN37_PLUS,
+    STORY_LLM_MODEL_KIMI_K26,
+    STORY_LLM_MODEL_KIMI_K3,
+    *STORY_SUBSCRIPTION_LLM_MODELS,
+}
+
+# These models cannot truthfully be described as having reasoning switched off. Gemini
+# exposes a cheaper minimum level; Aion and DeepSeek R1 expose no reliable off/effort mode
+# through RouterAI, so they always use the bounded base budget and have no paid toggle.
+STORY_REASONING_MINIMUM_LLM_MODELS = {
+    STORY_LLM_MODEL_AION_2,
+    STORY_LLM_MODEL_AION_3,
+    STORY_LLM_MODEL_DEEPSEEK_R1,
+    STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
+    STORY_LLM_MODEL_GEMINI_25_PRO,
+    STORY_LLM_MODEL_GEMINI_31_PRO,
+    STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW,
+}
+STORY_REASONING_FIXED_LLM_MODELS = {
+    STORY_LLM_MODEL_AION_2,
+    STORY_LLM_MODEL_AION_3,
+    STORY_LLM_MODEL_DEEPSEEK_R1,
+}
+
+# Incremental add-on above the model's off/minimum mode. Values are model-specific and
+# based on RouterAI's 2026-08-17 reasoning/completion rates, the least expensive sol pack
+# (0.856 RUB/sol), and a 2.5x safety multiplier for tax, payment and routing variance.
+STORY_REASONING_SURCHARGE_BY_MODEL: dict[str, int] = {
+    STORY_LLM_MODEL_GLM5: 2,
+    STORY_LLM_MODEL_GLM51: 2,
+    STORY_LLM_MODEL_GLM52: 2,
+    STORY_LLM_MODEL_GLM47_FLASH: 1,
+    STORY_LLM_MODEL_GLM47: 2,
+    STORY_LLM_MODEL_DEEPSEEK_V32: 1,
+    STORY_LLM_MODEL_DEEPSEEK_V4_PRO: 2,
+    STORY_LLM_MODEL_COGITO: 1,
+    STORY_LLM_MODEL_GEMINI_31_FLASH_LITE: 1,
+    STORY_LLM_MODEL_CLAUDE_SONNET_46: 10,
+    STORY_LLM_MODEL_GEMINI_25_PRO: 6,
+    STORY_LLM_MODEL_GEMINI_31_PRO: 4,
+    STORY_LLM_MODEL_QWEN37_PLUS: 1,
+    STORY_LLM_MODEL_KIMI_K26: 2,
+    STORY_LLM_MODEL_KIMI_K3: 9,
+    STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH: 1,
+    STORY_LLM_MODEL_SUB_GEMINI_25_FLASH_LITE: 1,
+    STORY_LLM_MODEL_SUB_GLM_45_AIR: 1,
+    STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW: 2,
 }
 STORY_EXTENDED_CONTEXT_LLM_MODELS = {
     STORY_LLM_MODEL_GLM51,
+    STORY_LLM_MODEL_DEEPSEEK_V4_PRO,
+    STORY_LLM_MODEL_KIMI_K26,
+    STORY_LLM_MODEL_KIMI_K3,
 }
 STORY_TURN_COST_STANDARD_LLM_MODELS = {
     STORY_LLM_MODEL_GLM47_FLASH,
@@ -322,6 +403,8 @@ STORY_MODEL_SAMPLING_PROFILES: dict[str, dict[str, float]] = {
     STORY_LLM_MODEL_GEMINI_25_PRO: {"temperature": 1.05, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.00},
     STORY_LLM_MODEL_GEMINI_31_PRO: {"temperature": 1.10, "top_r": 0.97, "top_k": 128, "repetition_penalty": 1.00},
     STORY_LLM_MODEL_QWEN37_PLUS: {"temperature": 0.85, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_KIMI_K26: {"temperature": 0.90, "top_r": 0.95, "top_k": 50, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_KIMI_K3: {"temperature": 0.85, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.03},
     STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH: {"temperature": 0.85, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_SUB_GEMINI_25_FLASH_LITE: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.06},
     STORY_LLM_MODEL_SUB_GLM_45_AIR: {"temperature": 0.82, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.06},
@@ -618,6 +701,57 @@ def normalize_story_response_token_limit_enabled(value: bool | None) -> bool:
     return bool(value)
 
 
+def is_story_reasoning_supported_model(model_name: str | None) -> bool:
+    return coerce_story_llm_model(model_name) in STORY_REASONING_SUPPORTED_LLM_MODELS
+
+
+def is_story_reasoning_minimum_model(model_name: str | None) -> bool:
+    return coerce_story_llm_model(model_name) in STORY_REASONING_MINIMUM_LLM_MODELS
+
+
+def is_story_reasoning_fixed_model(model_name: str | None) -> bool:
+    return coerce_story_llm_model(model_name) in STORY_REASONING_FIXED_LLM_MODELS
+
+
+def get_story_reasoning_reserved_tokens(
+    model_name: str | None,
+    *,
+    reasoning_enabled: bool,
+) -> int:
+    normalized_model_name = coerce_story_llm_model(model_name)
+    if reasoning_enabled and is_story_reasoning_supported_model(normalized_model_name):
+        return STORY_REASONING_MAX_TOKENS
+    if normalized_model_name == STORY_LLM_MODEL_GEMINI_25_PRO:
+        return STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS
+    if normalized_model_name == STORY_LLM_MODEL_GEMINI_31_PRO:
+        return STORY_REASONING_GEMINI_31_PRO_BASE_TOKENS
+    if normalized_model_name in {
+        STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
+        STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW,
+    }:
+        return STORY_REASONING_GEMINI_3_MIN_TOKENS
+    if normalized_model_name in STORY_REASONING_FIXED_LLM_MODELS:
+        return STORY_REASONING_MAX_TOKENS
+    return 0
+
+
+def normalize_story_reasoning_enabled(value: bool | None, *, model_name: str | None = None) -> bool:
+    if value is None or not bool(value):
+        return False
+    return is_story_reasoning_supported_model(model_name)
+
+
+def get_story_reasoning_surcharge_tokens(
+    model_name: str | None,
+    *,
+    reasoning_enabled: bool,
+) -> int:
+    normalized_model_name = coerce_story_llm_model(model_name)
+    if not normalize_story_reasoning_enabled(reasoning_enabled, model_name=normalized_model_name):
+        return 0
+    return max(int(STORY_REASONING_SURCHARGE_BY_MODEL.get(normalized_model_name, 0)), 0)
+
+
 def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, int, int, int]:
     normalized_model_name = coerce_story_llm_model(model_name)
     if normalized_model_name == STORY_LLM_MODEL_GLM47:
@@ -644,10 +778,16 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
         return STORY_TURN_COST_CLAUDE_SONNET_TIERS
     if normalized_model_name == STORY_LLM_MODEL_GEMINI_31_PRO:
         return STORY_TURN_COST_GEMINI_31_PRO_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_KIMI_K26:
+        return STORY_TURN_COST_KIMI_K26_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_KIMI_K3:
+        return STORY_TURN_COST_KIMI_K3_TIERS
     if normalized_model_name in {STORY_LLM_MODEL_DEEPSEEK_V32, STORY_LLM_MODEL_DEEPSEEK_V3}:
         return STORY_TURN_COST_DEEPSEEK_TIERS
-    if normalized_model_name in {STORY_LLM_MODEL_DEEPSEEK_V4_PRO, STORY_LLM_MODEL_DEEPSEEK_R1}:
+    if normalized_model_name == STORY_LLM_MODEL_DEEPSEEK_V4_PRO:
         return STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_DEEPSEEK_R1:
+        return STORY_TURN_COST_DEEPSEEK_R1_TIERS
     if normalized_model_name == STORY_LLM_MODEL_QWEN37_PLUS:
         return STORY_TURN_COST_QWEN_TIERS
     if normalized_model_name == STORY_LLM_MODEL_GLM47_FLASH:
@@ -689,11 +829,11 @@ def normalize_story_llm_model(value: str | None) -> str:
             detail=(
                 "Unsupported story model. "
                 "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-5.2, z-ai/glm-4.7-flash, z-ai/glm-4.7, "
-                "deepseek/deepseek-v3.2, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v4-pro, "
+                "deepseek/deepseek-v3.2, deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v4-pro-0813, "
                 "deepseek/deepseek-r1-0528, mistralai/mistral-nemo, "
                 "aion-labs/aion-2.0, aion-labs/aion-3.0, deepcogito/cogito-v2.1-671b, minimax/minimax-m2-her, google/gemini-3.1-flash-lite, "
                 "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, google/gemini-3.1-pro-preview, "
-                "qwen/qwen3.7-plus"
+                "qwen/qwen3.7-plus, moonshotai/kimi-k2.6, moonshotai/kimi-k3"
             ),
         )
     return normalized
@@ -1315,6 +1455,10 @@ def story_game_summary_to_out(
             getattr(game, "response_token_limit_enabled", None)
         ),
         story_llm_model=normalized_story_model,
+        story_reasoning_enabled=normalize_story_reasoning_enabled(
+            getattr(game, "story_reasoning_enabled", None),
+            model_name=normalized_story_model,
+        ),
         image_model=coerce_story_image_model(getattr(game, "image_model", None)),
         image_style_prompt=normalize_story_image_style_prompt(getattr(game, "image_style_prompt", None)),
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(
@@ -1485,6 +1629,10 @@ def story_game_summary_to_compact_out(
             getattr(game, "response_token_limit_enabled", None)
         ),
         story_llm_model=normalized_story_model,
+        story_reasoning_enabled=normalize_story_reasoning_enabled(
+            getattr(game, "story_reasoning_enabled", None),
+            model_name=normalized_story_model,
+        ),
         image_model=coerce_story_image_model(getattr(game, "image_model", None)),
         image_style_prompt="",
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(

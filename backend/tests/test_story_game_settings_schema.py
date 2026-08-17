@@ -21,9 +21,15 @@ from app.services.story_games import (  # noqa: E402
     STORY_DEFAULT_TOP_K,
     STORY_DEFAULT_TOP_R,
     STORY_MODEL_SAMPLING_PROFILES,
+    STORY_REASONING_SURCHARGE_BY_MODEL,
     coerce_story_image_model,
     coerce_story_llm_model,
+    get_story_reasoning_reserved_tokens,
+    get_story_reasoning_surcharge_tokens,
     get_story_turn_cost_tokens,
+    is_story_reasoning_fixed_model,
+    is_story_reasoning_minimum_model,
+    is_story_reasoning_supported_model,
     normalize_story_appearance_background_mode,
     normalize_story_appearance_color,
     normalize_story_appearance_gradient_enabled,
@@ -43,6 +49,50 @@ from app.services.story_runtime import (  # noqa: E402
 
 
 class StoryGameSettingsSchemaTests(unittest.TestCase):
+    def test_reasoning_enhancement_is_off_by_default_and_tracked_when_sent(self) -> None:
+        omitted = StoryGameSettingsUpdateRequest()
+        enabled = StoryGameSettingsUpdateRequest(story_reasoning_enabled=True)
+        created = StoryGameCreateRequest(story_reasoning_enabled=True)
+
+        self.assertIsNone(omitted.story_reasoning_enabled)
+        self.assertTrue(enabled.story_reasoning_enabled)
+        self.assertIn("story_reasoning_enabled", enabled.model_fields_set)
+        self.assertTrue(created.story_reasoning_enabled)
+
+    def test_reasoning_surcharges_match_supported_model_catalog(self) -> None:
+        self.assertEqual(get_story_reasoning_surcharge_tokens("google/gemini-2.5-pro", reasoning_enabled=True), 6)
+        self.assertEqual(
+            get_story_reasoning_surcharge_tokens("google/gemini-3.1-pro-preview", reasoning_enabled=True),
+            4,
+        )
+        self.assertEqual(get_story_reasoning_surcharge_tokens("anthropic/claude-sonnet-4.6", reasoning_enabled=True), 10)
+        self.assertEqual(get_story_reasoning_surcharge_tokens("google/gemini-2.5-pro", reasoning_enabled=False), 0)
+        self.assertFalse(is_story_reasoning_supported_model("minimax/minimax-m2-her"))
+        self.assertEqual(get_story_reasoning_surcharge_tokens("minimax/minimax-m2-her", reasoning_enabled=True), 0)
+        self.assertFalse(is_story_reasoning_supported_model("aion-labs/aion-2.0"))
+        self.assertTrue(is_story_reasoning_minimum_model("aion-labs/aion-2.0"))
+        self.assertTrue(is_story_reasoning_fixed_model("aion-labs/aion-2.0"))
+        self.assertEqual(get_story_reasoning_surcharge_tokens("aion-labs/aion-2.0", reasoning_enabled=True), 0)
+        self.assertTrue(all(value > 0 for value in STORY_REASONING_SURCHARGE_BY_MODEL.values()))
+
+    def test_unavoidable_reasoning_reserves_base_tokens(self) -> None:
+        self.assertEqual(
+            get_story_reasoning_reserved_tokens("google/gemini-2.5-pro", reasoning_enabled=False),
+            128,
+        )
+        self.assertEqual(
+            get_story_reasoning_reserved_tokens("google/gemini-3.1-pro-preview", reasoning_enabled=False),
+            1_024,
+        )
+        self.assertEqual(
+            get_story_reasoning_reserved_tokens("google/gemini-3.1-pro-preview", reasoning_enabled=True),
+            2_048,
+        )
+        self.assertEqual(
+            get_story_reasoning_reserved_tokens("deepseek/deepseek-r1-0528", reasoning_enabled=False),
+            2_048,
+        )
+
     def test_canonical_admin_fields_exist_when_omitted(self) -> None:
         payload = StoryGameSettingsUpdateRequest(story_llm_model="z-ai/glm-5.1")
 
@@ -83,6 +133,14 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             128_000,
         )
         self.assertEqual(
+            normalize_story_context_limit_chars(128_000, model_name="moonshotai/kimi-k2.6"),
+            128_000,
+        )
+        self.assertEqual(
+            normalize_story_context_limit_chars(128_000, model_name="moonshotai/kimi-k3"),
+            128_000,
+        )
+        self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="aion-labs/aion-2.0"),
             108_000,
         )
@@ -120,6 +178,15 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             ),
             128_000,
         )
+        for model_name in ("moonshotai/kimi-k2.6", "moonshotai/kimi-k3"):
+            self.assertEqual(
+                monolith_main._effective_story_context_limit_tokens(
+                    128_000,
+                    model_name=model_name,
+                    response_max_tokens=3_000,
+                ),
+                128_000,
+            )
 
     def test_dialogue_transport_protocol_precedes_player_instruction_cards(self) -> None:
         prompt = monolith_main._build_story_system_prompt(
@@ -142,14 +209,18 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 36)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.2"), 20)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.2"), 20)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 16)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 28)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 18)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 30)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 14)
 
     def test_new_polza_models_have_planned_turn_costs(self) -> None:
         self.assertEqual(
+            coerce_story_llm_model("deepseek/deepseek-v4-pro-0813"),
+            "deepseek/deepseek-v4-pro-0813",
+        )
+        self.assertEqual(
             coerce_story_llm_model("deepseek/deepseek-v4-pro"),
-            "deepseek/deepseek-v4-pro",
+            "deepseek/deepseek-v4-pro-0813",
         )
         self.assertEqual(
             coerce_story_llm_model("deepseek/deepseek-r1-0528"),
@@ -167,17 +238,26 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             coerce_story_llm_model("google/gemini-3.1-flash-lite"),
             "google/gemini-3.1-flash-lite",
         )
-        self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-v4-pro"), 5)
-        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-v4-pro"), 6)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-v4-pro"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v4-pro"), 12)
-        self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-r1-0528"), 5)
-        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-r1-0528"), 6)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-r1-0528"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-r1-0528"), 12)
         self.assertEqual(
-            normalize_story_context_limit_chars(128_000, model_name="deepseek/deepseek-v4-pro"),
-            64_000,
+            coerce_story_llm_model("moonshotai/kimi-k2.6"),
+            "moonshotai/kimi-k2.6",
+        )
+        self.assertEqual(
+            coerce_story_llm_model("moonshotai/kimi-k3"),
+            "moonshotai/kimi-k3",
+        )
+        self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-v4-pro-0813"), 5)
+        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-v4-pro-0813"), 6)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-v4-pro-0813"), 8)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v4-pro-0813"), 12)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "deepseek/deepseek-v4-pro-0813"), 20)
+        self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-r1-0528"), 7)
+        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-r1-0528"), 8)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-r1-0528"), 10)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-r1-0528"), 14)
+        self.assertEqual(
+            normalize_story_context_limit_chars(128_000, model_name="deepseek/deepseek-v4-pro-0813"),
+            128_000,
         )
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="deepseek/deepseek-r1-0528"),
@@ -187,36 +267,42 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             normalize_story_context_limit_chars(128_000, model_name="z-ai/glm-5.2"),
             64_000,
         )
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-2.5-pro"), 22)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-2.5-pro"), 23)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 40)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 72)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-pro-preview"), 30)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-pro-preview"), 34)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "z-ai/glm-4.7"), 8)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "minimax/minimax-m2-her"), 10)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-flash-lite"), 8)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-flash-lite"), 9)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k2.6"), 8)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.6"), 20)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k3"), 40)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k3"), 120)
 
     def test_turn_cost_table_matches_product_matrix(self) -> None:
         # The last column is the cost actually charged past 64k, not the raw 5th tier
         # constant: usage is clamped to the model's own context ceiling first, so for the
-        # models capped at 64k it necessarily equals their 64k price. Only GLM 5.1 (128k)
-        # and Aion 2.0 (108k) can reach their 5th tier at all.
+        # models capped at 64k it necessarily equals their 64k price. DeepSeek V4 Pro,
+        # GLM 5.1 and both Kimi models (128k), plus Aion 2.0 (108k), reach tier five.
         expected_rows = {
             "z-ai/glm-4.7-flash": (4, 4, 4, 5, 5),
             "deepseek/deepseek-v3.2": (4, 5, 6, 7, 7),
-            "deepseek/deepseek-v4-pro": (5, 6, 8, 12, 12),
-            "deepseek/deepseek-r1-0528": (5, 6, 8, 12, 12),
+            "deepseek/deepseek-v4-pro-0813": (5, 6, 8, 12, 20),
+            "deepseek/deepseek-r1-0528": (7, 8, 10, 14, 14),
             "z-ai/glm-4.7": (6, 7, 8, 10, 10),
             "z-ai/glm-5": (6, 8, 10, 14, 14),
-            "aion-labs/aion-2.0": (6, 8, 10, 16, 28),
-            "aion-labs/aion-3.0": (16, 18, 22, 32, 32),
+            "aion-labs/aion-2.0": (8, 10, 12, 18, 30),
+            "aion-labs/aion-3.0": (20, 22, 26, 36, 36),
             "deepcogito/cogito-v2.1-671b": (7, 9, 14, 24, 24),
             "minimax/minimax-m2-her": (6, 8, 10, 16, 16),
-            "google/gemini-3.1-flash-lite": (5, 6, 8, 12, 12),
+            "google/gemini-3.1-flash-lite": (6, 7, 9, 13, 13),
             "z-ai/glm-5.1": (8, 10, 14, 20, 36),
             "z-ai/glm-5.2": (8, 10, 14, 20, 20),
-            "google/gemini-2.5-pro": (16, 18, 22, 32, 32),
-            "google/gemini-3.1-pro-preview": (18, 24, 30, 50, 50),
+            "google/gemini-2.5-pro": (17, 19, 23, 33, 33),
+            "google/gemini-3.1-pro-preview": (22, 28, 34, 54, 54),
             "anthropic/claude-sonnet-4.6": (22, 30, 40, 72, 72),
+            "moonshotai/kimi-k2.6": (5, 6, 8, 12, 20),
+            "moonshotai/kimi-k3": (22, 30, 40, 72, 120),
         }
         usage_by_tier = (6_000, 6_001, 16_001, 32_001, 64_001)
         for model_name, expected_costs in expected_rows.items():
@@ -253,7 +339,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "z-ai/glm-4.7-flash": {"temperature": 0.90, "top_r": 0.95, "top_k": 40, "repetition_penalty": 1.10},
             "deepseek/deepseek-v3.2": {"temperature": 0.75, "top_r": 0.90, "top_k": 40, "repetition_penalty": 1.10},
             "deepseek/deepseek-chat-v3-0324": {"temperature": 0.75, "top_r": 0.90, "top_k": 40, "repetition_penalty": 1.10},
-            "deepseek/deepseek-v4-pro": {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
+            "deepseek/deepseek-v4-pro-0813": {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
             "deepseek/deepseek-r1-0528": {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
             "z-ai/glm-4.7": {"temperature": 0.85, "top_r": 0.95, "top_k": 50, "repetition_penalty": 1.08},
             "z-ai/glm-5": {"temperature": 0.90, "top_r": 0.95, "top_k": 60, "repetition_penalty": 1.05},
@@ -264,6 +350,8 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "google/gemini-2.5-pro": {"temperature": 1.05, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.00},
             "google/gemini-3.1-pro-preview": {"temperature": 1.10, "top_r": 0.97, "top_k": 128, "repetition_penalty": 1.00},
             "anthropic/claude-sonnet-4.6": {"temperature": 0.90, "top_r": 1.00, "top_k": 0, "repetition_penalty": 1.00},
+            "moonshotai/kimi-k2.6": {"temperature": 0.90, "top_r": 0.95, "top_k": 50, "repetition_penalty": 1.05},
+            "moonshotai/kimi-k3": {"temperature": 0.85, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.03},
         }
 
         for model_name, expected_profile in expected_profiles.items():
@@ -273,7 +361,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
     def test_deepseek_v4_pro_gets_tuned_sampling_defaults(self) -> None:
         # The problem model: keep top_k unconstrained and a calm repetition penalty; the
         # formatting discipline is enforced by the prompt + sanitizer, not by clamping prose.
-        model_name = "deepseek/deepseek-v4-pro"
+        model_name = "deepseek/deepseek-v4-pro-0813"
         self.assertEqual(normalize_story_temperature(None, model_name=model_name), 0.70)
         self.assertEqual(normalize_story_top_r(None, model_name=model_name), 0.90)
         self.assertEqual(normalize_story_top_k(None, model_name=model_name), 0)
@@ -292,6 +380,8 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "google/gemini-2.5-pro": (1.05, (64, 0.95), None),
             "google/gemini-3.1-pro-preview": (1.10, (128, 0.97), None),
             "anthropic/claude-sonnet-4.6": (0.90, (None, None), None),
+            "moonshotai/kimi-k2.6": (0.90, (50, 0.95), 1.5),
+            "moonshotai/kimi-k3": (0.85, (64, 0.95), 1.5),
         }
 
         for model_name, (temperature, sampling, repetition_penalty) in expected_policy.items():
@@ -326,6 +416,30 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
                     story_generation_provider._select_story_presence_penalty_value(model_name=model_name)
                 )
 
+    def test_paid_reasoning_models_default_to_disabled_thinking(self) -> None:
+        appliers = (
+            monolith_main._apply_polza_story_reasoning_preferences,
+            story_generation_provider._apply_polza_story_reasoning_preferences,
+        )
+        for applier in appliers:
+            for model_name in (
+                "deepseek/deepseek-v4-pro-0813",
+                "moonshotai/kimi-k2.6",
+                "moonshotai/kimi-k3",
+            ):
+                payload: dict[str, object] = {}
+
+                applier(payload, model_name=model_name)
+
+                self.assertEqual(payload["reasoning"], {"enabled": False, "exclude": True})
+
+                enabled_payload: dict[str, object] = {}
+                applier(enabled_payload, model_name=model_name, reasoning_enabled=True)
+                self.assertEqual(
+                    enabled_payload["reasoning"],
+                    {"enabled": True, "max_tokens": 2_048, "exclude": True},
+                )
+
     def test_unknown_model_falls_back_to_global_sampling_defaults(self) -> None:
         # An unprofiled / unknown model id keeps the global defaults.
         model_name = "some/unknown-model"
@@ -340,7 +454,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
 
     def test_explicit_player_sampling_values_override_per_model_defaults(self) -> None:
         # An explicit value always wins over the per-model default, so players keep control.
-        model_name = "deepseek/deepseek-v4-pro"
+        model_name = "deepseek/deepseek-v4-pro-0813"
         self.assertEqual(normalize_story_temperature(1.5, model_name=model_name), 1.5)
         self.assertEqual(normalize_story_top_r(0.5, model_name=model_name), 0.5)
         self.assertEqual(normalize_story_top_k(120, model_name=model_name), 120)
@@ -402,7 +516,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
 
         self.assertEqual(cost, 10)
 
-    def test_subscription_turn_charge_is_zero_even_with_base_and_module_costs(self) -> None:
+    def test_subscription_turn_charge_only_keeps_reasoning_add_on(self) -> None:
         self.assertEqual(
             _resolve_story_turn_charge_tokens(
                 is_subscription_turn=True,
@@ -413,11 +527,21 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         )
         self.assertEqual(
             _resolve_story_turn_charge_tokens(
+                is_subscription_turn=True,
+                base_cost_tokens=65,
+                service_surcharge_tokens=7,
+                reasoning_surcharge_tokens=2,
+            ),
+            2,
+        )
+        self.assertEqual(
+            _resolve_story_turn_charge_tokens(
                 is_subscription_turn=False,
                 base_cost_tokens=10,
                 service_surcharge_tokens=7,
+                reasoning_surcharge_tokens=2,
             ),
-            17,
+            19,
         )
 
     def test_runtime_turn_cost_is_capped_by_selected_context_limit(self) -> None:

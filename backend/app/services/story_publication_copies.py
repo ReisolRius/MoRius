@@ -260,6 +260,7 @@ def upsert_story_game_publication_copy_from_source(
             response_max_tokens_enabled=normalized_source.response_max_tokens_enabled,
             response_token_limit_enabled=normalized_source.response_token_limit_enabled,
             story_llm_model=normalized_source.story_llm_model,
+            story_reasoning_enabled=normalized_source.story_reasoning_enabled,
             image_model=normalized_source.image_model,
             image_style_prompt=normalized_source.image_style_prompt,
             memory_optimization_enabled=normalized_source.memory_optimization_enabled,
@@ -336,6 +337,7 @@ def upsert_story_game_publication_copy_from_source(
     publication.response_max_tokens_enabled = normalized_source.response_max_tokens_enabled
     publication.response_token_limit_enabled = normalized_source.response_token_limit_enabled
     publication.story_llm_model = normalized_source.story_llm_model
+    publication.story_reasoning_enabled = normalized_source.story_reasoning_enabled
     publication.image_model = normalized_source.image_model
     publication.image_style_prompt = normalized_source.image_style_prompt
     publication.memory_optimization_enabled = normalized_source.memory_optimization_enabled

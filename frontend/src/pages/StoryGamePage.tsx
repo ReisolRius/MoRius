@@ -259,6 +259,7 @@ type WorldDetailTypeAutocompleteOption = {
 
 type StorySettingsOverride = {
   storyLlmModel: StoryNarratorModelId
+  storyReasoningEnabled?: boolean
   responseMaxTokens: number
   responseMaxTokensEnabled: boolean
   responseTokenLimitEnabled?: boolean
@@ -919,23 +920,65 @@ const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
 const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
 const STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64000
 const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [4, 5, 6, 7, 12]
-const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [5, 6, 8, 12, 22]
+const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [5, 6, 8, 12, 20]
+const STORY_TURN_COST_DEEPSEEK_R1_TIERS: readonly [number, number, number, number, number] = [7, 8, 10, 14, 22]
 const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [4, 4, 4, 5, 5]
 const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [6, 7, 8, 10, 16]
-const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
-const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [16, 18, 22, 32, 50]
+const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [8, 10, 12, 18, 30]
+const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [20, 22, 26, 36, 54]
 const STORY_TURN_COST_COGITO_TIERS: readonly [number, number, number, number, number] = [7, 9, 14, 24, 44]
 const STORY_TURN_COST_MINIMAX_M2_HER_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
 const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 14, 24]
-const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [5, 6, 8, 12, 20]
-const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [16, 18, 22, 32, 50]
+const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [6, 7, 9, 13, 21]
+const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [17, 19, 23, 33, 51]
 const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 36]
 const STORY_TURN_COST_GLM52_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 36]
-const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [18, 24, 30, 50, 85]
+const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [22, 28, 34, 54, 89]
 const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [22, 30, 40, 72, 120]
 const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
+const STORY_TURN_COST_KIMI_K26_TIERS: readonly [number, number, number, number, number] = [5, 6, 8, 12, 20]
+const STORY_TURN_COST_KIMI_K3_TIERS: readonly [number, number, number, number, number] = [22, 30, 40, 72, 120]
+const STORY_REASONING_MAX_TOKENS = 2048
+const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, number>> = {
+  'z-ai/glm-5': 2,
+  'z-ai/glm-5.1': 2,
+  'z-ai/glm-5.2': 2,
+  'z-ai/glm-4.7-flash': 1,
+  'z-ai/glm-4.7': 2,
+  'deepseek/deepseek-v3.2': 1,
+  'deepseek/deepseek-v4-pro-0813': 2,
+  'deepcogito/cogito-v2.1-671b': 1,
+  'google/gemini-3.1-flash-lite': 1,
+  'anthropic/claude-sonnet-4.6': 10,
+  'google/gemini-2.5-pro': 6,
+  'google/gemini-3.1-pro-preview': 4,
+  'qwen/qwen3.7-plus': 1,
+  'moonshotai/kimi-k2.6': 2,
+  'moonshotai/kimi-k3': 9,
+  'deepseek/deepseek-v4-flash': 1,
+  'google/gemini-2.5-flash-lite': 1,
+  'z-ai/glm-4.5-air': 1,
+  'google/gemini-3-flash-preview': 2,
+}
+const STORY_REASONING_MINIMUM_MODEL_IDS = new Set<StoryNarratorModelId>([
+  'aion-labs/aion-2.0',
+  'aion-labs/aion-3.0',
+  'deepseek/deepseek-r1-0528',
+  'google/gemini-3.1-flash-lite',
+  'google/gemini-2.5-pro',
+  'google/gemini-3.1-pro-preview',
+  'google/gemini-3-flash-preview',
+])
+const STORY_REASONING_FIXED_MODEL_IDS = new Set<StoryNarratorModelId>([
+  'aion-labs/aion-2.0',
+  'aion-labs/aion-3.0',
+  'deepseek/deepseek-r1-0528',
+])
 const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-5.1',
+  'deepseek/deepseek-v4-pro-0813',
+  'moonshotai/kimi-k2.6',
+  'moonshotai/kimi-k3',
 ])
 const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-4.7-flash',
@@ -1182,7 +1225,7 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopR: 0.9,
   },
   // Reasoning-профиль: низкая температура, top-k отключён.
-  'deepseek/deepseek-v4-pro': {
+  'deepseek/deepseek-v4-pro-0813': {
     storyTemperature: 0.7,
     storyRepetitionPenalty: 1.05,
     storyTopK: 0,
@@ -1260,6 +1303,18 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyRepetitionPenalty: 1.05,
     storyTopK: 50,
     storyTopR: 0.92,
+  },
+  'moonshotai/kimi-k2.6': {
+    storyTemperature: 0.9,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 50,
+    storyTopR: 0.95,
+  },
+  'moonshotai/kimi-k3': {
+    storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.03,
+    storyTopK: 64,
+    storyTopR: 0.95,
   },
   'deepseek/deepseek-v4-flash': {
     storyTemperature: 0.85,
@@ -1380,10 +1435,10 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
-    id: 'deepseek/deepseek-v4-pro',
+    id: 'deepseek/deepseek-v4-pro-0813',
     title: 'DeepSeek V4 Pro',
     description:
-      'Продвинутая модель DeepSeek для сложных сцен, устойчивой причинности и глубокого ведения персонажей. Контекст ограничен 64000 токенов.',
+      'Обновлённый DeepSeek V4 Pro 0813 для сложных сцен, устойчивой причинности и глубокого ведения персонажей. До 128K контекста; режим рассуждения управляется отдельно.',
     portraitSrc: narratorVelesPortrait,
     portraitAlt: 'DeepSeek V4 Pro',
     stats: [
@@ -1510,6 +1565,32 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
+    id: 'moonshotai/kimi-k2.6',
+    title: 'Kimi K2.6',
+    description:
+      'Универсальный рассказчик Moonshot AI с сильной памятью и живыми ансамблевыми сценами. До 128K контекста; стоимость хода — 5/6/8/12/20 солов.',
+    portraitSrc: narratorFreyaPortrait,
+    portraitAlt: 'Kimi K2.6',
+    stats: [
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 4 },
+    ],
+  },
+  {
+    id: 'moonshotai/kimi-k3',
+    title: 'Kimi K3',
+    description:
+      'Флагман Moonshot AI для сложных долгих историй: удерживает дальние сюжетные дуги, мотивы и последствия. До 128K контекста; стоимость — 22/30/40/72/120 солов.',
+    portraitSrc: narratorVelesPortrait,
+    portraitAlt: 'Kimi K3',
+    stats: [
+      { label: 'Интеллект', value: 5 },
+      { label: 'Скорость', value: 3 },
+      { label: 'Глубина', value: 5 },
+    ],
+  },
+  {
     id: 'anthropic/claude-sonnet-4.6',
     title: 'Claude Sonnet 4.6',
     description:
@@ -1632,6 +1713,17 @@ function formatRussianTurnsLabel(count: number): string {
   if (mod100 < 11 || mod100 > 14) {
     if (mod10 === 1) word = 'ход'
     else if (mod10 >= 2 && mod10 <= 4) word = 'хода'
+  }
+  return `${safeCount} ${word}`
+}
+function formatRussianSolsLabel(count: number): string {
+  const safeCount = Math.max(0, Math.trunc(count))
+  const mod100 = safeCount % 100
+  const mod10 = safeCount % 10
+  let word = 'солов'
+  if (mod100 < 11 || mod100 > 14) {
+    if (mod10 === 1) word = 'сол'
+    else if (mod10 >= 2 && mod10 <= 4) word = 'сола'
   }
   return `${safeCount} ${word}`
 }
@@ -5968,8 +6060,17 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'qwen/qwen3.7-plus') {
     return STORY_TURN_COST_QWEN_TIERS
   }
-  if (modelId === 'deepseek/deepseek-v4-pro' || modelId === 'deepseek/deepseek-r1-0528') {
+  if (modelId === 'moonshotai/kimi-k2.6') {
+    return STORY_TURN_COST_KIMI_K26_TIERS
+  }
+  if (modelId === 'moonshotai/kimi-k3') {
+    return STORY_TURN_COST_KIMI_K3_TIERS
+  }
+  if (modelId === 'deepseek/deepseek-v4-pro-0813') {
     return STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS
+  }
+  if (modelId === 'deepseek/deepseek-r1-0528') {
+    return STORY_TURN_COST_DEEPSEEK_R1_TIERS
   }
   if (modelId === 'deepseek/deepseek-v3.2' || modelId === 'deepseek/deepseek-chat-v3-0324') {
     return STORY_TURN_COST_DEEPSEEK_TIERS
@@ -5993,11 +6094,18 @@ function getStoryTurnCostTooltipText(): string {
     '16001–32000 — 6 ед.',
     '32001–64000 — 7 ед.',
     '',
-    'DeepSeek V4 Pro / R1:',
+    'DeepSeek V4 Pro:',
     'до 6000 — 5 ед.',
     '6001–16000 — 6 ед.',
     '16001–32000 — 8 ед.',
     '32001–64000 — 12 ед.',
+    '64001–128000 — 20 ед.',
+    '',
+    'DeepSeek R1:',
+    'до 6000 — 7 ед.',
+    '6001–16000 — 8 ед.',
+    '16001–32000 — 10 ед.',
+    '32001–64000 — 14 ед.',
     '',
     'GLM 4.7:',
     'до 6000 — 6 ед.',
@@ -6012,17 +6120,17 @@ function getStoryTurnCostTooltipText(): string {
     '32001–64000 — 14 ед.',
     '',
     'AionLabs:',
-    'до 6000 — 6 ед.',
-    '6001–16000 — 8 ед.',
-    '16001–32000 — 10 ед.',
-    '32001–64000 — 16 ед.',
-    '64001–108000 — 28 ед.',
+    'до 6000 — 8 ед.',
+    '6001–16000 — 10 ед.',
+    '16001–32000 — 12 ед.',
+    '32001–64000 — 18 ед.',
+    '64001–108000 — 30 ед.',
     '',
     'Aion 3.0:',
-    'до 6000 — 16 ед.',
-    '6001–16000 — 18 ед.',
-    '16001–32000 — 22 ед.',
-    '32001–64000 — 32 ед.',
+    'до 6000 — 20 ед.',
+    '6001–16000 — 22 ед.',
+    '16001–32000 — 26 ед.',
+    '32001–64000 — 36 ед.',
     '',
     'Deep Cogito:',
     'до 6000 — 7 ед.',
@@ -6031,10 +6139,10 @@ function getStoryTurnCostTooltipText(): string {
     '32001–64000 — 24 ед.',
     '',
     'Gemini 3.1 Flash Lite:',
-    'до 6000 — 5 ед.',
-    '6001–16000 — 6 ед.',
-    '16001–32000 — 8 ед.',
-    '32001–64000 — 12 ед.',
+    'до 6000 — 6 ед.',
+    '6001–16000 — 7 ед.',
+    '16001–32000 — 9 ед.',
+    '32001–64000 — 13 ед.',
     '',
     'GLM 5.1:',
     'до 6000 — 8 ед.',
@@ -6050,22 +6158,36 @@ function getStoryTurnCostTooltipText(): string {
     '32001–64000 — 20 ед.',
     '',
     'Gemini 2.5 Pro:',
-    'до 6000 — 16 ед.',
-    '6001–16000 — 18 ед.',
-    '16001–32000 — 22 ед.',
-    '32001–64000 — 32 ед.',
+    'до 6000 — 17 ед.',
+    '6001–16000 — 19 ед.',
+    '16001–32000 — 23 ед.',
+    '32001–64000 — 33 ед.',
     '',
     'Gemini 3.1 Pro:',
-    'до 6000 — 18 ед.',
-    '6001–16000 — 24 ед.',
-    '16001–32000 — 30 ед.',
-    '32001–64000 — 50 ед.',
+    'до 6000 — 22 ед.',
+    '6001–16000 — 28 ед.',
+    '16001–32000 — 34 ед.',
+    '32001–64000 — 54 ед.',
     '',
     'Qwen 3.7 Plus:',
     'до 6000 — 6 ед.',
     '6001–16000 — 8 ед.',
     '16001–32000 — 10 ед.',
     '32001–64000 — 16 ед.',
+    '',
+    'Kimi K2.6:',
+    'до 6000 — 5 ед.',
+    '6001–16000 — 6 ед.',
+    '16001–32000 — 8 ед.',
+    '32001–64000 — 12 ед.',
+    '64001–128000 — 20 ед.',
+    '',
+    'Kimi K3:',
+    'до 6000 — 22 ед.',
+    '6001–16000 — 30 ед.',
+    '16001–32000 — 40 ед.',
+    '32001–64000 — 72 ед.',
+    '64001–128000 — 120 ед.',
     '',
     'Claude Sonnet 4.6:',
     'до 6000 — 22 ед.',
@@ -6079,17 +6201,18 @@ function getStoryTurnCostTooltipText(): string {
 function StoryTurnCostTooltipContent() {
   const rows = [
     { title: 'DeepSeek V3/V3.2', values: ['4', '5', '6', '7', '—'] },
-    { title: 'DeepSeek V4 Pro / R1', values: ['5', '6', '8', '12', '—'] },
+    { title: 'DeepSeek V4 Pro', values: ['5', '6', '8', '12', '20'] },
+    { title: 'DeepSeek R1', values: ['7', '8', '10', '14', '—'] },
     { title: 'GLM 4.7', values: ['6', '7', '8', '10', '—'] },
     { title: 'GLM 5.0', values: ['6', '8', '10', '14', '—'] },
-    { title: 'AionLabs', values: ['6', '8', '10', '16', '28'] },
-    { title: 'Aion 3.0', values: ['16', '18', '22', '32', '—'] },
+    { title: 'AionLabs', values: ['8', '10', '12', '18', '30'] },
+    { title: 'Aion 3.0', values: ['20', '22', '26', '36', '—'] },
     { title: 'Deep Cogito', values: ['7', '9', '14', '24', '—'] },
-    { title: 'Gemini 3.1 Flash Lite', values: ['5', '6', '8', '12', '—'] },
+    { title: 'Gemini 3.1 Flash Lite', values: ['6', '7', '9', '13', '—'] },
     { title: 'GLM 5.1', values: ['8', '10', '14', '20', '36'] },
     { title: 'GLM 5.2', values: ['8', '10', '14', '20', '—'] },
-    { title: 'Gemini 2.5 Pro', values: ['16', '18', '22', '32', '—'] },
-    { title: 'Gemini 3.1 Pro', values: ['18', '24', '30', '50', '—'] },
+    { title: 'Gemini 2.5 Pro', values: ['17', '19', '23', '33', '—'] },
+    { title: 'Gemini 3.1 Pro', values: ['22', '28', '34', '54', '—'] },
     { title: 'Qwen 3.7 Plus', values: ['6', '8', '10', '16', '—'] },
     { title: 'Claude 4.6', values: ['22', '30', '40', '72', '—'] },
   ]
@@ -6107,6 +6230,9 @@ function StoryTurnCostTooltipContent() {
           </Typography>
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', lineHeight: 1.32 }}>
             Модули: время +1, авто-состояния/автокарточки вместе +1, граф ИИ до +5 с возвратом неиспользованного.
+          </Typography>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', lineHeight: 1.32 }}>
+            Для reasoning-only моделей обязательный минимальный уровень уже включён. Усиление и модули показываются отдельной надбавкой.
           </Typography>
         </Stack>
         <Box
@@ -6189,6 +6315,7 @@ function StoryTurnCostTooltipContent() {
 function getStoryTurnCostTokens(
   contextUsageTokens: number,
   narratorModelId: StoryNarratorModelId,
+  reasoningEnabled: boolean,
   ambientEnabled: boolean,
   environmentTimeEnabled = false,
   characterAutomationEnabled = false,
@@ -6219,7 +6346,27 @@ function getStoryTurnCostTokens(
   if (graphAiEnabled) {
     totalCost += 5
   }
+  totalCost += getStoryReasoningSurchargeTokens(narratorModelId, reasoningEnabled)
   return totalCost
+}
+
+function isStoryReasoningSupportedModel(modelId: StoryNarratorModelId): boolean {
+  return typeof STORY_REASONING_SURCHARGE_BY_MODEL[modelId] === 'number'
+}
+
+function isStoryReasoningMinimumModel(modelId: StoryNarratorModelId): boolean {
+  return STORY_REASONING_MINIMUM_MODEL_IDS.has(modelId)
+}
+
+function isStoryReasoningFixedModel(modelId: StoryNarratorModelId): boolean {
+  return STORY_REASONING_FIXED_MODEL_IDS.has(modelId)
+}
+
+function getStoryReasoningSurchargeTokens(modelId: StoryNarratorModelId, reasoningEnabled: boolean): number {
+  if (!reasoningEnabled) {
+    return 0
+  }
+  return STORY_REASONING_SURCHARGE_BY_MODEL[modelId] ?? 0
 }
 
 function clampStoryTopK(value: number): number {
@@ -6255,7 +6402,10 @@ function clampStoryTemperature(value: number): number {
 
 function normalizeStoryNarratorModelId(value: string | null | undefined): StoryNarratorModelId {
   const rawValue = (value ?? '').trim()
-  const normalized = rawValue as StoryNarratorModelId
+  const legacyNarratorModelAliases: Record<string, StoryNarratorModelId> = {
+    'deepseek/deepseek-v4-pro': 'deepseek/deepseek-v4-pro-0813',
+  }
+  const normalized = (legacyNarratorModelAliases[rawValue] ?? rawValue) as StoryNarratorModelId
   if (STORY_NARRATOR_MODEL_OPTIONS.some((option) => option.id === normalized)) {
     return normalized
   }
@@ -8211,6 +8361,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isSavingResponseMaxTokensEnabled = false
   const [isSavingResponseTokenLimit, setIsSavingResponseTokenLimit] = useState(false)
   const [storyLlmModel, setStoryLlmModel] = useState<StoryNarratorModelId>(STORY_DEFAULT_NARRATOR_MODEL_ID)
+  const [storyReasoningEnabled, setStoryReasoningEnabled] = useState(false)
   const [storyImageModel, setStoryImageModel] = useState<StoryImageModelId>(STORY_DEFAULT_IMAGE_MODEL_ID)
   const [imageStylePromptDraft, setImageStylePromptDraft] = useState('')
   const [memoryOptimizationEnabled, setMemoryOptimizationEnabled] = useState(true)
@@ -8310,6 +8461,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     suppressClick: false,
   })
   const [isSavingStoryLlmModel, setIsSavingStoryLlmModel] = useState(false)
+  const [isSavingStoryReasoning, setIsSavingStoryReasoning] = useState(false)
   const [isSavingStoryImageModel, setIsSavingStoryImageModel] = useState(false)
   const [isSavingImageStylePrompt, setIsSavingImageStylePrompt] = useState(false)
   const [isSavingMemoryOptimization, setIsSavingMemoryOptimization] = useState(false)
@@ -8779,6 +8931,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       STORY_NARRATOR_MODEL_OPTIONS[0],
     [storyLlmModel],
   )
+  const storyReasoningSupported = isStoryReasoningSupportedModel(storyLlmModel)
+  const storyReasoningMinimum = isStoryReasoningMinimumModel(storyLlmModel)
+  const storyReasoningFixed = isStoryReasoningFixedModel(storyLlmModel)
+  const storyReasoningSurchargeTokens = STORY_REASONING_SURCHARGE_BY_MODEL[storyLlmModel] ?? 0
   const unlockedSubscriptionModelIds = useMemo(
     () => new Set<StoryNarratorModelId>((user.subscription?.models ?? []) as StoryNarratorModelId[]),
     [user.subscription],
@@ -8861,6 +9017,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setAppearanceTextStyle(normalizeStoryAppearanceTextStyle(runtimeGame.appearance_text_style))
     if (override) {
       setStoryLlmModel(override.storyLlmModel)
+      setStoryReasoningEnabled(
+        isStoryReasoningSupportedModel(override.storyLlmModel) &&
+          (typeof override.storyReasoningEnabled === 'boolean'
+            ? override.storyReasoningEnabled
+            : Boolean(runtimeGame.story_reasoning_enabled)),
+      )
       setResponseMaxTokens(clampStoryResponseMaxTokens(override.responseMaxTokens))
       setResponseMaxTokensEnabled(override.responseMaxTokensEnabled)
       setResponseTokenLimitEnabled(
@@ -8909,6 +9071,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (typeof runtimeGame.story_llm_model === 'string' && runtimeGame.story_llm_model.trim().length > 0) {
       setStoryLlmModel(normalizedRuntimeStoryModel)
     }
+    setStoryReasoningEnabled(
+      isStoryReasoningSupportedModel(normalizedRuntimeStoryModel) && Boolean(runtimeGame.story_reasoning_enabled),
+    )
     setMemoryOptimizationEnabled(true)
     setMemoryOptimizationMode(normalizedRuntimeMemoryOptimizationMode)
     if (typeof runtimeGame.story_temperature === 'number') {
@@ -9712,10 +9877,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const currentTurnCostTokens = useMemo(
     () =>
       isSubscriptionNarratorSelected
-        ? 0
+        ? getStoryReasoningSurchargeTokens(storyLlmModel, storyReasoningEnabled)
         : getStoryTurnCostTokens(
             Math.min(cardsContextCharsUsed, contextLimitChars),
             storyLlmModel,
+            storyReasoningEnabled,
             effectiveAmbientEnabled,
             environmentTimeEnabled,
             characterStateEnabled || autoNpcCardsEnabled,
@@ -9730,10 +9896,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       environmentTimeEnabled,
       graphAiEnabledForTurnCost,
       isSubscriptionNarratorSelected,
+      storyReasoningEnabled,
       storyLlmModel,
     ],
   )
-  const hasInsufficientTokensForTurn = !isSubscriptionNarratorSelected && user.coins < currentTurnCostTokens
+  const hasInsufficientTokensForTurn = user.coins < currentTurnCostTokens
   const composerStatusLabel = isFinalizingStoryTurn
     ? storyPostprocessLabel
     : isStoryGenerationActive
@@ -9775,6 +9942,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingResponseMaxTokens ||
     isSavingResponseMaxTokensEnabled ||
     isSavingStoryLlmModel ||
+    isSavingStoryReasoning ||
     isSavingStoryImageModel ||
     isSavingImageStylePrompt ||
     isSavingMemoryOptimization ||
@@ -12890,6 +13058,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setResponseMaxTokens(STORY_DEFAULT_RESPONSE_MAX_TOKENS)
           setResponseMaxTokensEnabled(false)
           setStoryLlmModel(STORY_DEFAULT_NARRATOR_MODEL_ID)
+          setStoryReasoningEnabled(false)
           setStoryImageModel(STORY_DEFAULT_IMAGE_MODEL_ID)
           setImageStylePromptDraft('')
           imageStylePromptByGameRef.current = {}
@@ -15564,6 +15733,47 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     storyLlmModel,
   ])
 
+  const toggleStoryReasoningEnabled = useCallback(async () => {
+    const targetGameId = activeGameId
+    if (
+      !targetGameId ||
+      !isStoryReasoningSupportedModel(storyLlmModel) ||
+      isSavingStorySettings ||
+      isGenerating
+    ) {
+      return
+    }
+
+    const previousValue = storyReasoningEnabled
+    const nextValue = !previousValue
+    setStoryReasoningEnabled(nextValue)
+    setErrorMessage('')
+    setIsSavingStoryReasoning(true)
+    try {
+      const updatedGame = await updateStoryGameSettings({
+        token: authToken,
+        gameId: targetGameId,
+        storyReasoningEnabled: nextValue,
+      })
+      setStoryReasoningEnabled(Boolean(updatedGame.story_reasoning_enabled))
+      applyUpdatedGameSummary(updatedGame)
+    } catch (error) {
+      setStoryReasoningEnabled(previousValue)
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить режим рассуждения'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingStoryReasoning(false)
+    }
+  }, [
+    activeGameId,
+    applyUpdatedGameSummary,
+    authToken,
+    isGenerating,
+    isSavingStorySettings,
+    storyLlmModel,
+    storyReasoningEnabled,
+  ])
+
   const persistStoryNarratorModel = useCallback(
     async (nextModelId: StoryNarratorModelId) => {
       const targetGameId = activeGameId
@@ -15589,6 +15799,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
       const nextSamplingDefaults = getStoryNarratorSamplingDefaults(normalizedModel)
       const previousStoryLlmModel = storyLlmModel
+      const previousStoryReasoningEnabled = storyReasoningEnabled
+      const nextStoryReasoningEnabled =
+        isStoryReasoningSupportedModel(normalizedModel) && previousStoryReasoningEnabled
       const previousStoryTemperature = storyTemperature
       const previousStoryRepetitionPenalty = storyRepetitionPenalty
       const previousMemoryOptimizationEnabled = memoryOptimizationEnabled
@@ -15603,6 +15816,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const previousContextLimitDraft = contextLimitDraft
       const nextContextLimitChars = clampStoryContextLimit(contextLimitChars, normalizedModel, subscriptionMemoryCap)
       setStoryLlmModel(normalizedModel)
+      setStoryReasoningEnabled(nextStoryReasoningEnabled)
       setContextLimitChars(nextContextLimitChars)
       setContextLimitDraft(String(nextContextLimitChars))
       setStoryTemperature(nextSamplingDefaults.storyTemperature)
@@ -15615,6 +15829,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         [targetGameId]: {
           ...previousOverrides[targetGameId],
           storyLlmModel: normalizedModel,
+          storyReasoningEnabled: nextStoryReasoningEnabled,
           responseMaxTokens: previousResponseMaxTokens,
           responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
           memoryOptimizationEnabled: previousMemoryOptimizationEnabled,
@@ -15635,6 +15850,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           token: authToken,
           gameId: targetGameId,
           storyLlmModel: normalizedModel,
+          storyReasoningEnabled: nextStoryReasoningEnabled,
           contextLimitTokens: nextContextLimitChars,
           responseMaxTokens: previousResponseMaxTokens,
           responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
@@ -15668,6 +15884,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             ? clampStoryTopR(updatedGame.story_top_r)
             : nextSamplingDefaults.storyTopR
         setStoryLlmModel(persistedModel)
+        const persistedStoryReasoningEnabled = Boolean(updatedGame.story_reasoning_enabled)
+        setStoryReasoningEnabled(persistedStoryReasoningEnabled)
         setStoryTemperature(persistedTemperature)
         setStoryRepetitionPenalty(persistedRepetitionPenalty)
         setStoryRepetitionPenaltyDraft(persistedRepetitionPenalty.toFixed(2))
@@ -15678,6 +15896,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           [targetGameId]: {
             ...previousOverrides[targetGameId],
             storyLlmModel: persistedModel,
+            storyReasoningEnabled: persistedStoryReasoningEnabled,
             responseMaxTokens: previousResponseMaxTokens,
             responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
             memoryOptimizationEnabled: previousMemoryOptimizationEnabled,
@@ -15713,6 +15932,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         )
       } catch (error) {
         setStoryLlmModel(previousStoryLlmModel)
+        setStoryReasoningEnabled(previousStoryReasoningEnabled)
         setContextLimitChars(previousContextLimitChars)
         setContextLimitDraft(previousContextLimitDraft)
         setStoryTemperature(previousStoryTemperature)
@@ -15725,6 +15945,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           [targetGameId]: {
             ...previousOverrides[targetGameId],
             storyLlmModel: previousStoryLlmModel,
+            storyReasoningEnabled: previousStoryReasoningEnabled,
             responseMaxTokens: previousResponseMaxTokens,
             responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
             memoryOptimizationEnabled: previousMemoryOptimizationEnabled,
@@ -15770,6 +15991,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       storyTopK,
       storyTopR,
       storyLlmModel,
+      storyReasoningEnabled,
     ],
   )
 
@@ -17864,6 +18086,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             }))
             .filter((card) => card.title.length > 0 && card.content.length > 0),
           storyLlmModel,
+          storyReasoningEnabled,
           // Switchable response-token limit removed from UI; backend applies the hidden ceiling.
           responseMaxTokens: undefined,
           memoryOptimizationEnabled,
@@ -18265,6 +18488,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       streamingAssistantTextStore,
       mainHeroDisplayNameForTags,
       storyLlmModel,
+      storyReasoningEnabled,
       storyRepetitionPenalty,
       storyTemperature,
       storyTopK,
@@ -23626,6 +23850,42 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           </Typography>
                         </Box>
                       ) : null}
+                      <Box
+                        sx={{
+                          mt: 0.15,
+                          px: 0.9,
+                          borderRadius: '14px',
+                          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, transparent)',
+                        }}
+                      >
+                        <RightPanelSettingRow
+                          title={storyReasoningMinimum ? 'Уровень рассуждения' : 'Режим рассуждения'}
+                          description={
+                            storyReasoningFixed
+                              ? 'Базовый · рассуждение обязательно, его стоимость уже включена в цену хода'
+                              : storyReasoningSupported && storyReasoningMinimum
+                                ? storyReasoningEnabled
+                                  ? `Усиленный · резерв до ${STORY_REASONING_MAX_TOKENS} токенов · +${formatRussianSolsLabel(storyReasoningSurchargeTokens)} за ход`
+                                  : `Минимальный · обязательная часть уже включена в цену хода`
+                                : storyReasoningSupported
+                              ? storyReasoningEnabled
+                                ? `Включён · до ${STORY_REASONING_MAX_TOKENS} токенов · +${formatRussianSolsLabel(storyReasoningSurchargeTokens)} за ход`
+                                : `Выключен · включение добавит ${formatRussianSolsLabel(storyReasoningSurchargeTokens)} к ходу`
+                              : 'Эта модель не поддерживает управляемый режим рассуждения'
+                          }
+                          checked={storyReasoningFixed || (storyReasoningSupported && storyReasoningEnabled)}
+                          disabled={storyReasoningFixed || !storyReasoningSupported || isSavingStorySettings || isGenerating}
+                          onToggle={() => void toggleStoryReasoningEnabled()}
+                          tooltip={
+                            storyReasoningFixed
+                              ? 'Эта модель всегда рассуждает. Неизбежные расходы уже учтены в базовой цене хода.'
+                              : storyReasoningMinimum
+                                ? 'Минимальный уровень используется по умолчанию. Платное усиление увеличивает глубину рассуждения.'
+                                : 'Дополнительный внутренний анализ модели. По умолчанию выключен; стоимость зависит от выбранного рассказчика.'
+                          }
+                        />
+                      </Box>
                     </Stack>
                   </Box>
 
@@ -28755,10 +29015,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     isSubscriptionNarratorSelected ? (
                       <Stack spacing={0.35} sx={{ p: 0.35, maxWidth: 290 }}>
                         <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 900 }}>
-                          Ход по подписке
+                          {currentTurnCostTokens > 0 ? 'Ход по подписке + рассуждение' : 'Ход по подписке'}
                         </Typography>
                         <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.35 }}>
-                          Солы не списываются. Будет использован 1 подписочный ход. Доступно:{' '}
+                          {currentTurnCostTokens > 0
+                            ? `Будет использован 1 подписочный ход и ${formatRussianSolsLabel(currentTurnCostTokens)} за режим рассуждения. Доступно: `
+                            : 'Солы не списываются. Будет использован 1 подписочный ход. Доступно: '}
                           {formatRussianTurnsLabel(user.subscription?.daily_turns_remaining ?? 0)}.
                         </Typography>
                       </Stack>
@@ -28799,9 +29061,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       flexShrink: 0,
                     }}
                   >
-                    {isSubscriptionNarratorSelected ? null : (
+                    {!isSubscriptionNarratorSelected || currentTurnCostTokens > 0 ? (
                       <SoulIcon size={19} sx={{ width: { xs: 16, md: 19 }, height: { xs: 16, md: 19 }, opacity: 0.98 }} />
-                    )}
+                    ) : null}
                     <Typography
                       sx={{
                         color: 'var(--morius-title-text)',
@@ -28812,7 +29074,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         letterSpacing: 0,
                       }}
                     >
-                      {isSubscriptionNarratorSelected ? '1 ход' : currentTurnCostTokens}
+                      {isSubscriptionNarratorSelected && currentTurnCostTokens === 0 ? '1 ход' : currentTurnCostTokens}
                     </Typography>
                   </Box>
                 </Tooltip>

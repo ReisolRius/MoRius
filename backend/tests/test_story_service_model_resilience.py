@@ -452,14 +452,8 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
 
         self.assertEqual(payload["reasoning"], {"effort": "low", "exclude": True})
 
-    def test_story_reasoning_is_excluded_for_problematic_and_agentic_models(self) -> None:
-        for model_name in (
-            "aion-labs/aion-2.0",
-            "google/gemini-2.5-pro",
-            "google/gemini-3.1-pro-preview",
-            "minimax/minimax-m2-her",
-            "google/gemini-3.1-flash-lite",
-        ):
+    def test_optional_story_reasoning_is_disabled_by_default(self) -> None:
+        for model_name in ("deepseek/deepseek-v4-pro-0813", "moonshotai/kimi-k2.6"):
             with self.subTest(model_name=model_name):
                 payload: dict = {}
 
@@ -468,7 +462,61 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
                     model_name=model_name,
                 )
 
-                self.assertEqual(payload["reasoning"], {"exclude": True})
+                self.assertEqual(payload["reasoning"], {"enabled": False, "exclude": True})
+
+    def test_unavoidable_story_reasoning_uses_the_cheapest_supported_level(self) -> None:
+        expected_by_model = {
+            "google/gemini-2.5-pro": {"enabled": True, "max_tokens": 128, "exclude": True},
+            "google/gemini-3.1-pro-preview": {"enabled": True, "effort": "low", "exclude": True},
+            "google/gemini-3.1-flash-lite": {"enabled": True, "effort": "minimal", "exclude": True},
+            "aion-labs/aion-2.0": {"enabled": True, "max_tokens": 2_048, "exclude": True},
+            "deepseek/deepseek-r1-0528": {"enabled": True, "max_tokens": 2_048, "exclude": True},
+        }
+        for model_name, expected in expected_by_model.items():
+            with self.subTest(model_name=model_name):
+                payload: dict = {}
+                monolith_main._apply_polza_story_reasoning_preferences(
+                    payload,
+                    model_name=model_name,
+                )
+                self.assertEqual(payload["reasoning"], expected)
+
+    def test_gemini_enhanced_reasoning_uses_medium_effort_and_extra_output_reserve(self) -> None:
+        payload: dict = {}
+        monolith_main._apply_polza_story_reasoning_preferences(
+            payload,
+            model_name="google/gemini-3.1-pro-preview",
+            reasoning_enabled=True,
+        )
+
+        self.assertEqual(payload["reasoning"], {"enabled": True, "effort": "medium", "exclude": True})
+        self.assertEqual(
+            monolith_main._story_reasoning_gateway_max_tokens(
+                400,
+                model_name="google/gemini-3.1-pro-preview",
+                reasoning_enabled=False,
+            ),
+            1_424,
+        )
+        self.assertEqual(
+            monolith_main._story_reasoning_gateway_max_tokens(
+                400,
+                model_name="google/gemini-3.1-pro-preview",
+                reasoning_enabled=True,
+            ),
+            2_448,
+        )
+
+    def test_story_reasoning_parameter_is_omitted_for_unsupported_models(self) -> None:
+        payload: dict = {"reasoning": {"enabled": True}}
+
+        monolith_main._apply_polza_story_reasoning_preferences(
+            payload,
+            model_name="minimax/minimax-m2-her",
+            reasoning_enabled=True,
+        )
+
+        self.assertNotIn("reasoning", payload)
 
     def test_slow_story_models_do_not_wait_five_minutes_for_first_token(self) -> None:
         self.assertEqual(

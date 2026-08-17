@@ -37,6 +37,7 @@ from app.services.story_games import (
     STORY_RESPONSE_MAX_TOKENS_MAX,
     STORY_SUBSCRIPTION_LLM_MODELS,
     coerce_story_llm_model,
+    get_story_reasoning_surcharge_tokens,
     normalize_story_environment_enabled,
     normalize_story_environment_time_enabled,
     normalize_story_environment_weather_enabled,
@@ -44,6 +45,7 @@ from app.services.story_games import (
     normalize_story_response_max_tokens,
     normalize_story_response_max_tokens_enabled,
     normalize_story_response_token_limit_enabled,
+    normalize_story_reasoning_enabled,
     normalize_story_temperature,
     normalize_story_top_k,
     normalize_story_top_r,
@@ -1061,10 +1063,15 @@ def _resolve_story_turn_charge_tokens(
     is_subscription_turn: bool,
     base_cost_tokens: int,
     service_surcharge_tokens: int,
+    reasoning_surcharge_tokens: int = 0,
 ) -> int:
     if is_subscription_turn:
-        return 0
-    return max(int(base_cost_tokens or 0), 0) + max(int(service_surcharge_tokens or 0), 0)
+        return max(int(reasoning_surcharge_tokens or 0), 0)
+    return (
+        max(int(base_cost_tokens or 0), 0)
+        + max(int(service_surcharge_tokens or 0), 0)
+        + max(int(reasoning_surcharge_tokens or 0), 0)
+    )
 
 
 def _merge_story_active_world_cards(
@@ -1599,6 +1606,7 @@ def _stream_story_response(
     all_world_cards: list[Any],
     context_limit_chars: int,
     story_model_name: str | None,
+    story_reasoning_enabled: bool = False,
     story_response_max_tokens: int | None,
     story_temperature: float,
     story_repetition_penalty: float,
@@ -1619,10 +1627,8 @@ def _stream_story_response(
     subscription_period_start: str = "",
 ):
     if is_subscription_turn:
-        # Subscription narrator turns are paid exclusively with the subscription turn counter.
-        # Keep this guard inside the billing stream as well as in request preparation so no
-        # future surcharge or fallback path can accidentally spend sols.
-        turn_cost_tokens = 0
+        # The subscription covers the ordinary narrator turn. Optional reasoning is an explicit
+        # paid add-on and remains in turn_cost_tokens; unrelated service surcharges stay disabled.
         precharged_graph_cost_tokens = 0
     assistant_message: StoryMessage | None = None
     discarded_assistant_ids = [
@@ -1903,6 +1909,7 @@ def _stream_story_response(
                         world_cards=world_cards,
                         context_limit_chars=context_limit_chars,
                         story_model_name=story_model_name,
+                        story_reasoning_enabled=story_reasoning_enabled,
                         story_response_max_tokens=story_response_max_tokens,
                         story_temperature=story_temperature,
                         story_repetition_penalty=story_repetition_penalty,
@@ -2232,8 +2239,11 @@ def _stream_story_response(
                     {"detail": "Дневной лимит ходов по подписке исчерпан"},
                 )
                 return
-            commit_with_retry(db)
-            db.refresh(user)
+            # When reasoning has a sol add-on, defer the commit until the coin debit below so
+            # the subscription turn and its paid add-on succeed or roll back together.
+            if turn_cost_tokens <= 0:
+                commit_with_retry(db)
+                db.refresh(user)
         except Exception as exc:
             logger.exception(
                 "Failed to consume subscription turn: game_id=%s user_id=%s",
@@ -2244,7 +2254,7 @@ def _stream_story_response(
             yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
             return
 
-    if not is_subscription_turn and turn_cost_tokens > 0:
+    if turn_cost_tokens > 0:
         try:
             if not deps.spend_user_tokens_if_sufficient(db, int(user.id), turn_cost_tokens):
                 db.rollback()
@@ -2842,6 +2852,15 @@ def _generate_story_response_locked(
     story_model_name = coerce_story_llm_model(getattr(game, "story_llm_model", None))
     if payload.story_llm_model is not None:
         story_model_name = coerce_story_llm_model(payload.story_llm_model)
+    story_reasoning_enabled = normalize_story_reasoning_enabled(
+        getattr(game, "story_reasoning_enabled", None),
+        model_name=story_model_name,
+    )
+    if payload.story_reasoning_enabled is not None:
+        story_reasoning_enabled = normalize_story_reasoning_enabled(
+            payload.story_reasoning_enabled,
+            model_name=story_model_name,
+        )
     # Subscription-only narrator models: gate by an active subscription (or admin test) that
     # includes the model, and by the tier's daily-turn limit. Subscription turns render as plain
     # text (no memory optimization / environment / visual novel), cap responses at 450 tokens,
@@ -3631,12 +3650,17 @@ def _generate_story_response_locked(
         graph_enabled=graph_enabled_for_billing,
         graph_request_cost_tokens=precharged_graph_cost_tokens,
     )
+    reasoning_surcharge_tokens = get_story_reasoning_surcharge_tokens(
+        story_model_name,
+        reasoning_enabled=story_reasoning_enabled,
+    )
     turn_cost_tokens = _resolve_story_turn_charge_tokens(
         is_subscription_turn=is_subscription_turn,
         base_cost_tokens=base_turn_cost_tokens,
         service_surcharge_tokens=service_surcharge_tokens,
+        reasoning_surcharge_tokens=reasoning_surcharge_tokens,
     )
-    if not is_subscription_turn:
+    if turn_cost_tokens > 0:
         _ensure_user_can_afford_turn(turn_cost_tokens)
     db.commit()
     if source_user_message is not None:
@@ -3663,6 +3687,7 @@ def _generate_story_response_locked(
         all_world_cards=world_cards,
         context_limit_chars=context_limit_chars,
         story_model_name=story_model_name,
+        story_reasoning_enabled=story_reasoning_enabled,
         story_response_max_tokens=story_response_max_tokens,
         story_temperature=story_temperature,
         story_repetition_penalty=story_repetition_penalty,

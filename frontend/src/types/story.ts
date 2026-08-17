@@ -31,7 +31,7 @@ export type StoryNarratorModelId =
   | 'z-ai/glm-4.7'
   | 'deepseek/deepseek-v3.2'
   | 'deepseek/deepseek-chat-v3-0324'
-  | 'deepseek/deepseek-v4-pro'
+  | 'deepseek/deepseek-v4-pro-0813'
   | 'deepseek/deepseek-r1-0528'
   | 'mistralai/mistral-nemo'
   | 'aion-labs/aion-2.0'
@@ -43,6 +43,8 @@ export type StoryNarratorModelId =
   | 'google/gemini-2.5-pro'
   | 'google/gemini-3.1-pro-preview'
   | 'qwen/qwen3.7-plus'
+  | 'moonshotai/kimi-k2.6'
+  | 'moonshotai/kimi-k3'
   // Subscription-only narrator models (gated by an active subscription / admin test).
   | 'deepseek/deepseek-v4-flash'
   | 'google/gemini-2.5-flash-lite'
@@ -124,6 +126,7 @@ export type StoryGameSummary = {
   response_max_tokens_enabled: boolean
   response_token_limit_enabled: boolean
   story_llm_model: StoryNarratorModelId
+  story_reasoning_enabled: boolean
   image_model: StoryImageModelId
   image_style_prompt: string
   memory_optimization_enabled: boolean

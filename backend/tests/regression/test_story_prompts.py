@@ -39,7 +39,7 @@ EXPECTED_MODEL_PROMPT_SHA256 = {
     "z-ai/glm-4.7-flash": "8c4dcb8ca0f8e871b75d40d4f0a0a07acd7b133f3deb35d60770b4eae7737479",
     "deepseek/deepseek-v3.2": "2de3acb6855e1b331b5577581995353d90d5d81448d3e693301a541bf687c8a6",
     "deepseek/deepseek-chat-v3-0324": "2de3acb6855e1b331b5577581995353d90d5d81448d3e693301a541bf687c8a6",
-    "deepseek/deepseek-v4-pro": "f4422bbf7cabaae5fddf2455f8ed631ecd3353eb85701b4b2d8fa09148c95aee",
+    "deepseek/deepseek-v4-pro-0813": "f4422bbf7cabaae5fddf2455f8ed631ecd3353eb85701b4b2d8fa09148c95aee",
     "deepseek/deepseek-r1-0528": "f4422bbf7cabaae5fddf2455f8ed631ecd3353eb85701b4b2d8fa09148c95aee",
     "z-ai/glm-4.7": "880c3999126bf41d218dbef2834e11d72c3373505cf993b85658ed9b3ab2b5c0",
     "z-ai/glm-5": "88624967ba4cd532760ee20870139a4eb10d1b92d712bc0d50818c2a92695a6e",
@@ -51,6 +51,8 @@ EXPECTED_MODEL_PROMPT_SHA256 = {
     "google/gemini-3.1-pro-preview": "b50446db308e6db90300aadc079c7579265a93095bd3998469dcc3ee0ad3bec6",
     "anthropic/claude-sonnet-4.6": "a965aa014e0065aa152f02be9892ae4eca90d4b7753d6e4dcc93b93b6e0c1665",
     "qwen/qwen3.7-plus": "272b3efb3e04fc44afca8a30d4d14106a08be71e0bc0680502268f213c90216d",
+    "moonshotai/kimi-k2.6": "e0c7d5c9c3e24433e60dbb59db29a9c22498817a1f17aa93e10052a448e03593",
+    "moonshotai/kimi-k3": "b24ac9919fb7d26d82928928185249899a44ccf6bdc3c1c7699d4b703b855c2c",
 }
 
 

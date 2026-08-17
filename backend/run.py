@@ -10,6 +10,10 @@ APP_TARGETS = {
     "auth": "app.microservices.auth_main:app",
     "story": "app.microservices.story_main:app",
     "payments": "app.microservices.payments_main:app",
+    # Cozy Village. Its own process for the same reason the others have one: the game is a
+    # different product with a different database, and a restart of one must not be a restart of
+    # the other.
+    "cozy": "app.microservices.cozy_main:app",
 }
 
 DEFAULT_PORTS = {
@@ -18,6 +22,7 @@ DEFAULT_PORTS = {
     "auth": 8001,
     "story": 8002,
     "payments": 8003,
+    "cozy": 8004,
 }
 
 DEFAULT_WORKERS = {
@@ -26,6 +31,7 @@ DEFAULT_WORKERS = {
     "auth": 1,
     "story": 2,
     "payments": 1,
+    "cozy": 1,
 }
 
 

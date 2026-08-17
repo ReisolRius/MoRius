@@ -402,6 +402,7 @@ def _build_story_game_out_resilient(
                         "response_max_tokens_enabled": getattr(game, "response_max_tokens_enabled", None),
                         "response_token_limit_enabled": getattr(game, "response_token_limit_enabled", None),
                         "story_llm_model": getattr(game, "story_llm_model", None),
+                        "story_reasoning_enabled": getattr(game, "story_reasoning_enabled", False),
                         "image_model": getattr(game, "image_model", None),
                         "memory_optimization_enabled": getattr(game, "memory_optimization_enabled", True),
                         "story_top_k": getattr(game, "story_top_k", None),

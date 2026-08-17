@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import (
     CoinPurchase,
+    SavedPaymentMethod,
     StoryBugReport,
     StoryCommunityWorldComment,
     StoryCharacter,
@@ -49,6 +50,8 @@ from app.schemas import (
     AdminUserModeratorUpdateRequest,
     AdminUserOut,
     AdminUserRoleUpdateRequest,
+    AdminUserSubscriptionGrantRequest,
+    AdminUserSubscriptionOut,
     AdminUserTagUpdateRequest,
     AdminUserTokensUpdateRequest,
     MaintenanceSettingsOut,
@@ -67,8 +70,10 @@ from app.services.auth_identity import (
 )
 from app.services.concurrency import add_user_tokens, spend_user_tokens_if_sufficient
 from app.services.maintenance import read_maintenance_settings, write_maintenance_settings
+from app.services.payments import grant_subscription_for_one_period
 from app.services.story_characters import unlink_story_character_from_world_cards
 from app.services.story_games import delete_story_game_with_relations, story_author_name
+from app.services.subscriptions import get_active_subscription
 
 router = APIRouter()
 
@@ -242,6 +247,28 @@ def _attach_admin_user_payment_metadata(
     resolved_payment_by_user_id = dict(payment_by_user_id or _latest_payment_at_by_user_id(db, user_ids))
     for user in users:
         setattr(user, "last_payment_at", resolved_payment_by_user_id.get(int(getattr(user, "id", 0) or 0)))
+        subscription = get_active_subscription(db, user)
+        subscription_payload: AdminUserSubscriptionOut | None = None
+        if subscription is not None:
+            method = (
+                db.get(SavedPaymentMethod, subscription.payment_method_id)
+                if subscription.payment_method_id is not None
+                else None
+            )
+            auto_renew = bool(
+                method is not None
+                and not method.is_demo
+                and str(method.provider_payment_method_id or "").strip()
+            )
+            subscription_payload = AdminUserSubscriptionOut(
+                id=int(subscription.id),
+                plan_id=str(subscription.plan_id),
+                plan_title=str(subscription.plan_title),
+                next_charge_at=subscription.next_charge_at,
+                auto_renew=auto_renew,
+                is_admin_grant=bool(subscription.provider_payment_id is None and not subscription.is_mock),
+            )
+        setattr(user, "subscription", subscription_payload)
     return resolved_payment_by_user_id
 
 
@@ -702,6 +729,27 @@ def update_user_tokens(
         )
 
     sync_user_access_state(target_user)
+    db.commit()
+    db.refresh(target_user)
+    return _admin_user_out(db, target_user)
+
+
+@router.post("/api/auth/admin/users/{user_id}/subscription", response_model=AdminUserOut)
+def grant_user_subscription(
+    user_id: int,
+    payload: AdminUserSubscriptionGrantRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AdminUserOut:
+    """Give one free month and leave the normal card renewal behavior in place."""
+    _require_administrator(db=db, authorization=authorization)
+    target_user = _get_target_user_or_404(db, user_id=user_id)
+
+    grant_subscription_for_one_period(
+        db,
+        user=target_user,
+        plan_id=payload.plan_id,
+    )
     db.commit()
     db.refresh(target_user)
     return _admin_user_out(db, target_user)

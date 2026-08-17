@@ -572,7 +572,7 @@ class StoryGenerationLockingTests(unittest.TestCase):
                     db=db,
                     game=game,
                     user=user,
-                    turn_cost_tokens=99,
+                    turn_cost_tokens=0,
                     source_user_message=None,
                     prompt="Ход",
                     turn_index=1,

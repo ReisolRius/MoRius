@@ -15,6 +15,14 @@ from app.services.provider_resilience import (
     is_retryable_provider_error,
 )
 from app.services.story_service_budget import consume_story_service_http_request
+from app.services.story_games import (
+    STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS,
+    STORY_REASONING_MAX_TOKENS,
+    get_story_reasoning_reserved_tokens,
+    is_story_reasoning_fixed_model,
+    is_story_reasoning_minimum_model,
+    is_story_reasoning_supported_model,
+)
 from app.services.text_encoding import repair_likely_utf8_mojibake_deep
 
 
@@ -30,10 +38,6 @@ _bind_monolith_names()
 
 if "STORY_DEFAULT_REPETITION_PENALTY" not in globals():
     STORY_DEFAULT_REPETITION_PENALTY = 1.05
-
-if "STORY_DISABLE_THINKING_MODEL_IDS" not in globals():
-    STORY_DISABLE_THINKING_MODEL_IDS: set[str] = set()
-
 
 def _build_story_provider_messages(
     context_messages: list[StoryMessage],
@@ -356,31 +360,80 @@ def _apply_polza_story_reasoning_preferences(
     payload: dict[str, Any],
     *,
     model_name: str | None,
+    reasoning_enabled: bool = False,
 ) -> None:
     normalized_model_name = _normalize_story_model_id(model_name)
-    if normalized_model_name in {
-        "z-ai/glm-5",
-        "z-ai/glm-5.1",
-        "z-ai/glm-5.2",
-        "z-ai/glm-4.7-flash",
-        "z-ai/glm-4.7",
-        "qwen/qwen3.7-plus",
-        STORY_SERVICE_TEXT_MODEL,
-        POLZA_GEMINI_25_FLASH_LITE_MODEL,
-    }:
-        payload["reasoning"] = {
-            "effort": "none",
-            "exclude": True,
-        }
-        return
     if normalized_model_name == "openai/gpt-oss-120b":
+        # This service-only fallback requires a non-zero reasoning effort to answer at all.
+        payload["reasoning"] = {"effort": "low", "exclude": True}
+        return
+    if is_story_reasoning_fixed_model(model_name):
         payload["reasoning"] = {
-            "effort": "low",
+            "enabled": True,
+            "max_tokens": STORY_REASONING_MAX_TOKENS,
             "exclude": True,
         }
         return
-    if normalized_model_name in STORY_DISABLE_THINKING_MODEL_IDS:
-        payload["reasoning"] = {"exclude": True}
+    if not is_story_reasoning_supported_model(model_name):
+        payload.pop("reasoning", None)
+        return
+    if reasoning_enabled:
+        if normalized_model_name in {
+            "google/gemini-3.1-pro-preview",
+            "google/gemini-3.1-pro",
+            "google/gemini-3.1-flash-lite",
+            "google/gemini-3-flash-preview",
+        }:
+            payload["reasoning"] = {
+                "enabled": True,
+                "effort": "medium",
+                "exclude": True,
+            }
+            return
+        payload["reasoning"] = {
+            "enabled": True,
+            "max_tokens": STORY_REASONING_MAX_TOKENS,
+            "exclude": True,
+        }
+        return
+    if normalized_model_name == "google/gemini-2.5-pro":
+        payload["reasoning"] = {
+            "enabled": True,
+            "max_tokens": STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS,
+            "exclude": True,
+        }
+        return
+    if is_story_reasoning_minimum_model(model_name):
+        effort = "low" if normalized_model_name in {
+            "google/gemini-3.1-pro-preview",
+            "google/gemini-3.1-pro",
+        } else "minimal"
+        payload["reasoning"] = {
+            "enabled": True,
+            "effort": effort,
+            "exclude": True,
+        }
+        return
+    payload["reasoning"] = {
+        "enabled": False,
+        "exclude": True,
+    }
+
+
+def _story_reasoning_gateway_max_tokens(
+    max_tokens: int | None,
+    *,
+    model_name: str | None,
+    reasoning_enabled: bool,
+) -> int | None:
+    if max_tokens is None:
+        return None
+    normalized_limit = max(int(max_tokens), 1)
+    reserved_tokens = get_story_reasoning_reserved_tokens(
+        model_name,
+        reasoning_enabled=reasoning_enabled,
+    )
+    return normalized_limit + reserved_tokens
 
 
 def _format_polza_usage_summary(usage_payload: Any) -> str:
@@ -943,6 +996,7 @@ def _iter_polza_story_stream_chunks(
     top_k: int | None = None,
     top_p: float | None = None,
     max_tokens: int | None = None,
+    reasoning_enabled: bool = False,
     translate_for_model: bool = False,
     story_narrator_mode: str | None = None,
     story_romance_enabled: bool = False,
@@ -1001,10 +1055,15 @@ def _iter_polza_story_stream_chunks(
         for attempt_index in range(len(POLZA_RETRY_DELAYS_SECONDS) + 1):
             if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                 raise StoryGenerationCancelled("Story generation cancelled")
+            gateway_max_tokens = _story_reasoning_gateway_max_tokens(
+                max_tokens,
+                model_name=model_name,
+                reasoning_enabled=reasoning_enabled,
+            )
             request_messages_payload, request_max_tokens = _fit_polza_messages_to_context_window(
                 messages_payload,
                 model_name=model_name,
-                max_tokens=max_tokens,
+                max_tokens=gateway_max_tokens,
             )
             payload = {
                 "model": model_name,
@@ -1030,7 +1089,11 @@ def _iter_polza_story_stream_chunks(
             if top_p is not None:
                 payload["top_p"] = top_p
             _apply_polza_story_response_limit(payload, request_max_tokens)
-            _apply_polza_story_reasoning_preferences(payload, model_name=model_name)
+            _apply_polza_story_reasoning_preferences(
+                payload,
+                model_name=model_name,
+                reasoning_enabled=reasoning_enabled,
+            )
             _apply_polza_story_safety_preferences(payload, model_name=model_name)
             provider_label = _resolve_polza_provider_attempt_label(provider_payload)
             request_started_at_attempt = time.monotonic()
@@ -1702,6 +1765,7 @@ def _iter_polza_story_stream_chunks_single_model(
     top_k: int | None,
     top_p: float | None,
     max_tokens: int | None,
+    reasoning_enabled: bool,
     translate_for_model: bool,
     story_narrator_mode: str | None,
     story_romance_enabled: bool,
@@ -1727,6 +1791,7 @@ def _iter_polza_story_stream_chunks_single_model(
         top_k=top_k,
         top_p=top_p,
         max_tokens=max_tokens,
+        reasoning_enabled=reasoning_enabled,
         translate_for_model=translate_for_model,
         story_narrator_mode=story_narrator_mode,
         story_romance_enabled=story_romance_enabled,
@@ -1758,6 +1823,7 @@ def _iter_story_provider_stream_chunks(
     story_top_k: int = 0,
     story_top_r: float = 1.0,
     story_response_max_tokens: int | None = None,
+    story_reasoning_enabled: bool = False,
     story_narrator_mode: str | None = None,
     story_romance_enabled: bool = False,
     use_plot_memory: bool = False,
@@ -1856,6 +1922,7 @@ def _iter_story_provider_stream_chunks(
                 top_k=top_k_value,
                 top_p=top_p_value,
                 max_tokens=effective_response_max_tokens,
+                reasoning_enabled=story_reasoning_enabled,
                 translate_for_model=input_translation_enabled,
                 story_narrator_mode=story_narrator_mode,
                 story_romance_enabled=story_romance_enabled,
@@ -1891,6 +1958,7 @@ def _iter_story_provider_stream_chunks(
             top_k=top_k_value,
             top_p=top_p_value,
             max_tokens=effective_response_max_tokens,
+            reasoning_enabled=story_reasoning_enabled,
             translate_for_model=input_translation_enabled,
             story_narrator_mode=story_narrator_mode,
             story_romance_enabled=story_romance_enabled,

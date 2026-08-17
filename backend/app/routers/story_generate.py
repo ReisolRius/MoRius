@@ -26,9 +26,11 @@ from app.services.story_cards import (
 )
 from app.services.story_games import (
     STORY_DEFAULT_TITLE,
+    STORY_REASONING_MAX_TOKENS,
     coerce_story_llm_model,
     deserialize_story_environment_weather,
     get_story_turn_cost_tokens,
+    is_story_reasoning_supported_model,
     normalize_story_context_limit_chars,
     normalize_story_environment_enabled,
     normalize_story_response_max_tokens,
@@ -576,6 +578,7 @@ def _fallback_iter_story_provider_chunks(
     context_limit_chars: int,
     story_model_name: str | None,
     story_response_max_tokens: int | None,
+    story_reasoning_enabled: bool,
     story_temperature: float,
     story_repetition_penalty: float,
     story_top_k: int,
@@ -620,6 +623,7 @@ def _fallback_iter_story_provider_chunks(
             context_limit_chars=context_limit_chars,
             story_model_name=story_model_name,
             story_response_max_tokens=story_response_max_tokens,
+            story_reasoning_enabled=story_reasoning_enabled,
             story_temperature=story_temperature,
             story_repetition_penalty=story_repetition_penalty,
             story_top_k=story_top_k,
@@ -690,8 +694,19 @@ def _fallback_iter_story_provider_chunks(
     }
     if effective_top_k > 0:
         request_payload["top_k"] = effective_top_k
+    if is_story_reasoning_supported_model(selected_model_name):
+        request_payload["reasoning"] = {
+            "enabled": bool(story_reasoning_enabled),
+            "exclude": True,
+        }
+        if story_reasoning_enabled:
+            request_payload["reasoning"]["max_tokens"] = STORY_REASONING_MAX_TOKENS
     if story_response_max_tokens is not None:
-        request_payload["max_tokens"] = int(story_response_max_tokens)
+        gateway_max_tokens = int(story_response_max_tokens)
+        if story_reasoning_enabled and is_story_reasoning_supported_model(selected_model_name):
+            gateway_max_tokens += STORY_REASONING_MAX_TOKENS
+        request_payload["max_tokens"] = gateway_max_tokens
+        request_payload["max_completion_tokens"] = gateway_max_tokens
 
     try:
         response = requests.post(

@@ -110,7 +110,8 @@ from app.services.auth_identity import (
     sync_user_access_state,
 )
 from app.services.media import normalize_avatar_value, normalize_media_scale, validate_avatar_url
-from app.services.payments import sync_user_pending_purchases
+from app.services.payments import sync_user_pending_purchases, sync_user_pending_subscriptions
+
 try:
     from app.services.daily_rewards import DAILY_REWARD_AMOUNTS, build_daily_reward_status, claim_daily_reward
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
@@ -1967,6 +1968,7 @@ def me(
     user = get_current_user(db, authorization)
     display_name_changed = _sync_user_display_name(user, fallback_email=user.email)
     sync_user_pending_purchases(db, user)
+    sync_user_pending_subscriptions(db, user)
     if display_name_changed:
         db.commit()
     db.refresh(user)

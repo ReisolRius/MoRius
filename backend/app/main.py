@@ -201,8 +201,14 @@ from app.services.story_undo import (
     rollback_story_card_events_for_assistant_message as _rollback_story_card_events_for_assistant_message,
 )
 from app.services.story_games import (
+    STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS,
+    STORY_REASONING_MAX_TOKENS,
     coerce_story_image_model as _coerce_story_image_model,
+    get_story_reasoning_reserved_tokens as _get_story_reasoning_reserved_tokens,
     get_story_turn_cost_tokens as _get_story_turn_cost_tokens,
+    is_story_reasoning_fixed_model as _is_story_reasoning_fixed_model,
+    is_story_reasoning_minimum_model as _is_story_reasoning_minimum_model,
+    is_story_reasoning_supported_model as _is_story_reasoning_supported_model,
     serialize_story_ambient_profile as _serialize_story_ambient_profile,
 )
 try:
@@ -1245,7 +1251,7 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "z-ai/glm-4.7": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-v3.2": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-chat-v3-0324": STORY_SERVICE_TEXT_MODEL,
-    "deepseek/deepseek-v4-pro": STORY_SERVICE_TEXT_MODEL,
+    "deepseek/deepseek-v4-pro-0813": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-r1-0528": STORY_SERVICE_TEXT_MODEL,
     "mistralai/mistral-nemo": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
@@ -1256,12 +1262,16 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "google/gemini-2.5-pro": STORY_SERVICE_TEXT_MODEL,
     "google/gemini-3.1-pro-preview": STORY_SERVICE_TEXT_MODEL,
     "qwen/qwen3.7-plus": STORY_SERVICE_TEXT_MODEL,
+    "moonshotai/kimi-k2.6": STORY_SERVICE_TEXT_MODEL,
+    "moonshotai/kimi-k3": STORY_SERVICE_TEXT_MODEL,
 }
-STORY_LEGACY_MODEL_ALIASES = {}
+STORY_LEGACY_MODEL_ALIASES = {
+    "deepseek/deepseek-v4-pro": "deepseek/deepseek-v4-pro-0813",
+}
 STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
     "deepseek/deepseek-v3.2",
     "deepseek/deepseek-chat-v3-0324",
-    "deepseek/deepseek-v4-pro",
+    "deepseek/deepseek-v4-pro-0813",
     "deepseek/deepseek-r1-0528",
 }
 STORY_POLZA_PROVIDER_NEBIUS = "Nebius"
@@ -1290,6 +1300,8 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "aion-labs/aion-3.0": STORY_POLZA_PROVIDER_AION_LABS,
     "minimax/minimax-m2-her": STORY_POLZA_PROVIDER_MINIMAX,
     "google/gemini-3.1-flash-lite": STORY_POLZA_PROVIDER_ROUTERAI,
+    "moonshotai/kimi-k2.6": STORY_POLZA_PROVIDER_ROUTERAI,
+    "moonshotai/kimi-k3": STORY_POLZA_PROVIDER_ROUTERAI,
     "anthropic/claude-sonnet-4.6": STORY_POLZA_PROVIDER_MIE,
     "google/gemini-2.5-pro": STORY_POLZA_PROVIDER_MIE,
     "qwen/qwen3.7-plus": STORY_POLZA_PROVIDER_ALIBABA,
@@ -1303,7 +1315,7 @@ STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-4.7",
     "deepseek/deepseek-v3.2",
     "deepseek/deepseek-chat-v3-0324",
-    "deepseek/deepseek-v4-pro",
+    "deepseek/deepseek-v4-pro-0813",
     "deepseek/deepseek-r1-0528",
     "mistralai/mistral-nemo",
     "aion-labs/aion-2.0",
@@ -1315,6 +1327,8 @@ STORY_PAID_MODEL_HINTS = {
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
     "qwen/qwen3.7-plus",
+    "moonshotai/kimi-k2.6",
+    "moonshotai/kimi-k3",
 }
 STORY_TOP_P_DISABLED_MODEL_IDS: set[str] = {
     "anthropic/claude-sonnet-4.6",
@@ -1328,24 +1342,6 @@ STORY_REPETITION_PENALTY_DISABLED_MODEL_IDS: set[str] = {
     "google/gemini-3.1-pro-preview",
     "anthropic/claude-sonnet-4.6",
 }
-STORY_DISABLE_THINKING_MODEL_IDS: set[str] = {
-    "aion-labs/aion-2.0",
-    "aion-labs/aion-3.0",
-    # Cogito is a hybrid reasoning model — keep its reasoning internal so it never leaks
-    # into the rendered scene and breaks the [[NPC:...]] markup.
-    "deepcogito/cogito-v2.1-671b",
-    "minimax/minimax-m2-her",
-    "google/gemini-3.1-flash-lite",
-    "google/gemini-2.5-pro",
-    "google/gemini-3.1-pro-preview",
-    # DeepSeek reasoning models can leak their trace (and markdown) straight into the
-    # rendered scene, which breaks the [[NPC:...]] markup. Keep the reasoning internal
-    # and exclude it from the visible output without lowering its writing quality.
-    "deepseek/deepseek-v4-pro",
-    "deepseek/deepseek-r1-0528",
-}
-
-
 def _is_story_provider_failure_detail(detail: str | None) -> bool:
     normalized_detail = str(detail or "").casefold()
     if not normalized_detail:
@@ -1563,7 +1559,7 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
         "Держи дисциплину сцены: один осмысленный шаг за ход, экспрессия не должна ломать причинность.",
         "Жёсткая дисциплина формата: никакого markdown, звёздочек, обратных кавычек и код-блоков; речь и мысли — только абзацами с [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]].",
     ),
-    "deepseek/deepseek-v4-pro": (
+    "deepseek/deepseek-v4-pro-0813": (
         "Ты ведёшь сложные сцены с устойчивой причинностью и глубокими характерами — держи несколько линий и мотивов сразу.",
         "Добавляй подтекст и развитие персонажей, но не теряй темп: глубина работает на сюжет, а не вместо него.",
         "Жёсткая дисциплина формата важнее красоты: НИКАКОГО markdown, звёздочек (* **), обратных кавычек, код-блоков и самодельных пометок речи вроде npc_name:'Имя' или markup::.",
@@ -1622,6 +1618,14 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
         "Держи контекст, строгие правила и причинность; веди сложные сцены чисто и собранно.",
         "Предпочитай конкретные решения персонажей и движение сюжета общим описаниям.",
     ),
+    "moonshotai/kimi-k2.6": (
+        "Используй большой контекст для устойчивых характеров, связных многоходовых сцен и точного соблюдения карточек.",
+        "Пиши живым литературным русским; рассуждай внутри, а игроку отдавай только чистую сцену без мета-комментариев и markdown.",
+    ),
+    "moonshotai/kimi-k3": (
+        "Держи сложные сюжетные линии и последствия на длинной дистанции, не теряя темп и голос каждого персонажа.",
+        "Скрывай внутреннее рассуждение полностью: в ответе только выразительная русская проза, диалог и разрешённая MoRius-разметка.",
+    ),
 }
 STORY_MODEL_HINTS["z-ai/glm-5.2"] = STORY_MODEL_HINTS["z-ai/glm-5.1"]
 
@@ -1654,7 +1658,7 @@ STORY_MODEL_UNIQUE_NARRATION_PROMPTS: dict[str, str] = {
     "z-ai/glm-4.7-flash": "Твоя сила — темп. Пиши плотно: 2–4 абзаца за ход, но каждый абзац — конкретика, а не общие слова. Запрещены дежурные фразы («по спине пробежал холодок», «воздух сгустился») и повтор собственных формулировок из прошлых ходов. Одна сцена за ход, без перескоков во времени. Если нечего добавить к описанию — добавь действие или реплику. Диалог — короткий, характерный, без пояснений после каждой фразы. Держи факты сцены: кто где стоит, что держит в руках, что уже сказано.",
     "deepseek/deepseek-v3.2": "Твоя яркость — оружие, но держи его в ножнах. Не больше одной метафоры на абзац. Запрещены: внезапная эскалация без причины, мелодрама, «безумные» повороты ради эффекта, описание запахов/дрожи/шёпота в каждом абзаце. Каждое событие вытекает из предыдущего — причина, затем следствие. Персонажи не меняют характер посреди сцены. Накал повышай медленно, ступенями, и давай сценам дышать: после напряжения — пауза, быт, тишина. Сдержанная фраза бьёт сильнее крика.",
     "deepseek/deepseek-chat-v3-0324": "Твоя яркость — оружие, но держи его в ножнах. Не больше одной метафоры на абзац. Запрещены: внезапная эскалация без причины, мелодрама, «безумные» повороты ради эффекта, описание запахов/дрожи/шёпота в каждом абзаце. Каждое событие вытекает из предыдущего — причина, затем следствие. Персонажи не меняют характер посреди сцены. Накал повышай медленно, ступенями, и давай сценам дышать: после напряжения — пауза, быт, тишина. Сдержанная фраза бьёт сильнее крика.",
-    "deepseek/deepseek-v4-pro": "Используй свой интеллект как режиссёр, а не как аналитик. Внутри себя просчитывай интриги, мотивы и последствия на несколько ходов вперёд — но в тексте показывай только живую сцену. Никаких рассуждений, планов, списков и структурного анализа в ответе. Персонажи умны: они помнят сказанное, замечают ложь, строят собственные планы против игрока и друг друга. Чехов работает: введённая деталь стреляет позже. Пиши тёплой, телесной прозой — читатель не должен догадаться, что за текстом стоит логическая машина.",
+    "deepseek/deepseek-v4-pro-0813": "Используй свой интеллект как режиссёр, а не как аналитик. Внутри себя просчитывай интриги, мотивы и последствия на несколько ходов вперёд — но в тексте показывай только живую сцену. Никаких рассуждений, планов, списков и структурного анализа в ответе. Персонажи умны: они помнят сказанное, замечают ложь, строят собственные планы против игрока и друг друга. Чехов работает: введённая деталь стреляет позже. Пиши тёплой, телесной прозой — читатель не должен догадаться, что за текстом стоит логическая машина.",
     "deepseek/deepseek-r1-0528": "Используй свой интеллект как режиссёр, а не как аналитик. Внутри себя просчитывай интриги, мотивы и последствия на несколько ходов вперёд — но в тексте показывай только живую сцену. Никаких рассуждений, планов, списков и структурного анализа в ответе. Персонажи умны: они помнят сказанное, замечают ложь, строят собственные планы против игрока и друг друга. Чехов работает: введённая деталь стреляет позже. Пиши тёплой, телесной прозой — читатель не должен догадаться, что за текстом стоит логическая машина.",
     "z-ai/glm-4.7": "Твоя сила — психология. У каждого персонажа в сцене есть желание, страх и секрет — и они просвечивают в мелочах: в паузе, во взгляде мимо, в слишком быстром согласии. Диалог — главный двигатель: люди говорят не то, что думают, перебивают, недоговаривают. Не объясняй чувства словами автора («она разозлилась») — покажи жестом и репликой. Конфликт интересов есть в каждой сцене, даже мирной. Второстепенный персонаж имеет право украсть сцену, если это обогащает историю.",
     "z-ai/glm-5": "Твоя сила — инициатива. Не жди, пока игрок принесёт сюжет: вводи события сам. Курьер с дурной вестью, старый долг, слух на рынке, погода, ломающая планы. Мир движется, пока игрок стоит: за кадром происходят вещи, следы которых игрок находит. Реакции мира на поступки игрока — отложенные и правдоподобные: сожжённый мост аукнется через три сцены. Раз в несколько ходов меняй локацию или состав сцены, чтобы история не застывала. Но инициатива — не хаос: каждое введённое событие обязано иметь корни в уже созданном мире.",
@@ -1665,6 +1669,8 @@ STORY_MODEL_UNIQUE_NARRATION_PROMPTS: dict[str, str] = {
     "google/gemini-2.5-pro": "Твой враг — сглаживание. Запрещено: смягчать конфликты, мирить персонажей в том же ходу, делать всех «в глубине души хорошими», заканчивать сцены нотой утешения. Персонажи имеют право злиться всерьёз, отказывать наотрез, ошибаться непоправимо, быть несправедливыми — и не извиняться. Плохое решение игрока приводит к плохим последствиям, мир их не отменяет. Убери и вербальные привычки сглаживания: «однако», «тем не менее», «стоит отметить» — в художественном тексте им не место. Напряжение держи до конца хода.",
     "google/gemini-3.1-pro-preview": "Ты снимаешь кино. Каждая сцена имеет режиссуру: где источник света, откуда звук, что в кадре и что намеренно за кадром. Главный инструмент — подтекст: персонажи почти никогда не говорят главного прямо, оно живёт в паузах, в выборе слов, в том, о чём молчат. Одна точная деталь заменяет абзац описания — найди её. Недосказанность — норма: доверяй игроку достроить, не разжёвывай. Меняй планы: широкий мир — и вдруг крупно дрожащие пальцы. Тишина в твоих сценах должна быть слышной.",
     "qwen/qwen3.7-plus": "Твоя сила — чистота исполнения. Пиши на живом русском: никаких калек с английского, канцелярита и обрывков иероглифов — язык ответа только русский, всегда. Держи сцену собранной: 3–5 абзацев, одна сцена за ход, диалог отдельными строками. Не пересказывай то, что уже произошло, и не подводи итогов в конце хода. Конкретика важнее украшений: точное действие, точный предмет, точная реплика. Персонажи последовательны — характер, заданный ранее, не плывёт от хода к ходу.",
+    "moonshotai/kimi-k2.6": "Твоя сила — ансамбль персонажей. В каждой сцене удерживай отдельный голос, мотив и линию внимания каждого участника; никто не превращается в декорацию и не знает того, чего не мог узнать. Диалог должен менять отношения: реплика вызывает жест, решение или новую трещину, а не висит отдельно от действия. Пользуйся длинной памятью незаметно — возвращай ранние детали как естественные последствия, без пересказа прошлых ходов. Одна сцена за ход, 3–5 плотных абзацев, финал — действие или реплика, а не вывод.",
+    "moonshotai/kimi-k3": "Твоя сила — масштаб без потери близости. Держи дальние сюжетные дуги и скрытые планы мира, но каждый ход проживай через конкретный человеческий момент: выбор, паузу, предмет в руке, цену поступка. Причины могут быть заложены десятки ходов назад, последствия не обязаны приходить сразу. Не демонстрируй расчёты и не объясняй устройство сюжета — пусть замысел проявляется событиями и подтекстом. Не закрывай все линии одновременно: заверши сцену сильным сдвигом, который открывает следующий ход.",
     "anthropic/claude-sonnet-4.6": "Твой враг — мягкость. Никакого морализаторства, уроков и заботливых оговорок внутри истории. Злодей остаётся злодеем весь ход — без проблесков раскаяния, которых игрок не заслужил сюжетом. Не резюмируй эмоции персонажей в конце абзаца и не объясняй, что сцена «значила». Не задавай игроку вопросов и не предлагай варианты действий. Пиши плотным литературным русским: конкретный глагол вместо трёх прилагательных. Твоя глубина — в точности удара, а не в количестве слов: если ход можно сократить на треть без потерь — сократи сам.",
 }
 for model_id, unique_prompt in STORY_MODEL_UNIQUE_NARRATION_PROMPTS.items():
@@ -1786,6 +1792,15 @@ if ai_assistant_router is not None:
     app.include_router(ai_assistant_router)
 
 app.include_router(shop_router)
+
+# Cozy Village. A guest with its own database and its own tokens - see app/cozy/mount.py for why
+# it is here as well as in its own container.
+try:
+    from app.cozy.mount import mount_cozy
+
+    mount_cozy(app)
+except Exception:
+    logger.exception("Cozy Village endpoints were not mounted")
 
 
 @app.on_event("startup")
@@ -2257,7 +2272,12 @@ def _get_story_context_limit_max_tokens(model_name: str | None = None) -> int:
         str(model_name or "").strip(),
         str(model_name or "").strip(),
     )
-    if normalized_model_name in {"z-ai/glm-5.1"}:
+    if normalized_model_name in {
+        "z-ai/glm-5.1",
+        "deepseek/deepseek-v4-pro-0813",
+        "moonshotai/kimi-k2.6",
+        "moonshotai/kimi-k3",
+    }:
         return STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS
     if normalized_model_name == "aion-labs/aion-2.0":
         return STORY_CONTEXT_LIMIT_AION_MAX_TOKENS
@@ -6156,31 +6176,76 @@ def _apply_polza_story_reasoning_preferences(
     payload: dict[str, Any],
     *,
     model_name: str | None,
+    reasoning_enabled: bool = False,
 ) -> None:
     normalized_model = _normalize_story_model_id(model_name)
-    if normalized_model in {
-        "z-ai/glm-5",
-        "z-ai/glm-5.1",
-        "z-ai/glm-5.2",
-        "z-ai/glm-4.7-flash",
-        "z-ai/glm-4.7",
-        "qwen/qwen3.7-plus",
-        STORY_SERVICE_TEXT_MODEL,
-        POLZA_GEMINI_25_FLASH_LITE_MODEL,
-    }:
-        payload["reasoning"] = {
-            "effort": "none",
-            "exclude": True,
-        }
-        return
     if normalized_model == "openai/gpt-oss-120b":
+        payload["reasoning"] = {"effort": "low", "exclude": True}
+        return
+    if _is_story_reasoning_fixed_model(model_name):
         payload["reasoning"] = {
-            "effort": "low",
+            "enabled": True,
+            "max_tokens": STORY_REASONING_MAX_TOKENS,
             "exclude": True,
         }
         return
-    if normalized_model in STORY_DISABLE_THINKING_MODEL_IDS:
-        payload["reasoning"] = {"exclude": True}
+    if not _is_story_reasoning_supported_model(model_name):
+        payload.pop("reasoning", None)
+        return
+    if reasoning_enabled:
+        if normalized_model in {
+            "google/gemini-3.1-pro-preview",
+            "google/gemini-3.1-pro",
+            "google/gemini-3.1-flash-lite",
+            "google/gemini-3-flash-preview",
+        }:
+            payload["reasoning"] = {
+                "enabled": True,
+                "effort": "medium",
+                "exclude": True,
+            }
+            return
+        payload["reasoning"] = {
+            "enabled": True,
+            "max_tokens": STORY_REASONING_MAX_TOKENS,
+            "exclude": True,
+        }
+        return
+    if normalized_model == "google/gemini-2.5-pro":
+        payload["reasoning"] = {
+            "enabled": True,
+            "max_tokens": STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS,
+            "exclude": True,
+        }
+        return
+    if _is_story_reasoning_minimum_model(model_name):
+        effort = "low" if normalized_model in {
+            "google/gemini-3.1-pro-preview",
+            "google/gemini-3.1-pro",
+        } else "minimal"
+        payload["reasoning"] = {
+            "enabled": True,
+            "effort": effort,
+            "exclude": True,
+        }
+        return
+    payload["reasoning"] = {"enabled": False, "exclude": True}
+
+
+def _story_reasoning_gateway_max_tokens(
+    max_tokens: int | None,
+    *,
+    model_name: str | None,
+    reasoning_enabled: bool,
+) -> int | None:
+    if max_tokens is None:
+        return None
+    normalized_limit = max(int(max_tokens), 1)
+    reserved_tokens = _get_story_reasoning_reserved_tokens(
+        model_name,
+        reasoning_enabled=reasoning_enabled,
+    )
+    return normalized_limit + reserved_tokens
 
 
 def _can_apply_story_sampling_to_model(model_name: str | None) -> bool:
@@ -10685,6 +10750,7 @@ def _iter_polza_story_stream_chunks(
     top_k: int | None = None,
     top_p: float | None = None,
     max_tokens: int | None = None,
+    reasoning_enabled: bool = False,
     translate_for_model: bool = False,
     reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
@@ -10732,6 +10798,11 @@ def _iter_polza_story_stream_chunks(
     last_error: RuntimeError | None = None
 
     for model_name in candidate_models:
+        gateway_max_tokens = _story_reasoning_gateway_max_tokens(
+            max_tokens,
+            model_name=model_name,
+            reasoning_enabled=reasoning_enabled,
+        )
         payload = {
             "model": model_name,
             "messages": messages_payload,
@@ -10746,11 +10817,15 @@ def _iter_polza_story_stream_chunks(
             payload["top_k"] = top_k
         if top_p is not None:
             payload["top_p"] = top_p
-        if max_tokens is not None:
-            normalized_limit = int(max_tokens)
+        if gateway_max_tokens is not None:
+            normalized_limit = int(gateway_max_tokens)
             payload["max_tokens"] = normalized_limit
             payload["max_completion_tokens"] = normalized_limit
-        _apply_polza_story_reasoning_preferences(payload, model_name=model_name)
+        _apply_polza_story_reasoning_preferences(
+            payload,
+            model_name=model_name,
+            reasoning_enabled=reasoning_enabled,
+        )
 
         for attempt_index in range(2):
             try:
@@ -13587,6 +13662,7 @@ def _iter_polza_story_stream_chunks_single_model(
     top_k: int | None,
     top_p: float | None,
     max_tokens: int | None,
+    reasoning_enabled: bool,
     translate_for_model: bool,
     reroll_discarded_assistant_text: str | None,
     show_gg_thoughts: bool,
@@ -13606,6 +13682,7 @@ def _iter_polza_story_stream_chunks_single_model(
             top_k=top_k,
             top_p=top_p,
             max_tokens=max_tokens,
+            reasoning_enabled=reasoning_enabled,
             translate_for_model=translate_for_model,
             reroll_discarded_assistant_text=reroll_discarded_assistant_text,
             show_gg_thoughts=show_gg_thoughts,
@@ -13636,6 +13713,7 @@ def _iter_story_provider_stream_chunks(
     story_top_k: int = 0,
     story_top_r: float = 1.0,
     story_response_max_tokens: int | None = None,
+    story_reasoning_enabled: bool = False,
     use_plot_memory: bool = False,
     reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
@@ -13729,6 +13807,7 @@ def _iter_story_provider_stream_chunks(
                 top_k=top_k_value,
                 top_p=top_p_value,
                 max_tokens=effective_response_max_tokens,
+                reasoning_enabled=story_reasoning_enabled,
                 translate_for_model=input_translation_enabled,
                 reroll_discarded_assistant_text=reroll_discarded_assistant_text,
                 show_gg_thoughts=show_gg_thoughts,
@@ -13757,6 +13836,7 @@ def _iter_story_provider_stream_chunks(
             top_k=top_k_value,
             top_p=top_p_value,
             max_tokens=effective_response_max_tokens,
+            reasoning_enabled=story_reasoning_enabled,
             translate_for_model=input_translation_enabled,
             reroll_discarded_assistant_text=reroll_discarded_assistant_text,
             show_gg_thoughts=show_gg_thoughts,

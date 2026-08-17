@@ -407,6 +407,12 @@ class StoryGame(Base):
         default="deepseek/deepseek-chat-v3-0324",
         server_default="deepseek/deepseek-chat-v3-0324",
     )
+    story_reasoning_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     image_model: Mapped[str] = mapped_column(
         String(120),
         nullable=False,
