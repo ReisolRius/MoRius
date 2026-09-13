@@ -119,3 +119,16 @@ class PaymentsStatusOut(BaseModel):
     configured: bool
     provider: str
     message: str
+
+
+class EntitlementsOut(BaseModel):
+    """What the account owns for good, as opposed to what it is owed once.
+
+    Gems are spent and coins are counted, so those live in the save and are handed over exactly
+    once - that is what /pending and /ack are. Removing the adverts is neither: it is a state the
+    account is in forever, and it has to be answerable from scratch on a phone that has never seen
+    this player before. Otherwise switching accounts silently un-buys it, and a purchase that
+    disappears when the player signs in somewhere else is a purchase that will be charged back.
+    """
+
+    no_ads: bool = False

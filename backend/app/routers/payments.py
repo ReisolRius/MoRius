@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -596,6 +597,51 @@ def sync_coin_top_up_payment(
     )
 
 
+logger = logging.getLogger(__name__)
+
+
+def _settle_cozy_payment(payment_id: str, event: str) -> bool:
+    """Marks a Cozy Village purchase paid, if this notification was about one.
+
+    Returns whether it was ours. Everything is swallowed: this runs after the site has already
+    decided the payment is not its own, and an exception raised here would turn a notification we
+    were always going to ignore into a 500 - which ЮKassa retries, which is a retry storm about
+    somebody else's payment.
+    """
+    try:
+        from app.cozy.database import SessionLocal as CozySession
+        from app.cozy.models import CozyPurchase
+    except Exception:  # pragma: no cover - the game's package is optional at runtime
+        return False
+
+    session = CozySession()
+    try:
+        purchase = session.scalar(
+            select(CozyPurchase).where(CozyPurchase.provider_payment_id == payment_id)
+        )
+        if purchase is None:
+            return False
+
+        if event == "payment.succeeded" and purchase.status not in {"paid", "granted"}:
+            purchase.status = "paid"
+            purchase.paid_at = datetime.now(timezone.utc)
+            session.commit()
+        elif event == "payment.canceled" and purchase.status == "created":
+            purchase.status = "canceled"
+            session.commit()
+
+        return True
+    except Exception:
+        logger.exception("Cozy: не удалось обработать уведомление %s", payment_id)
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        session.close()
+
+
 @router.post("/api/payments/yookassa/webhook", response_model=MessageResponse)
 def yookassa_webhook(
     payload: dict[str, Any],
@@ -650,6 +696,19 @@ def yookassa_webhook(
     # Not a coin top-up — try a subscription first payment / renewal.
     subscription = db.scalar(select(Subscription).where(Subscription.provider_payment_id == payment_id))
     if subscription is None:
+        # Nor a subscription. Last stop: Cozy Village, which sells from this same ЮKassa shop.
+        #
+        # <b>This is here because a shop id has exactly one notification URL.</b> The game and the
+        # site share credentials by the owner's decision, so ЮKassa cannot be told to send game
+        # events somewhere else - every notification for shop 1279984 arrives here, including the
+        # ones about gems. Handing them on is the only arrangement that does not require choosing
+        # which of the two products gets a working webhook.
+        #
+        # A separate session, because the game is a separate database. Opened only on the way past
+        # the two tables above, so the site's own traffic never pays for it.
+        if _settle_cozy_payment(payment_id, event):
+            return MessageResponse(message="ok")
+
         return MessageResponse(message="ignored")
     user = db.get(User, subscription.user_id)
     if user is None:

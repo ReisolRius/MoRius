@@ -75,6 +75,12 @@ class CozySettings:
     yookassa_return_url: str
     yookassa_webhook_token: str
 
+    yookassa_receipt_enabled: bool
+    yookassa_receipt_tax_system_code: int
+    yookassa_receipt_vat_code: int
+    yookassa_receipt_payment_mode: str
+    yookassa_receipt_payment_subject: str
+
     @property
     def payments_configured(self) -> bool:
         return bool(self.yookassa_shop_id and self.yookassa_secret_key and self.yookassa_return_url)
@@ -132,9 +138,37 @@ settings = CozySettings(
     # A whole village as JSON. Fifty kilobytes is roughly ten times the largest save the game
     # currently writes, and a ceiling is the difference between a bug and a full disk.
     save_max_bytes=_to_int(os.getenv("COZY_SAVE_MAX_BYTES"), 512 * 1024, minimum=4096),
-    yookassa_shop_id=os.getenv("COZY_YOOKASSA_SHOP_ID", "").strip(),
-    yookassa_secret_key=os.getenv("COZY_YOOKASSA_SECRET_KEY", "").strip(),
+    # The same till as the site, unless the game is given its own.
+    #
+    # Owner's call: one ЮKassa account, one legal entity, one set of credentials to keep alive.
+    # What stays separate is everything above the till - a different database, a different token
+    # audience, different product ids - so a payment made in the game can only ever grant gems and
+    # a payment made on the site can only ever grant sols. The shop id decides who gets the money,
+    # not what the money buys.
+    #
+    # `or` rather than a getenv default, because compose sets these to an empty string rather than
+    # leaving them unset, and an empty string is a value a default would never replace.
+    yookassa_shop_id=(
+        os.getenv("COZY_YOOKASSA_SHOP_ID", "").strip() or morius_settings.yookassa_shop_id
+    ),
+    yookassa_secret_key=(
+        os.getenv("COZY_YOOKASSA_SECRET_KEY", "").strip() or morius_settings.yookassa_secret_key
+    ),
     yookassa_api_url=os.getenv("COZY_YOOKASSA_API_URL", "https://api.yookassa.ru/v3").strip(),
     yookassa_return_url=os.getenv("COZY_YOOKASSA_RETURN_URL", "").strip(),
-    yookassa_webhook_token=os.getenv("COZY_YOOKASSA_WEBHOOK_TOKEN", "").strip(),
+    yookassa_webhook_token=(
+        os.getenv("COZY_YOOKASSA_WEBHOOK_TOKEN", "").strip()
+        or morius_settings.yookassa_webhook_token
+    ),
+    # Receipts follow the till, because 54-ФЗ follows the legal entity rather than the product.
+    # If the site is issuing them, the game selling from the same account has to as well - a
+    # cheque missing for half the takings is the kind of thing found during an inspection.
+    yookassa_receipt_enabled=_to_bool(
+        os.getenv("COZY_YOOKASSA_RECEIPT_ENABLED"),
+        default=morius_settings.yookassa_receipt_enabled,
+    ),
+    yookassa_receipt_tax_system_code=morius_settings.yookassa_receipt_tax_system_code,
+    yookassa_receipt_vat_code=morius_settings.yookassa_receipt_vat_code,
+    yookassa_receipt_payment_mode=morius_settings.yookassa_receipt_payment_mode,
+    yookassa_receipt_payment_subject=morius_settings.yookassa_receipt_payment_subject,
 )

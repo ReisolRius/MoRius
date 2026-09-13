@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.cozy.database import get_db
 from app.cozy.models import CozyPlayer, CozyPurchase
 from app.cozy.schemas import (
+    EntitlementsOut,
     MessageOut,
     PaymentsStatusOut,
     PurchaseCreateIn,
@@ -29,6 +30,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 NOT_CONFIGURED_MESSAGE = "Оплата пока не подключена"
+
+# The one product that is a state rather than a quantity. Written here because the entitlement
+# endpoint and the game both have to agree on the string, and a literal in two files is a literal
+# that will be renamed in one of them.
+NO_ADS_PRODUCT = "noads"
 
 
 def _now() -> datetime:
@@ -79,6 +85,45 @@ def _provider_request(method: str, path: str, *, json_body: dict[str, Any] | Non
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Касса отказала")
 
     return payload if isinstance(payload, dict) else {}
+
+
+def _receipt(player: CozyPlayer, amount_value: str, description: str) -> dict[str, Any] | None:
+    """The cheque ЮKassa sends on our behalf, when the till is issuing them.
+
+    Same shape as the site's, because it is the same legal entity and the same fiscalisation - a
+    second way of describing a sale would be a second thing to get wrong in front of an inspector.
+    What differs is one line of text, and that line is what tells the player which of the two
+    products they bought.
+
+    Off unless the site has it on, and then it needs an address to send it to. The game always has
+    one: an account here is an email address, there is no other way to make one.
+    """
+    if not settings.yookassa_receipt_enabled:
+        return None
+
+    email = str(player.email or "").strip().lower()
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Чек включён, но у аккаунта нет адреса",
+        )
+
+    item = {
+        "description": description[:128],
+        "quantity": "1.00",
+        "amount": {"value": amount_value, "currency": "RUB"},
+        "vat_code": settings.yookassa_receipt_vat_code,
+        "payment_mode": settings.yookassa_receipt_payment_mode.strip() or "full_payment",
+        "payment_subject": settings.yookassa_receipt_payment_subject.strip() or "service",
+    }
+
+    receipt: dict[str, Any] = {"customer": {"email": email}, "items": [item]}
+
+    tax_system_code = settings.yookassa_receipt_tax_system_code
+    if 1 <= tax_system_code <= 6:
+        receipt["tax_system_code"] = tax_system_code
+
+    return receipt
 
 
 def _mark_paid(db: Session, purchase: CozyPurchase) -> None:
@@ -155,17 +200,22 @@ def create_purchase(
     db.commit()
     db.refresh(purchase)
 
-    provider_payment = _provider_request(
-        "POST",
-        "/payments",
-        json_body={
-            "amount": {"value": f"{payload.amount_roubles}.00", "currency": "RUB"},
-            "capture": True,
-            "confirmation": {"type": "redirect", "return_url": settings.yookassa_return_url},
-            "description": f"Cozy Village: {payload.product_id}",
-            "metadata": {"purchase_id": str(purchase.id), "player_id": str(player.id)},
-        },
-    )
+    amount_value = f"{payload.amount_roubles}.00"
+    description = f"Cozy Village: {payload.product_id}"
+
+    body: dict[str, Any] = {
+        "amount": {"value": amount_value, "currency": "RUB"},
+        "capture": True,
+        "confirmation": {"type": "redirect", "return_url": settings.yookassa_return_url},
+        "description": description,
+        "metadata": {"purchase_id": str(purchase.id), "player_id": str(player.id)},
+    }
+
+    receipt = _receipt(player, amount_value, description)
+    if receipt is not None:
+        body["receipt"] = receipt
+
+    provider_payment = _provider_request("POST", "/payments", json_body=body)
 
     purchase.provider_payment_id = str(provider_payment.get("id", ""))
     confirmation = provider_payment.get("confirmation")
@@ -222,12 +272,75 @@ def pending_purchases(
     only then says it has. That is what makes a purchase survive being closed on the payment page,
     losing signal, or reinstalling before the receipt arrived.
     """
+    # Anything still sitting at "created" is asked about first.
+    #
+    # The webhook and the phone's own /sync normally settle these, and both can be missed: a
+    # notification that never arrived, an app killed on the payment page, a phone reinstalled
+    # before it came back. This is the sweep that makes those cases recoverable at all - without
+    # it such a row stays "created" forever and the player paid for nothing.
+    #
+    # Only the ones that actually reached ЮKassa, and failures are swallowed: this runs on every
+    # launch, and a till that is briefly unreachable must not turn "what am I owed" into an error.
+    stale = db.scalars(
+        select(CozyPurchase).where(
+            CozyPurchase.player_id == player.id,
+            CozyPurchase.status == "created",
+            CozyPurchase.provider_payment_id != "",
+        )
+    ).all()
+
+    for row in stale:
+        try:
+            provider_payment = _provider_request("GET", f"/payments/{row.provider_payment_id}")
+        except HTTPException:
+            break
+
+        provider_status = str(provider_payment.get("status", ""))
+        if provider_status == "succeeded":
+            _mark_paid(db, row)
+        elif provider_status == "canceled":
+            row.status = "canceled"
+            db.commit()
+
     rows = db.scalars(
         select(CozyPurchase)
         .where(CozyPurchase.player_id == player.id, CozyPurchase.status == "paid")
         .order_by(CozyPurchase.id)
     ).all()
     return PurchaseListOut(purchases=[_serialize(row) for row in rows])
+
+
+@router.get("/api/cozy/payments/entitlements", response_model=EntitlementsOut)
+def entitlements(
+    player: CozyPlayer = Depends(current_player),
+    db: Session = Depends(get_db),
+) -> EntitlementsOut:
+    """What this account owns permanently, recomputed from its receipts every time.
+
+    Separate from /pending on purpose, and the difference is the whole reason this exists.
+    /pending hands something over once and is then acknowledged, which is right for gems: they go
+    into a save and get spent. Removing the adverts cannot work that way - it is not a quantity,
+    it is a fact about the account, and it has to survive a reinstall, a second phone, and a
+    player switching back and forth between two accounts on one device.
+
+    Derived rather than stored on the player row for the same reason the game derives everything
+    else it can: a boolean column would be a second answer to a question the purchases table
+    already answers, and the day the two disagree the player is right and we are not.
+
+    "paid" counts as well as "granted": the money has moved, and whether the phone has said thank
+    you is the phone's business, not the entitlement's.
+    """
+    owns_no_ads = db.scalar(
+        select(CozyPurchase.id)
+        .where(
+            CozyPurchase.player_id == player.id,
+            CozyPurchase.product_id == NO_ADS_PRODUCT,
+            CozyPurchase.status.in_(("paid", "granted")),
+        )
+        .limit(1)
+    )
+
+    return EntitlementsOut(no_ads=owns_no_ads is not None)
 
 
 @router.post("/api/cozy/payments/{purchase_id}/ack", response_model=PurchaseOut)

@@ -351,16 +351,94 @@ class CozyBackendTests(unittest.TestCase):
     # ------------------------------------------------------------------ payments
 
     def test_buying_without_a_till_is_refused_out_loud(self) -> None:
-        player = self._register()
-        self.assertFalse(cozy_payments.payments_status().configured)
+        """No shop id anywhere - not the game's, not the site's - and the shop says so.
 
-        with self.assertRaises(HTTPException) as refused:
-            cozy_payments.create_purchase(
-                cozy_payments.PurchaseCreateIn(product_id="1", gems=100, amount_roubles=149),
-                player=player,
-                db=self.db,
-            )
+        Stated with the credentials removed rather than by trusting the environment, because the
+        game now falls back to MoRius's till: on any machine where the site can take money, so can
+        the game, and a test that asserted otherwise would be asserting that the fallback is
+        broken.
+        """
+        player = self._register()
+
+        broke = dataclasses.replace(
+            cozy_payments.settings, yookassa_shop_id="", yookassa_secret_key=""
+        )
+
+        with patch.object(cozy_payments, "settings", broke):
+            self.assertFalse(cozy_payments.payments_status().configured)
+
+            with self.assertRaises(HTTPException) as refused:
+                cozy_payments.create_purchase(
+                    cozy_payments.PurchaseCreateIn(product_id="1", gems=100, amount_roubles=149),
+                    player=player,
+                    db=self.db,
+                )
+
         self.assertEqual(refused.exception.status_code, 503)
+
+    def test_the_game_borrows_the_site_till(self) -> None:
+        """One ЮKassa account, two shops. The credentials are shared; nothing else is."""
+        from app.config import settings as morius_settings
+
+        if not morius_settings.yookassa_shop_id:
+            self.skipTest("сайту не выданы ключи ЮKassa на этой машине")
+
+        self.assertEqual(cozy_payments.settings.yookassa_shop_id, morius_settings.yookassa_shop_id)
+        self.assertTrue(cozy_payments.payments_status().configured)
+
+    def test_removing_ads_survives_a_new_device(self) -> None:
+        """The one purchase that is a state rather than a quantity.
+
+        Gems are handed over once and spent, so /pending forgets them on purpose. Removing the
+        adverts has to be answerable from nothing on a phone that has never seen this player -
+        after a reinstall, on a second device, and above all after switching accounts, which wipes
+        the save deliberately.
+        """
+        player = self._register()
+
+        self.assertFalse(cozy_payments.entitlements(player=player, db=self.db).no_ads)
+
+        self.db.add(
+            CozyPurchase(
+                player_id=player.id,
+                product_id="noads",
+                gems=0,
+                amount_roubles=599,
+                status="paid",
+            )
+        )
+        self.db.commit()
+
+        self.assertTrue(cozy_payments.entitlements(player=player, db=self.db).no_ads)
+
+        # And it stays true once the phone has said thank you, which is what makes it durable
+        # rather than a second copy of /pending.
+        owned = self.db.query(CozyPurchase).filter(CozyPurchase.player_id == player.id).one()
+        owned.status = "granted"
+        self.db.commit()
+
+        self.assertTrue(cozy_payments.entitlements(player=player, db=self.db).no_ads)
+
+    def test_one_account_does_not_own_another_account_purchase(self) -> None:
+        """The entitlement is per player, which is the whole reason switching accounts is safe."""
+        buyer = self._register()
+        self.db.add(
+            CozyPurchase(
+                player_id=buyer.id,
+                product_id="noads",
+                gems=0,
+                amount_roubles=599,
+                status="paid",
+            )
+        )
+        self.db.commit()
+
+        other = CozyPlayer(email="other@example.com", password_hash="x", display_name="other")
+        self.db.add(other)
+        self.db.commit()
+
+        self.assertTrue(cozy_payments.entitlements(player=buyer, db=self.db).no_ads)
+        self.assertFalse(cozy_payments.entitlements(player=other, db=self.db).no_ads)
 
     def test_a_paid_purchase_is_handed_over_once(self) -> None:
         """Gems live in the save on the phone, so the server holds an entitlement, not a balance."""

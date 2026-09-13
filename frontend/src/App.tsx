@@ -11,6 +11,7 @@ import {
 } from './services/authApi'
 import { Alert, Snackbar } from '@mui/material'
 import { PRIVACY_POLICY_TEXT, PUBLICATION_RULES_TEXT, SUBSCRIPTION_TERMS_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
+import { RIUS_PRIVACY_POLICY_TEXT, RIUS_TERMS_OF_SERVICE_TEXT } from './constants/riusGamesLegal'
 import type { ReactNode } from 'react'
 import type { AuthResponse, AuthUser } from './types/auth'
 import FantasyRouteTransition from './components/navigation/FantasyRouteTransition'
@@ -112,12 +113,19 @@ function isAuthenticatedPath(pathname: string): boolean {
   )
 }
 
+/** Куда игра уводит за своими документами. Публично и без входа: игрок читает их до того,
+ *  как у него появляется какая бы то ни было учётная запись. */
+const RIUS_PRIVACY_PATH = '/rius-games/privacy-policy'
+const RIUS_TERMS_PATH = '/rius-games/terms-of-service'
+
 function isLegalPath(pathname: string): boolean {
   return (
     pathname === '/privacy-policy' ||
     pathname === '/terms-of-service' ||
     pathname === '/publication-rules' ||
-    pathname === '/subscription-terms'
+    pathname === '/subscription-terms' ||
+    pathname === RIUS_PRIVACY_PATH ||
+    pathname === RIUS_TERMS_PATH
   )
 }
 
@@ -289,6 +297,7 @@ const loadMyPublicationsPage = () => import('./pages/MyPublicationsPage')
 const loadCommunityWorldsPage = () => import('./pages/CommunityWorldsPage')
 const loadWorldCreatePage = () => import('./pages/WorldCreatePage')
 const loadLegalDocumentPage = () => import('./pages/LegalDocumentPage')
+const loadGameLegalPage = () => import('./pages/GameLegalPage')
 const loadWikiPage = () => import('./pages/WikiPage')
 const loadProfilePage = () => import('./pages/ProfilePage')
 const loadShopPage = () => import('./pages/ShopPage')
@@ -304,6 +313,7 @@ const MyPublicationsPage = lazy(loadMyPublicationsPage)
 const CommunityWorldsPage = lazy(loadCommunityWorldsPage)
 const WorldCreatePage = lazy(loadWorldCreatePage)
 const LegalDocumentPage = lazy(loadLegalDocumentPage)
+const GameLegalPage = lazy(loadGameLegalPage)
 const WikiPage = lazy(loadWikiPage)
 const ProfilePage = lazy(loadProfilePage)
 const ShopPage = lazy(loadShopPage)
@@ -895,6 +905,8 @@ function App() {
   const shouldShowTermsPage = path === '/terms-of-service'
   const shouldShowPublicationRulesPage = path === '/publication-rules'
   const shouldShowSubscriptionTermsPage = path === '/subscription-terms'
+  const shouldShowRiusPrivacyPage = path === RIUS_PRIVACY_PATH
+  const shouldShowRiusTermsPage = path === RIUS_TERMS_PATH
   const shouldShowWikiPage = path === '/wiki'
   const shouldShowAuthPage = !isAuthenticated && path === '/auth'
   const shouldAllowMaintenanceAuthBypass = !isAuthenticated && path === '/auth'
@@ -905,7 +917,29 @@ function App() {
 
   let pageContent: ReactNode
 
-  if (shouldShowMaintenancePage && maintenanceSettings) {
+  if (shouldShowRiusPrivacyPage) {
+    pageContent = (
+      <Suspense fallback={routeTransitionFallback}>
+        <GameLegalPage
+          title="Политика конфиденциальности"
+          content={RIUS_PRIVACY_POLICY_TEXT}
+          other={{ label: 'Пользовательское соглашение', path: RIUS_TERMS_PATH }}
+          onNavigate={navigate}
+        />
+      </Suspense>
+    )
+  } else if (shouldShowRiusTermsPage) {
+    pageContent = (
+      <Suspense fallback={routeTransitionFallback}>
+        <GameLegalPage
+          title="Пользовательское соглашение"
+          content={RIUS_TERMS_OF_SERVICE_TEXT}
+          other={{ label: 'Политика конфиденциальности', path: RIUS_PRIVACY_PATH }}
+          onNavigate={navigate}
+        />
+      </Suspense>
+    )
+  } else if (shouldShowMaintenancePage && maintenanceSettings) {
     pageContent = (
       <Suspense fallback={routeTransitionFallback}>
         <MaintenancePage settings={maintenanceSettings} />

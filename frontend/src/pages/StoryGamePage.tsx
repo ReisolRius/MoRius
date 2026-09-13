@@ -920,23 +920,23 @@ const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
 const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
 const STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64000
 const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [4, 5, 6, 7, 12]
-const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [5, 6, 8, 12, 20]
+const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [5, 8, 14, 26, 48]
 const STORY_TURN_COST_DEEPSEEK_R1_TIERS: readonly [number, number, number, number, number] = [7, 8, 10, 14, 22]
 const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [4, 4, 4, 5, 5]
 const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [6, 7, 8, 10, 16]
 const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [8, 10, 12, 18, 30]
-const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [20, 22, 26, 36, 54]
-const STORY_TURN_COST_COGITO_TIERS: readonly [number, number, number, number, number] = [7, 9, 14, 24, 44]
+const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [20, 24, 38, 65, 65]
+const STORY_TURN_COST_COGITO_TIERS: readonly [number, number, number, number, number] = [7, 9, 14, 26, 44]
 const STORY_TURN_COST_MINIMAX_M2_HER_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
 const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 14, 24]
 const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [6, 7, 9, 13, 21]
 const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [17, 19, 23, 33, 51]
-const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 36]
+const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 38]
 const STORY_TURN_COST_GLM52_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 36]
 const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [22, 28, 34, 54, 89]
-const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [22, 30, 40, 72, 120]
+const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [22, 30, 42, 72, 120]
 const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
-const STORY_TURN_COST_KIMI_K26_TIERS: readonly [number, number, number, number, number] = [5, 6, 8, 12, 20]
+const STORY_TURN_COST_KIMI_K26_TIERS: readonly [number, number, number, number, number] = [5, 6, 8, 13, 24]
 const STORY_TURN_COST_KIMI_K3_TIERS: readonly [number, number, number, number, number] = [22, 30, 40, 72, 120]
 const STORY_REASONING_MAX_TOKENS = 2048
 const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, number>> = {
@@ -951,7 +951,7 @@ const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, n
   'google/gemini-3.1-flash-lite': 1,
   'anthropic/claude-sonnet-4.6': 10,
   'google/gemini-2.5-pro': 6,
-  'google/gemini-3.1-pro-preview': 4,
+  'google/gemini-3.1-pro-preview': 10,
   'qwen/qwen3.7-plus': 1,
   'moonshotai/kimi-k2.6': 2,
   'moonshotai/kimi-k3': 9,
@@ -6084,138 +6084,38 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   return STORY_TURN_COST_DEEPSEEK_TIERS
 }
 
+// Both the plain-text tooltip and the table below are rendered from this one list, which reads
+// the same STORY_TURN_COST_*_TIERS constants the charge itself uses. Hardcoding either copy lets
+// the quoted price drift away from the charged one, which is exactly what players notice.
+type StoryTurnCostRow = { title: string; values: [string, string, string, string, string] }
+
+function getStoryTurnCostRows(): StoryTurnCostRow[] {
+  return STORY_NARRATOR_MODEL_OPTIONS.map((option) => {
+    const tiers = getStoryNarratorTurnCostTiers(option.id)
+    const contextMax = getStoryContextLimitMax(option.id)
+    // The fifth tier is only ever charged by models whose context reaches past 64k.
+    const beyond64k = contextMax > STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX ? String(tiers[4]) : '—'
+    return {
+      title: option.title,
+      values: [String(tiers[0]), String(tiers[1]), String(tiers[2]), String(tiers[3]), beyond64k],
+    }
+  })
+}
+
 function getStoryTurnCostTooltipText(): string {
-  return [
-    'Стоимость хода зависит от рассказчика и использованного контекста, но не выше выбранного лимита:',
+  const header =
+    'Стоимость хода зависит от рассказчика и использованного контекста, но не выше выбранного лимита:'
+  const bands = ['до 6000', '6001–16000', '16001–32000', '32001–64000', 'свыше 64000']
+  const lines = getStoryTurnCostRows().flatMap((row) => [
+    `${row.title}:`,
+    ...row.values.flatMap((value, index) => (value === '—' ? [] : [`${bands[index]} — ${value} ед.`])),
     '',
-    'DeepSeek V3/V3.2:',
-    'до 6000 — 4 ед.',
-    '6001–16000 — 5 ед.',
-    '16001–32000 — 6 ед.',
-    '32001–64000 — 7 ед.',
-    '',
-    'DeepSeek V4 Pro:',
-    'до 6000 — 5 ед.',
-    '6001–16000 — 6 ед.',
-    '16001–32000 — 8 ед.',
-    '32001–64000 — 12 ед.',
-    '64001–128000 — 20 ед.',
-    '',
-    'DeepSeek R1:',
-    'до 6000 — 7 ед.',
-    '6001–16000 — 8 ед.',
-    '16001–32000 — 10 ед.',
-    '32001–64000 — 14 ед.',
-    '',
-    'GLM 4.7:',
-    'до 6000 — 6 ед.',
-    '6001–16000 — 7 ед.',
-    '16001–32000 — 8 ед.',
-    '32001–64000 — 10 ед.',
-    '',
-    'GLM 5.0:',
-    'до 6000 — 6 ед.',
-    '6001–16000 — 8 ед.',
-    '16001–32000 — 10 ед.',
-    '32001–64000 — 14 ед.',
-    '',
-    'AionLabs:',
-    'до 6000 — 8 ед.',
-    '6001–16000 — 10 ед.',
-    '16001–32000 — 12 ед.',
-    '32001–64000 — 18 ед.',
-    '64001–108000 — 30 ед.',
-    '',
-    'Aion 3.0:',
-    'до 6000 — 20 ед.',
-    '6001–16000 — 22 ед.',
-    '16001–32000 — 26 ед.',
-    '32001–64000 — 36 ед.',
-    '',
-    'Deep Cogito:',
-    'до 6000 — 7 ед.',
-    '6001–16000 — 9 ед.',
-    '16001–32000 — 14 ед.',
-    '32001–64000 — 24 ед.',
-    '',
-    'Gemini 3.1 Flash Lite:',
-    'до 6000 — 6 ед.',
-    '6001–16000 — 7 ед.',
-    '16001–32000 — 9 ед.',
-    '32001–64000 — 13 ед.',
-    '',
-    'GLM 5.1:',
-    'до 6000 — 8 ед.',
-    '6001–16000 — 10 ед.',
-    '16001–32000 — 14 ед.',
-    '32001–64000 — 20 ед.',
-    '64001–128000 — 36 ед.',
-    '',
-    'GLM 5.2:',
-    'до 6000 — 8 ед.',
-    '6001–16000 — 10 ед.',
-    '16001–32000 — 14 ед.',
-    '32001–64000 — 20 ед.',
-    '',
-    'Gemini 2.5 Pro:',
-    'до 6000 — 17 ед.',
-    '6001–16000 — 19 ед.',
-    '16001–32000 — 23 ед.',
-    '32001–64000 — 33 ед.',
-    '',
-    'Gemini 3.1 Pro:',
-    'до 6000 — 22 ед.',
-    '6001–16000 — 28 ед.',
-    '16001–32000 — 34 ед.',
-    '32001–64000 — 54 ед.',
-    '',
-    'Qwen 3.7 Plus:',
-    'до 6000 — 6 ед.',
-    '6001–16000 — 8 ед.',
-    '16001–32000 — 10 ед.',
-    '32001–64000 — 16 ед.',
-    '',
-    'Kimi K2.6:',
-    'до 6000 — 5 ед.',
-    '6001–16000 — 6 ед.',
-    '16001–32000 — 8 ед.',
-    '32001–64000 — 12 ед.',
-    '64001–128000 — 20 ед.',
-    '',
-    'Kimi K3:',
-    'до 6000 — 22 ед.',
-    '6001–16000 — 30 ед.',
-    '16001–32000 — 40 ед.',
-    '32001–64000 — 72 ед.',
-    '64001–128000 — 120 ед.',
-    '',
-    'Claude Sonnet 4.6:',
-    'до 6000 — 22 ед.',
-    '6001–16000 — 30 ед.',
-    '16001–32000 — 40 ед.',
-    '32001–64000 — 72 ед.',
-    '',
-  ].join('\n')
+  ])
+  return [header, '', ...lines].join('\n')
 }
 
 function StoryTurnCostTooltipContent() {
-  const rows = [
-    { title: 'DeepSeek V3/V3.2', values: ['4', '5', '6', '7', '—'] },
-    { title: 'DeepSeek V4 Pro', values: ['5', '6', '8', '12', '20'] },
-    { title: 'DeepSeek R1', values: ['7', '8', '10', '14', '—'] },
-    { title: 'GLM 4.7', values: ['6', '7', '8', '10', '—'] },
-    { title: 'GLM 5.0', values: ['6', '8', '10', '14', '—'] },
-    { title: 'AionLabs', values: ['8', '10', '12', '18', '30'] },
-    { title: 'Aion 3.0', values: ['20', '22', '26', '36', '—'] },
-    { title: 'Deep Cogito', values: ['7', '9', '14', '24', '—'] },
-    { title: 'Gemini 3.1 Flash Lite', values: ['6', '7', '9', '13', '—'] },
-    { title: 'GLM 5.1', values: ['8', '10', '14', '20', '36'] },
-    { title: 'GLM 5.2', values: ['8', '10', '14', '20', '—'] },
-    { title: 'Gemini 2.5 Pro', values: ['17', '19', '23', '33', '—'] },
-    { title: 'Gemini 3.1 Pro', values: ['22', '28', '34', '54', '—'] },
-    { title: 'Qwen 3.7 Plus', values: ['6', '8', '10', '16', '—'] },
-    { title: 'Claude 4.6', values: ['22', '30', '40', '72', '—'] },
-  ]
+  const rows = getStoryTurnCostRows()
   const columns = ['6k', '16k', '32k', '64k', '>64k']
 
   return (
@@ -15747,6 +15647,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const previousValue = storyReasoningEnabled
     const nextValue = !previousValue
     setStoryReasoningEnabled(nextValue)
+    setStorySettingsOverrides((previousOverrides) => {
+      const existingOverride = previousOverrides[targetGameId]
+      if (!existingOverride) {
+        return previousOverrides
+      }
+      return {
+        ...previousOverrides,
+        [targetGameId]: {
+          ...existingOverride,
+          storyReasoningEnabled: nextValue,
+        },
+      }
+    })
     setErrorMessage('')
     setIsSavingStoryReasoning(true)
     try {
@@ -15755,10 +15668,37 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         gameId: targetGameId,
         storyReasoningEnabled: nextValue,
       })
-      setStoryReasoningEnabled(Boolean(updatedGame.story_reasoning_enabled))
+      const persistedValue = Boolean(updatedGame.story_reasoning_enabled)
+      setStoryReasoningEnabled(persistedValue)
+      setStorySettingsOverrides((previousOverrides) => {
+        const existingOverride = previousOverrides[targetGameId]
+        if (!existingOverride) {
+          return previousOverrides
+        }
+        return {
+          ...previousOverrides,
+          [targetGameId]: {
+            ...existingOverride,
+            storyReasoningEnabled: persistedValue,
+          },
+        }
+      })
       applyUpdatedGameSummary(updatedGame)
     } catch (error) {
       setStoryReasoningEnabled(previousValue)
+      setStorySettingsOverrides((previousOverrides) => {
+        const existingOverride = previousOverrides[targetGameId]
+        if (!existingOverride) {
+          return previousOverrides
+        }
+        return {
+          ...previousOverrides,
+          [targetGameId]: {
+            ...existingOverride,
+            storyReasoningEnabled: previousValue,
+          },
+        }
+      })
       const detail = error instanceof Error ? error.message : 'Не удалось обновить режим рассуждения'
       setErrorMessage(detail)
     } finally {

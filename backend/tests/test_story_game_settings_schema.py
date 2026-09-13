@@ -63,7 +63,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_reasoning_surcharge_tokens("google/gemini-2.5-pro", reasoning_enabled=True), 6)
         self.assertEqual(
             get_story_reasoning_surcharge_tokens("google/gemini-3.1-pro-preview", reasoning_enabled=True),
-            4,
+            10,
         )
         self.assertEqual(get_story_reasoning_surcharge_tokens("anthropic/claude-sonnet-4.6", reasoning_enabled=True), 10)
         self.assertEqual(get_story_reasoning_surcharge_tokens("google/gemini-2.5-pro", reasoning_enabled=False), 0)
@@ -206,7 +206,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
 
     def test_cost_tiers_respect_model_context_caps(self) -> None:
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 20)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 36)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 38)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.2"), 20)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.2"), 20)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 18)
@@ -247,10 +247,10 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "moonshotai/kimi-k3",
         )
         self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-v4-pro-0813"), 5)
-        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-v4-pro-0813"), 6)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-v4-pro-0813"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v4-pro-0813"), 12)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "deepseek/deepseek-v4-pro-0813"), 20)
+        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-v4-pro-0813"), 8)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-v4-pro-0813"), 14)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v4-pro-0813"), 26)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "deepseek/deepseek-v4-pro-0813"), 48)
         self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-r1-0528"), 7)
         self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-r1-0528"), 8)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-r1-0528"), 10)
@@ -268,14 +268,14 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             64_000,
         )
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-2.5-pro"), 23)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 40)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 42)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 72)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-pro-preview"), 34)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "z-ai/glm-4.7"), 8)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "minimax/minimax-m2-her"), 10)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-flash-lite"), 9)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k2.6"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.6"), 20)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.6"), 24)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k3"), 40)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k3"), 120)
 
@@ -287,21 +287,21 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         expected_rows = {
             "z-ai/glm-4.7-flash": (4, 4, 4, 5, 5),
             "deepseek/deepseek-v3.2": (4, 5, 6, 7, 7),
-            "deepseek/deepseek-v4-pro-0813": (5, 6, 8, 12, 20),
+            "deepseek/deepseek-v4-pro-0813": (5, 8, 14, 26, 48),
             "deepseek/deepseek-r1-0528": (7, 8, 10, 14, 14),
             "z-ai/glm-4.7": (6, 7, 8, 10, 10),
             "z-ai/glm-5": (6, 8, 10, 14, 14),
             "aion-labs/aion-2.0": (8, 10, 12, 18, 30),
-            "aion-labs/aion-3.0": (20, 22, 26, 36, 36),
-            "deepcogito/cogito-v2.1-671b": (7, 9, 14, 24, 24),
+            "aion-labs/aion-3.0": (20, 24, 38, 65, 65),
+            "deepcogito/cogito-v2.1-671b": (7, 9, 14, 26, 26),
             "minimax/minimax-m2-her": (6, 8, 10, 16, 16),
             "google/gemini-3.1-flash-lite": (6, 7, 9, 13, 13),
-            "z-ai/glm-5.1": (8, 10, 14, 20, 36),
+            "z-ai/glm-5.1": (8, 10, 14, 20, 38),
             "z-ai/glm-5.2": (8, 10, 14, 20, 20),
             "google/gemini-2.5-pro": (17, 19, 23, 33, 33),
             "google/gemini-3.1-pro-preview": (22, 28, 34, 54, 54),
-            "anthropic/claude-sonnet-4.6": (22, 30, 40, 72, 72),
-            "moonshotai/kimi-k2.6": (5, 6, 8, 12, 20),
+            "anthropic/claude-sonnet-4.6": (22, 30, 42, 72, 72),
+            "moonshotai/kimi-k2.6": (5, 6, 8, 13, 24),
             "moonshotai/kimi-k3": (22, 30, 40, 72, 120),
         }
         usage_by_tier = (6_000, 6_001, 16_001, 32_001, 64_001)
@@ -556,7 +556,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             memory_optimization_enabled=True,
         )
 
-        self.assertEqual(cost, 40)
+        self.assertEqual(cost, 42)
 
     def test_runtime_turn_cost_ignores_hidden_service_context_cards(self) -> None:
         cost = _calculate_story_turn_cost_tokens(
