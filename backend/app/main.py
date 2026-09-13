@@ -1824,6 +1824,15 @@ def on_startup() -> None:
     except Exception:
         logger.exception("Database bootstrap failed during startup; continuing without blocking API process")
 
+    # Monthly renewals used to depend on an external cron hitting run-recurring, and nothing
+    # ever did, so no subscription ever renewed. The app drives the job itself now.
+    try:
+        from app.services.subscription_renewals import start_subscription_renewal_scheduler
+
+        start_subscription_renewal_scheduler()
+    except Exception:
+        logger.exception("Subscription renewal scheduler could not be started")
+
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
@@ -1836,6 +1845,12 @@ def on_shutdown() -> None:
         shutdown_story_memory_compaction(wait=True)
     except Exception:
         logger.exception("Background memory compaction shutdown failed")
+    try:
+        from app.services.subscription_renewals import stop_subscription_renewal_scheduler
+
+        stop_subscription_renewal_scheduler(wait=True)
+    except Exception:
+        logger.exception("Subscription renewal scheduler shutdown failed")
     _close_auth_verification_http_session()
     _close_payments_http_session()
     HTTP_SESSION.close()

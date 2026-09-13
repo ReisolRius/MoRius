@@ -1230,6 +1230,10 @@ def _ensure_subscription_schema() -> None:
         alter_statements.append(
             f"ALTER TABLE {table_name} ADD COLUMN provider_payment_id VARCHAR(128)"
         )
+    if "cancel_at_period_end" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {table_name} ADD COLUMN cancel_at_period_end INTEGER NOT NULL DEFAULT 0"
+        )
     if not alter_statements:
         return
     with engine.begin() as connection:

@@ -151,7 +151,7 @@ class SubscriptionLifecycleTests(unittest.TestCase):
             )
 
         self.db.refresh(granted)
-        self.assertEqual(result, {"charged": 1, "failed": 0, "due": 1})
+        self.assertEqual(result, {"charged": 1, "failed": 0, "expired": 0, "due": 1})
         self.assertEqual(granted.provider_payment_id, "renewal-payment")
         self.assertEqual(recurring_payment.call_args.args[0]["id"], "constellation")
         self.assertEqual(recurring_payment.call_args.args[2], "saved-card-1")
@@ -172,7 +172,7 @@ class SubscriptionLifecycleTests(unittest.TestCase):
         )
         self.db.refresh(granted)
 
-        self.assertEqual(result, {"charged": 0, "failed": 1, "due": 1})
+        self.assertEqual(result, {"charged": 0, "failed": 1, "expired": 0, "due": 1})
         self.assertEqual(granted.status, "expired")
 
     def test_admin_endpoint_returns_new_subscription_state(self) -> None:
@@ -226,7 +226,7 @@ class SubscriptionLifecycleTests(unittest.TestCase):
         self.assertEqual(old_flame.status, "canceled")
         self.assertIsNone(old_flame.next_charge_at)
         self.assertEqual(constellation.status, "active")
-        self.assertEqual(result, {"charged": 1, "failed": 0, "due": 1})
+        self.assertEqual(result, {"charged": 1, "failed": 0, "expired": 0, "due": 1})
         self.assertEqual(recurring_payment.call_count, 1)
         self.assertEqual(recurring_payment.call_args.args[0]["id"], "constellation")
 

@@ -40,6 +40,7 @@ import planFlameIcon from '../assets/images/presentation/plan-flame.png'
 import planConstellationIcon from '../assets/images/presentation/plan-constellation.png'
 import {
   cancelSubscription,
+  resumeSubscription,
   createCoinTopUpPayment,
   createDemoPaymentMethod,
   createMockSubscription,
@@ -413,6 +414,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   const [isPaying, setIsPaying] = useState(false)
   const [justSubscribed, setJustSubscribed] = useState(false)
   const [cancelTarget, setCancelTarget] = useState<SubscriptionDetail | null>(null)
+  const [resumingId, setResumingId] = useState<number | null>(null)
   const [cancelingId, setCancelingId] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const canManageShop = isPrivilegedUser(user)
@@ -886,6 +888,22 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
       setError(requestError instanceof Error ? requestError.message : 'Не удалось отменить подписку')
     } finally {
       setCancelingId(null)
+    }
+  }
+
+  const handleResumeSubscription = async (subscription: SubscriptionDetail) => {
+    if (resumingId !== null) {
+      return
+    }
+    setResumingId(subscription.id)
+    setError('')
+    try {
+      const updated = await resumeSubscription({ token: authToken, subscription_id: subscription.id })
+      setSubscriptions((previous) => previous.map((entry) => (entry.id === updated.id ? updated : entry)))
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Не удалось возобновить подписку')
+    } finally {
+      setResumingId(null)
     }
   }
 
@@ -1713,7 +1731,11 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
                 <Stack spacing={1}>
                   {subscriptions.map((subscription) => {
                     const isActive = subscription.status === 'active'
+                    // Cancelled but still paid up: the membership keeps working to the end of
+                    // the period the player bought, so it must not read as "Отменена".
+                    const endsAtPeriodEnd = isActive && Boolean(subscription.cancel_at_period_end)
                     const isCanceling = cancelingId === subscription.id
+                    const isResuming = resumingId === subscription.id
                     return (
                       <Box
                         key={subscription.id}
@@ -1729,14 +1751,28 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
                             {subscription.plan_title}
                           </Typography>
                           <Chip
-                            label={isActive ? 'Активна' : 'Отменена'}
+                            label={
+                              endsAtPeriodEnd
+                                ? 'Активна до конца периода'
+                                : isActive
+                                  ? 'Активна'
+                                  : 'Отменена'
+                            }
                             size="small"
                             sx={{
                               height: 20,
                               fontSize: '0.66rem',
                               fontWeight: 800,
-                              color: isActive ? '#0c1f17' : 'var(--morius-text-secondary)',
-                              backgroundColor: isActive ? '#5ADDC7' : 'var(--morius-card-bg)',
+                              color: endsAtPeriodEnd
+                                ? '#2b1d05'
+                                : isActive
+                                  ? '#0c1f17'
+                                  : 'var(--morius-text-secondary)',
+                              backgroundColor: endsAtPeriodEnd
+                                ? 'var(--morius-gold)'
+                                : isActive
+                                  ? '#5ADDC7'
+                                  : 'var(--morius-card-bg)',
                             }}
                           />
                         </Stack>
@@ -1748,7 +1784,16 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
                           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem' }}>
                             Оформлена: {formatDateRu(subscription.started_at)}
                           </Typography>
-                          {isActive ? (
+                          {endsAtPeriodEnd ? (
+                            <>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem' }}>
+                                Доступ сохраняется до {formatDateRu(subscription.next_charge_at)}
+                              </Typography>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem' }}>
+                                Автопродление отключено — списаний больше не будет
+                              </Typography>
+                            </>
+                          ) : isActive ? (
                             <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem' }}>
                               Следующее списание: {formatDateRu(subscription.next_charge_at)}
                             </Typography>
@@ -1758,7 +1803,26 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
                             </Typography>
                           )}
                         </Stack>
-                        {isActive ? (
+                        {endsAtPeriodEnd ? (
+                          <Button
+                            onClick={() => void handleResumeSubscription(subscription)}
+                            disabled={isResuming}
+                            sx={{
+                              mt: 1,
+                              minHeight: 38,
+                              px: 1.6,
+                              borderRadius: '10px',
+                              textTransform: 'none',
+                              fontWeight: 800,
+                              color: 'var(--morius-title-text)',
+                              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 44%, var(--morius-card-border))',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, transparent)',
+                              '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, transparent)' },
+                            }}
+                          >
+                            {isResuming ? 'Возобновляем...' : 'Возобновить автопродление'}
+                          </Button>
+                        ) : isActive ? (
                           <Button
                             onClick={() => setCancelTarget(subscription)}
                             disabled={isCanceling}
@@ -2040,7 +2104,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         </DialogTitle>
         <DialogContent>
           <Typography sx={{ color: 'var(--morius-text-secondary)', lineHeight: 1.55 }}>
-            Подписка «{cancelTarget?.plan_title ?? ''}» будет отменена, автопродление прекратится. Доступ сохранится до конца уже оплаченного периода.
+            Автопродление подписки «{cancelTarget?.plan_title ?? ''}» будет отключено. Доступ ко всем возможностям тарифа сохранится до {formatDateRu(cancelTarget?.next_charge_at ?? null)} — этот период уже оплачен. Передумаете — автопродление можно включить обратно в любой момент до этой даты.
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.4 }}>

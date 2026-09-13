@@ -225,6 +225,12 @@ class Subscription(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     next_charge_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     canceled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The player switched auto-renewal off. The membership stays `active` and keeps working
+    # until `next_charge_at`, because that period is already paid for; the renewal job then
+    # expires it instead of charging. Cancelling must never take away what was bought.
+    cancel_at_period_end: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     is_mock: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

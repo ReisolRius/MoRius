@@ -69,7 +69,13 @@ def get_active_subscription(db: Session, user: User, *, now: datetime | None = N
     ).all()
     for subscription in candidates:
         next_charge_at = subscription.next_charge_at
-        if next_charge_at is None or _to_utc(next_charge_at) > grace_floor:
+        if next_charge_at is None:
+            return subscription
+        # The grace window exists to cover a renewal that is late, not one that was never
+        # going to happen: a membership the player cancelled ends exactly when its paid
+        # period does, with nothing owed either way.
+        floor = current if bool(getattr(subscription, "cancel_at_period_end", False)) else grace_floor
+        if _to_utc(next_charge_at) > floor:
             return subscription
     return None
 

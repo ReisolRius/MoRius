@@ -632,12 +632,50 @@ def sync_subscription_status(
                 now=now,
             )
         subscription.canceled_at = None
+        subscription.cancel_at_period_end = False
     elif status_value == "canceled":
         subscription.status = "canceled"
         subscription.canceled_at = _utcnow()
         subscription.next_charge_at = None
     db.commit()
     db.refresh(subscription)
+    return subscription
+
+
+def cancel_subscription_at_period_end(
+    subscription: Subscription,
+    *,
+    now: datetime | None = None,
+) -> Subscription:
+    """Switch auto-renewal off without taking away the period the player already paid for.
+
+    Cancelling used to flip the row to `canceled` on the spot, which dropped the entitlement
+    the same second -- a membership bought minutes earlier simply vanished. The row now stays
+    `active` until `next_charge_at`; `charge_due_subscriptions` expires it there instead of
+    charging. If the card is unbound the outcome is the same, by a different route: no card
+    means no renewal, and the period still runs out on its own.
+    """
+    if subscription.status != "active":
+        return subscription
+    subscription.cancel_at_period_end = True
+    subscription.canceled_at = now or _utcnow()
+    if subscription.next_charge_at is None:
+        # Nothing left to run out, so there is nothing to keep alive either.
+        subscription.status = "canceled"
+    return subscription
+
+
+def resume_subscription_auto_renewal(
+    subscription: Subscription,
+    *,
+    now: datetime | None = None,
+) -> Subscription:
+    """Undo a scheduled cancellation while the paid period is still running."""
+    _ = now
+    if subscription.status != "active" or not subscription.cancel_at_period_end:
+        return subscription
+    subscription.cancel_at_period_end = False
+    subscription.canceled_at = None
     return subscription
 
 
@@ -666,6 +704,7 @@ def _supersede_other_active_subscriptions(
             continue
         existing.status = "canceled"
         existing.canceled_at = now
+        existing.cancel_at_period_end = False
         existing.next_charge_at = None
 
 
@@ -792,14 +831,17 @@ def sync_user_pending_subscriptions(db: Session, user: User) -> None:
 def charge_due_subscriptions(db: Session, *, now: datetime | None = None) -> dict[str, int]:
     """Merchant-initiated monthly renewals for subscriptions whose charge is due.
 
-    Designed to be called by a scheduler (cron/worker) hitting the run-recurring endpoint.
-    Success advances next_charge_at by one period; a failed charge marks the subscription
-    ``past_due`` (which, combined with the entitlement grace window, ends access).
+    Run by the in-process scheduler in `subscription_renewals`, and also reachable through
+    the run-recurring endpoint for an external cron or a manual kick. Success advances
+    next_charge_at by one period; a failed charge marks the subscription ``past_due`` (which,
+    combined with the entitlement grace window, ends access); a membership the player had
+    already cancelled simply ends here, uncharged.
     """
     current = now or _utcnow()
     _repair_duplicate_active_subscriptions(db, now=current)
     charged = 0
     failed = 0
+    expired = 0
     due = db.scalars(
         select(Subscription).where(
             Subscription.status == "active",
@@ -809,6 +851,14 @@ def charge_due_subscriptions(db: Session, *, now: datetime | None = None) -> dic
         )
     ).all()
     for subscription in due:
+        # The player switched renewal off during the period they had paid for. It has now run
+        # out, so the membership ends here -- without ever having been charged again.
+        if bool(getattr(subscription, "cancel_at_period_end", False)):
+            subscription.status = "canceled"
+            subscription.next_charge_at = None
+            db.commit()
+            expired += 1
+            continue
         plan = SUBSCRIPTION_PLANS_BY_ID.get(str(subscription.plan_id))
         method = db.get(SavedPaymentMethod, subscription.payment_method_id) if subscription.payment_method_id else None
         user = db.get(User, subscription.user_id)
@@ -843,7 +893,7 @@ def charge_due_subscriptions(db: Session, *, now: datetime | None = None) -> dic
             subscription.status = "past_due"
             db.commit()
             failed += 1
-    return {"charged": charged, "failed": failed, "due": len(due)}
+    return {"charged": charged, "failed": failed, "expired": expired, "due": len(due)}
 
 
 def grant_purchase_coins_once_for_purchase(db: Session, purchase: CoinPurchase, user: User) -> bool:

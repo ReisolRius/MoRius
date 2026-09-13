@@ -745,6 +745,8 @@ class SubscriptionOut(BaseModel):
     started_at: datetime | None = None
     next_charge_at: datetime | None = None
     canceled_at: datetime | None = None
+    # Auto-renewal is off but the membership is still live until next_charge_at.
+    cancel_at_period_end: bool = False
     is_mock: bool = False
     card_title: str | None = None
 

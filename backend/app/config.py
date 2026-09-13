@@ -270,6 +270,8 @@ class Settings:
     yookassa_receipt_payment_subject: str
     subscriptions_enabled: bool
     payments_recurring_charge_token: str
+    payments_recurring_charges_enabled: bool
+    payments_recurring_charge_interval_seconds: int
     subscription_model_deepseek_v4_flash: str
     subscription_model_gemini_25_flash_lite: str
     subscription_model_glm_45_air: str
@@ -406,6 +408,14 @@ settings = Settings(
     # Shared secret a scheduler (cron/worker) sends to POST /api/payments/subscriptions/run-recurring
     # to trigger monthly renewals. Empty → the endpoint is disabled (no anonymous renewals).
     payments_recurring_charge_token=os.getenv("PAYMENTS_RECURRING_CHARGE_TOKEN", "").strip(),
+    # The app runs the renewal job itself rather than waiting for a cron entry that was never
+    # deployed. Set PAYMENTS_RECURRING_CHARGES_ENABLED=0 when an external scheduler owns it.
+    payments_recurring_charges_enabled=_to_bool(
+        os.getenv("PAYMENTS_RECURRING_CHARGES_ENABLED"), default=True
+    ),
+    payments_recurring_charge_interval_seconds=_to_int(
+        os.getenv("PAYMENTS_RECURRING_CHARGE_INTERVAL_SECONDS"), 0, minimum=0
+    ),
     subscription_model_deepseek_v4_flash=_env(
         "SUBSCRIPTION_MODEL_DEEPSEEK_V4_FLASH",
         SUBSCRIPTION_DEFAULT_MODEL_DEEPSEEK_V4_FLASH,

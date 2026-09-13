@@ -337,6 +337,8 @@ export type SubscriptionDetail = {
   started_at: string | null
   next_charge_at: string | null
   canceled_at: string | null
+  // Auto-renewal is off, but the membership is still live until next_charge_at.
+  cancel_at_period_end?: boolean
   is_mock: boolean
   card_title: string | null
 }
@@ -2069,6 +2071,19 @@ export async function createSubscriptionCheckout(payload: {
 export async function cancelSubscription(payload: { token: string; subscription_id: number }): Promise<SubscriptionDetail> {
   return requestJson<SubscriptionDetail>(
     `/api/payments/subscriptions/${payload.subscription_id}/cancel`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function resumeSubscription(payload: { token: string; subscription_id: number }): Promise<SubscriptionDetail> {
+  return requestJson<SubscriptionDetail>(
+    `/api/payments/subscriptions/${payload.subscription_id}/resume`,
     {
       method: 'POST',
       headers: {

@@ -44,7 +44,9 @@ from app.services.payments import (
     PAYMENT_PROVIDER,
     SUBSCRIPTION_PERIOD_DAYS,
     SUBSCRIPTION_PLANS,
+    cancel_subscription_at_period_end,
     charge_due_subscriptions,
+    resume_subscription_auto_renewal,
     create_payment_in_provider,
     create_subscription_payment_in_provider,
     detect_card_brand,
@@ -79,6 +81,7 @@ def _serialize_subscription(db: Session, subscription: Subscription) -> Subscrip
         started_at=subscription.started_at,
         next_charge_at=subscription.next_charge_at,
         canceled_at=subscription.canceled_at,
+        cancel_at_period_end=bool(getattr(subscription, "cancel_at_period_end", False)),
         is_mock=bool(subscription.is_mock),
         card_title=card_title,
     )
@@ -376,7 +379,12 @@ def run_recurring_subscription_charges(
     if not configured or not token or token.strip() != configured:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     result = charge_due_subscriptions(db)
-    return MessageResponse(message=f"charged={result['charged']} failed={result['failed']} due={result['due']}")
+    return MessageResponse(
+        message=(
+            f"charged={result['charged']} failed={result['failed']} "
+            f"expired={result['expired']} due={result['due']}"
+        )
+    )
 
 
 @router.post("/api/payments/subscriptions/mock", response_model=SubscriptionCreateResponse)
@@ -463,13 +471,43 @@ def cancel_subscription(
     if subscription is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subscription not found")
 
-    if subscription.status == "active":
-        subscription.status = "canceled"
-        subscription.canceled_at = datetime.now(timezone.utc)
-        subscription.next_charge_at = None
-        db.commit()
-        db.refresh(subscription)
+    # Cancelling switches auto-renewal off; it does not revoke the period already paid for.
+    cancel_subscription_at_period_end(subscription, now=datetime.now(timezone.utc))
+    db.commit()
+    db.refresh(subscription)
 
+    return _serialize_subscription(db, subscription)
+
+
+@router.post("/api/payments/subscriptions/{subscription_id}/resume", response_model=SubscriptionOut)
+def resume_subscription(
+    subscription_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> SubscriptionOut:
+    """Turn auto-renewal back on while the paid period is still running."""
+    user = get_current_user(db, authorization)
+    subscription = db.scalar(
+        select(Subscription).where(
+            Subscription.id == subscription_id,
+            Subscription.user_id == user.id,
+        )
+    )
+    if subscription is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subscription not found")
+    if subscription.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Возобновить можно только активную подписку",
+        )
+    if subscription.payment_method_id is None and not subscription.is_mock:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Привяжите карту, чтобы снова включить автопродление",
+        )
+    resume_subscription_auto_renewal(subscription)
+    db.commit()
+    db.refresh(subscription)
     return _serialize_subscription(db, subscription)
 
 
