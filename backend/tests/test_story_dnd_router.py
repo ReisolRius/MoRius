@@ -303,7 +303,13 @@ class StoryDndRouterTests(unittest.TestCase):
         self.assertEqual(result.check["skill"], "stealth")
         self.assertTrue(result.check["modifier_breakdown"])
 
-    def test_check_failure_never_blocks_the_turn(self) -> None:
+    def test_check_failure_falls_back_to_local_rules_and_refunds(self) -> None:
+        """A dead provider must not silently delete the roll.
+
+        This used to return "no check needed", which is exactly how a stealth attempt got
+        resolved without dice. Now the keyword rules stand in, and the sol comes back because
+        the player paid for a judged check and got a guess.
+        """
         self.admin.coins = 50
         self.db.commit()
         with self._as(self.admin), patch(
@@ -316,7 +322,26 @@ class StoryDndRouterTests(unittest.TestCase):
                 None,
                 self.db,
             )
+        self.assertTrue(result.needs_check)
+        self.assertEqual(result.check["skill"], "investigation")
+        self.assertEqual(result.charged_tokens, 0)
+        self.assertEqual(self.admin.coins, 50)
+
+    def test_check_failure_on_an_inert_action_still_needs_no_roll(self) -> None:
+        self.admin.coins = 50
+        self.db.commit()
+        with self._as(self.admin), patch(
+            "app.services.story_dnd_service.analyze_dnd_action_check",
+            side_effect=RuntimeError("provider down"),
+        ):
+            result = dnd_router.analyze_story_dnd_check(
+                self.game.id,
+                StoryDndCheckRequest(prompt="Оглядываюсь вокруг и жду, что будет дальше"),
+                None,
+                self.db,
+            )
         self.assertFalse(result.needs_check)
+        self.assertEqual(self.admin.coins, 50)
 
     def test_check_without_sols_is_rejected(self) -> None:
         self.admin.coins = 0

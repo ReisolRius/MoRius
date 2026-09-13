@@ -883,7 +883,10 @@ export type StoryTurnImage = {
 
 export type DndAbilityId = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha'
 export type DndPlayMode = 'game' | 'sandbox'
-export type DndCheckKind = 'ability' | 'skill' | 'saving_throw' | 'attack'
+export type DndCheckKind = 'ability' | 'skill' | 'saving_throw' | 'attack' | 'death_save' | 'initiative'
+export type DndLifeState = 'alive' | 'dying' | 'stable' | 'dead'
+export type DndCombatSide = 'hero' | 'ally' | 'enemy'
+export type DndCombatPhase = 'idle' | 'initiative' | 'active'
 export type DndAdvantage = 'none' | 'advantage' | 'disadvantage'
 export type DndOutcome = 'critical_success' | 'success' | 'failure' | 'critical_failure'
 
@@ -907,6 +910,8 @@ export type DndHero = {
   race: string
   class: string
   background: string
+  // Set when the background came from a template rather than free text.
+  background_id: string
   level: number
   xp: number
   abilities: Record<DndAbilityId, number>
@@ -924,6 +929,11 @@ export type DndHero = {
   inventory_note: string
   gold: number
   conditions: DndCondition[]
+  death_saves: { successes: number; failures: number }
+  is_dead: boolean
+  // Derived server-side from hit points and death saves; never written independently.
+  life_state: DndLifeState
+  skill_slots: number
   avatar_world_card_id: number | null
   pending_asi_points: number
 }
@@ -989,6 +999,19 @@ export type DndPendingCheck = {
   success_hint: string
   failure_hint: string
   modifier_breakdown: DndModifierPart[]
+  // Populated when one declaration swings at several foes: a die each, resolved together.
+  group_targets: string[]
+}
+
+export type DndGroupTargetResult = {
+  index: number
+  label: string
+  rolls: number[]
+  natural: number
+  total: number
+  dc: number
+  outcome: DndOutcome
+  outcome_label?: string
 }
 
 export type DndRoll = {
@@ -1005,6 +1028,49 @@ export type DndRoll = {
   outcome: DndOutcome
   outcome_label?: string
   consumed: boolean
+  group_targets: DndGroupTargetResult[]
+  group_successes: number
+  group_size: number
+  death_save: boolean
+  life_state: DndLifeState | ''
+}
+
+export type DndCombatant = {
+  key: string
+  name: string
+  side: DndCombatSide
+  role: string
+  initiative: number | null
+  initiative_modifier: number
+  hp: { current: number; max: number }
+  armor_class: number
+  is_down: boolean
+  npc_key: string
+  world_card_id: number | null
+}
+
+export type DndCombat = {
+  active: boolean
+  phase: DndCombatPhase
+  round: number
+  turn_index: number
+  title: string
+  participants: DndCombatant[]
+  hero_initiative_rolled: boolean
+}
+
+// What the player may still change on the sheet. Derived server-side from the turn counter
+// and the level, so the UI never has to work the rule out for itself.
+export type DndSheetLocks = {
+  started: boolean
+  identity_locked: boolean
+  abilities_locked: boolean
+  skills_locked: boolean
+  skill_slots: number
+  skills_chosen: number
+  free_skill_slots: number
+  next_skill_level?: number
+  reason: string
 }
 
 export type DndLevelUp = {
@@ -1029,6 +1095,8 @@ export type DndState = {
   pending_check: DndPendingCheck | null
   last_roll: DndRoll | null
   last_level_up: DndLevelUp | null
+  combat: DndCombat
+  locks?: DndSheetLocks
 }
 
 export type DndCatalogEntry = { id: string; label: string }
@@ -1046,6 +1114,7 @@ export type DndCatalog = {
     starting_inventory: string[]
   }[]
   skills: { id: string; label: string; ability: DndAbilityId }[]
+  backgrounds: { id: string; label: string; summary: string; skills: string[] }[]
   conditions: DndCondition[]
   relations: { id: string; label: string; score: number }[]
   seasons: DndCatalogEntry[]
@@ -1057,6 +1126,10 @@ export type DndCatalog = {
   xp_thresholds: number[]
   xp_buckets: Record<string, number>
   asi_levels: number[]
+  skill_slots?: { max: number; min: number; levels: number[] }
+  death?: { dc: number; successes: number; failures: number; labels: Record<string, string> }
+  combat?: { max_participants: number; sides: DndCombatSide[] }
+  group?: { max_targets: number; dc_step: number }
   max_level: number
   dice: number[]
   dc_labels: { value: number; label: string }[]

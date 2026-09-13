@@ -29,9 +29,11 @@ import {
 } from './dndDisplay'
 import {
   DndBackpackIcon,
+  DndCoinIcon,
   DndConditionIcon,
   DndHeartIcon,
   DndShieldIcon,
+  DndSkullIcon,
   DndStarIcon,
   DndTimeIcon,
   DndWeatherIcon,
@@ -431,14 +433,94 @@ export default function DndLeftPanel({
                 {hero.inventory_note}
               </Typography>
             ) : null}
-            {hero.gold > 0 ? (
-              <Typography sx={{ mt: 0.6, color: '#e0c05a', fontSize: '0.8rem', fontWeight: 900 }}>
-                {hero.gold} золотых
-              </Typography>
-            ) : null}
           </Box>
         </Collapse>
       </Box>
+
+      {/* --- Gold ------------------------------------------------------------------------ */}
+      {/* Money is not a backpack item. It changes on its own schedule -- a bribe, a reward, a
+          night at an inn -- and the master tracks it from the text of the scene, so it gets a
+          line of its own rather than a sentence buried under the inventory. */}
+      <Box
+        sx={{
+          ...cardSx,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.85,
+          py: 0.9,
+          borderColor: 'color-mix(in srgb, #e0c05a 26%, var(--morius-card-border))',
+        }}
+      >
+        <DndCoinIcon size={19} sx={{ color: '#e0c05a', flexShrink: 0 }} />
+        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.9rem', fontWeight: 900, flex: 1 }}>
+          Золото
+        </Typography>
+        <Typography sx={{ color: '#e0c05a', fontSize: '0.95rem', fontWeight: 950, lineHeight: 1 }}>
+          {hero.gold.toLocaleString('ru-RU')}
+          <Box component="span" sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', fontWeight: 800 }}>
+            {' '}
+            зм
+          </Box>
+        </Typography>
+      </Box>
+
+      {/* --- Death saves ------------------------------------------------------------------ */}
+      {/* Only on screen when it matters, and then impossible to miss: this is the one card
+          that says the character might be about to stop existing. */}
+      {hero.life_state !== 'alive' ? (
+        <Box
+          sx={{
+            ...cardSx,
+            borderColor:
+              hero.life_state === 'dead'
+                ? 'rgba(224, 82, 82, 0.6)'
+                : 'color-mix(in srgb, #e05252 34%, var(--morius-card-border))',
+            backgroundColor: 'rgba(224, 82, 82, 0.1)',
+          }}
+        >
+          <Stack direction="row" spacing={0.85} alignItems="center" sx={{ mb: hero.life_state === 'dead' ? 0 : 0.7 }}>
+            <DndSkullIcon size={19} sx={{ color: '#f08a8a' }} />
+            <Typography sx={{ color: '#f08a8a', fontSize: '0.88rem', fontWeight: 950, flex: 1 }}>
+              {hero.life_state === 'dead'
+                ? 'Герой мёртв'
+                : hero.life_state === 'stable'
+                  ? 'Без сознания, стабилен'
+                  : 'При смерти'}
+            </Typography>
+          </Stack>
+          {hero.life_state === 'dead' ? null : (
+            <Stack spacing={0.45}>
+              {(
+                [
+                  ['Успехи', hero.death_saves.successes, '#5bb87a'],
+                  ['Провалы', hero.death_saves.failures, '#e05252'],
+                ] as const
+              ).map(([label, value, color]) => (
+                <Stack key={label} direction="row" spacing={0.5} alignItems="center">
+                  <Typography
+                    sx={{ width: 62, color: 'var(--morius-text-secondary)', fontSize: '0.7rem', fontWeight: 800 }}
+                  >
+                    {label}
+                  </Typography>
+                  {[0, 1, 2].map((slot) => (
+                    <Box
+                      key={slot}
+                      sx={{
+                        width: 13,
+                        height: 13,
+                        borderRadius: '50%',
+                        border: `2px solid ${slot < value ? color : 'color-mix(in srgb, var(--morius-card-border) 80%, transparent)'}`,
+                        backgroundColor: slot < value ? color : 'transparent',
+                        transition: 'background-color 280ms ease, border-color 280ms ease',
+                      }}
+                    />
+                  ))}
+                </Stack>
+              ))}
+            </Stack>
+          )}
+        </Box>
+      ) : null}
 
       {/* --- Health -------------------------------------------------------------------- */}
       <Box sx={cardSx}>

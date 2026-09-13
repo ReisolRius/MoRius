@@ -283,6 +283,9 @@ export function describeCheckSubject(
   if (check.skill) {
     return labelForSkill(catalog, check.skill)
   }
+  if (check.kind === 'death_save') {
+    return 'Жизнь героя'
+  }
   if (check.ability) {
     return DND_ABILITY_LABELS[check.ability as DndAbilityId] ?? check.ability
   }
@@ -297,9 +300,20 @@ export function describeCheckKind(kind: string | undefined): string {
       return 'Бросок атаки'
     case 'ability':
       return 'Проверка характеристики'
+    case 'death_save':
+      return 'Спасбросок от смерти'
+    case 'initiative':
+      return 'Инициатива'
     default:
       return 'Проверка навыка'
   }
+}
+
+export const DND_LIFE_STATE_LABELS: Record<string, string> = {
+  alive: 'В сознании',
+  dying: 'При смерти',
+  stable: 'Без сознания, стабилен',
+  dead: 'Мёртв',
 }
 
 export function difficultyLabel(catalog: DndCatalog | null, dc: number): string {

@@ -4029,6 +4029,7 @@ export type StoryDndHeroInput = {
   race?: string
   class?: string
   background?: string
+  background_id?: string
   base_abilities?: Record<string, number>
   asi_allocation?: Record<string, number>
   skill_proficiencies?: string[]
@@ -4164,6 +4165,61 @@ export async function discardStoryDndCheck(payload: {
 }): Promise<StoryDndStateResponse> {
   return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/check`, {
     method: 'DELETE',
+    headers: { Authorization: `Bearer ${payload.token}` },
+  })
+}
+
+export type StoryDndInitiativeResponse = {
+  state: DndState
+  natural: number
+  modifier: number
+  total: number
+}
+
+export type StoryDndDeathSaveResponse = {
+  state: DndState
+  roll: DndRoll
+}
+
+// The player's own initiative die. Everyone else's was rolled the moment the fight opened.
+export async function rollStoryDndInitiative(payload: {
+  token: string
+  gameId: number
+}): Promise<StoryDndInitiativeResponse> {
+  return request<StoryDndInitiativeResponse>(
+    `/api/story/games/${payload.gameId}/dnd/combat/initiative`,
+    { method: 'POST', headers: { Authorization: `Bearer ${payload.token}` } },
+  )
+}
+
+export async function advanceStoryDndCombat(payload: {
+  token: string
+  gameId: number
+  steps?: number
+}): Promise<StoryDndStateResponse> {
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/combat/advance`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({ steps: payload.steps ?? 1 }),
+  })
+}
+
+export async function endStoryDndCombat(payload: {
+  token: string
+  gameId: number
+}): Promise<StoryDndStateResponse> {
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/combat`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${payload.token}` },
+  })
+}
+
+export async function rollStoryDndDeathSave(payload: {
+  token: string
+  gameId: number
+}): Promise<StoryDndDeathSaveResponse> {
+  return request<StoryDndDeathSaveResponse>(`/api/story/games/${payload.gameId}/dnd/death-save`, {
+    method: 'POST',
     headers: { Authorization: `Bearer ${payload.token}` },
   })
 }

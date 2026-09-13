@@ -85,6 +85,7 @@ import ImageCropper from '../components/ImageCropper'
 import AdvancedRegenerationDialog from '../components/story/AdvancedRegenerationDialog'
 import DndCharacterSheetDialog from '../components/dnd/DndCharacterSheetDialog'
 import DndCodexPanel from '../components/dnd/DndCodexPanel'
+import DndCombatBar from '../components/dnd/DndCombatBar'
 import DndDiceDialog from '../components/dnd/DndDiceDialog'
 import DndEnvironmentDialog from '../components/dnd/DndEnvironmentDialog'
 import DndLeftPanel from '../components/dnd/DndLeftPanel'
@@ -123,13 +124,16 @@ import {
 } from '../services/authApi'
 import {
   addCommunityCharacter,
+  advanceStoryDndCombat,
   analyzeStoryDndCheck,
   applyStoryDndLevelUp,
   discardStoryDndCheck,
+  endStoryDndCombat,
   fetchStoryDndMeetingPrompt,
   fetchStoryDndState,
   resetStoryDndState,
   rollStoryDndCheck,
+  rollStoryDndInitiative,
   suggestStoryDndNpcStats,
   updateStoryDndEnvironment,
   updateStoryDndHero,
@@ -212,6 +216,7 @@ import {
   STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER,
   type StoryAmbientProfile,
   type DndCatalog,
+  type DndCombatant,
   type DndNpc,
   type DndPendingCheck,
   type DndRoll,
@@ -8567,6 +8572,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [dndDiceDialogOpen, setDndDiceDialogOpen] = useState(false)
   const [isDndRolling, setIsDndRolling] = useState(false)
   const [dndDiceError, setDndDiceError] = useState('')
+  const [isDndInitiativeRolling, setIsDndInitiativeRolling] = useState(false)
   const dndHeldPromptRef = useRef<string | null>(null)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_WIDTH_DEFAULT)
@@ -10417,17 +10423,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [worldCards],
   )
   const activeMainHeroCardId = activeGameSummary?.active_main_hero_card_id ?? null
-  const mainHeroCard = useMemo(
-    () => {
-      if (activeMainHeroCardId !== null) {
-        const activeCard = mainHeroCards.find((card) => card.id === activeMainHeroCardId)
-        if (activeCard) {
-          return activeCard
-        }
-      }
-      return mainHeroCards[0] ?? null
-    },
+  // The hero the player actually picked, with no stand-in. Everything that answers "who am I
+  // playing?" reads this; `mainHeroCard` below keeps the long-standing convenience fallback
+  // for the rest of the app, where a single hero card has always meant "that one".
+  const explicitMainHeroCard = useMemo(
+    () =>
+      activeMainHeroCardId !== null
+        ? mainHeroCards.find((card) => card.id === activeMainHeroCardId) ?? null
+        : null,
     [activeMainHeroCardId, mainHeroCards],
+  )
+  const mainHeroCard = useMemo(
+    () => explicitMainHeroCard ?? mainHeroCards[0] ?? null,
+    [explicitMainHeroCard, mainHeroCards],
   )
   useEffect(() => {
     let isMounted = true
@@ -16107,13 +16115,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [resolveWorldCardAvatar, worldCards],
   )
 
+  // In D&D the sheet stands for a specific character. If the player never chose one, the
+  // panel shows no face rather than borrowing the first card in the world.
   const dndHeroAvatarUrl = useMemo(() => {
     const explicitCardId = dndState?.hero.avatar_world_card_id ?? null
     const explicitCard = explicitCardId ? worldCards.find((item) => item.id === explicitCardId) ?? null : null
     // Falls back to whichever main hero card the game currently has selected, which is what
     // the player already thinks of as "their" portrait.
-    return resolveApiResourceUrl(resolveWorldCardAvatar(explicitCard ?? mainHeroCard))
-  }, [dndState?.hero.avatar_world_card_id, mainHeroCard, resolveWorldCardAvatar, worldCards])
+    return resolveApiResourceUrl(resolveWorldCardAvatar(explicitCard ?? explicitMainHeroCard))
+  }, [dndState?.hero.avatar_world_card_id, explicitMainHeroCard, resolveWorldCardAvatar, worldCards])
 
   const handleDndSuggestNpcStats = useCallback(
     async (npcKey: string) => {
@@ -19453,6 +19463,63 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       syncComposerDraft(heldPrompt)
     }
   }, [activeGameId, applyDndState, authToken, syncComposerDraft])
+
+  // The player's own initiative die. Everyone else's was rolled the moment the fight opened,
+  // so this is the single click that starts the round.
+  const handleDndRollInitiative = useCallback(async () => {
+    if (!activeGameId || isDndInitiativeRolling) {
+      return
+    }
+    setIsDndInitiativeRolling(true)
+    setDndError('')
+    try {
+      const response = await rollStoryDndInitiative({ token: authToken, gameId: activeGameId })
+      applyDndState(response.state)
+    } catch (error) {
+      setDndError(error instanceof Error ? error.message : 'Не удалось бросить инициативу')
+    } finally {
+      setIsDndInitiativeRolling(false)
+    }
+  }, [activeGameId, applyDndState, authToken, isDndInitiativeRolling])
+
+  const handleDndAdvanceCombatTurn = useCallback(async () => {
+    if (!activeGameId) {
+      return
+    }
+    try {
+      const response = await advanceStoryDndCombat({ token: authToken, gameId: activeGameId })
+      applyDndState(response.state)
+    } catch (error) {
+      setDndError(error instanceof Error ? error.message : 'Не удалось передать ход')
+    }
+  }, [activeGameId, applyDndState, authToken])
+
+  const handleDndEndCombat = useCallback(async () => {
+    if (!activeGameId) {
+      return
+    }
+    try {
+      const response = await endStoryDndCombat({ token: authToken, gameId: activeGameId })
+      applyDndState(response.state)
+    } catch (error) {
+      setDndError(error instanceof Error ? error.message : 'Не удалось завершить бой')
+    }
+  }, [activeGameId, applyDndState, authToken])
+
+  const resolveDndCombatantAvatar = useCallback(
+    (participant: DndCombatant): string | null => {
+      const card =
+        (participant.world_card_id
+          ? worldCards.find((item) => item.id === participant.world_card_id)
+          : null) ??
+        worldCards.find(
+          (item) => item.title.trim().toLowerCase() === participant.name.trim().toLowerCase(),
+        ) ??
+        null
+      return card ? resolveApiResourceUrl(resolveWorldCardAvatar(card)) : null
+    },
+    [resolveWorldCardAvatar, worldCards],
+  )
 
   const handleDndMeetNpc = useCallback(
     async (npc: DndNpc) => {
@@ -28363,6 +28430,30 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               minHeight: isVisualNovelTechDemoEnabled ? 0 : undefined,
             }}
           >
+            {/* The initiative strip. Sticky rather than inline: during a fight "whose turn is
+                it" has to stay answerable while the player scrolls back through the scene. */}
+            {isDndMode && dndState?.combat.active ? (
+              <Box
+                sx={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 5,
+                  mb: 'var(--morius-story-message-gap)',
+                  backdropFilter: 'blur(6px)',
+                }}
+              >
+                <DndCombatBar
+                  combat={dndState.combat}
+                  heroAvatarUrl={dndHeroAvatarUrl}
+                  resolveAvatar={resolveDndCombatantAvatar}
+                  rolling={isDndInitiativeRolling}
+                  onRollInitiative={handleDndRollInitiative}
+                  onAdvanceTurn={handleDndAdvanceCombatTurn}
+                  onEndCombat={handleDndEndCombat}
+                />
+              </Box>
+            ) : null}
+
             {shouldShowStoryMessagesLoadingSkeleton ? (
               <StoryMessagesLoadingSkeleton />
             ) : null}
@@ -31053,6 +31144,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           <DndCharacterSheetDialog
             open={dndSheetDialogOpen}
             state={dndState}
+            activeHeroCard={explicitMainHeroCard}
             catalog={dndCatalog}
             mainHeroCards={mainHeroCards}
             resolveCardAvatar={(card) => resolveApiResourceUrl(resolveWorldCardAvatar(card))}

@@ -6,8 +6,11 @@
 // from having an 18 in anything. In "режим песочницы" the same controls open up to 1..30
 // with a free level, hit points, armour class and inventory.
 //
-// The server validates all of it again on save, so the rules here are for the player's
-// benefit, not for safety.
+// Once the character has played a turn the sheet stops being a builder and becomes a record:
+// race, class and the ability array are fixed, and skills can only be added into slots a
+// level has granted. That lock comes from the server (`state.locks`) rather than being worked
+// out here, and the server re-checks every field on save — the greying-out below is for the
+// player's benefit, not for safety.
 
 import {
   Box,
@@ -19,6 +22,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
+import { DndLockIcon } from './DndIcons'
 import { useEffect, useMemo, useState } from 'react'
 import type { DndAbilityId, DndCatalog, DndState, StoryWorldCard } from '../../types/story'
 import BaseDialog from '../dialogs/BaseDialog'
@@ -42,6 +46,9 @@ export type DndCharacterSheetDialogProps = {
   state: DndState | null
   catalog: DndCatalog | null
   mainHeroCards: StoryWorldCard[]
+  // The card the player actually chose to play as, or null when they chose none. Never a
+  // "first card we found" stand-in: an unpicked hero stays unpicked.
+  activeHeroCard: StoryWorldCard | null
   resolveCardAvatar: (card: StoryWorldCard) => string | null
   saving: boolean
   error: string
@@ -117,6 +124,7 @@ export default function DndCharacterSheetDialog({
   state,
   catalog,
   mainHeroCards,
+  activeHeroCard,
   resolveCardAvatar,
   saving,
   error,
@@ -126,10 +134,15 @@ export default function DndCharacterSheetDialog({
   onReset,
 }: DndCharacterSheetDialogProps) {
   const isSandbox = state?.play_mode === 'sandbox'
+  const locks = state?.locks ?? null
+  const identityLocked = Boolean(locks?.identity_locked) && !isSandbox
+  const abilitiesLocked = Boolean(locks?.abilities_locked) && !isSandbox
+  const skillSlots = locks?.skill_slots ?? state?.hero.skill_slots ?? 6
   const [name, setName] = useState('')
   const [raceId, setRaceId] = useState('human')
   const [classId, setClassId] = useState('fighter')
   const [background, setBackground] = useState('')
+  const [backgroundId, setBackgroundId] = useState('')
   const [base, setBase] = useState<Record<DndAbilityId, number>>(DEFAULT_BASE)
   const [skills, setSkills] = useState<string[]>([])
   const [level, setLevel] = useState(1)
@@ -151,10 +164,11 @@ export default function DndCharacterSheetDialog({
       return
     }
     const hero = state.hero
-    setName(hero.name)
+    setName(hero.name || activeHeroCard?.title || '')
     setRaceId(hero.race)
     setClassId(hero.class)
     setBackground(hero.background)
+    setBackgroundId(hero.background_id)
     setBase({ ...DEFAULT_BASE, ...hero.base_abilities })
     setSkills(hero.skill_proficiencies)
     setLevel(hero.level)
@@ -194,6 +208,9 @@ export default function DndCharacterSheetDialog({
   )
 
   const canAfford = (abilityId: DndAbilityId, nextScore: number): boolean => {
+    if (abilitiesLocked) {
+      return false
+    }
     if (isSandbox) {
       return nextScore >= minScore && nextScore <= maxScore
     }
@@ -205,12 +222,22 @@ export default function DndCharacterSheetDialog({
     return candidateSpent !== null && candidateSpent <= budget
   }
 
+  // After the first turn a proficiency is something the character *has*: new ones go into the
+  // slots a level opened, and nothing already learned can be traded away.
+  const lockedSkills = useMemo(
+    () => (locks?.started && !isSandbox ? (state?.hero.skill_proficiencies ?? []) : []),
+    [isSandbox, locks?.started, state?.hero.skill_proficiencies],
+  )
+
   const toggleSkill = (skillId: string) => {
+    if (lockedSkills.includes(skillId)) {
+      return
+    }
     setSkills((previous) => {
       if (previous.includes(skillId)) {
         return previous.filter((item) => item !== skillId)
       }
-      if (previous.length >= 6) {
+      if (previous.length >= skillSlots) {
         return previous
       }
       return [...previous, skillId]
@@ -220,13 +247,22 @@ export default function DndCharacterSheetDialog({
   const handleSave = () => {
     const hero: StoryDndHeroInput = {
       name,
-      race: raceId,
-      class: classId,
       background,
-      base_abilities: base,
+      background_id: backgroundId,
       skill_proficiencies: skills,
-      gold,
       inventory_note: inventoryNote,
+    }
+    // A locked sheet does not resubmit the fields it cannot change: sending them unchanged
+    // would work, but sending nothing makes it impossible to change them by accident.
+    if (!identityLocked) {
+      hero.race = raceId
+      hero.class = classId
+    }
+    if (!abilitiesLocked) {
+      hero.base_abilities = base
+    }
+    if (isSandbox) {
+      hero.gold = gold
     }
     if (avatarCardId) {
       hero.avatar_world_card_id = avatarCardId
@@ -246,6 +282,24 @@ export default function DndCharacterSheetDialog({
   }
 
   const derivedHitDie = catalog?.classes.find((item) => item.id === classId)?.hit_die ?? 10
+  // The starting kit follows the class picker immediately. Reading it off the saved state
+  // meant the panel showed a fighter's chain mail while the dropdown already said "Плут".
+  const previewInventory = useMemo(() => {
+    if (isSandbox) {
+      return []
+    }
+    const startingKit = catalog?.classes.find((item) => item.id === classId)?.starting_inventory ?? []
+    const savedClassId = state?.hero.class
+    if (savedClassId === classId && (state?.hero.inventory.length ?? 0) > 0) {
+      return state?.hero.inventory ?? []
+    }
+    return startingKit
+  }, [catalog, classId, isSandbox, state?.hero.class, state?.hero.inventory])
+  const inventoryIsPreview = !isSandbox && state?.hero.class !== classId
+  const selectedBackground = useMemo(
+    () => (catalog?.backgrounds ?? []).find((item) => item.id === backgroundId) ?? null,
+    [backgroundId, catalog],
+  )
   const previewHp = isSandbox
     ? hpMax
     : derivedHitDie + abilityModifier(finalScores.con) + (level - 1) * (Math.floor(derivedHitDie / 2) + 1 + abilityModifier(finalScores.con))
@@ -332,34 +386,87 @@ export default function DndCharacterSheetDialog({
         </Stack>
         <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.45 }}>
           {isSandbox
-            ? 'Песочница: характеристики от 1 до 30, свободный уровень, хиты и инвентарь. Опыт копится, но уровень вы задаёте сами. Время и погоду можно менять в любой момент.'
-            : `Режим игры: характеристики по закупке очков D&D 5e (${budget} очков, базовое значение ${minScore}–${maxScore}), расовый бонус сверху. Выше 20 не поднимется никогда, на 1 уровне — не выше 17.`}
+            ? 'Песочница: характеристики от 1 до 30, свободный уровень, хиты и инвентарь — и всё это остаётся доступным для правки в любой момент. Правила игры при этом те же: заявка игрока остаётся попыткой, броски обязательны, NPC ведут себя по своему характеру. Время и погоду вы задаёте сами.'
+            : `Режим игры: характеристики по закупке очков D&D 5e (${budget} очков, базовое значение ${minScore}–${maxScore}), расовый бонус сверху. Выше 20 не поднимется никогда, на 1 уровне — не выше 17. После первого хода раса, класс и характеристики фиксируются: дальше персонаж растёт только с уровнем.`}
         </Typography>
 
         {error ? (
           <Typography sx={{ color: '#e07a7a', fontSize: '0.82rem', fontWeight: 800 }}>{error}</Typography>
         ) : null}
 
+        {/* --- The lock banner, when the character is already in play ------------------ */}
+        {identityLocked ? (
+          <Stack
+            direction="row"
+            spacing={0.85}
+            alignItems="flex-start"
+            sx={{
+              px: 1.1,
+              py: 0.85,
+              borderRadius: '12px',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, #f0c24a 34%, transparent)',
+              backgroundColor: 'rgba(240, 194, 74, 0.1)',
+            }}
+          >
+            <DndLockIcon size={17} sx={{ color: '#f0c24a', mt: '1px', flexShrink: 0 }} />
+            <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.79rem', lineHeight: 1.45 }}>
+              {locks?.reason ||
+                'Персонаж уже в игре: раса, класс и базовые характеристики зафиксированы.'}
+            </Typography>
+          </Stack>
+        ) : null}
+
         {/* --- Identity -------------------------------------------------------------- */}
         <SectionTitle>Кто вы</SectionTitle>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+          {/* The name belongs to the hero card the player chose. Typing a second one here
+              only created a way for the sheet and the story to disagree about who you are. */}
           <TextField
             label="Имя героя"
             value={name}
             onChange={(event) => setName(event.target.value)}
             fullWidth
+            disabled={Boolean(activeHeroCard)}
             inputProps={{ maxLength: 80 }}
             sx={fieldSx}
+            helperText={
+              activeHeroCard
+                ? 'Из выбранной карточки главного героя'
+                : 'Главный герой не выбран — можно вписать имя вручную'
+            }
           />
           <TextField
+            select
             label="Предыстория"
+            value={backgroundId}
+            onChange={(event) => {
+              const nextId = event.target.value
+              setBackgroundId(nextId)
+              const template = (catalog?.backgrounds ?? []).find((item) => item.id === nextId)
+              setBackground(template?.label ?? '')
+            }}
+            fullWidth
+            sx={fieldSx}
+            helperText={selectedBackground?.summary ?? 'Кем герой был до приключений'}
+          >
+            <MenuItem value="">Не выбрана</MenuItem>
+            {(catalog?.backgrounds ?? []).map((item) => (
+              <MenuItem key={item.id} value={item.id}>
+                {item.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Stack>
+        {backgroundId ? (
+          <TextField
+            label="Своя формулировка (необязательно)"
             value={background}
             onChange={(event) => setBackground(event.target.value)}
             fullWidth
             inputProps={{ maxLength: 80 }}
             sx={fieldSx}
           />
-        </Stack>
+        ) : null}
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
           <TextField
             select
@@ -367,13 +474,16 @@ export default function DndCharacterSheetDialog({
             value={raceId}
             onChange={(event) => setRaceId(event.target.value)}
             fullWidth
+            disabled={identityLocked}
             sx={fieldSx}
             helperText={
-              Object.entries(bonuses).length
-                ? Object.entries(bonuses)
-                    .map(([key, value]) => `${DND_ABILITY_SHORT[key as DndAbilityId]} +${value}`)
-                    .join(', ')
-                : ' '
+              identityLocked
+                ? 'Зафиксирована'
+                : Object.entries(bonuses).length
+                  ? Object.entries(bonuses)
+                      .map(([key, value]) => `${DND_ABILITY_SHORT[key as DndAbilityId]} +${value}`)
+                      .join(', ')
+                  : ' '
             }
           >
             {(catalog?.races ?? []).map((race) => (
@@ -389,11 +499,12 @@ export default function DndCharacterSheetDialog({
             onChange={(event) => {
               setClassId(event.target.value)
               const nextSkills = catalog?.classes.find((item) => item.id === event.target.value)?.skills ?? []
-              setSkills(nextSkills.slice(0, 6))
+              setSkills(nextSkills.slice(0, skillSlots))
             }}
             fullWidth
+            disabled={identityLocked}
             sx={fieldSx}
-            helperText={`Кость хитов d${derivedHitDie}`}
+            helperText={identityLocked ? 'Зафиксирован' : `Кость хитов d${derivedHitDie}`}
           >
             {(catalog?.classes ?? []).map((item) => (
               <MenuItem key={item.id} value={item.id}>
@@ -404,9 +515,23 @@ export default function DndCharacterSheetDialog({
         </Stack>
 
         {/* --- Abilities -------------------------------------------------------------- */}
-        <SectionTitle hint={isSandbox ? `${minScore}–${maxScore}` : `${spent ?? 0} / ${budget} очков`}>
+        <SectionTitle
+          hint={
+            abilitiesLocked
+              ? 'зафиксированы — растут только с уровнем'
+              : isSandbox
+                ? `${minScore}–${maxScore}`
+                : `${spent ?? 0} / ${budget} очков`
+          }
+        >
           Характеристики
         </SectionTitle>
+        {abilitiesLocked && (state?.hero.pending_asi_points ?? 0) > 0 ? (
+          <Typography sx={{ color: '#f0c24a', fontSize: '0.8rem', fontWeight: 800 }}>
+            Доступно {state?.hero.pending_asi_points} очк. повышения — распределите их в окне
+            «Повышение уровня».
+          </Typography>
+        ) : null}
         {overBudget ? (
           <Typography sx={{ color: '#e07a7a', fontSize: '0.8rem', fontWeight: 800 }}>
             Потрачено больше очков, чем доступно — уменьшите любую характеристику.
@@ -541,21 +666,34 @@ export default function DndCharacterSheetDialog({
         </Stack>
 
         {/* --- Skills ----------------------------------------------------------------- */}
-        <SectionTitle hint={`${skills.length} / 6`}>Владение навыками</SectionTitle>
+        <SectionTitle hint={`${skills.length} / ${skillSlots}`}>Владение навыками</SectionTitle>
+        {locks?.started && !isSandbox ? (
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.45 }}>
+            {(locks?.free_skill_slots ?? 0) > 0
+              ? `Свободных ячеек: ${locks?.free_skill_slots}. Выбранный навык остаётся с героем навсегда.`
+              : `Все ячейки заняты. Новая откроется на ${locks?.next_skill_level || '—'} уровне.`}
+          </Typography>
+        ) : null}
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
           {(catalog?.skills ?? []).map((skill) => {
             const isSelected = skills.includes(skill.id)
             const isClassSkill = classSkills.includes(skill.id)
+            const isFrozen = lockedSkills.includes(skill.id)
+            const isUnreachable = !isSelected && skills.length >= skillSlots
             return (
               <Chip
                 key={skill.id}
                 label={`${skill.label} · ${DND_ABILITY_SHORT[skill.ability]}`}
+                icon={isFrozen ? <DndLockIcon size={13} sx={{ color: 'inherit !important', ml: 0.7 }} /> : undefined}
                 onClick={() => toggleSkill(skill.id)}
+                disabled={isUnreachable}
                 sx={{
                   borderRadius: '999px',
                   fontSize: '0.74rem',
                   fontWeight: 800,
                   height: 30,
+                  cursor: isFrozen ? 'default' : 'pointer',
+                  opacity: isUnreachable ? 0.45 : 1,
                   color: isSelected ? '#11070A' : 'var(--morius-text-secondary)',
                   backgroundColor: isSelected
                     ? 'var(--morius-accent)'
@@ -658,9 +796,17 @@ export default function DndCharacterSheetDialog({
               lineHeight: 1.5,
             }}
           >
-            {state?.hero.inventory.length
-              ? state.hero.inventory.join(', ')
+            {previewInventory.length
+              ? previewInventory.join(', ')
               : `Стартовый набор класса «${labelForClass(catalog, classId)}» выдаётся автоматически.`}
+            {inventoryIsPreview ? (
+              <Box
+                component="span"
+                sx={{ display: 'block', mt: 0.5, color: 'var(--morius-text-secondary)', fontSize: '0.76rem', fontWeight: 800 }}
+              >
+                Набор класса «{labelForClass(catalog, classId)}» — применится при сохранении.
+              </Box>
+            ) : null}
           </Typography>
         )}
         <TextField

@@ -2499,6 +2499,7 @@ class StoryDndHeroUpdateRequest(BaseModel):
     race: str | None = Field(default=None, max_length=40)
     character_class: str | None = Field(default=None, max_length=40, alias="class")
     background: str | None = Field(default=None, max_length=80)
+    background_id: str | None = Field(default=None, max_length=40)
     base_abilities: dict[str, int] | None = None
     asi_allocation: dict[str, int] | None = None
     skill_proficiencies: list[str] | None = Field(default=None, max_length=12)
@@ -2577,3 +2578,21 @@ class StoryDndNpcStatsOut(BaseModel):
 
 class StoryDndMeetingPromptOut(BaseModel):
     prompt: str
+
+
+class StoryDndInitiativeOut(BaseModel):
+    """The player's own initiative die. Everyone else's was rolled when the fight opened."""
+
+    state: dict[str, Any]
+    natural: int = 0
+    modifier: int = 0
+    total: int = 0
+
+
+class StoryDndCombatAdvanceRequest(BaseModel):
+    steps: int = Field(default=1, ge=1, le=12)
+
+
+class StoryDndDeathSaveOut(BaseModel):
+    state: dict[str, Any]
+    roll: dict[str, Any]

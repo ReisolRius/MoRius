@@ -26,8 +26,11 @@ from app.models import StoryMessage
 from app.schemas import (
     StoryDndCheckOut,
     StoryDndCheckRequest,
+    StoryDndCombatAdvanceRequest,
+    StoryDndDeathSaveOut,
     StoryDndEnvironmentRequest,
     StoryDndHeroUpdateRequest,
+    StoryDndInitiativeOut,
     StoryDndLevelUpRequest,
     StoryDndMeetingPromptOut,
     StoryDndNpcStatsOut,
@@ -39,13 +42,22 @@ from app.schemas import (
     UserOut,
 )
 from app.services.auth_identity import get_current_user
-from app.services.concurrency import spend_user_tokens_if_sufficient
+from app.services.concurrency import add_user_tokens, spend_user_tokens_if_sufficient
 from app.services.story_dnd import (
     ABILITY_IDS,
     DND_CLASS_BY_ID,
+    DND_COMBAT_PHASE_ACTIVE,
+    DND_COMBAT_PHASE_INITIATIVE,
+    DND_DEATH_SAVE_DC,
+    DND_DEFAULT_DIE,
+    DND_LIFE_STATE_ALIVE,
+    DND_LIFE_STATE_DEAD,
     DND_MAX_SKILL_PROFICIENCIES,
     DND_RELATION_LABELS,
     STORY_DND_PLAY_MODE_SANDBOX,
+    ability_modifier,
+    advance_dnd_combat_turn,
+    apply_death_save_roll,
     apply_race_bonuses,
     armor_class,
     asi_points_earned_through_level,
@@ -53,11 +65,16 @@ from app.services.story_dnd import (
     build_dnd_catalog,
     can_user_use_story_dnd,
     clamp_relation_score,
+    combat_hero_participant,
+    create_empty_dnd_combat,
     default_inventory_for,
+    dnd_sheet_locks,
     get_game_dnd_state,
     is_story_dnd_game,
     max_hit_points,
     normalize_dnd_ability_id,
+    normalize_dnd_background_id,
+    normalize_dnd_check_kind,
     normalize_dnd_class_id,
     normalize_dnd_conditions,
     normalize_dnd_die,
@@ -79,6 +96,8 @@ from app.services.story_dnd import (
     proficiency_bonus,
     relation_id_for_score,
     resolve_check_advantage,
+    roll_npc_initiatives,
+    start_dnd_combat_if_ready,
     set_game_dnd_state,
     validate_hero_sheet,
 )
@@ -123,6 +142,24 @@ def _acquire_lease_or_409(*, game_id: int, operation: str):
             status_code=status.HTTP_409_CONFLICT,
             detail=STORY_GAME_OPERATION_BUSY_DETAIL,
         ) from exc
+
+
+def _refund_service_tokens(db: Session, *, user, tokens: int) -> None:
+    """Give a sol back when the service model never produced an answer.
+
+    The mode charges before the call, like every other service module. That is fine while the
+    call works -- and unfair the moment it does not, so a failed module hands the coin back
+    instead of keeping it.
+    """
+    if tokens <= 0:
+        return
+    try:
+        add_user_tokens(db, user_id=int(user.id), tokens=int(tokens))
+        db.commit()
+        db.refresh(user)
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to refund D&D service tokens: user_id=%s", getattr(user, "id", None))
 
 
 def _require_dnd_game(db: Session, *, game_id: int, authorization: str | None):
@@ -170,6 +207,17 @@ def _load_state(db: Session, game) -> dict[str, Any]:
     return state
 
 
+def _with_sheet_locks(state: dict[str, Any]) -> dict[str, Any]:
+    """Attach the derived "what may still be edited" block to every state the client sees.
+
+    Derived rather than stored: the lock follows from the turn counter and the level, and a
+    copy of it in the blob would just be a copy that can go stale.
+    """
+    enriched = dict(state)
+    enriched["locks"] = dnd_sheet_locks(state)
+    return enriched
+
+
 def _persist_state(db: Session, game, state: dict[str, Any]) -> dict[str, Any]:
     normalized = set_game_dnd_state(game, state)
     touch_story_game(game)
@@ -196,7 +244,7 @@ def read_story_dnd_state(
     state = _load_state(db, game)
     return StoryDndStateOut(
         game_id=int(game.id),
-        state=state,
+        state=_with_sheet_locks(state),
         catalog=build_dnd_catalog() if include_catalog else None,
     )
 
@@ -221,7 +269,7 @@ def update_story_dnd_play_mode(
             state["hero"] = hero
         state["play_mode"] = next_play_mode
         normalized = _persist_state(db, game, state)
-    return StoryDndStateOut(game_id=int(game.id), state=normalized, catalog=None)
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
 
 
 @router.put("/api/story/games/{game_id}/dnd/hero", response_model=StoryDndStateOut)
@@ -241,28 +289,52 @@ def update_story_dnd_hero(
     with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_hero"):
         state = _load_state(db, game)
         play_mode = normalize_dnd_play_mode(state.get("play_mode"))
+        locks = dnd_sheet_locks(state)
         hero = dict(state.get("hero") or {})
 
         if payload.name is not None:
             hero["name"] = normalize_single_line(payload.name, max_length=80)
         if payload.background is not None:
             hero["background"] = normalize_single_line(payload.background, max_length=80)
-        race_id = normalize_dnd_race_id(payload.race) if payload.race is not None else normalize_dnd_race_id(hero.get("race"))
+        if payload.background_id is not None:
+            hero["background_id"] = normalize_dnd_background_id(payload.background_id)
+
+        previous_race_id = normalize_dnd_race_id(hero.get("race"))
+        previous_class_id = normalize_dnd_class_id(hero.get("class"))
+        race_id = normalize_dnd_race_id(payload.race) if payload.race is not None else previous_race_id
         class_id = (
             normalize_dnd_class_id(payload.character_class)
             if payload.character_class is not None
-            else normalize_dnd_class_id(hero.get("class"))
+            else previous_class_id
         )
-        class_changed = class_id != normalize_dnd_class_id(hero.get("class"))
+        # The lock lives here, not in the UI: a character that has already played a turn keeps
+        # the race and class it played it with, whatever the client submits.
+        if locks.get("identity_locked") and (race_id != previous_race_id or class_id != previous_class_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Раса и класс зафиксированы после первого хода",
+            )
+        class_changed = class_id != previous_class_id
         hero["race"] = race_id
         hero["class"] = class_id
 
         base_abilities = dict(hero.get("base_abilities") or {})
         if payload.base_abilities is not None:
-            base_abilities = {
+            requested_abilities = {
                 ability_id: payload.base_abilities.get(ability_id, base_abilities.get(ability_id, 10))
                 for ability_id in ABILITY_IDS
             }
+            if locks.get("abilities_locked") and requested_abilities != {
+                ability_id: int(base_abilities.get(ability_id, 10)) for ability_id in ABILITY_IDS
+            }:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Характеристики зафиксированы после первого хода: "
+                        "их можно повысить только при получении уровня"
+                    ),
+                )
+            base_abilities = requested_abilities
 
         # Improvements already earned survive a plain sheet save: only an explicit
         # asi_allocation in the request replaces them.
@@ -313,12 +385,34 @@ def update_story_dnd_hero(
             hero["pending_asi_points"] = max(asi_points_earned_through_level(level) - used_asi, 0)
 
         if payload.skill_proficiencies is not None:
-            skills = [
+            requested_skills: list[str] = []
+            for item in payload.skill_proficiencies:
+                skill_id = normalize_dnd_skill_id(item)
+                if skill_id and skill_id not in requested_skills:
+                    requested_skills.append(skill_id)
+            previous_skills = [
                 skill_id
-                for skill_id in (normalize_dnd_skill_id(item) for item in payload.skill_proficiencies)
+                for skill_id in (
+                    normalize_dnd_skill_id(item) for item in (hero.get("skill_proficiencies") or [])
+                )
                 if skill_id
             ]
-            hero["skill_proficiencies"] = skills[:DND_MAX_SKILL_PROFICIENCIES]
+            if locks.get("started") and play_mode != STORY_DND_PLAY_MODE_SANDBOX:
+                # Once play has started a proficiency is a thing the character *has*. New ones
+                # go into slots a level opened; nothing already learned can be traded away.
+                dropped = [skill_id for skill_id in previous_skills if skill_id not in requested_skills]
+                if dropped:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Уже освоенный навык нельзя убрать — его можно только дополнить новым",
+                    )
+                allowed = int(locks.get("skill_slots") or DND_MAX_SKILL_PROFICIENCIES)
+                if len(requested_skills) > allowed:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Доступно владений навыками: {allowed}. Новые открываются с уровнем.",
+                    )
+            hero["skill_proficiencies"] = requested_skills[:DND_MAX_SKILL_PROFICIENCIES]
         elif class_changed:
             hero["skill_proficiencies"] = list(DND_CLASS_BY_ID[class_id].skills)[:DND_MAX_SKILL_PROFICIENCIES]
         if class_changed:
@@ -364,7 +458,7 @@ def update_story_dnd_hero(
         state["hero"] = hero
         state["setup_completed"] = True
         normalized = _persist_state(db, game, state)
-    return StoryDndStateOut(game_id=int(game.id), state=normalized, catalog=None)
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
 
 
 @router.post("/api/story/games/{game_id}/dnd/level-up", response_model=StoryDndStateOut)
@@ -430,7 +524,7 @@ def apply_story_dnd_level_up(
             last_level_up["acknowledged"] = True
             state["last_level_up"] = last_level_up
         normalized = _persist_state(db, game, state)
-    return StoryDndStateOut(game_id=int(game.id), state=normalized, catalog=None)
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
 
 
 @router.put("/api/story/games/{game_id}/dnd/environment", response_model=StoryDndStateOut)
@@ -474,7 +568,7 @@ def update_story_dnd_environment(
             environment["weather_note"] = normalize_single_line(payload.weather_note, max_length=80)
         state["environment"] = normalize_dnd_environment(environment, locked=locked)
         normalized = _persist_state(db, game, state)
-    return StoryDndStateOut(game_id=int(game.id), state=normalized, catalog=None)
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
 
 
 @router.put("/api/story/games/{game_id}/dnd/npcs/{npc_key}", response_model=StoryDndStateOut)
@@ -552,7 +646,7 @@ def update_story_dnd_npc(
 
         state["npcs"] = npcs
         normalized = _persist_state(db, game, state)
-    return StoryDndStateOut(game_id=int(game.id), state=normalized, catalog=None)
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
 
 
 @router.post("/api/story/games/{game_id}/dnd/npcs/{npc_key}/ai-stats", response_model=StoryDndNpcStatsOut)
@@ -616,6 +710,7 @@ def suggest_story_dnd_npc_stats(
         )
     except Exception as exc:
         logger.warning("D&D NPC stat suggestion failed: game_id=%s error=%s", game.id, exc)
+        _refund_service_tokens(db, user=user, tokens=DND_NPC_STATS_COST_TOKENS)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Сервисная модель недоступна, попробуйте ещё раз",
@@ -699,6 +794,148 @@ def build_story_dnd_meeting_prompt(
     )
 
 
+def _build_death_save_check(state: dict[str, Any], prompt_text: str) -> dict[str, Any]:
+    """A death saving throw, shaped like any other pending check so one dialog serves both."""
+    hero = state.get("hero") if isinstance(state.get("hero"), dict) else {}
+    saves = hero.get("death_saves") if isinstance(hero.get("death_saves"), dict) else {}
+    return normalize_dnd_pending_check(
+        {
+            "id": secrets.token_hex(8),
+            # The player's sentence is kept so the narrator still sees what they wanted to do,
+            # even though the hero is in no condition to do it.
+            "prompt": prompt_text or "Герой лежит без сознания",
+            "kind": "death_save",
+            "skill": "",
+            "ability": "con",
+            "die": DND_DEFAULT_DIE,
+            "dc": DND_DEATH_SAVE_DC,
+            "advantage": "none",
+            "situational_modifier": 0,
+            "reason": (
+                f"Спасбросок от смерти. Успехов {int(saves.get('successes') or 0)}/3, "
+                f"провалов {int(saves.get('failures') or 0)}/3."
+            ),
+            "success_hint": "Ещё один шаг к тому, чтобы выжить.",
+            "failure_hint": "Ещё один шаг к смерти.",
+            # No ability modifier and no proficiency: a death save is a bare d20 in 5e.
+            "modifier_breakdown": [],
+        }
+    )
+
+
+@router.post("/api/story/games/{game_id}/dnd/death-save", response_model=StoryDndDeathSaveOut)
+def roll_story_dnd_death_save(
+    game_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryDndDeathSaveOut:
+    """Roll one death saving throw. Server-side and free, like every other die here."""
+    _user, game = _require_dnd_game(db, game_id=game_id, authorization=authorization)
+    with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_death_save"):
+        state = _load_state(db, game)
+        hero = dict(state.get("hero") or {})
+        if str(hero.get("life_state") or DND_LIFE_STATE_ALIVE) != "dying":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Спасбросок от смерти сейчас не нужен",
+            )
+        check = state.get("pending_check")
+        if not isinstance(check, dict) or normalize_dnd_check_kind(check.get("kind")) != "death_save":
+            check = _build_death_save_check(state, "")
+        result = perform_roll(die=DND_DEFAULT_DIE, dc=DND_DEATH_SAVE_DC, advantage="none", modifier_breakdown=[])
+        summary = apply_death_save_roll(hero, natural=result.natural, total=result.total)
+        state["hero"] = hero
+        roll_payload = {
+            **result.to_dict(),
+            "id": str(check.get("id") or secrets.token_hex(8)),
+            "check": check,
+            "consumed": False,
+            "death_save": True,
+            "life_state": summary["life_state"],
+        }
+        state["last_roll"] = roll_payload
+        state["pending_check"] = None
+        if summary["life_state"] == DND_LIFE_STATE_DEAD:
+            state["combat"] = create_empty_dnd_combat()
+        normalized = _persist_state(db, game, state)
+    return StoryDndDeathSaveOut(state=_with_sheet_locks(normalized), roll=normalized.get("last_roll") or roll_payload)
+
+
+@router.post("/api/story/games/{game_id}/dnd/combat/initiative", response_model=StoryDndInitiativeOut)
+def roll_story_dnd_initiative(
+    game_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryDndInitiativeOut:
+    """The player's own initiative die. The rest of the table rolled when the fight opened."""
+    _user, game = _require_dnd_game(db, game_id=game_id, authorization=authorization)
+    with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_initiative"):
+        state = _load_state(db, game)
+        combat = dict(state.get("combat") or {})
+        if not combat.get("active"):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Бой не идёт")
+        participant = combat_hero_participant(combat)
+        if participant is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Герой не участвует в бою")
+        if participant.get("initiative") is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Инициатива уже брошена")
+        hero = state.get("hero") if isinstance(state.get("hero"), dict) else {}
+        modifier = ability_modifier((hero.get("abilities") or {}).get("dex"))
+        result = perform_roll(
+            die=DND_DEFAULT_DIE,
+            dc=10,
+            advantage="none",
+            modifier_breakdown=[{"key": "ability:dex", "label": "ЛОВ", "value": modifier}],
+        )
+        participant["initiative"] = max(-20, min(60, result.total))
+        participant["initiative_modifier"] = modifier
+        combat["hero_initiative_rolled"] = True
+        combat = roll_npc_initiatives(combat)
+        combat = start_dnd_combat_if_ready(combat)
+        state["combat"] = combat
+        normalized = _persist_state(db, game, state)
+    return StoryDndInitiativeOut(
+        state=_with_sheet_locks(normalized),
+        natural=result.natural,
+        modifier=modifier,
+        total=int(participant["initiative"]),
+    )
+
+
+@router.post("/api/story/games/{game_id}/dnd/combat/advance", response_model=StoryDndStateOut)
+def advance_story_dnd_combat(
+    game_id: int,
+    payload: StoryDndCombatAdvanceRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryDndStateOut:
+    """Hand the initiative to the next combatant. Free: it is arithmetic, not a model call."""
+    _user, game = _require_dnd_game(db, game_id=game_id, authorization=authorization)
+    with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_combat_advance"):
+        state = _load_state(db, game)
+        combat = dict(state.get("combat") or {})
+        if not combat.get("active") or combat.get("phase") != DND_COMBAT_PHASE_ACTIVE:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Бой ещё не начался")
+        state["combat"] = advance_dnd_combat_turn(combat, steps=int(payload.steps or 1))
+        normalized = _persist_state(db, game, state)
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
+
+
+@router.delete("/api/story/games/{game_id}/dnd/combat", response_model=StoryDndStateOut)
+def end_story_dnd_combat(
+    game_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryDndStateOut:
+    """Call the fight off by hand. The escape hatch for a combat the narrator forgot to close."""
+    _user, game = _require_dnd_game(db, game_id=game_id, authorization=authorization)
+    with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_combat_end"):
+        state = _load_state(db, game)
+        state["combat"] = create_empty_dnd_combat()
+        normalized = _persist_state(db, game, state)
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
+
+
 @router.post("/api/story/games/{game_id}/dnd/check", response_model=StoryDndCheckOut)
 def analyze_story_dnd_check(
     game_id: int,
@@ -715,6 +952,25 @@ def analyze_story_dnd_check(
     state = _load_state(db, game)
     prompt_text = str(payload.prompt or "").strip()
 
+    # At zero hit points the only roll on the table is the one for the character's life, and
+    # it is free: the dice that decide whether a player loses their character are not a
+    # billable feature.
+    hero_state = state.get("hero") if isinstance(state.get("hero"), dict) else {}
+    life_state = str(hero_state.get("life_state") or DND_LIFE_STATE_ALIVE)
+    if life_state == "dying":
+        death_check = _build_death_save_check(state, prompt_text)
+        with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_check"):
+            state = _load_state(db, game)
+            state["pending_check"] = death_check
+            normalized = _persist_state(db, game, state)
+        return StoryDndCheckOut(
+            needs_check=True,
+            check=normalized.get("pending_check"),
+            charged_tokens=0,
+            user=None,
+            state=_with_sheet_locks(normalized),
+        )
+
     if not dnd_action_needs_model_check(prompt_text):
         return StoryDndCheckOut(needs_check=False, check=None, charged_tokens=0, user=None, state=None)
 
@@ -726,8 +982,9 @@ def analyze_story_dnd_check(
         )
     db.commit()
     db.refresh(user)
+    charged_tokens = DND_CHECK_COST_TOKENS
 
-    from app.services.story_dnd_service import analyze_dnd_action_check
+    from app.services.story_dnd_service import analyze_dnd_action_check, build_local_check_fallback
 
     try:
         analysis = analyze_dnd_action_check(
@@ -738,15 +995,14 @@ def analyze_story_dnd_check(
             game_id=int(game.id),
         )
     except Exception as exc:
-        # A failed analysis must never block the turn: the player simply plays without a roll.
-        logger.warning("D&D check analysis failed: game_id=%s error=%s", game.id, exc)
-        return StoryDndCheckOut(
-            needs_check=False,
-            check=None,
-            charged_tokens=DND_CHECK_COST_TOKENS,
-            user=UserOut.model_validate(user),
-            state=None,
-        )
+        # A provider hiccup must not quietly hand the player whatever they typed. Fall back to
+        # the local keyword rules: a plain DC 15 check is worse than a well-judged one and far
+        # better than the silent "no roll needed" this used to return.
+        logger.warning("D&D check analysis failed, using local fallback: game_id=%s error=%s", game.id, exc)
+        analysis = build_local_check_fallback(prompt_text)
+        # The player paid for a judged check and got a keyword guess: give the sol back.
+        _refund_service_tokens(db, user=user, tokens=DND_CHECK_COST_TOKENS)
+        charged_tokens = 0
 
     if not analysis.get("needs_check"):
         with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_check"):
@@ -756,9 +1012,9 @@ def analyze_story_dnd_check(
         return StoryDndCheckOut(
             needs_check=False,
             check=None,
-            charged_tokens=DND_CHECK_COST_TOKENS,
+            charged_tokens=charged_tokens,
             user=UserOut.model_validate(user),
-            state=normalized,
+            state=_with_sheet_locks(normalized),
         )
 
     check = normalize_dnd_pending_check(
@@ -773,7 +1029,7 @@ def analyze_story_dnd_check(
         return StoryDndCheckOut(
             needs_check=False,
             check=None,
-            charged_tokens=DND_CHECK_COST_TOKENS,
+            charged_tokens=charged_tokens,
             user=UserOut.model_validate(user),
             state=None,
         )
@@ -790,9 +1046,9 @@ def analyze_story_dnd_check(
     return StoryDndCheckOut(
         needs_check=True,
         check=normalized.get("pending_check"),
-        charged_tokens=DND_CHECK_COST_TOKENS,
+        charged_tokens=charged_tokens,
         user=UserOut.model_validate(user),
-        state=normalized,
+        state=_with_sheet_locks(normalized),
     )
 
 
@@ -814,7 +1070,32 @@ def roll_story_dnd_check(
         if requested_id and requested_id != str(check.get("id") or ""):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Проверка устарела, повторите ход")
 
-        hero = state.get("hero") if isinstance(state.get("hero"), dict) else {}
+        hero = dict(state.get("hero") or {})
+        if normalize_dnd_check_kind(check.get("kind")) == "death_save":
+            # One dialog, one button, two very different rolls: the client does not have to
+            # know which endpoint to call, because the pending check already says.
+            result = perform_roll(
+                die=DND_DEFAULT_DIE, dc=DND_DEATH_SAVE_DC, advantage="none", modifier_breakdown=[]
+            )
+            summary = apply_death_save_roll(hero, natural=result.natural, total=result.total)
+            state["hero"] = hero
+            roll_payload = {
+                **result.to_dict(),
+                "id": str(check.get("id") or secrets.token_hex(8)),
+                "check": check,
+                "consumed": False,
+                "death_save": True,
+                "life_state": summary["life_state"],
+            }
+            state["last_roll"] = roll_payload
+            state["pending_check"] = None
+            if summary["life_state"] == DND_LIFE_STATE_DEAD:
+                state["combat"] = create_empty_dnd_combat()
+            normalized = _persist_state(db, game, state)
+            return StoryDndRollOut(
+                roll=normalized.get("last_roll") or roll_payload, state=_with_sheet_locks(normalized)
+            )
+
         breakdown = check.get("modifier_breakdown")
         if not isinstance(breakdown, list) or not breakdown:
             breakdown = build_check_modifier_breakdown(hero, check)
@@ -823,6 +1104,9 @@ def roll_story_dnd_check(
             dc=check.get("dc"),
             advantage=check.get("advantage") or resolve_check_advantage(hero, check),
             modifier_breakdown=breakdown,
+            group_targets=[
+                str(item) for item in (check.get("group_targets") or []) if str(item or "").strip()
+            ],
         )
         roll_payload = {
             **result.to_dict(),
@@ -834,7 +1118,7 @@ def roll_story_dnd_check(
         state["pending_check"] = None
         normalized = _persist_state(db, game, state)
 
-    return StoryDndRollOut(roll=normalized.get("last_roll") or roll_payload, state=normalized)
+    return StoryDndRollOut(roll=normalized.get("last_roll") or roll_payload, state=_with_sheet_locks(normalized))
 
 
 @router.delete("/api/story/games/{game_id}/dnd/check", response_model=StoryDndStateOut)
@@ -849,7 +1133,7 @@ def discard_story_dnd_check(
         state = _load_state(db, game)
         state["pending_check"] = None
         normalized = _persist_state(db, game, state)
-    return StoryDndStateOut(game_id=int(game.id), state=normalized, catalog=None)
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
 
 
 @router.post("/api/story/games/{game_id}/dnd/reset", response_model=StoryDndStateOut)
@@ -868,4 +1152,4 @@ def reset_story_dnd_state(
         fresh["quests"] = state.get("quests") or []
         fresh["notes"] = state.get("notes") or []
         normalized = _persist_state(db, game, fresh)
-    return StoryDndStateOut(game_id=int(game.id), state=normalized, catalog=build_dnd_catalog())
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=build_dnd_catalog())

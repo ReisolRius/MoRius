@@ -165,6 +165,13 @@ STORY_CHARACTER_AUTOMATION_TURN_SURCHARGE_TOKENS = 1
 # on the same basis as the modules above -- one sol per bounded service request.
 STORY_DND_TURN_SURCHARGE_TOKENS = 1
 STORY_DND_MAX_SERVICE_REQUESTS = 1
+# The D&D upkeep gets its own wall-clock allowance instead of the tail end of the shared
+# STORY_TURN_SERVICE_DEADLINE_SECONDS. It runs after memory and the graph, so on a busy turn
+# the shared budget is already spent by the time it starts -- and unlike a memory summary,
+# which can catch up next turn, this module *is* the mode: without it no quest, note, hit
+# point or fight ever reaches the sheet. Still bounded, because the per-game operation lease
+# is held throughout and a turn that never finishes syncing is its own bug.
+STORY_DND_SERVICE_DEADLINE_SECONDS = 60.0
 STORY_STREAM_RETRY_DELAYS_SECONDS = (1.0, 2.5, 5.0, 8.0)
 STORY_CONTINUE_MODEL_PROMPT = (
     "Continue the current scene from exactly where the latest assistant response ended. "
@@ -2625,8 +2632,14 @@ def _stream_story_response(
                     deps.list_story_world_cards(db, game.id),
                 )
                 upkeep_payload: dict[str, Any] | None = None
-                with turn_service_deadline_scope(), use_story_turn_hard_budget(
-                    turn_service_hard_budget
+                # Deliberately outside the shared turn budget on both axes -- time and request
+                # count. STORY_TURN_MAX_SERVICE_REQUESTS is 5 and the memory pipeline alone may
+                # spend all five, which would refuse this call outright on a busy turn. The
+                # single request below is capped locally and billed by
+                # STORY_DND_TURN_SURCHARGE_TOKENS either way, so nothing is unbounded or free;
+                # putting it back under the shared budget just makes the sheet stop updating.
+                with use_story_turn_service_deadline(
+                    STORY_DND_SERVICE_DEADLINE_SECONDS
                 ), use_story_service_http_request_budget(
                     StoryServiceHttpRequestBudget(max_requests=STORY_DND_MAX_SERVICE_REQUESTS)
                 ):
@@ -2818,7 +2831,17 @@ def _stream_story_response(
         if graph_analysis_result is not None:
             done_payload["graph_analysis"] = graph_analysis_result
         if dnd_state_for_client is not None:
-            done_payload["dnd"] = dnd_state_for_client
+            # Same shape the D&D endpoints return, so the client never has to reconcile two.
+            try:
+                from app.services.story_dnd import dnd_sheet_locks
+
+                done_payload["dnd"] = {
+                    **dnd_state_for_client,
+                    "locks": dnd_sheet_locks(dnd_state_for_client),
+                }
+            except Exception:
+                logger.exception("Failed to attach D&D sheet locks: game_id=%s", game.id)
+                done_payload["dnd"] = dnd_state_for_client
         if visual_novel_enabled:
             done_payload["novel_beats"] = novel_beats_payload
         game_payload = _safe_dump_stream_item(deps.story_game_summary_to_out(game))

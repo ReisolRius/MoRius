@@ -325,6 +325,48 @@ const CONDITION_PATHS: Record<string, ReactNode> = {
   ),
 }
 
+export function DndLockIcon({ size = 20, sx, title }: GlyphProps) {
+  return (
+    <Glyph size={size} sx={sx} title={title}>
+      <rect x="4.4" y="10.4" width="15.2" height="10.2" rx="2.2" />
+      <path d="M8.2 10.4V7.6a3.8 3.8 0 0 1 7.6 0v2.8" />
+      <path d="M12 14.4v2.4" />
+    </Glyph>
+  )
+}
+
+export function DndCoinIcon({ size = 20, sx, title }: GlyphProps) {
+  return (
+    <Glyph size={size} sx={sx} title={title}>
+      <circle cx="12" cy="12" r="8.4" />
+      <circle cx="12" cy="12" r="5.1" />
+      <path d="M12 9.3v5.4M10.4 10.6h2.4a1.3 1.3 0 0 1 0 2.6h-1.6a1.3 1.3 0 0 0 0 2.6h2.4" />
+    </Glyph>
+  )
+}
+
+export function DndSwordsIcon({ size = 20, sx, title }: GlyphProps) {
+  return (
+    <Glyph size={size} sx={sx} title={title}>
+      <path d="M20.5 3.5 11 13m-2.6 2.6L3.5 20.5" />
+      <path d="M17.4 3.5h3.1v3.1" />
+      <path d="M3.5 3.5h3.1L16 13m2.6 2.6 1.9 1.9v3.1h-3.1l-1.9-1.9" />
+      <path d="M6.8 15.6 4.9 17.5v3.1H8l1.9-1.9" />
+    </Glyph>
+  )
+}
+
+export function DndSkullIcon({ size = 20, sx, title }: GlyphProps) {
+  return (
+    <Glyph size={size} sx={sx} title={title}>
+      <path d="M12 3.2c-4.3 0-7.4 3-7.4 6.9 0 2.3 1.1 4 2.6 5.1v2.4a1.6 1.6 0 0 0 1.6 1.6h6.4a1.6 1.6 0 0 0 1.6-1.6v-2.4c1.5-1.1 2.6-2.8 2.6-5.1 0-3.9-3.1-6.9-7.4-6.9z" />
+      <circle cx="9.2" cy="10.4" r="1.5" />
+      <circle cx="14.8" cy="10.4" r="1.5" />
+      <path d="M12 13.6v2.2" />
+    </Glyph>
+  )
+}
+
 export function DndConditionIcon({ icon, size = 18, sx }: GlyphProps & { icon: string }) {
   const paths = CONDITION_PATHS[icon] ?? CONDITION_PATHS.sparkle
   return (

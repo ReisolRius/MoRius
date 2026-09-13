@@ -17,6 +17,11 @@ from typing import Any
 
 from app.services.story_dnd import (
     ABILITY_IDS,
+    DND_COMBAT_MAX_PARTICIPANTS,
+    DND_COMBAT_PHASE_ACTIVE,
+    DND_COMBAT_SIDE_ENEMY,
+    DND_COMBAT_SIDE_HERO,
+    DND_LIFE_STATE_DEAD,
     DND_MAX_NOTES,
     DND_MAX_NPCS,
     DND_MAX_QUESTS,
@@ -24,10 +29,14 @@ from app.services.story_dnd import (
     DND_TIME_IDS,
     DND_WEATHER_LABELS,
     STORY_DND_PLAY_MODE_SANDBOX,
+    advance_dnd_combat_turn,
     advance_environment_season,
     ability_modifier,
     award_experience,
     clamp_relation_score,
+    create_empty_dnd_combat,
+    normalize_dnd_combat,
+    normalize_dnd_combat_side,
     normalize_dnd_condition_id,
     normalize_dnd_conditions,
     normalize_dnd_environment,
@@ -41,6 +50,9 @@ from app.services.story_dnd import (
     normalize_single_line,
     normalize_text_value,
     relation_id_for_score,
+    resolve_life_state,
+    roll_npc_initiatives,
+    start_dnd_combat_if_ready,
 )
 from app.services.story_dnd_service import (
     DND_ELAPSED_BOUNDS,
@@ -98,6 +110,25 @@ def _apply_hero_vitals(state: dict[str, Any], payload: dict[str, Any]) -> list[s
             hp["current"] = next_current
             hp["temp"] = temp
             changes.append(f"hp {current}->{next_current}")
+            if next_current <= 0 and current > 0:
+                # Falling to zero starts the death saves with a clean ledger, and puts the
+                # "unconscious" condition on the sheet so the narrator sees it too.
+                hero["death_saves"] = {"successes": 0, "failures": 0}
+                existing = [item for item in _as_list(hero.get("conditions")) if isinstance(item, dict)]
+                if not any(normalize_dnd_condition_id(item.get("id")) == "unconscious" for item in existing):
+                    existing.append({"id": "unconscious", "note": "Ноль хитов"})
+                    hero["conditions"] = normalize_dnd_conditions(existing)
+                changes.append("hero down")
+            elif next_current > 0 and current <= 0:
+                hero["death_saves"] = {"successes": 0, "failures": 0}
+                hero["conditions"] = normalize_dnd_conditions(
+                    [
+                        item
+                        for item in _as_list(hero.get("conditions"))
+                        if isinstance(item, dict) and normalize_dnd_condition_id(item.get("id")) != "unconscious"
+                    ]
+                )
+                changes.append("hero back up")
 
     temp_update = _as_dict(payload.get("temp_hp"))
     if temp_update.get("should_update"):
@@ -109,6 +140,11 @@ def _apply_hero_vitals(state: dict[str, Any], payload: dict[str, Any]) -> list[s
         changes.append(f"temp_hp={hp['temp']}")
 
     hero["hp"] = hp
+    hero["life_state"] = resolve_life_state(
+        hp_current=hp.get("current"),
+        death_saves=hero.get("death_saves"),
+        is_dead=hero.get("is_dead"),
+    )
 
     gold_update = _as_dict(payload.get("gold"))
     if gold_update.get("should_update"):
@@ -459,6 +495,227 @@ def _apply_npcs(state: dict[str, Any], payload: dict[str, Any]) -> list[str]:
     return changes
 
 
+# --- Combat ------------------------------------------------------------------------------------
+
+def _hero_combatant_from_state(state: dict[str, Any]) -> dict[str, Any]:
+    hero = _as_dict(state.get("hero"))
+    hp = _as_dict(hero.get("hp"))
+    abilities = _as_dict(hero.get("abilities"))
+    name = normalize_single_line(hero.get("name"), max_length=80) or "Герой"
+    return {
+        "key": name.casefold(),
+        "name": name,
+        "side": DND_COMBAT_SIDE_HERO,
+        "role": "",
+        "initiative": None,
+        "initiative_modifier": ability_modifier(abilities.get("dex")),
+        "hp": {"current": int(hp.get("current") or 0), "max": max(int(hp.get("max") or 1), 1)},
+        "armor_class": int(hero.get("armor_class") or 10),
+        "is_down": int(hp.get("current") or 0) <= 0,
+        "npc_key": "",
+        "world_card_id": hero.get("avatar_world_card_id"),
+    }
+
+
+def _combatant_from_update(update: dict[str, Any], state: dict[str, Any]) -> dict[str, Any] | None:
+    name = normalize_single_line(update.get("name"), max_length=80)
+    if not name:
+        return None
+    side = normalize_dnd_combat_side(update.get("side"))
+    if side == DND_COMBAT_SIDE_HERO:
+        return _hero_combatant_from_state(state)
+    # Prefer the roster's own numbers over the model's guess: an archmage the player statted
+    # by hand must not become an 11-hit-point bandit because a fight broke out. The reverse
+    # also has to hold -- a thug the same turn invented carries a placeholder stat block, and
+    # the fight's own numbers are the better ones, so they are written back to the roster and
+    # the two never disagree.
+    known = next(
+        (
+            npc
+            for npc in _as_list(state.get("npcs"))
+            if isinstance(npc, dict) and _npc_match_key(npc.get("name")) == _npc_match_key(name)
+        ),
+        None,
+    )
+    if known is not None and str(known.get("stats_source") or "ai") != "manual":
+        proposed_hp = max(0, min(9_999, int(update.get("max_hp") or 0)))
+        proposed_ac = max(0, min(40, int(update.get("armor_class") or 0)))
+        if proposed_hp:
+            current_hp = _as_dict(known.get("hp"))
+            was_full = int(current_hp.get("current") or 0) >= int(current_hp.get("max") or 1)
+            known["hp"] = {
+                "max": proposed_hp,
+                "current": proposed_hp if was_full else min(proposed_hp, int(current_hp.get("current") or 0)),
+                "temp": 0,
+            }
+        if proposed_ac:
+            known["armor_class"] = proposed_ac
+    if known is not None:
+        npc_hp = _as_dict(known.get("hp"))
+        max_hp = max(int(npc_hp.get("max") or 1), 1)
+        return {
+            "key": name.casefold(),
+            "name": name,
+            "side": side,
+            "role": normalize_single_line(known.get("role") or update.get("role"), max_length=80),
+            "initiative": None,
+            "initiative_modifier": ability_modifier(_as_dict(known.get("abilities")).get("dex")),
+            "hp": {"current": max(0, min(max_hp, int(npc_hp.get("current") or max_hp))), "max": max_hp},
+            "armor_class": int(known.get("armor_class") or 10),
+            "is_down": int(npc_hp.get("current") or 0) <= 0,
+            "npc_key": str(known.get("key") or name.casefold()),
+            "world_card_id": known.get("world_card_id"),
+        }
+    max_hp = max(1, min(9_999, int(update.get("max_hp") or 0) or 8))
+    return {
+        "key": name.casefold(),
+        "name": name,
+        "side": side,
+        "role": normalize_single_line(update.get("role"), max_length=80),
+        "initiative": None,
+        "initiative_modifier": max(-10, min(20, int(update.get("dex_modifier") or 0))),
+        "hp": {"current": max_hp, "max": max_hp},
+        "armor_class": max(1, min(40, int(update.get("armor_class") or 0) or 12)),
+        "is_down": False,
+        "npc_key": "",
+        "world_card_id": None,
+    }
+
+
+def _sync_combatant_hp_from_state(combat: dict[str, Any], state: dict[str, Any]) -> None:
+    """Keep the bar at the top of the screen honest: it reads the same hit points the sheet does."""
+    hero = _as_dict(state.get("hero"))
+    hero_hp = _as_dict(hero.get("hp"))
+    npcs_by_key = {
+        _npc_match_key(npc.get("name")): npc
+        for npc in _as_list(state.get("npcs"))
+        if isinstance(npc, dict)
+    }
+    for participant in _as_list(combat.get("participants")):
+        if not isinstance(participant, dict):
+            continue
+        if participant.get("side") == DND_COMBAT_SIDE_HERO:
+            participant["hp"] = {
+                "current": int(hero_hp.get("current") or 0),
+                "max": max(int(hero_hp.get("max") or 1), 1),
+            }
+            participant["armor_class"] = int(hero.get("armor_class") or 10)
+            participant["is_down"] = int(hero_hp.get("current") or 0) <= 0
+            continue
+        known = npcs_by_key.get(_npc_match_key(participant.get("name")))
+        if known is None:
+            continue
+        npc_hp = _as_dict(known.get("hp"))
+        max_hp = max(int(npc_hp.get("max") or 1), 1)
+        current = max(0, min(max_hp, int(npc_hp.get("current") or 0)))
+        participant["hp"] = {"current": current, "max": max_hp}
+        participant["armor_class"] = int(known.get("armor_class") or participant.get("armor_class") or 10)
+        if current <= 0:
+            participant["is_down"] = True
+
+
+def _apply_combat(state: dict[str, Any], payload: dict[str, Any]) -> list[str]:
+    """Start, run and end a fight from what the narrator described.
+
+    The model only says *that* a fight is happening and who is in it. Initiative values, turn
+    order and the round counter are computed here, so the bar the player sees can never show a
+    turn order the rules would not produce.
+    """
+    update = _as_dict(payload.get("combat"))
+    combat = normalize_dnd_combat(state.get("combat"))
+    changes: list[str] = []
+
+    if update.get("ended") and combat.get("active"):
+        state["combat"] = create_empty_dnd_combat()
+        return ["combat ended"]
+
+    wants_combat = bool(update.get("started") or update.get("in_combat"))
+    if not wants_combat and not combat.get("active"):
+        state["combat"] = combat
+        return []
+    if not wants_combat and combat.get("active"):
+        # The narrator stopped mentioning the fight: treat that as it being over rather than
+        # leaving a stale initiative bar pinned to the top of the screen forever.
+        state["combat"] = create_empty_dnd_combat()
+        return ["combat ended (silent)"]
+
+    raw_participants = [item for item in _as_list(update.get("participants")) if isinstance(item, dict)]
+    existing_by_key = {
+        str(item.get("key") or ""): item
+        for item in _as_list(combat.get("participants"))
+        if isinstance(item, dict)
+    }
+    participants: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in raw_participants:
+        built = _combatant_from_update(raw, state)
+        if built is None or built["key"] in seen:
+            continue
+        previous = existing_by_key.get(built["key"])
+        if previous is not None:
+            # A fight already under way keeps the dice it has already rolled.
+            built["initiative"] = previous.get("initiative")
+            built["is_down"] = bool(previous.get("is_down")) or built["is_down"]
+        seen.add(built["key"])
+        participants.append(built)
+        if len(participants) >= DND_COMBAT_MAX_PARTICIPANTS:
+            break
+
+    if not any(item.get("side") == DND_COMBAT_SIDE_HERO for item in participants):
+        hero_entry = _hero_combatant_from_state(state)
+        previous = existing_by_key.get(hero_entry["key"])
+        if previous is not None:
+            hero_entry["initiative"] = previous.get("initiative")
+        participants.insert(0, hero_entry)
+    if not any(item.get("side") == DND_COMBAT_SIDE_ENEMY for item in participants):
+        # A fight with nobody to fight is a scene, not a fight.
+        state["combat"] = create_empty_dnd_combat()
+        return ["combat ended (no enemies)"] if combat.get("active") else []
+
+    defeated_keys = {_npc_match_key(name) for name in _as_list(update.get("defeated"))}
+    defeated_keys.discard("")
+    for participant in participants:
+        if _npc_match_key(participant.get("name")) in defeated_keys:
+            participant["is_down"] = True
+            participant["hp"] = {"current": 0, "max": max(int(_as_dict(participant.get("hp")).get("max") or 1), 1)}
+
+    started_now = not combat.get("active")
+    combat["active"] = True
+    combat["participants"] = participants
+    if update.get("title") and not combat.get("title"):
+        combat["title"] = normalize_single_line(update.get("title"), max_length=80)
+    if started_now:
+        combat["round"] = 1
+        combat["turn_index"] = 0
+        combat["hero_initiative_rolled"] = False
+        changes.append(f"combat started ({len(participants)})")
+
+    _sync_combatant_hp_from_state(combat, state)
+    combat = roll_npc_initiatives(combat)
+    combat = start_dnd_combat_if_ready(combat)
+    if combat.get("phase") == DND_COMBAT_PHASE_ACTIVE and int(update.get("advance_turns") or 0) > 0:
+        combat = advance_dnd_combat_turn(combat, steps=int(update.get("advance_turns")))
+        changes.append(f"combat round {combat.get('round')}")
+
+    # Everyone down on one side ends it, whatever the model said.
+    alive_enemies = [
+        item
+        for item in combat.get("participants") or []
+        if item.get("side") == DND_COMBAT_SIDE_ENEMY and not item.get("is_down")
+    ]
+    hero_entry = next(
+        (item for item in combat.get("participants") or [] if item.get("side") == DND_COMBAT_SIDE_HERO),
+        None,
+    )
+    hero_down = bool(hero_entry and hero_entry.get("is_down"))
+    if not alive_enemies or hero_down:
+        state["combat"] = create_empty_dnd_combat()
+        return changes + ["combat ended (resolved)"]
+
+    state["combat"] = normalize_dnd_combat(combat)
+    return changes
+
+
 # --- Entry point ---------------------------------------------------------------------------------
 
 def apply_dnd_turn_upkeep(
@@ -480,6 +737,11 @@ def apply_dnd_turn_upkeep(
     changes.extend(_apply_quests(working, payload))
     changes.extend(_apply_master_notes(working, payload, turn_index=turn_index))
     changes.extend(_apply_npcs(working, payload))
+    # Combat reads the hit points every applier above it has already written, so it runs last.
+    changes.extend(_apply_combat(working, payload))
+    if str(_as_dict(working.get("hero")).get("life_state") or "") == DND_LIFE_STATE_DEAD:
+        # A dead hero has no fight left to be in.
+        working["combat"] = create_empty_dnd_combat()
     return normalize_dnd_state(working), changes
 
 

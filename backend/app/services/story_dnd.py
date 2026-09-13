@@ -293,6 +293,73 @@ DND_SKILL_ABILITY: dict[str, str] = {skill_id: ability for skill_id, _label, abi
 DND_SKILL_LABELS: dict[str, str] = {skill_id: label for skill_id, label, _ability in DND_SKILLS}
 DND_MAX_SKILL_PROFICIENCIES = 6
 
+# How many skill proficiencies a character may hold at a given level. The class kit is the
+# floor; one extra slot opens at each of DND_SKILL_SLOT_LEVELS. This is what makes the sheet
+# lock meaningful: after the first turn a player can only *fill* the slots a level has
+# actually granted, never re-pick the ones already spent.
+DND_SKILL_SLOT_LEVELS: tuple[int, ...] = (5, 10, 15, 20)
+DND_MIN_SKILL_SLOTS = 2
+
+
+DND_BACKGROUND_SKILL_SLOTS = 2
+
+
+def skill_slots_for_level(class_id: Any, level: Any, background_id: Any = "") -> int:
+    """Class kit + the two a background grants + one per DND_SKILL_SLOT_LEVELS threshold."""
+    dnd_class = DND_CLASS_BY_ID.get(normalize_dnd_class_id(class_id), DND_CLASS_BY_ID[DEFAULT_CLASS_ID])
+    normalized_level = normalize_dnd_level(level)
+    earned = sum(1 for threshold in DND_SKILL_SLOT_LEVELS if normalized_level >= threshold)
+    base = max(DND_MIN_SKILL_SLOTS, len(dnd_class.skills))
+    if normalize_dnd_background_id(background_id):
+        base += DND_BACKGROUND_SKILL_SLOTS
+    return max(DND_MIN_SKILL_SLOTS, min(DND_MAX_SKILL_PROFICIENCIES, base + earned))
+
+
+# --- Backgrounds --------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DndBackground:
+    id: str
+    label: str
+    summary: str
+    skills: tuple[str, ...]
+
+
+# Templates, not a rules table: the player may still type anything they like. They exist
+# because "Предыстория" on an empty field means nothing to someone who has never opened a
+# Player's Handbook, and a one-line summary is enough for the narrator to work with.
+DND_BACKGROUNDS: tuple[DndBackground, ...] = (
+    DndBackground("acolyte", "Служитель", "Вырос при храме: знает обряды, имеет связи среди духовенства.", ("insight", "religion")),
+    DndBackground("criminal", "Преступник", "Жил с изнанки закона: контакты в подполье, чутьё на слежку.", ("deception", "stealth")),
+    DndBackground("folk_hero", "Народный герой", "Простолюдин, однажды вставший против сильного. Простой люд помогает.", ("animal_handling", "survival")),
+    DndBackground("noble", "Аристократ", "Имя, титул и привычка, что двери открываются сами.", ("history", "persuasion")),
+    DndBackground("sage", "Мудрец", "Годы в библиотеках: знает, где искать ответ на любой вопрос.", ("arcana", "history")),
+    DndBackground("soldier", "Солдат", "Служил в войске: звание, шрамы и въевшаяся дисциплина.", ("athletics", "intimidation")),
+    DndBackground("charlatan", "Шарлатан", "Живёт обманом: фальшивые бумаги, чужие имена, верная улыбка.", ("deception", "sleight_of_hand")),
+    DndBackground("entertainer", "Артист", "Сцена, толпа и умение держать внимание зала.", ("acrobatics", "performance")),
+    DndBackground("guild_artisan", "Ремесленник", "Член гильдии: мастерство, репутация и деловые связи.", ("insight", "persuasion")),
+    DndBackground("hermit", "Отшельник", "Годы в уединении ради одного открытия, о котором никто не знает.", ("medicine", "religion")),
+    DndBackground("outlander", "Чужеземец", "Вырос вдали от городов: читает следы и не теряется в глуши.", ("athletics", "survival")),
+    DndBackground("sailor", "Моряк", "Палуба, канаты и порты, где вас ещё помнят.", ("athletics", "perception")),
+    DndBackground("urchin", "Беспризорник", "Вырос на улице: знает город снизу и умеет исчезать.", ("sleight_of_hand", "stealth")),
+    DndBackground("investigator", "Дознаватель", "Учился читать людей и сцены преступлений.", ("investigation", "insight")),
+    DndBackground("mercenary", "Наёмник", "Воевал за деньги: цену контракта знает лучше цены жизни.", ("athletics", "persuasion")),
+    DndBackground("exile", "Изгнанник", "Когда-то был кем-то. Родина закрыта, прошлое тянется следом.", ("deception", "survival")),
+)
+DND_BACKGROUND_BY_ID: dict[str, DndBackground] = {item.id: item for item in DND_BACKGROUNDS}
+
+
+def normalize_dnd_background_id(value: Any) -> str:
+    """Map a background to a template id, or "" for free text the player typed themselves."""
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in DND_BACKGROUND_BY_ID:
+        return normalized
+    lowered = str(value or "").strip().lower()
+    for item in DND_BACKGROUNDS:
+        if item.label.lower() == lowered:
+            return item.id
+    return ""
+
 
 def normalize_dnd_skill_id(value: Any) -> str:
     normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
@@ -728,7 +795,16 @@ DND_CHECK_KIND_ABILITY = "ability"
 DND_CHECK_KIND_SKILL = "skill"
 DND_CHECK_KIND_SAVE = "saving_throw"
 DND_CHECK_KIND_ATTACK = "attack"
-DND_CHECK_KINDS = (DND_CHECK_KIND_ABILITY, DND_CHECK_KIND_SKILL, DND_CHECK_KIND_SAVE, DND_CHECK_KIND_ATTACK)
+DND_CHECK_KIND_DEATH_SAVE = "death_save"
+DND_CHECK_KIND_INITIATIVE = "initiative"
+DND_CHECK_KINDS = (
+    DND_CHECK_KIND_ABILITY,
+    DND_CHECK_KIND_SKILL,
+    DND_CHECK_KIND_SAVE,
+    DND_CHECK_KIND_ATTACK,
+    DND_CHECK_KIND_DEATH_SAVE,
+    DND_CHECK_KIND_INITIATIVE,
+)
 
 
 def normalize_dnd_check_kind(value: Any) -> str:
@@ -742,8 +818,87 @@ def normalize_dnd_check_kind(value: Any) -> str:
         "навык": DND_CHECK_KIND_SKILL,
         "атака": DND_CHECK_KIND_ATTACK,
         "характеристика": DND_CHECK_KIND_ABILITY,
+        "death": DND_CHECK_KIND_DEATH_SAVE,
+        "deathsave": DND_CHECK_KIND_DEATH_SAVE,
+        "смерть": DND_CHECK_KIND_DEATH_SAVE,
+        "инициатива": DND_CHECK_KIND_INITIATIVE,
     }
     return aliases.get(normalized, DND_CHECK_KIND_SKILL)
+
+
+# --- Death and dying ------------------------------------------------------------------------
+
+# 5e as written: at 0 hit points the character is unconscious and rolls a DC 10 save each of
+# their turns. Three successes stabilise, three failures kill, a natural 20 puts them back on
+# their feet with one hit point and a natural 1 counts double.
+DND_DEATH_SAVE_DC = 10
+DND_DEATH_SAVE_SUCCESSES_TO_STABILIZE = 3
+DND_DEATH_SAVE_FAILURES_TO_DIE = 3
+
+DND_LIFE_STATE_ALIVE = "alive"
+DND_LIFE_STATE_DYING = "dying"
+DND_LIFE_STATE_STABLE = "stable"
+DND_LIFE_STATE_DEAD = "dead"
+DND_LIFE_STATE_LABELS: dict[str, str] = {
+    DND_LIFE_STATE_ALIVE: "В сознании",
+    DND_LIFE_STATE_DYING: "При смерти",
+    DND_LIFE_STATE_STABLE: "Без сознания, стабилен",
+    DND_LIFE_STATE_DEAD: "Мёртв",
+}
+
+
+def normalize_dnd_death_saves(value: Any) -> dict[str, int]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "successes": _clamp_int(source.get("successes"), 0, DND_DEATH_SAVE_SUCCESSES_TO_STABILIZE, 0),
+        "failures": _clamp_int(source.get("failures"), 0, DND_DEATH_SAVE_FAILURES_TO_DIE, 0),
+    }
+
+
+def resolve_life_state(*, hp_current: Any, death_saves: dict[str, Any], is_dead: Any) -> str:
+    """The single source of truth for "is the hero up, down or gone".
+
+    Derived rather than stored, for the same reason ability scores are: a life state that can
+    be written independently of the hit points is a life state that can drift out of step with
+    them, and "dead with 12 hit points" must not be representable.
+    """
+    saves = normalize_dnd_death_saves(death_saves)
+    if bool(is_dead) or saves["failures"] >= DND_DEATH_SAVE_FAILURES_TO_DIE:
+        return DND_LIFE_STATE_DEAD
+    if _clamp_int(hp_current, 0, 99_999, 0) > 0:
+        return DND_LIFE_STATE_ALIVE
+    if saves["successes"] >= DND_DEATH_SAVE_SUCCESSES_TO_STABILIZE:
+        return DND_LIFE_STATE_STABLE
+    return DND_LIFE_STATE_DYING
+
+
+def apply_death_save_roll(hero: dict[str, Any], *, natural: int, total: int) -> dict[str, Any]:
+    """Fold one death saving throw into the hero. Returns a small summary for the client."""
+    saves = normalize_dnd_death_saves(hero.get("death_saves"))
+    hp = hero.get("hp") if isinstance(hero.get("hp"), dict) else {}
+    revived = False
+    if int(natural) == DND_DEFAULT_DIE:
+        # A natural 20 is the rulebook's own rescue clause: back up with a single hit point.
+        saves = {"successes": 0, "failures": 0}
+        hp["current"] = 1
+        hero["hp"] = hp
+        revived = True
+    elif int(natural) == 1:
+        saves["failures"] = min(DND_DEATH_SAVE_FAILURES_TO_DIE, saves["failures"] + 2)
+    elif int(total) >= DND_DEATH_SAVE_DC:
+        saves["successes"] = min(DND_DEATH_SAVE_SUCCESSES_TO_STABILIZE, saves["successes"] + 1)
+    else:
+        saves["failures"] = min(DND_DEATH_SAVE_FAILURES_TO_DIE, saves["failures"] + 1)
+    hero["death_saves"] = saves
+    if saves["failures"] >= DND_DEATH_SAVE_FAILURES_TO_DIE:
+        hero["is_dead"] = True
+    life_state = resolve_life_state(
+        hp_current=(hero.get("hp") or {}).get("current"),
+        death_saves=saves,
+        is_dead=hero.get("is_dead"),
+    )
+    hero["life_state"] = life_state
+    return {"revived": revived, "death_saves": saves, "life_state": life_state}
 
 
 # A d20 roll only crits on a natural 20/1. Smaller dice have no crit range in 5e, so a d6
@@ -757,6 +912,36 @@ def resolve_check_outcome(*, die: int, natural: int, total: int, dc: int) -> str
     return DND_OUTCOME_SUCCESS if total >= dc else DND_OUTCOME_FAILURE
 
 
+# A sweeping declaration ("я убиваю их всех") is allowed to succeed -- but it is resolved as
+# one roll per target rather than one roll for the sentence, so skipping a fight costs the
+# same dice a fight would have. Anything the player did not beat is still standing.
+DND_GROUP_MAX_TARGETS = 8
+DND_GROUP_DC_STEP = 2
+
+
+@dataclass
+class DndGroupTargetResult:
+    index: int
+    label: str
+    rolls: list[int]
+    natural: int
+    total: int
+    dc: int
+    outcome: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "index": self.index,
+            "label": self.label,
+            "rolls": list(self.rolls),
+            "natural": self.natural,
+            "total": self.total,
+            "dc": self.dc,
+            "outcome": self.outcome,
+            "outcome_label": DND_OUTCOME_LABELS.get(self.outcome, ""),
+        }
+
+
 @dataclass
 class DndRollResult:
     die: int
@@ -768,6 +953,7 @@ class DndRollResult:
     total: int
     dc: int
     outcome: str
+    group_targets: list[DndGroupTargetResult] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -781,7 +967,25 @@ class DndRollResult:
             "dc": self.dc,
             "outcome": self.outcome,
             "outcome_label": DND_OUTCOME_LABELS.get(self.outcome, ""),
+            "group_targets": [item.to_dict() for item in self.group_targets],
+            "group_successes": sum(
+                1
+                for item in self.group_targets
+                if item.outcome in (DND_OUTCOME_SUCCESS, DND_OUTCOME_CRITICAL_SUCCESS)
+            ),
+            "group_size": len(self.group_targets),
         }
+
+
+def _roll_once(*, die: int, advantage: str) -> tuple[list[int], int]:
+    # Advantage/disadvantage is a d20 mechanic; on other dice the player just rolls once.
+    roll_count = 2 if (advantage != DND_ADVANTAGE_NONE and die == DND_DEFAULT_DIE) else 1
+    rolls = [roll_die(die) for _ in range(roll_count)]
+    if roll_count == 2:
+        natural = max(rolls) if advantage == DND_ADVANTAGE_ADVANTAGE else min(rolls)
+    else:
+        natural = rolls[0]
+    return rolls, natural
 
 
 def perform_roll(
@@ -790,18 +994,78 @@ def perform_roll(
     dc: int,
     advantage: str,
     modifier_breakdown: list[dict[str, Any]],
+    group_targets: list[str] | None = None,
 ) -> DndRollResult:
+    """One check. With ``group_targets`` it is one check *per target* instead.
+
+    The group form is what lets a player skip a fight without being handed one for free. Each
+    target gets its own die against a DC that climbs by DND_GROUP_DC_STEP down the line -- the
+    first foe is caught off guard, the last one saw you coming -- and the headline outcome is
+    a success only when every target went down.
+    """
     normalized_die = normalize_dnd_die(die)
     normalized_dc = normalize_dnd_dc(dc)
     normalized_advantage = normalize_dnd_advantage(advantage)
-    # Advantage/disadvantage is a d20 mechanic; on other dice the player just rolls once.
-    roll_count = 2 if (normalized_advantage != DND_ADVANTAGE_NONE and normalized_die == DND_DEFAULT_DIE) else 1
-    rolls = [roll_die(normalized_die) for _ in range(roll_count)]
-    if roll_count == 2:
-        natural = max(rolls) if normalized_advantage == DND_ADVANTAGE_ADVANTAGE else min(rolls)
-    else:
-        natural = rolls[0]
     modifier_total = sum(int(item.get("value", 0) or 0) for item in modifier_breakdown)
+
+    labels = [
+        normalize_single_line(label, max_length=60) or f"Противник {index + 1}"
+        for index, label in enumerate(group_targets or [])
+    ][:DND_GROUP_MAX_TARGETS]
+
+    if len(labels) > 1:
+        results: list[DndGroupTargetResult] = []
+        for index, label in enumerate(labels):
+            target_dc = normalize_dnd_dc(normalized_dc + index * DND_GROUP_DC_STEP)
+            rolls, natural = _roll_once(die=normalized_die, advantage=normalized_advantage)
+            total = natural + modifier_total
+            results.append(
+                DndGroupTargetResult(
+                    index=index,
+                    label=label,
+                    rolls=rolls,
+                    natural=natural,
+                    total=total,
+                    dc=target_dc,
+                    outcome=resolve_check_outcome(
+                        die=normalized_die, natural=natural, total=total, dc=target_dc
+                    ),
+                )
+            )
+        successes = sum(
+            1
+            for item in results
+            if item.outcome in (DND_OUTCOME_SUCCESS, DND_OUTCOME_CRITICAL_SUCCESS)
+        )
+        if successes == len(results):
+            headline = (
+                DND_OUTCOME_CRITICAL_SUCCESS
+                if all(item.outcome == DND_OUTCOME_CRITICAL_SUCCESS for item in results)
+                else DND_OUTCOME_SUCCESS
+            )
+        elif successes == 0:
+            headline = (
+                DND_OUTCOME_CRITICAL_FAILURE
+                if any(item.outcome == DND_OUTCOME_CRITICAL_FAILURE for item in results)
+                else DND_OUTCOME_FAILURE
+            )
+        else:
+            headline = DND_OUTCOME_FAILURE
+        first = results[0]
+        return DndRollResult(
+            die=normalized_die,
+            rolls=list(first.rolls),
+            natural=first.natural,
+            advantage=normalized_advantage,
+            modifier_total=modifier_total,
+            modifier_breakdown=list(modifier_breakdown),
+            total=first.total,
+            dc=normalized_dc,
+            outcome=headline,
+            group_targets=results,
+        )
+
+    rolls, natural = _roll_once(die=normalized_die, advantage=normalized_advantage)
     total = natural + modifier_total
     return DndRollResult(
         die=normalized_die,
@@ -1097,16 +1361,27 @@ def normalize_dnd_hero(value: Any, *, play_mode: str) -> dict[str, Any]:
     else:
         computed_pending_asi = _clamp_int(source.get("pending_asi_points"), 0, 40, 0)
 
-    skill_proficiencies = [
-        skill_id
-        for skill_id in (
-            normalize_dnd_skill_id(item)
-            for item in normalize_string_list(source.get("skill_proficiencies"), max_items=DND_MAX_SKILL_PROFICIENCIES)
-        )
-        if skill_id
-    ][:DND_MAX_SKILL_PROFICIENCIES]
+    resolved_background_id = normalize_dnd_background_id(
+        source.get("background_id") or source.get("background")
+    )
+    skill_slots = (
+        DND_MAX_SKILL_PROFICIENCIES
+        if play_mode == STORY_DND_PLAY_MODE_SANDBOX
+        else skill_slots_for_level(class_id, level, resolved_background_id)
+    )
+    seen_skills: set[str] = set()
+    skill_proficiencies: list[str] = []
+    for item in normalize_string_list(source.get("skill_proficiencies"), max_items=DND_MAX_SKILL_PROFICIENCIES):
+        skill_id = normalize_dnd_skill_id(item)
+        if not skill_id or skill_id in seen_skills:
+            continue
+        seen_skills.add(skill_id)
+        skill_proficiencies.append(skill_id)
+    # The stored list is authoritative but never longer than the level allows: a blob that
+    # claims six proficiencies at level 1 loses the ones it never paid for.
+    skill_proficiencies = skill_proficiencies[:skill_slots]
     if not skill_proficiencies:
-        skill_proficiencies = list(DND_CLASS_BY_ID[class_id].skills)[:DND_MAX_SKILL_PROFICIENCIES]
+        skill_proficiencies = list(DND_CLASS_BY_ID[class_id].skills)[:skill_slots]
 
     saving_throw_proficiencies = [
         ability_id
@@ -1139,11 +1414,25 @@ def normalize_dnd_hero(value: Any, *, play_mode: str) -> dict[str, Any]:
     if play_mode == STORY_DND_PLAY_MODE_SANDBOX:
         speed = _clamp_int(source.get("speed"), 0, 200, speed)
 
+    death_saves = normalize_dnd_death_saves(source.get("death_saves"))
+    is_dead = bool(source.get("is_dead")) or death_saves["failures"] >= DND_DEATH_SAVE_FAILURES_TO_DIE
+    if hp["current"] > 0 and not is_dead:
+        # Back on your feet means the ledger resets; carrying failures across a heal is the
+        # bug that quietly kills a character two fights later.
+        death_saves = {"successes": 0, "failures": 0}
+    life_state = resolve_life_state(hp_current=hp["current"], death_saves=death_saves, is_dead=is_dead)
+
+    background_text = normalize_single_line(source.get("background"), max_length=80)
+    background_id = resolved_background_id
+    if background_id and not background_text:
+        background_text = DND_BACKGROUND_BY_ID[background_id].label
+
     return {
         "name": normalize_single_line(source.get("name"), max_length=80),
         "race": race_id,
         "class": class_id,
-        "background": normalize_single_line(source.get("background"), max_length=80),
+        "background": background_text,
+        "background_id": background_id,
         "level": level,
         "xp": xp,
         "abilities": abilities,
@@ -1159,6 +1448,10 @@ def normalize_dnd_hero(value: Any, *, play_mode: str) -> dict[str, Any]:
         "inventory_note": inventory_note,
         "gold": _clamp_int(source.get("gold"), 0, 9_999_999, 0),
         "conditions": normalize_dnd_conditions(source.get("conditions")),
+        "death_saves": death_saves,
+        "is_dead": is_dead,
+        "life_state": life_state,
+        "skill_slots": skill_slots,
         "avatar_world_card_id": (
             int(source.get("avatar_world_card_id"))
             if str(source.get("avatar_world_card_id") or "").strip().lstrip("-").isdigit()
@@ -1294,6 +1587,215 @@ def normalize_dnd_notes(value: Any) -> list[dict[str, Any]]:
     return result
 
 
+# --- Combat ---------------------------------------------------------------------------------
+
+# The service model decides *when* a fight starts and who is in it; everything about how the
+# fight runs -- initiative order, whose turn it is, when a round rolls over -- is arithmetic
+# and lives here. A model that hallucinates "round 47" cannot produce one.
+DND_COMBAT_MAX_PARTICIPANTS = 12
+DND_COMBAT_MAX_ROUNDS = 200
+
+DND_COMBAT_PHASE_IDLE = "idle"
+DND_COMBAT_PHASE_INITIATIVE = "initiative"
+DND_COMBAT_PHASE_ACTIVE = "active"
+
+DND_COMBAT_SIDE_HERO = "hero"
+DND_COMBAT_SIDE_ALLY = "ally"
+DND_COMBAT_SIDE_ENEMY = "enemy"
+DND_COMBAT_SIDES = (DND_COMBAT_SIDE_HERO, DND_COMBAT_SIDE_ALLY, DND_COMBAT_SIDE_ENEMY)
+
+
+def normalize_dnd_combat_side(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in DND_COMBAT_SIDES:
+        return normalized
+    aliases = {
+        "player": DND_COMBAT_SIDE_HERO,
+        "pc": DND_COMBAT_SIDE_HERO,
+        "герой": DND_COMBAT_SIDE_HERO,
+        "friend": DND_COMBAT_SIDE_ALLY,
+        "companion": DND_COMBAT_SIDE_ALLY,
+        "союзник": DND_COMBAT_SIDE_ALLY,
+        "foe": DND_COMBAT_SIDE_ENEMY,
+        "monster": DND_COMBAT_SIDE_ENEMY,
+        "враг": DND_COMBAT_SIDE_ENEMY,
+    }
+    return aliases.get(normalized, DND_COMBAT_SIDE_ENEMY)
+
+
+def normalize_dnd_combatant(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    name = normalize_single_line(value.get("name"), max_length=80)
+    if not name:
+        return None
+    max_hp = _clamp_int((value.get("hp") or {}).get("max") if isinstance(value.get("hp"), dict) else value.get("hp_max"), 1, 9_999, 6)
+    current_hp = _clamp_int(
+        (value.get("hp") or {}).get("current") if isinstance(value.get("hp"), dict) else value.get("hp_current"),
+        0,
+        max_hp,
+        max_hp,
+    )
+    raw_initiative = value.get("initiative")
+    has_initiative = str(raw_initiative or "").strip().lstrip("-").isdigit()
+    return {
+        "key": normalize_single_line(value.get("key"), max_length=80).casefold() or name.casefold(),
+        "name": name,
+        "side": normalize_dnd_combat_side(value.get("side")),
+        "role": normalize_single_line(value.get("role"), max_length=80),
+        "initiative": _clamp_int(raw_initiative, -20, 60, 0) if has_initiative else None,
+        "initiative_modifier": _clamp_int(value.get("initiative_modifier"), -10, 20, 0),
+        "hp": {"current": current_hp, "max": max_hp},
+        "armor_class": _clamp_int(value.get("armor_class"), 1, 40, 10),
+        "is_down": bool(value.get("is_down")) or current_hp <= 0,
+        "npc_key": normalize_single_line(value.get("npc_key"), max_length=80).casefold(),
+        "world_card_id": (
+            int(value.get("world_card_id"))
+            if str(value.get("world_card_id") or "").strip().isdigit() and int(value.get("world_card_id")) > 0
+            else None
+        ),
+    }
+
+
+def _combat_order_key(participant: dict[str, Any]) -> tuple[int, int, str]:
+    """Initiative descending, hero first on a tie, then by name so the order is stable."""
+    initiative = participant.get("initiative")
+    resolved = int(initiative) if isinstance(initiative, int) else -99
+    side_rank = 0 if participant.get("side") == DND_COMBAT_SIDE_HERO else 1
+    return (-resolved, side_rank, str(participant.get("name") or ""))
+
+
+def sort_dnd_combatants(participants: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(participants, key=_combat_order_key)
+
+
+def normalize_dnd_combat(value: Any) -> dict[str, Any]:
+    source = value if isinstance(value, dict) else {}
+    participants: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in (source.get("participants") if isinstance(source.get("participants"), list) else []):
+        normalized = normalize_dnd_combatant(item)
+        if normalized is None or normalized["key"] in seen:
+            continue
+        seen.add(normalized["key"])
+        participants.append(normalized)
+        if len(participants) >= DND_COMBAT_MAX_PARTICIPANTS:
+            break
+
+    phase = str(source.get("phase") or "").strip().lower()
+    if phase not in (DND_COMBAT_PHASE_IDLE, DND_COMBAT_PHASE_INITIATIVE, DND_COMBAT_PHASE_ACTIVE):
+        phase = DND_COMBAT_PHASE_IDLE
+    active = bool(source.get("active")) and bool(participants)
+    if not active:
+        phase = DND_COMBAT_PHASE_IDLE
+    elif phase == DND_COMBAT_PHASE_IDLE:
+        phase = DND_COMBAT_PHASE_INITIATIVE
+    # The order is derived, never stored: two clients cannot disagree about who acts next.
+    if phase == DND_COMBAT_PHASE_ACTIVE:
+        participants = sort_dnd_combatants(participants)
+    turn_index = _clamp_int(source.get("turn_index"), 0, max(len(participants) - 1, 0), 0)
+    return {
+        "active": active,
+        "phase": phase,
+        "round": _clamp_int(source.get("round"), 0, DND_COMBAT_MAX_ROUNDS, 1 if active else 0),
+        "turn_index": turn_index if active else 0,
+        "title": normalize_single_line(source.get("title"), max_length=80),
+        "participants": participants,
+        "hero_initiative_rolled": bool(source.get("hero_initiative_rolled")),
+    }
+
+
+def create_empty_dnd_combat() -> dict[str, Any]:
+    return normalize_dnd_combat({})
+
+
+def combat_hero_participant(combat: dict[str, Any]) -> dict[str, Any] | None:
+    for participant in (combat.get("participants") or []):
+        if isinstance(participant, dict) and participant.get("side") == DND_COMBAT_SIDE_HERO:
+            return participant
+    return None
+
+
+def roll_npc_initiatives(combat: dict[str, Any]) -> dict[str, Any]:
+    """Everyone but the hero rolls the moment the fight opens. The hero taps their own die."""
+    for participant in (combat.get("participants") or []):
+        if not isinstance(participant, dict):
+            continue
+        if participant.get("side") == DND_COMBAT_SIDE_HERO:
+            continue
+        if participant.get("initiative") is None:
+            participant["initiative"] = max(
+                -20,
+                min(60, roll_die(DND_DEFAULT_DIE) + int(participant.get("initiative_modifier") or 0)),
+            )
+    return combat
+
+
+def start_dnd_combat_if_ready(combat: dict[str, Any]) -> dict[str, Any]:
+    """Move from the initiative phase to the first turn once every die has landed."""
+    participants = [item for item in (combat.get("participants") or []) if isinstance(item, dict)]
+    if not participants or not combat.get("active"):
+        return combat
+    if any(item.get("initiative") is None for item in participants):
+        combat["phase"] = DND_COMBAT_PHASE_INITIATIVE
+        return combat
+    combat["participants"] = sort_dnd_combatants(participants)
+    combat["phase"] = DND_COMBAT_PHASE_ACTIVE
+    combat["round"] = max(int(combat.get("round") or 0), 1)
+    combat["turn_index"] = 0
+    return combat
+
+
+def advance_dnd_combat_turn(combat: dict[str, Any], *, steps: int = 1) -> dict[str, Any]:
+    """Walk the initiative order forward, skipping anyone who is down."""
+    participants = [item for item in (combat.get("participants") or []) if isinstance(item, dict)]
+    if not participants or combat.get("phase") != DND_COMBAT_PHASE_ACTIVE:
+        return combat
+    index = _clamp_int(combat.get("turn_index"), 0, len(participants) - 1, 0)
+    rounds = int(combat.get("round") or 1)
+    for _ in range(max(int(steps or 1), 1)):
+        for _attempt in range(len(participants)):
+            index += 1
+            if index >= len(participants):
+                index = 0
+                rounds = min(rounds + 1, DND_COMBAT_MAX_ROUNDS)
+            if not participants[index].get("is_down"):
+                break
+    combat["turn_index"] = index
+    combat["round"] = rounds
+    return combat
+
+
+def describe_combat_for_prompt(state: dict[str, Any]) -> str:
+    combat = state.get("combat") if isinstance(state.get("combat"), dict) else {}
+    if not combat.get("active"):
+        return ""
+    participants = [item for item in (combat.get("participants") or []) if isinstance(item, dict)]
+    if not participants:
+        return ""
+    if combat.get("phase") == DND_COMBAT_PHASE_INITIATIVE:
+        header = "Бой начинается, бросается инициатива."
+    else:
+        index = _clamp_int(combat.get("turn_index"), 0, len(participants) - 1, 0)
+        current = participants[index]
+        header = f"Раунд {combat.get('round')}. Сейчас ходит: {current.get('name')}."
+    lines = [header]
+    for participant in participants:
+        hp = participant.get("hp") if isinstance(participant.get("hp"), dict) else {}
+        side_label = {
+            DND_COMBAT_SIDE_HERO: "герой",
+            DND_COMBAT_SIDE_ALLY: "союзник",
+            DND_COMBAT_SIDE_ENEMY: "противник",
+        }.get(participant.get("side"), "участник")
+        status = "повержен" if participant.get("is_down") else f"хиты {hp.get('current', 0)}/{hp.get('max', 0)}"
+        initiative = participant.get("initiative")
+        lines.append(
+            f"- {participant.get('name')} ({side_label}): инициатива "
+            f"{initiative if initiative is not None else '—'}, {status}, КД {participant.get('armor_class')}."
+        )
+    return "\n".join(lines)
+
+
 def normalize_dnd_pending_check(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
@@ -1321,6 +1823,15 @@ def normalize_dnd_pending_check(value: Any) -> dict[str, Any] | None:
         "modifier_breakdown": [
             item for item in (value.get("modifier_breakdown") or []) if isinstance(item, dict)
         ],
+        # A sweeping declaration against several foes: one die per name, resolved together.
+        "group_targets": [
+            label
+            for label in (
+                normalize_single_line(item, max_length=60)
+                for item in (value.get("group_targets") if isinstance(value.get("group_targets"), list) else [])
+            )
+            if label
+        ][:DND_GROUP_MAX_TARGETS],
     }
 
 
@@ -1351,6 +1862,17 @@ def normalize_dnd_last_roll(value: Any) -> dict[str, Any] | None:
             else DND_OUTCOME_FAILURE
         ),
         "consumed": bool(value.get("consumed", False)),
+        "group_targets": [
+            item for item in (value.get("group_targets") or []) if isinstance(item, dict)
+        ][:DND_GROUP_MAX_TARGETS],
+        "group_successes": _clamp_int(value.get("group_successes"), 0, DND_GROUP_MAX_TARGETS, 0),
+        "group_size": _clamp_int(value.get("group_size"), 0, DND_GROUP_MAX_TARGETS, 0),
+        "death_save": bool(value.get("death_save", False)),
+        "life_state": (
+            str(value.get("life_state"))
+            if str(value.get("life_state") or "") in DND_LIFE_STATE_LABELS
+            else ""
+        ),
     }
 
 
@@ -1392,6 +1914,7 @@ def normalize_dnd_state(value: Any) -> dict[str, Any]:
         "pending_check": normalize_dnd_pending_check(source.get("pending_check")),
         "last_roll": normalize_dnd_last_roll(source.get("last_roll")),
         "last_level_up": normalize_dnd_level_up(source.get("last_level_up")),
+        "combat": normalize_dnd_combat(source.get("combat")),
     }
 
 
@@ -1444,6 +1967,59 @@ def set_game_dnd_state(game: Any, state: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_dnd_state(state)
     game.dnd_state_payload = json.dumps(normalized, ensure_ascii=False)
     return normalized
+
+
+# --- Sheet locks --------------------------------------------------------------------------
+
+def dnd_sheet_locks(state: dict[str, Any]) -> dict[str, Any]:
+    """What the player may still change on the character sheet, and what is now fixed.
+
+    A tabletop character is built once and then *played*. Before the first turn everything is
+    open; after it, race, class and the point-buy array are history, and skills may only be
+    added into slots a level has actually granted. Sandbox stays fully open -- that is what it
+    is for. The UI reads this to grey controls out; the API re-checks every field anyway.
+    """
+    play_mode = normalize_dnd_play_mode(state.get("play_mode"))
+    hero = state.get("hero") if isinstance(state.get("hero"), dict) else {}
+    started = int(state.get("turn_count") or 0) > 0
+    if play_mode == STORY_DND_PLAY_MODE_SANDBOX:
+        return {
+            "started": started,
+            "identity_locked": False,
+            "abilities_locked": False,
+            "skills_locked": False,
+            "skill_slots": DND_MAX_SKILL_PROFICIENCIES,
+            "skills_chosen": len(hero.get("skill_proficiencies") or []),
+            "free_skill_slots": max(
+                DND_MAX_SKILL_PROFICIENCIES - len(hero.get("skill_proficiencies") or []), 0
+            ),
+            "reason": "",
+        }
+    level = normalize_dnd_level(hero.get("level"))
+    slots = skill_slots_for_level(hero.get("class"), level, hero.get("background_id"))
+    chosen = len(hero.get("skill_proficiencies") or [])
+    free_slots = max(slots - chosen, 0)
+    return {
+        "started": started,
+        "identity_locked": started,
+        "abilities_locked": started,
+        # Locked only when there is nothing left to spend: a level that opened a new slot
+        # unlocks the picker again, and closes it as soon as the slot is filled.
+        "skills_locked": started and free_slots <= 0,
+        "skill_slots": slots,
+        "skills_chosen": chosen,
+        "free_skill_slots": free_slots,
+        "next_skill_level": next(
+            (threshold for threshold in DND_SKILL_SLOT_LEVELS if threshold > level),
+            0,
+        ),
+        "reason": (
+            "Персонаж уже в игре: раса, класс и базовые характеристики зафиксированы. "
+            "Характеристики растут только на повышении уровня."
+            if started
+            else ""
+        ),
+    }
 
 
 # --- Validation for player-authored sheets ---------------------------------------------------
@@ -1634,13 +2210,29 @@ def describe_hero_for_prompt(state: dict[str, Any]) -> str:
         f"({format_modifier(ability_modifier(abilities.get(ability_id)))})"
         for ability_id in ABILITY_IDS
     )
+    identity = f"Имя: {hero.get('name') or 'герой'}; {race.label} {dnd_class.label}, уровень {level}"
+    if hero.get("background"):
+        identity += f"; предыстория: {hero.get('background')}"
     lines = [
-        f"Имя: {hero.get('name') or 'герой'}; {race.label} {dnd_class.label}, уровень {level}.",
+        identity + ".",
         f"Характеристики: {ability_line}.",
         f"Хиты: {hp.get('current', 0)}/{hp.get('max', 0)}"
         + (f" (+{hp.get('temp')} врем.)" if int(hp.get("temp") or 0) > 0 else "")
         + f"; КД {hero.get('armor_class')}; бонус мастерства {format_modifier(hero.get('proficiency_bonus') or 2)}; скорость {hero.get('speed')} футов.",
+        f"Золото: {int(hero.get('gold') or 0)} зм.",
     ]
+    life_state = str(hero.get("life_state") or DND_LIFE_STATE_ALIVE)
+    if life_state != DND_LIFE_STATE_ALIVE:
+        saves = normalize_dnd_death_saves(hero.get("death_saves"))
+        lines.append(
+            f"СОСТОЯНИЕ: {DND_LIFE_STATE_LABELS.get(life_state, life_state)}"
+            + (
+                f" (спасброски от смерти: успехов {saves['successes']}, провалов {saves['failures']})"
+                if life_state in (DND_LIFE_STATE_DYING, DND_LIFE_STATE_STABLE)
+                else ""
+            )
+            + "."
+        )
     skills = [DND_SKILL_LABELS.get(skill_id, skill_id) for skill_id in (hero.get("skill_proficiencies") or [])]
     if skills:
         lines.append("Владение навыками: " + ", ".join(skills) + ".")
@@ -1700,6 +2292,18 @@ def describe_quests_for_prompt(state: dict[str, Any]) -> str:
     )
 
 
+def describe_notes_for_prompt(state: dict[str, Any], *, limit: int = 6) -> str:
+    """The master's own notes, handed back so a fact established ten turns ago still holds."""
+    notes = [
+        note
+        for note in (state.get("notes") if isinstance(state.get("notes"), list) else [])
+        if isinstance(note, dict) and str(note.get("text") or "").strip()
+    ]
+    if not notes:
+        return ""
+    return "\n".join(f"- {note.get('text')}" for note in notes[:limit])
+
+
 def describe_roll_for_prompt(roll: dict[str, Any] | None) -> str:
     """The line that makes the narrator honour the dice instead of inventing an outcome."""
     if not isinstance(roll, dict):
@@ -1738,22 +2342,136 @@ def describe_roll_for_prompt(roll: dict[str, Any] | None) -> str:
         lines.append(f"Ориентир исхода: {check.get('success_hint')}")
     if check.get("failure_hint") and outcome in {DND_OUTCOME_FAILURE, DND_OUTCOME_CRITICAL_FAILURE}:
         lines.append(f"Ориентир исхода: {check.get('failure_hint')}")
+
+    # A group roll is the whole point of letting a player skip a fight: the text below is what
+    # stops "я убил их всех" from becoming true for the ones the dice did not kill.
+    group_targets = [item for item in (roll.get("group_targets") or []) if isinstance(item, dict)]
+    if len(group_targets) > 1:
+        beaten = [
+            item
+            for item in group_targets
+            if str(item.get("outcome")) in (DND_OUTCOME_SUCCESS, DND_OUTCOME_CRITICAL_SUCCESS)
+        ]
+        survivors = [item for item in group_targets if item not in beaten]
+        lines.append("")
+        lines.append("ГРУППОВОЕ ДЕЙСТВИЕ, бросок по каждой цели отдельно:")
+        for item in group_targets:
+            lines.append(
+                f"- {item.get('label')}: {item.get('natural')} {format_modifier(modifier_total)}"
+                f" = {item.get('total')} против СЛ {item.get('dc')} — "
+                f"{DND_OUTCOME_LABELS.get(str(item.get('outcome')), '')}."
+            )
+        lines.append(
+            f"ИТОГ: повержено {len(beaten)} из {len(group_targets)}."
+        )
+        if survivors:
+            lines.append(
+                "ОБЯЗАТЕЛЬНО: "
+                + ", ".join(str(item.get("label")) for item in survivors)
+                + " — НЕ повержены. Они живы, действуют в ответ и наносят герою урон или "
+                "срывают его замысел. Не описывай их поражение ни при каких условиях."
+            )
+        else:
+            lines.append("Все цели повержены — опиши это как заслуженный, но дорогой успех.")
+
+    if roll.get("death_save"):
+        saves = normalize_dnd_death_saves((roll.get("check") or {}).get("death_saves") or roll.get("death_saves"))
+        life_state = str(roll.get("life_state") or "")
+        lines.append("")
+        lines.append("ЭТО СПАСБРОСОК ОТ СМЕРТИ. Герой лежит без сознания на нуле хитов.")
+        if life_state == DND_LIFE_STATE_DEAD:
+            lines.append(
+                "ГЕРОЙ ПОГИБ. Опиши смерть коротко и с достоинством, закрой сцену и от лица "
+                "рассказчика предложи игроку два выхода: продолжить историю за другого "
+                "персонажа или начать новую игру. Не воскрешай его сам."
+            )
+        elif life_state == DND_LIFE_STATE_STABLE:
+            lines.append(
+                "Герой стабилизировался: он всё ещё без сознания, но больше не умирает. "
+                "Опиши, кто или что его вытащило — союзник, случайный прохожий, собственная "
+                "живучесть — и оставь его беспомощным до конца сцены."
+            )
+        elif int(roll.get("natural") or 0) == DND_DEFAULT_DIE:
+            lines.append(
+                "Естественная 20: герой приходит в себя с одним хитом. Опиши это как "
+                "последний рывок на грани."
+            )
+        else:
+            lines.append(
+                f"Счёт спасбросков: успехов {saves['successes']}, провалов {saves['failures']}. "
+                "Герой всё ещё умирает. Опиши сцену с его точки зрения — темнота, обрывки "
+                "звуков — и что делают окружающие."
+            )
     return "\n".join(lines)
 
 
 DND_NARRATOR_RULES = (
-    "Ты ведёшь партию по правилам Dungeons & Dragons 5-й редакции как Мастер (DM).\n"
-    "- Описывай последствия честно по механике: успех значит успех, провал значит провал.\n"
-    "- Никогда не бросай кубики в тексте и не выдумывай числа бросков: результат проверки "
-    "приходит тебе отдельным блоком РЕЗУЛЬТАТ БРОСКА, и он обязателен к исполнению.\n"
-    "- Не меняй самовольно характеристики, хиты, уровень, опыт и инвентарь героя: ты описываешь "
-    "события, а числовое состояние пересчитывает система после хода.\n"
-    "- Урон, лечение, находки и потери описывай словами и конкретно (например «удар рассекает плечо», "
-    "«ты подбираешь связку ключей»), чтобы система могла их учесть.\n"
-    "- Соблюдай текущее время суток, сезон и погоду: они меняются постепенно и только вместе с "
-    "течением игрового времени.\n"
-    "- У важных NPC есть отношение к герою; веди их реплики и поступки в согласии с ним.\n"
+    "Ты ведёшь партию по правилам Dungeons & Dragons 5-й редакции как Мастер (DM). "
+    "Игрок управляет ТОЛЬКО своим героем. Всё остальное — мир, NPC, противники, последствия — "
+    "ведёшь ты.\n"
+    "\n"
+    "ЗАЯВКА И ИСХОД. Текст игрока — это ЗАЯВКА НА ПОПЫТКУ, а не описание случившегося. "
+    "Игрок говорит, что его герой пытается сделать; получилось ли — решаешь ты по механике и "
+    "по броску. Даже если игрок написал «я украл кошелёк», «я убедил стражу», «я убил их всех» "
+    "в прошедшем времени — это по-прежнему лишь попытка.\n"
+    "- Никогда не позволяй игроку описывать за тебя: реакции NPC, урон противникам, свои "
+    "находки, изменение мира, чужие мысли и чужие слова. Если он это сделал — вежливо "
+    "перепиши сцену так, как она произошла на самом деле.\n"
+    "- Игрок не может объявлять новые предметы, деньги, союзников, способности или знания, "
+    "которых нет в его листе персонажа. Нет в инвентаре — значит, этого у него нет.\n"
+    "- Игрок не может отменять уже случившееся, менять сцену задним числом или объявлять себя "
+    "неуязвимым. Мир существует независимо от его желаний.\n"
+    "- Заявка, которая физически невозможна для персонажа такого уровня, проваливается или "
+    "оборачивается против него. Уровень 1 не побеждает архимага фразой.\n"
+    "\n"
+    "КУБИКИ. Никогда не бросай кубики в тексте и не выдумывай числа. Результат приходит "
+    "отдельным блоком РЕЗУЛЬТАТ БРОСКА, и он обязателен к исполнению буквально: успех значит "
+    "успех, провал значит провал, критический провал значит провал плюс осложнение.\n"
+    "- Если блока РЕЗУЛЬТАТ БРОСКА нет — значит, действие решалось без броска: опиши "
+    "естественный исход, но по-прежнему не выдавай игроку того, чего он не заслужил.\n"
+    "- В блоке может стоять ГРУППОВОЕ ДЕЙСТВИЕ. Тогда по каждой цели свой результат: "
+    "поверженные — повержены, остальные ЖИВЫ и отвечают. Это единственный способ «пропустить "
+    "бой»: выиграл броски — пропустил, не выиграл — получай ответ.\n"
+    "\n"
+    "ЧИСЛА И СОСТОЯНИЕ. Не меняй самовольно характеристики, хиты, уровень, опыт, золото и "
+    "инвентарь: ты описываешь события, а числа пересчитывает система после хода.\n"
+    "- Урон, лечение, находки, траты и потери описывай словами и КОНКРЕТНО — «удар рассекает "
+    "плечо», «ты отдаёшь торговцу двадцать золотых», «ты подбираешь связку ключей». Система "
+    "читает именно эти фразы.\n"
+    "- Расходуемое расходуется: факелы, стрелы, зелья, деньги. Ничто не появляется само.\n"
+    "\n"
+    "СМЕРТЬ. Герой смертен. На нуле хитов он падает без сознания и начинает бросать "
+    "спасброски от смерти — этим управляет система, не ты. Три провала — персонаж мёртв "
+    "окончательно; тогда закрой сцену и предложи игроку продолжить за другого персонажа или "
+    "начать новую игру. Не воскрешай его и не отменяй смерть.\n"
+    "- Пока герой при смерти, он ничего не делает и ничего не решает: он лежит. Описывай "
+    "происходящее вокруг него.\n"
+    "\n"
+    "БОЙ. Если сцена перешла в бой, ты получишь блок БОЙ с порядком инициативы. Ходи строго "
+    "по нему: описывай только ход того, чья очередь, и заканчивай ответ на действии героя или "
+    "прямо перед ним. Не проматывай раунды целиком.\n"
+    "\n"
+    "МИР. Соблюдай текущее время суток, сезон и погоду: они меняются постепенно и только "
+    "вместе с течением игрового времени.\n"
+    "- У важных NPC есть отношение к герою — веди их реплики и поступки в согласии с ним, и "
+    "показывай, когда поступок героя это отношение меняет.\n"
+    "- Если по ходу сцены герой получил поручение, цель или обещание — сформулируй это в "
+    "тексте прямо и однозначно, одной ясной фразой, чтобы это стало заданием.\n"
     "- Не превращай сцену в таблицу: правила работают под текстом, а игрок читает живую прозу."
+)
+
+# Sandbox is not a different game, only a different rulebook: the narrator still runs the
+# world, the player still cannot narrate for it. What changes is that the sheet is theirs.
+DND_SANDBOX_NARRATOR_RULES = (
+    "РЕЖИМ ПЕСОЧНИЦЫ. Лист персонажа игрок ведёт сам: уровень, хиты, характеристики и "
+    "инвентарь заданы вручную и являются правдой о герое, даже если они выглядят "
+    "невероятными. Принимай их как есть.\n"
+    "- Всё остальное работает как в обычной игре: заявка игрока остаётся попыткой, броски "
+    "обязательны к исполнению, NPC ведут себя по своему характеру и отношению, мир не "
+    "подчиняется желаниям игрока.\n"
+    "- Сложность подбирай под заявленную силу героя: персонажу 20 уровня карманник не "
+    "угроза, но и стража города — не картон.\n"
+    "- Время и погоду в песочнице задаёт игрок; не меняй их самовольно."
 )
 
 
@@ -1764,7 +2482,10 @@ def build_dnd_instruction_card(
     location_label: str = "",
 ) -> dict[str, str]:
     """The single system card that carries the whole D&D layer into the narrator prompt."""
-    sections: list[str] = [DND_NARRATOR_RULES, "", "ЛИСТ ПЕРСОНАЖА:", describe_hero_for_prompt(state)]
+    sections: list[str] = [DND_NARRATOR_RULES]
+    if normalize_dnd_play_mode(state.get("play_mode")) == STORY_DND_PLAY_MODE_SANDBOX:
+        sections.extend(["", DND_SANDBOX_NARRATOR_RULES])
+    sections.extend(["", "ЛИСТ ПЕРСОНАЖА:", describe_hero_for_prompt(state)])
     environment_line = describe_environment(state)
     if environment_line:
         sections.extend(["", "ВРЕМЯ И ПОГОДА: " + environment_line])
@@ -1779,6 +2500,33 @@ def build_dnd_instruction_card(
     quests = describe_quests_for_prompt(state)
     if quests:
         sections.extend(["", "АКТИВНЫЕ ЗАДАНИЯ:", quests])
+    notes = describe_notes_for_prompt(state)
+    if notes:
+        sections.extend(["", "ЗАМЕТКИ МАСТЕРА (твоя память о прошлых ходах):", notes])
+    combat_block = describe_combat_for_prompt(state)
+    if combat_block:
+        sections.extend(["", "БОЙ (ходи строго по этому порядку):", combat_block])
+    # The hero being unconscious outranks everything else on the card: it changes what the
+    # narrator is allowed to let them do at all, so it goes last where it cannot be skimmed.
+    hero = state.get("hero") if isinstance(state.get("hero"), dict) else {}
+    life_state = str(hero.get("life_state") or DND_LIFE_STATE_ALIVE)
+    if life_state == DND_LIFE_STATE_DEAD:
+        sections.extend(
+            [
+                "",
+                "ГЕРОЙ МЁРТВ. Он не действует и не говорит. Заверши историю и предложи игроку "
+                "продолжить за другого персонажа или начать новую игру.",
+            ]
+        )
+    elif life_state in (DND_LIFE_STATE_DYING, DND_LIFE_STATE_STABLE):
+        sections.extend(
+            [
+                "",
+                "ГЕРОЙ БЕЗ СОЗНАНИЯ на нуле хитов. Что бы ни написал игрок, герой не встаёт, "
+                "не говорит и не действует, пока его не вылечат или не стабилизируют. Опиши "
+                "сцену вокруг него и действия окружающих.",
+            ]
+        )
     roll_block = describe_roll_for_prompt(roll)
     if roll_block:
         sections.extend(["", "РЕЗУЛЬТАТ БРОСКА (ОБЯЗАТЕЛЕН К ИСПОЛНЕНИЮ):", roll_block])
@@ -1824,6 +2572,15 @@ def build_dnd_catalog() -> dict[str, Any]:
             {"id": skill_id, "label": label, "ability": ability}
             for skill_id, label, ability in DND_SKILLS
         ],
+        "backgrounds": [
+            {
+                "id": item.id,
+                "label": item.label,
+                "summary": item.summary,
+                "skills": list(item.skills),
+            }
+            for item in DND_BACKGROUNDS
+        ],
         "conditions": [
             {
                 "id": item.id,
@@ -1857,4 +2614,20 @@ def build_dnd_catalog() -> dict[str, Any]:
         "dice": list(DND_DICE_SIDES),
         "dc_labels": [{"value": value, "label": label} for value, label in DND_DC_LABELS],
         "outcomes": dict(DND_OUTCOME_LABELS),
+        "skill_slots": {
+            "max": DND_MAX_SKILL_PROFICIENCIES,
+            "min": DND_MIN_SKILL_SLOTS,
+            "levels": list(DND_SKILL_SLOT_LEVELS),
+        },
+        "death": {
+            "dc": DND_DEATH_SAVE_DC,
+            "successes": DND_DEATH_SAVE_SUCCESSES_TO_STABILIZE,
+            "failures": DND_DEATH_SAVE_FAILURES_TO_DIE,
+            "labels": dict(DND_LIFE_STATE_LABELS),
+        },
+        "combat": {
+            "max_participants": DND_COMBAT_MAX_PARTICIPANTS,
+            "sides": list(DND_COMBAT_SIDES),
+        },
+        "group": {"max_targets": DND_GROUP_MAX_TARGETS, "dc_step": DND_GROUP_DC_STEP},
     }
