@@ -69,6 +69,10 @@ import {
 } from '../utils/avatar'
 import { resolvePublicationDraftVisibility } from '../utils/publication'
 import { PUBLICATION_RULES_SHORT_ITEMS, PUBLICATION_RULES_SHORT_SUMMARY } from '../constants/legalDocuments'
+import {
+  CharacterPickerTab,
+  CharacterPickerTabRow,
+} from '../components/characters/CharacterPickerChrome'
 
 type WorldCreatePageProps = {
   user: AuthUser
@@ -951,7 +955,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
   const loadCharacters = useCallback(async (): Promise<StoryCharacter[]> => {
     try {
-      const items = await listStoryCharacters(authToken)
+      const items = await listStoryCharacters(authToken, { includeEmotionAssets: false })
       const normalizedItems = items.map((item) => ({
         ...item,
         note: normalizeCharacterNote(item.note ?? ''),
@@ -1650,7 +1654,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               token: authToken,
               characterId: character.id,
             })
-            const refreshedCharacters = await listStoryCharacters(authToken)
+            const refreshedCharacters = await listStoryCharacters(authToken, { includeEmotionAssets: false })
             const normalizedCharacters = refreshedCharacters.map((item) => ({
               ...item,
               note: normalizeCharacterNote(item.note ?? ''),
@@ -3363,38 +3367,20 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       >
 
           <Stack spacing={0.8}>
-            <Stack direction="row" spacing={0.8}>
-              <Button
+            <CharacterPickerTabRow>
+              <CharacterPickerTab
+                label="Мои персонажи"
+                active={characterPickerSourceTab === 'my'}
+                disabled={savingCommunityCharacterId !== null}
                 onClick={() => setCharacterPickerSourceTab('my')}
+              />
+              <CharacterPickerTab
+                label="Сообщество"
+                active={characterPickerSourceTab === 'community'}
                 disabled={savingCommunityCharacterId !== null}
-                sx={{
-                  minHeight: 34,
-                  borderRadius: '10px',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: characterPickerSourceTab === 'my' ? APP_BUTTON_ACTIVE : 'var(--morius-elevated-bg)',
-                  color: APP_TEXT_PRIMARY,
-                  textTransform: 'none',
-                  '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-                }}
-              >
-                Мои персонажи
-              </Button>
-              <Button
                 onClick={() => setCharacterPickerSourceTab('community')}
-                disabled={savingCommunityCharacterId !== null}
-                sx={{
-                  minHeight: 34,
-                  borderRadius: '10px',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: characterPickerSourceTab === 'community' ? APP_BUTTON_ACTIVE : 'var(--morius-elevated-bg)',
-                  color: APP_TEXT_PRIMARY,
-                  textTransform: 'none',
-                  '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-                }}
-              >
-                Сообщество
-              </Button>
-            </Stack>
+              />
+            </CharacterPickerTabRow>
 
             <Box
               component="input"

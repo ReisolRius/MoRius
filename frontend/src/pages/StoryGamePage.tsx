@@ -49,6 +49,12 @@ import {
   type GrowProps,
   type SelectChangeEvent,
 } from '@mui/material'
+import {
+  CharacterPickerCreateTile,
+  CharacterPickerLoadingList,
+  CharacterPickerTab,
+  CharacterPickerTabRow,
+} from '../components/characters/CharacterPickerChrome'
 import { brandLogo, icons } from '../assets'
 import narratorFreyaPortrait from '../assets/images/narrators/freya.svg'
 import narratorIsidaPortrait from '../assets/images/narrators/isida.svg'
@@ -338,7 +344,12 @@ type CharacterAvatarPreviewState = {
   character?: StoryCharacter | null
 }
 
-const CHARACTER_SELECTION_BATCH_SIZE = 10
+// One screenful plus change. Ten meant a round trip every couple of rows, which on a slow
+// connection is what made the picker feel like it was crawling.
+const CHARACTER_SELECTION_BATCH_SIZE = 24
+// The picker searches the whole library server-side, so the query has to settle first:
+// a request per keystroke both hammered the API and blanked the list mid-word.
+const CHARACTER_SELECTION_SEARCH_DEBOUNCE_MS = 280
 const ENVIRONMENT_MODULE_CARD_IDS: readonly EnvironmentModuleCardId[] = ['place', 'time', 'weather']
 const ENVIRONMENT_MODULE_CARD_BOUNDS_MARGIN = 8
 const DEFAULT_ENVIRONMENT_MODULE_CARD_POSITIONS: Record<EnvironmentModuleCardId, EnvironmentModuleCardPosition> = {
@@ -8131,6 +8142,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSelectingCharacter, setIsSelectingCharacter] = useState(false)
   const [characterSelectionTab, setCharacterSelectionTab] = useState<SelectorSourceTab>('my')
   const [characterSelectionSearchQuery, setCharacterSelectionSearchQuery] = useState('')
+  // What the server is actually queried with; trails the input by one debounce window.
+  const [characterSelectionSearchTerm, setCharacterSelectionSearchTerm] = useState('')
   const [characterSelectionAddedFilter, setCharacterSelectionAddedFilter] = useState<CommunityAddedFilter>('all')
   const [characterSelectionSortMode, setCharacterSelectionSortMode] = useState<CommunitySortMode>('updated_desc')
   const [visibleOwnCharacterCount, setVisibleOwnCharacterCount] = useState(CHARACTER_SELECTION_BATCH_SIZE)
@@ -10595,28 +10608,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     shouldUseOwnCharacterSelectionOptions,
   ])
   const filteredCommunityCharacterOptions = useMemo(() => {
-    const normalizedQuery = normalizeCharacterIdentity(characterSelectionSearchQuery)
+    // The query is NOT re-applied here on purpose. The server searches the whole library and
+    // returns one page of matches; re-filtering that page client-side by fields the summary
+    // does not carry silently dropped rows, which is exactly why searching by author looked
+    // like it only worked on characters that happened to be loaded already. The "saved"
+    // filter stays because local state moves when a character is saved from this dialog.
     let nextItems = [...communityCharacterOptions]
     if (characterSelectionAddedFilter === 'added') {
       nextItems = nextItems.filter((item) => item.is_added_by_user)
     } else if (characterSelectionAddedFilter === 'not_added') {
       nextItems = nextItems.filter((item) => !item.is_added_by_user)
-    }
-    if (normalizedQuery) {
-      nextItems = nextItems.filter((item) => {
-        const searchValues = [
-          item.name,
-          item.race,
-          item.description,
-          item.clothing,
-          item.inventory,
-          item.health_status,
-          item.note,
-          item.author_name,
-          ...item.triggers,
-        ]
-        return searchValues.some((value) => normalizeCharacterIdentity(value).includes(normalizedQuery))
-      })
     }
     nextItems.sort((left, right) => {
       if (characterSelectionSortMode === 'rating_desc') {
@@ -10640,7 +10641,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     return nextItems
   }, [
     characterSelectionAddedFilter,
-    characterSelectionSearchQuery,
     characterSelectionSortMode,
     communityCharacterOptions,
   ])
@@ -10655,6 +10655,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const hasMoreOwnCharacterOptions =
     visibleOwnCharacterOptions.length < filteredOwnCharacterOptions.length ||
     hasMoreOwnCharacterSelectionOptionsFromApi
+  // True while the input has moved but the request for it has not gone out yet, so the list
+  // keeps showing its loading state instead of flashing "nothing found" between keystrokes.
+  const isCharacterSelectionSearchPending =
+    characterSelectionSearchQuery.trim() !== characterSelectionSearchTerm
   const hasMoreCommunityCharacterOptions = visibleCommunityCharacterOptions.length < filteredCommunityCharacterOptions.length
   const getCommunityCharacterSelectionDisabledReason = useCallback(
     (character: StoryCommunityCharacterSummary, mode: CharacterDialogMode): string | null => {
@@ -11470,7 +11474,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const items = await listStoryCharacters(authToken, {
         limit: CHARACTER_SELECTION_BATCH_SIZE + 1,
         offset,
-        query: characterSelectionSearchQuery,
+        query: characterSelectionSearchTerm,
+        // The picker shows a name, a note and a description -- never a Visual Novel sprite
+        // set, which is the largest field on the row.
+        includeEmotionAssets: false,
       })
       const normalizedItems = items
         .slice(0, CHARACTER_SELECTION_BATCH_SIZE)
@@ -11503,7 +11510,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setIsLoadingOwnCharacterSelectionOptions(false)
       }
     }
-  }, [authToken, characterSelectionSearchQuery])
+  }, [authToken, characterSelectionSearchTerm])
 
   const loadCommunityCharacterOptions = useCallback(async (offset = 0) => {
     setIsLoadingCommunityCharacterOptions(true)
@@ -11513,7 +11520,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         limit: CHARACTER_SELECTION_BATCH_SIZE + 1,
         offset,
         sort: characterSelectionSortMode,
-        query: characterSelectionSearchQuery,
+        query: characterSelectionSearchTerm,
         addedFilter: characterSelectionAddedFilter,
       })
       const normalizedItems = items
@@ -11539,12 +11546,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     } finally {
       setIsLoadingCommunityCharacterOptions(false)
     }
-  }, [authToken, characterSelectionAddedFilter, characterSelectionSearchQuery, characterSelectionSortMode])
+  }, [authToken, characterSelectionAddedFilter, characterSelectionSearchTerm, characterSelectionSortMode])
+
+  useEffect(() => {
+    const trimmedQuery = characterSelectionSearchQuery.trim()
+    if (trimmedQuery === characterSelectionSearchTerm) {
+      return
+    }
+    const timeoutId = window.setTimeout(() => {
+      setCharacterSelectionSearchTerm(trimmedQuery)
+    }, CHARACTER_SELECTION_SEARCH_DEBOUNCE_MS)
+    return () => window.clearTimeout(timeoutId)
+  }, [characterSelectionSearchQuery, characterSelectionSearchTerm])
 
   useEffect(() => {
     if (!characterDialogOpen) {
       setCharacterSelectionTab('my')
       setCharacterSelectionSearchQuery('')
+      setCharacterSelectionSearchTerm('')
       setCharacterSelectionAddedFilter('all')
       setCharacterSelectionSortMode('updated_desc')
       setVisibleOwnCharacterCount(CHARACTER_SELECTION_BATCH_SIZE)
@@ -11567,6 +11586,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     setCharacterSelectionTab('my')
     setCharacterSelectionSearchQuery('')
+    setCharacterSelectionSearchTerm('')
     setCharacterSelectionAddedFilter('all')
     setCharacterSelectionSortMode('updated_desc')
     setVisibleOwnCharacterCount(CHARACTER_SELECTION_BATCH_SIZE)
@@ -11596,7 +11616,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [
     characterDialogMode,
     characterDialogOpen,
-    characterSelectionSearchQuery,
+    characterSelectionSearchTerm,
     characterSelectionTab,
     loadOwnCharacterSelectionOptions,
   ])
@@ -11634,7 +11654,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     characterDialogMode,
     characterDialogOpen,
     characterSelectionAddedFilter,
-    characterSelectionSearchQuery,
+    characterSelectionSearchTerm,
     characterSelectionSortMode,
     characterSelectionTab,
   ])
@@ -11649,7 +11669,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     characterDialogMode,
     characterDialogOpen,
     characterSelectionAddedFilter,
-    characterSelectionSearchQuery,
+    characterSelectionSearchTerm,
     characterSelectionSortMode,
     characterSelectionTab,
   ])
@@ -32314,49 +32334,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   ? 'Выберите персонажа для роли главного героя. Можно добавить нескольких ГГ и переключаться между ними в поле ввода.'
                   : 'Выберите персонажа для добавления как NPC.'}
               </Typography>
-              <Stack direction="row" spacing={0.8}>
-                <Button
+              <CharacterPickerTabRow>
+                <CharacterPickerTab
+                  label="Мои персонажи"
+                  active={characterSelectionTab === 'my'}
+                  disabled={isSavingCharacter || isSelectingCharacter || savingCommunityCharacterId !== null}
                   onClick={() => setCharacterSelectionTab('my')}
+                />
+                <CharacterPickerTab
+                  label="Сообщество"
+                  active={characterSelectionTab === 'community'}
                   disabled={isSavingCharacter || isSelectingCharacter || savingCommunityCharacterId !== null}
-                  sx={{
-                    minHeight: 34,
-                    borderRadius: '10px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor:
-                      characterSelectionTab === 'my' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
-                    color: 'var(--morius-text-primary)',
-                    textTransform: 'none',
-                    '&:hover': {
-                      backgroundColor: characterSelectionTab === 'my' ? 'var(--morius-button-active)' : 'var(--morius-button-hover)',
-                      color: 'var(--morius-title-text)',
-                    },
-                  }}
-                >
-                  Мои персонажи
-                </Button>
-                <Button
                   onClick={() => setCharacterSelectionTab('community')}
-                  disabled={isSavingCharacter || isSelectingCharacter || savingCommunityCharacterId !== null}
-                  sx={{
-                    minHeight: 34,
-                    borderRadius: '10px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor:
-                      characterSelectionTab === 'community'
-                        ? 'var(--morius-button-active)'
-                        : 'var(--morius-elevated-bg)',
-                    color: 'var(--morius-text-primary)',
-                    textTransform: 'none',
-                    '&:hover': {
-                      backgroundColor:
-                        characterSelectionTab === 'community' ? 'var(--morius-button-active)' : 'var(--morius-button-hover)',
-                      color: 'var(--morius-title-text)',
-                    },
-                  }}
-                >
-                  Сообщество
-                </Button>
-              </Stack>
+                />
+              </CharacterPickerTabRow>
               <Box
                 component="input"
                 value={characterSelectionSearchQuery}
@@ -32428,51 +32419,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 {characterSelectionTab === 'my' ? (
                   <Stack spacing={0.75}>
                     {characterDialogMode === 'select-npc' || characterDialogMode === 'select-main-hero' ? (
-                      <Button
+                      <CharacterPickerCreateTile
                         onClick={
                           characterDialogMode === 'select-main-hero'
                             ? handleStartCreateCharacterFromMainHeroSelector
                             : handleStartCreateCharacterFromNpcSelector
                         }
-                        aria-label="Create character"
                         disabled={isSavingCharacter || isSelectingCharacter}
-                        sx={{
-                          borderRadius: '12px',
-                          border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 74%, transparent)',
-                          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, transparent)',
-                          minHeight: 72,
-                          color: 'var(--morius-text-primary)',
-                          textTransform: 'none',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          '&:hover': {
-                            backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, transparent)',
-                            borderColor: 'color-mix(in srgb, var(--morius-accent) 66%, transparent)',
-                          },
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            width: 34,
-                            height: 34,
-                            borderRadius: '50%',
-                            border: 'var(--morius-border-width) solid rgba(214, 226, 241, 0.62)',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '1.25rem',
-                            fontWeight: 900,
-                            lineHeight: '34px',
-                          }}
-                        >
-                          +
-                        </Box>
-                      </Button>
+                        label={
+                          characterDialogMode === 'select-main-hero'
+                            ? 'Создать главного героя'
+                            : 'Создать персонажа'
+                        }
+                      />
                     ) : null}
-                    {isLoadingOwnCharacterSelectionOptions && ownCharacterSelectionOptions.length === 0 ? (
-                      <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 72%, transparent)', fontSize: '0.9rem' }}>
-                        Загружаем персонажей...
-                      </Typography>
+                    {(isLoadingOwnCharacterSelectionOptions || isCharacterSelectionSearchPending) &&
+                    ownCharacterSelectionOptions.length === 0 ? (
+                      <CharacterPickerLoadingList />
                     ) : null}
                     {visibleOwnCharacterOptions.map((character) => {
                       const disabledReason = getCharacterSelectionDisabledReason(character, characterDialogMode)
@@ -32541,23 +32504,34 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       )
                     })}
                     {hasMoreOwnCharacterOptions ? (
-                      <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 72%, transparent)', fontSize: '0.82rem', textAlign: 'center', py: 0.6 }}>
-                        {isLoadingOwnCharacterSelectionOptions ? 'Загружаем еще...' : 'Прокрутите ниже, чтобы показать еще'}
-                      </Typography>
+                      <Stack direction="row" spacing={0.7} alignItems="center" justifyContent="center" sx={{ py: 0.8 }}>
+                        {isLoadingOwnCharacterSelectionOptions ? (
+                          <CircularProgress size={14} thickness={5} sx={{ color: 'var(--morius-accent)' }} />
+                        ) : null}
+                        <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 72%, transparent)', fontSize: '0.82rem' }}>
+                          {isLoadingOwnCharacterSelectionOptions ? 'Загружаем ещё…' : 'Прокрутите ниже, чтобы показать ещё'}
+                        </Typography>
+                      </Stack>
                     ) : null}
-                    {!isLoadingOwnCharacterSelectionOptions && hasLoadedOwnCharacterSelectionOptions && filteredOwnCharacterOptions.length === 0 ? (
+                    {!isLoadingOwnCharacterSelectionOptions &&
+                    !isCharacterSelectionSearchPending &&
+                    hasLoadedOwnCharacterSelectionOptions &&
+                    filteredOwnCharacterOptions.length === 0 ? (
                       <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 72%, transparent)', fontSize: '0.9rem' }}>
-                        Персонажи не найдены.
+                        {characterSelectionSearchTerm
+                          ? `По запросу «${characterSelectionSearchTerm}» ничего не нашлось.`
+                          : 'Персонажей пока нет. Создайте первого.'}
                       </Typography>
                     ) : null}
                   </Stack>
-                ) : isLoadingCommunityCharacterOptions && communityCharacterOptions.length === 0 ? (
-                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem' }}>
-                    Загружаем персонажей сообщества...
-                  </Typography>
+                ) : (isLoadingCommunityCharacterOptions || isCharacterSelectionSearchPending) &&
+                  communityCharacterOptions.length === 0 ? (
+                  <CharacterPickerLoadingList />
                 ) : filteredCommunityCharacterOptions.length === 0 ? (
                   <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem' }}>
-                    Персонажи сообщества не найдены.
+                    {characterSelectionSearchTerm
+                      ? `По запросу «${characterSelectionSearchTerm}» ничего не нашлось.`
+                      : 'Персонажи сообщества не найдены.'}
                   </Typography>
                 ) : (
                   <Stack spacing={0.75}>

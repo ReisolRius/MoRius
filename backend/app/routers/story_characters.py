@@ -570,11 +570,18 @@ def list_story_community_characters(
     )
     if normalized_query:
         like_pattern = f"%{normalized_query}%"
+        # Must cover every field the picker promises in its placeholder. When the server
+        # searched only name/description/note the client re-filtered the page it got back by
+        # race, triggers and author, which meant a search for an author only ever matched
+        # characters that happened to be on the already-loaded page.
         statement = statement.where(
             or_(
                 StoryCharacter.name.ilike(like_pattern),
                 StoryCharacter.description.ilike(like_pattern),
                 StoryCharacter.note.ilike(like_pattern),
+                StoryCharacter.race.ilike(like_pattern),
+                StoryCharacter.triggers.ilike(like_pattern),
+                User.display_name.ilike(like_pattern),
             )
         )
     if normalized_added_filter == "added":
