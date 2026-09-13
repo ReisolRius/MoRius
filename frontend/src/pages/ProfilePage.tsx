@@ -139,6 +139,11 @@ import {
   selectVisiblePublicationItems,
   type PublicationSection,
 } from './MyPublicationsPage'
+import CloneSectionPicker, {
+  CLONE_SECTION_DEFAULTS,
+  type CloneSectionKey,
+  type CloneSelectionState,
+} from '../components/dialogs/CloneSectionPicker'
 
 type ProfilePageProps = {
   user: AuthUser
@@ -153,8 +158,6 @@ type TabId = 'games' | 'characters' | 'world_cards' | 'instructions' | 'gallery'
 type ProfileMainSection = 'library' | 'publications'
 type NotificationSortMode = 'newest' | 'oldest'
 type ProfileContentSortMode = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'popular_desc' | 'rating_desc'
-type CloneSectionKey = 'instructions' | 'plot' | 'world' | 'main_hero' | 'history' | 'nodes'
-type CloneSelectionState = Record<CloneSectionKey, boolean>
 type ProfileServerPage<T> = {
   items: T[]
   hasMore: boolean
@@ -232,22 +235,7 @@ function createProfileContentPagingState(view?: ProfileView | null): ProfileCont
     },
   }
 }
-const DEFAULT_CLONE_SELECTION: CloneSelectionState = {
-  instructions: true,
-  plot: true,
-  world: true,
-  main_hero: true,
-  history: true,
-  nodes: true,
-}
-const CLONE_SECTION_ITEMS: Array<{ key: CloneSectionKey; label: string }> = [
-  { key: 'instructions', label: 'Инструкции' },
-  { key: 'plot', label: 'Сюжет' },
-  { key: 'world', label: 'Мир' },
-  { key: 'main_hero', label: 'ГГ' },
-  { key: 'history', label: 'История' },
-  { key: 'nodes', label: 'Ноды' },
-]
+const DEFAULT_CLONE_SELECTION: CloneSelectionState = { ...CLONE_SECTION_DEFAULTS }
 
 const BASE_PROFILE_TABS: Array<{ id: TabId; label: string }> = [
   { id: 'games', label: 'Игры' },
@@ -7582,37 +7570,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 ? `Выберите, что перенести в новый мир из «${(cloneDialogSourceGame.title || '').trim() || `Игра #${cloneDialogSourceGame.id}`}».`
                 : 'Выберите, что нужно перенести в новый мир.'}
             </Typography>
-            <Stack direction="row" flexWrap="wrap" gap={0.85}>
-              {CLONE_SECTION_ITEMS.map((item) => {
-                const isSelected = cloneSelection[item.key]
-                return (
-                  <Button
-                    key={item.key}
-                    onClick={() => handleToggleCloneSection(item.key)}
-                    disabled={gameCardMenuBusyAction === 'clone'}
-                    sx={{
-                      minHeight: 34,
-                      px: 1.2,
-                      borderRadius: '10px',
-                      textTransform: 'none',
-                      color: 'var(--morius-text-primary)',
-                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                      backgroundColor: isSelected ? 'var(--morius-button-active)' : 'var(--morius-card-bg)',
-                      '&:hover': {
-                        backgroundColor: 'var(--morius-button-hover)',
-                      },
-                    }}
-                  >
-                    <Stack direction="row" spacing={0.65} alignItems="center">
-                      <Box component="span" sx={{ fontSize: '0.9rem', lineHeight: 1 }}>
-                        {isSelected ? String.fromCharCode(10003) : String.fromCharCode(9711)}
-                      </Box>
-                      <Box component="span">{item.label}</Box>
-                    </Stack>
-                  </Button>
-                )
-              })}
-            </Stack>
+            <CloneSectionPicker
+              selection={cloneSelection}
+              onToggle={handleToggleCloneSection}
+              disabled={gameCardMenuBusyAction === 'clone'}
+            />
             <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem' }}>
               Пункты можно выбрать или оставить пустыми.
             </Typography>

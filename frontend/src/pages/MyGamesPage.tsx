@@ -58,6 +58,11 @@ import { buildUnifiedMobileQuickActions, rememberLastPlayedGameCard } from '../u
 import { MobileCardItem } from '../components/mobile/MobileCardSlider'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
+import CloneSectionPicker, {
+  CLONE_SECTION_DEFAULTS,
+  type CloneSectionKey,
+  type CloneSelectionState,
+} from '../components/dialogs/CloneSectionPicker'
 
 
 
@@ -73,8 +78,6 @@ type MyGamesPageProps = {
 
 
 type GamesSortMode = 'updated_desc' | 'updated_asc' | 'created_desc' | 'created_asc'
-type CloneSectionKey = 'instructions' | 'plot' | 'world' | 'main_hero' | 'history' | 'nodes'
-type CloneSelectionState = Record<CloneSectionKey, boolean>
 
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const APP_PAGE_BACKGROUND = 'var(--morius-app-bg)'
@@ -90,22 +93,7 @@ const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
-const DEFAULT_CLONE_SELECTION: CloneSelectionState = {
-  instructions: true,
-  plot: true,
-  world: true,
-  main_hero: true,
-  history: true,
-  nodes: true,
-}
-const CLONE_SECTION_ITEMS: Array<{ key: CloneSectionKey; label: string }> = [
-  { key: 'instructions', label: 'Инструкции' },
-  { key: 'plot', label: 'Сюжет' },
-  { key: 'world', label: 'Мир' },
-  { key: 'main_hero', label: 'ГГ' },
-  { key: 'history', label: 'История' },
-  { key: 'nodes', label: 'Ноды' },
-]
+const DEFAULT_CLONE_SELECTION: CloneSelectionState = { ...CLONE_SECTION_DEFAULTS }
 
 const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
   { value: 'updated_desc', label: 'Недавние' },
@@ -1417,37 +1405,11 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 ? `Выберите, что перенести в новый мир из «${resolveDisplayTitle(cloneDialogSourceGame.id)}».`
                 : 'Выберите, что нужно перенести в новый мир.'}
             </Typography>
-            <Stack direction="row" flexWrap="wrap" gap={0.85}>
-              {CLONE_SECTION_ITEMS.map((item) => {
-                const isSelected = cloneSelection[item.key]
-                return (
-                  <Button
-                    key={item.key}
-                    onClick={() => handleToggleCloneSection(item.key)}
-                    disabled={isGameCloning}
-                    sx={{
-                      minHeight: 34,
-                      px: 1.2,
-                      borderRadius: '10px',
-                      textTransform: 'none',
-                      color: APP_TEXT_PRIMARY,
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      backgroundColor: isSelected ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
-                      '&:hover': {
-                        backgroundColor: APP_BUTTON_HOVER,
-                      },
-                    }}
-                  >
-                    <Stack direction="row" spacing={0.65} alignItems="center">
-                      <Box component="span" sx={{ fontSize: '0.9rem', lineHeight: 1 }}>
-                        {isSelected ? String.fromCharCode(10003) : String.fromCharCode(9711)}
-                      </Box>
-                      <Box component="span">{item.label}</Box>
-                    </Stack>
-                  </Button>
-                )
-              })}
-            </Stack>
+            <CloneSectionPicker
+              selection={cloneSelection}
+              onToggle={handleToggleCloneSection}
+              disabled={isGameCloning}
+            />
             <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>
               Пункты можно выбрать или оставить пустыми.
             </Typography>
