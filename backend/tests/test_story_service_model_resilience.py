@@ -131,7 +131,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         for model_name in (
             "google/gemini-3.1-pro-preview",
             "aion-labs/aion-2.0",
-            "minimax/minimax-m2-her",
+            "qwen/qwen3.7-plus",
             "google/gemini-3.1-flash-lite",
             "deepseek/deepseek-v3.2",
             "z-ai/glm-5.1",
@@ -156,7 +156,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         for model_name in (
             "google/gemini-3.1-pro-preview",
             "aion-labs/aion-2.0",
-            "minimax/minimax-m2-her",
+            "qwen/qwen3.7-plus",
             "google/gemini-3.1-flash-lite",
             "deepseek/deepseek-v3.2",
             "z-ai/glm-5.1",
@@ -512,7 +512,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
 
         monolith_main._apply_polza_story_reasoning_preferences(
             payload,
-            model_name="minimax/minimax-m2-her",
+            model_name="mistralai/mistral-nemo",
             reasoning_enabled=True,
         )
 

@@ -439,7 +439,7 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
     if "story_llm_model" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN story_llm_model VARCHAR(120) NOT NULL DEFAULT 'deepseek/deepseek-chat-v3-0324'"
+            "ADD COLUMN story_llm_model VARCHAR(120) NOT NULL DEFAULT 'deepseek/deepseek-v3.2'"
         )
     if "story_reasoning_enabled" not in existing_columns:
         alter_statements.append(

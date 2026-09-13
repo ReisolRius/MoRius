@@ -13,7 +13,6 @@ class ProxyApiFallbackError(RuntimeError):
 
 
 TEXT_MODEL_ALIASES: dict[str, str] = {
-    "deepseek/deepseek-chat-v3-0324": "deepseek/deepseek-chat",
     "__legacy_removed__/story-model-2": "z-ai/glm-5",
 }
 

@@ -404,8 +404,8 @@ class StoryGame(Base):
     story_llm_model: Mapped[str] = mapped_column(
         String(120),
         nullable=False,
-        default="deepseek/deepseek-chat-v3-0324",
-        server_default="deepseek/deepseek-chat-v3-0324",
+        default="deepseek/deepseek-v3.2",
+        server_default="deepseek/deepseek-v3.2",
     )
     story_reasoning_enabled: Mapped[bool] = mapped_column(
         Boolean,

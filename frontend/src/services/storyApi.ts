@@ -507,7 +507,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     story_llm_model:
       typeof game.story_llm_model === 'string'
         ? (game.story_llm_model as StoryGameSummary['story_llm_model'])
-        : 'deepseek/deepseek-chat-v3-0324',
+        : 'deepseek/deepseek-v3.2',
     story_reasoning_enabled: Boolean(game.story_reasoning_enabled),
     image_model:
       typeof game.image_model === 'string'

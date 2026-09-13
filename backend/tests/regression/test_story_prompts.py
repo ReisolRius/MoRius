@@ -38,7 +38,7 @@ EXPECTED_STORY_FORMAT_PROTOCOL_SHA256 = "e7669b13c51de3293463c1ee81c490cdd51cfb3
 EXPECTED_MODEL_PROMPT_SHA256 = {
     "z-ai/glm-4.7-flash": "8c4dcb8ca0f8e871b75d40d4f0a0a07acd7b133f3deb35d60770b4eae7737479",
     "deepseek/deepseek-v3.2": "2de3acb6855e1b331b5577581995353d90d5d81448d3e693301a541bf687c8a6",
-    "deepseek/deepseek-chat-v3-0324": "2de3acb6855e1b331b5577581995353d90d5d81448d3e693301a541bf687c8a6",
+    "openai/gpt-5.6-luna-pro": "3a85c6396ffda5d432699451a840de38c504dec23f558160b2c3c346c3fde720",
     "deepseek/deepseek-v4-pro-0813": "f4422bbf7cabaae5fddf2455f8ed631ecd3353eb85701b4b2d8fa09148c95aee",
     "deepseek/deepseek-r1-0528": "f4422bbf7cabaae5fddf2455f8ed631ecd3353eb85701b4b2d8fa09148c95aee",
     "z-ai/glm-4.7": "880c3999126bf41d218dbef2834e11d72c3373505cf993b85658ed9b3ab2b5c0",

@@ -235,7 +235,11 @@ def update_wiki_article(
     return _serialize_detail(db, article)
 
 
-@router.delete("/api/auth/wiki/articles/{article_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/api/auth/wiki/articles/{article_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 def delete_wiki_article(
     article_id: int,
     authorization: str | None = Header(default=None),

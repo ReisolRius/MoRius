@@ -51,6 +51,7 @@ import {
 } from '@mui/material'
 import { brandLogo, icons } from '../assets'
 import narratorFreyaPortrait from '../assets/images/narrators/freya.svg'
+import narratorIsidaPortrait from '../assets/images/narrators/isida.svg'
 import narratorOgmaPortrait from '../assets/images/narrators/ogma.svg'
 import narratorVelesPortrait from '../assets/images/narrators/veles.svg'
 import cardsCharactersTabIconMarkup from '../assets/icons/cards-characters.svg?raw'
@@ -926,8 +927,6 @@ const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, numbe
 const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [6, 7, 8, 10, 16]
 const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [8, 10, 12, 18, 30]
 const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [20, 24, 38, 65, 65]
-const STORY_TURN_COST_COGITO_TIERS: readonly [number, number, number, number, number] = [7, 9, 14, 26, 44]
-const STORY_TURN_COST_MINIMAX_M2_HER_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
 const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 14, 24]
 const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [6, 7, 9, 13, 21]
 const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [17, 19, 23, 33, 51]
@@ -938,6 +937,8 @@ const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, num
 const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
 const STORY_TURN_COST_KIMI_K26_TIERS: readonly [number, number, number, number, number] = [5, 6, 8, 13, 24]
 const STORY_TURN_COST_KIMI_K3_TIERS: readonly [number, number, number, number, number] = [22, 30, 40, 72, 120]
+// Mirrors STORY_TURN_COST_GPT_56_LUNA_PRO_TIERS in backend/app/services/story_games.py.
+const STORY_TURN_COST_GPT_56_LUNA_PRO_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 7, 12]
 const STORY_REASONING_MAX_TOKENS = 2048
 const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, number>> = {
   'z-ai/glm-5': 2,
@@ -947,7 +948,6 @@ const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, n
   'z-ai/glm-4.7': 2,
   'deepseek/deepseek-v3.2': 1,
   'deepseek/deepseek-v4-pro-0813': 2,
-  'deepcogito/cogito-v2.1-671b': 1,
   'google/gemini-3.1-flash-lite': 1,
   'anthropic/claude-sonnet-4.6': 10,
   'google/gemini-2.5-pro': 6,
@@ -955,6 +955,7 @@ const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, n
   'qwen/qwen3.7-plus': 1,
   'moonshotai/kimi-k2.6': 2,
   'moonshotai/kimi-k3': 9,
+  'openai/gpt-5.6-luna-pro': 1,
   'deepseek/deepseek-v4-flash': 1,
   'google/gemini-2.5-flash-lite': 1,
   'z-ai/glm-4.5-air': 1,
@@ -979,11 +980,11 @@ const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'deepseek/deepseek-v4-pro-0813',
   'moonshotai/kimi-k2.6',
   'moonshotai/kimi-k3',
+  'openai/gpt-5.6-luna-pro',
 ])
 const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-4.7-flash',
   'deepseek/deepseek-v3.2',
-  'deepseek/deepseek-chat-v3-0324',
   'mistralai/mistral-nemo',
 ])
 const STORY_TOP_K_MIN = 0
@@ -998,7 +999,7 @@ const STORY_DEFAULT_TOP_R = 0.75
 const STORY_TEMPERATURE_MIN = 0
 const STORY_TEMPERATURE_MAX = 2
 const STORY_DEFAULT_TEMPERATURE = 0.75
-const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-chat-v3-0324'
+const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-v3.2'
 const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
 const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
@@ -1217,13 +1218,6 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 40,
     storyTopR: 0.9,
   },
-  // Тот же сдержанный профиль для второй версии семейства.
-  'deepseek/deepseek-chat-v3-0324': {
-    storyTemperature: 0.75,
-    storyRepetitionPenalty: 1.1,
-    storyTopK: 40,
-    storyTopR: 0.9,
-  },
   // Reasoning-профиль: низкая температура, top-k отключён.
   'deepseek/deepseek-v4-pro-0813': {
     storyTemperature: 0.7,
@@ -1257,13 +1251,6 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 50,
     storyTopR: 0.92,
   },
-  // Ролевой специалист: самая выразительная и живая подача.
-  'minimax/minimax-m2-her': {
-    storyTemperature: 0.95,
-    storyRepetitionPenalty: 1.05,
-    storyTopK: 0,
-    storyTopR: 0.95,
-  },
   // Высокая температура компенсирует сухость лёгкой модели; repetition не отправляется.
   'google/gemini-3.1-flash-lite': {
     storyTemperature: 1,
@@ -1271,19 +1258,20 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 64,
     storyTopR: 0.95,
   },
+  // GPT-5.6 Luna Pro — рассуждающая семья OpenAI: не принимает ни одного из четырёх параметров сэмплинга,
+  // поэтому профиль нейтральный — ничего не ограничивается и ничего не имитируется.
+  'openai/gpt-5.6-luna-pro': {
+    storyTemperature: 1,
+    storyRepetitionPenalty: 1,
+    storyTopK: 0,
+    storyTopR: 1,
+  },
   // Claude получает только temperature; остальные числовые поля нейтральны и не отправляются.
   'anthropic/claude-sonnet-4.6': {
     storyTemperature: 0.9,
     storyRepetitionPenalty: 1.0,
     storyTopK: 0,
     storyTopR: 1,
-  },
-  // Рассуждающая модель: умеренная температура, аккуратная связность.
-  'deepcogito/cogito-v2.1-671b': {
-    storyTemperature: 0.8,
-    storyRepetitionPenalty: 1.05,
-    storyTopK: 40,
-    storyTopR: 0.92,
   },
   // Gemini Pro получает temperature/top-p/top-k без repetition penalty.
   'google/gemini-2.5-pro': {
@@ -1422,19 +1410,6 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
-    id: 'deepseek/deepseek-chat-v3-0324',
-    title: 'DeepSeek V3',
-    description:
-      'Яркая и энергичная DeepSeek: много инициативы NPC и неожиданных, но логичных поворотов. Лучше всего раскрывается с чёткими правилами карточек.',
-    portraitSrc: narratorVelesPortrait,
-    portraitAlt: 'DeepSeek V3',
-    stats: [
-      { label: 'Интеллект', value: 4 },
-      { label: 'Скорость', value: 5 },
-      { label: 'Глубина', value: 3 },
-    ],
-  },
-  {
     id: 'deepseek/deepseek-v4-pro-0813',
     title: 'DeepSeek V4 Pro',
     description:
@@ -1500,14 +1475,14 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
-    id: 'minimax/minimax-m2-her',
-    title: 'MiniMax M2-her',
+    id: 'openai/gpt-5.6-luna-pro',
+    title: 'GPT-5.6 Luna Pro',
     description:
-      'Ролевой рассказчик для живых диалогов, устойчивого характера персонажей и выразительных многоходовых сцен. Контекст ограничен 64000 токенов ради стабильности.',
-    portraitSrc: narratorFreyaPortrait,
-    portraitAlt: 'MiniMax M2-her',
+      'Рассуждающая модель OpenAI с редким сочетанием цены и качества: строгая причинность, живой русский и до 128K контекста. Режим рассуждения выключен по умолчанию и включается отдельно.',
+    portraitSrc: narratorIsidaPortrait,
+    portraitAlt: 'GPT-5.6 Luna Pro',
     stats: [
-      { label: 'Интеллект', value: 4 },
+      { label: 'Интеллект', value: 5 },
       { label: 'Скорость', value: 4 },
       { label: 'Глубина', value: 4 },
     ],
@@ -1601,19 +1576,6 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Интеллект', value: 5 },
       { label: 'Скорость', value: 3 },
       { label: 'Глубина', value: 5 },
-    ],
-  },
-  {
-    id: 'deepcogito/cogito-v2.1-671b',
-    title: 'Deep Cogito',
-    description:
-      'Крупная рассуждающая модель: сильная логика, аккуратная причинность и связность мира. Думает внутри, а в сцену отдаёт чистую прозу без следов рассуждений.',
-    portraitSrc: narratorVelesPortrait,
-    portraitAlt: 'Deep Cogito',
-    stats: [
-      { label: 'Интеллект', value: 5 },
-      { label: 'Скорость', value: 3 },
-      { label: 'Глубина', value: 4 },
     ],
   },
 ].filter(
@@ -1754,7 +1716,7 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите модель рассказчика. DeepSeek V3/V3.2 — экономичные варианты от 4 единиц; Gemini 3.1 Flash Lite — быстрый и точный; старшие модели стоят по таблице.',
+    'Выберите модель рассказчика. GPT-5.6 Luna Pro и DeepSeek V3.2 — экономичные варианты от 2 единиц; Gemini 3.1 Flash Lite — быстрый и точный; старшие модели стоят по таблице.',
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
@@ -1851,6 +1813,7 @@ const STORY_NARRATOR_HIGHLIGHTS: Partial<Record<StoryNarratorModelId, StoryNarra
   'aion-labs/aion-2.0': { label: 'Топ РП', tone: 'rp' },
   // Лучшие из бюджетных.
   'deepseek/deepseek-v3.2': { label: 'Топ бюджет', tone: 'budget' },
+  'openai/gpt-5.6-luna-pro': { label: 'Цена/качество', tone: 'budget' },
   'z-ai/glm-5.2': { label: 'Топ бюджет', tone: 'budget' },
   // Лучшая среди подписочных.
   'google/gemini-3-flash-preview': { label: 'Лучшая', tone: 'flagship' },
@@ -6036,12 +5999,6 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'aion-labs/aion-3.0') {
     return STORY_TURN_COST_AION3_TIERS
   }
-  if (modelId === 'deepcogito/cogito-v2.1-671b') {
-    return STORY_TURN_COST_COGITO_TIERS
-  }
-  if (modelId === 'minimax/minimax-m2-her') {
-    return STORY_TURN_COST_MINIMAX_M2_HER_TIERS
-  }
   if (modelId === 'z-ai/glm-5') {
     return STORY_TURN_COST_GLM5_TIERS
   }
@@ -6066,13 +6023,16 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'moonshotai/kimi-k3') {
     return STORY_TURN_COST_KIMI_K3_TIERS
   }
+  if (modelId === 'openai/gpt-5.6-luna-pro') {
+    return STORY_TURN_COST_GPT_56_LUNA_PRO_TIERS
+  }
   if (modelId === 'deepseek/deepseek-v4-pro-0813') {
     return STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS
   }
   if (modelId === 'deepseek/deepseek-r1-0528') {
     return STORY_TURN_COST_DEEPSEEK_R1_TIERS
   }
-  if (modelId === 'deepseek/deepseek-v3.2' || modelId === 'deepseek/deepseek-chat-v3-0324') {
+  if (modelId === 'deepseek/deepseek-v3.2') {
     return STORY_TURN_COST_DEEPSEEK_TIERS
   }
   if (modelId === 'z-ai/glm-4.7-flash') {
@@ -24832,7 +24792,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <Box data-tour-id="story-settings-narrator-panel" sx={{ pb: 0.9 }}>
                         <SettingsSectionLabel
                           text="Выбор рассказчика"
-                          tooltip={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны DeepSeek V4 Pro, DeepSeek R1, GLM 5.1, GLM 5.2, AionLabs, Aion 3.0, Deep Cogito, Gemini 2.5 Pro, Gemini 3.1 Pro и Claude Sonnet 4.6.`}
+                          tooltip={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны DeepSeek V4 Pro, DeepSeek R1, GLM 5.1, GLM 5.2, AionLabs, Aion 3.0, Qwen 3.7 Plus, Gemini 2.5 Pro, Gemini 3.1 Pro и Claude Sonnet 4.6.`}
                         />
                         <FormControl fullWidth size="small" sx={{ mt: 0.85 }}>
                           <Select

@@ -67,8 +67,20 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         )
         self.assertEqual(get_story_reasoning_surcharge_tokens("anthropic/claude-sonnet-4.6", reasoning_enabled=True), 10)
         self.assertEqual(get_story_reasoning_surcharge_tokens("google/gemini-2.5-pro", reasoning_enabled=False), 0)
-        self.assertFalse(is_story_reasoning_supported_model("minimax/minimax-m2-her"))
-        self.assertEqual(get_story_reasoning_surcharge_tokens("minimax/minimax-m2-her", reasoning_enabled=True), 0)
+        self.assertFalse(is_story_reasoning_supported_model("mistralai/mistral-nemo"))
+        self.assertEqual(get_story_reasoning_surcharge_tokens("mistralai/mistral-nemo", reasoning_enabled=True), 0)
+        # GPT-5.6 Luna Pro can genuinely run with reasoning off, so it is a paid toggle.
+        self.assertTrue(is_story_reasoning_supported_model("openai/gpt-5.6-luna-pro"))
+        self.assertFalse(is_story_reasoning_minimum_model("openai/gpt-5.6-luna-pro"))
+        self.assertFalse(is_story_reasoning_fixed_model("openai/gpt-5.6-luna-pro"))
+        self.assertEqual(
+            get_story_reasoning_surcharge_tokens("openai/gpt-5.6-luna-pro", reasoning_enabled=True),
+            1,
+        )
+        self.assertEqual(
+            get_story_reasoning_surcharge_tokens("openai/gpt-5.6-luna-pro", reasoning_enabled=False),
+            0,
+        )
         self.assertFalse(is_story_reasoning_supported_model("aion-labs/aion-2.0"))
         self.assertTrue(is_story_reasoning_minimum_model("aion-labs/aion-2.0"))
         self.assertTrue(is_story_reasoning_fixed_model("aion-labs/aion-2.0"))
@@ -145,8 +157,12 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             108_000,
         )
         self.assertEqual(
-            normalize_story_context_limit_chars(128_000, model_name="minimax/minimax-m2-her"),
+            normalize_story_context_limit_chars(128_000, model_name="qwen/qwen3.7-plus"),
             64_000,
+        )
+        self.assertEqual(
+            normalize_story_context_limit_chars(128_000, model_name="openai/gpt-5.6-luna-pro"),
+            128_000,
         )
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="google/gemini-3.1-flash-lite"),
@@ -231,8 +247,22 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "z-ai/glm-5.2",
         )
         self.assertEqual(
+            coerce_story_llm_model("openai/gpt-5.6-luna-pro"),
+            "openai/gpt-5.6-luna-pro",
+        )
+        # Retired narrator ids survive in old saves and must land on their replacement
+        # rather than silently snapping back to the global default.
+        self.assertEqual(
+            coerce_story_llm_model("deepseek/deepseek-chat-v3-0324"),
+            "deepseek/deepseek-v3.2",
+        )
+        self.assertEqual(
+            coerce_story_llm_model("deepcogito/cogito-v2.1-671b"),
+            "deepseek/deepseek-v4-pro-0813",
+        )
+        self.assertEqual(
             coerce_story_llm_model("minimax/minimax-m2-her"),
-            "minimax/minimax-m2-her",
+            "qwen/qwen3.7-plus",
         )
         self.assertEqual(
             coerce_story_llm_model("google/gemini-3.1-flash-lite"),
@@ -272,7 +302,8 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 72)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-pro-preview"), 34)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "z-ai/glm-4.7"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "minimax/minimax-m2-her"), 10)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "openai/gpt-5.6-luna-pro"), 4)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "openai/gpt-5.6-luna-pro"), 12)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-flash-lite"), 9)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k2.6"), 8)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.6"), 24)
@@ -293,8 +324,8 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "z-ai/glm-5": (6, 8, 10, 14, 14),
             "aion-labs/aion-2.0": (8, 10, 12, 18, 30),
             "aion-labs/aion-3.0": (20, 24, 38, 65, 65),
-            "deepcogito/cogito-v2.1-671b": (7, 9, 14, 26, 26),
-            "minimax/minimax-m2-her": (6, 8, 10, 16, 16),
+            "qwen/qwen3.7-plus": (6, 8, 10, 16, 16),
+            "openai/gpt-5.6-luna-pro": (2, 3, 4, 7, 12),
             "google/gemini-3.1-flash-lite": (6, 7, 9, 13, 13),
             "z-ai/glm-5.1": (8, 10, 14, 20, 38),
             "z-ai/glm-5.2": (8, 10, 14, 20, 20),
@@ -338,7 +369,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         expected_profiles = {
             "z-ai/glm-4.7-flash": {"temperature": 0.90, "top_r": 0.95, "top_k": 40, "repetition_penalty": 1.10},
             "deepseek/deepseek-v3.2": {"temperature": 0.75, "top_r": 0.90, "top_k": 40, "repetition_penalty": 1.10},
-            "deepseek/deepseek-chat-v3-0324": {"temperature": 0.75, "top_r": 0.90, "top_k": 40, "repetition_penalty": 1.10},
+            "openai/gpt-5.6-luna-pro": {"temperature": 1.00, "top_r": 1.00, "top_k": 0, "repetition_penalty": 1.00},
             "deepseek/deepseek-v4-pro-0813": {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
             "deepseek/deepseek-r1-0528": {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
             "z-ai/glm-4.7": {"temperature": 0.85, "top_r": 0.95, "top_k": 50, "repetition_penalty": 1.08},
@@ -593,7 +624,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(cost, 22)
 
     def test_standard_models_have_updated_64k_tier(self) -> None:
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-chat-v3-0324"), 7)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v3.2"), 7)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v3.2"), 7)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-4.7-flash"), 5)
 
