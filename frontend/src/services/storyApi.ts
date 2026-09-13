@@ -29,6 +29,11 @@ import type {
   StoryGraphScope,
   StoryGraphSuggestion,
   StoryGameMode,
+  DndCatalog,
+  DndPendingCheck,
+  DndPlayMode,
+  DndRoll,
+  DndState,
   StoryImageModelId,
   StoryMemoryOptimizationMode,
   StoryNarratorModelId,
@@ -56,6 +61,7 @@ import type {
 import { STORY_CHARACTER_EMOTION_IDS } from '../types/story'
 import { buildApiUrl, normalizeApiMediaPayload, parseApiError, requestNoContent } from './httpClient'
 import { dispatchServiceUnavailable } from '../utils/serviceAvailability'
+import type { AuthUser } from '../types/auth'
 
 const GATEWAY_ERROR_STATUSES_STORY = new Set([502, 503, 504])
 const STORY_CHARACTER_EMOTION_ASSET_CHUNK_CHARS = 180_000
@@ -160,7 +166,10 @@ function normalizeStoryAppearanceTextStyle(value: unknown): StoryAppearanceTextS
 }
 
 function normalizeStoryGameMode(value: unknown): StoryGameMode {
-  return value === 'visual_novel' ? 'visual_novel' : 'rpg'
+  if (value === 'visual_novel' || value === 'dnd') {
+    return value
+  }
+  return 'rpg'
 }
 
 function normalizeStoryAppearanceColor(value: unknown, fallback: string): string {
@@ -3959,5 +3968,212 @@ export async function undoStoryPlotCardEvent(payload: {
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
+  })
+}
+
+// --- D&D mode ------------------------------------------------------------------------------
+// Every endpoint here is administrator-only server-side and answers 404 otherwise, so the UI
+// can call them freely once canUseDndMode() and game_mode === 'dnd' both hold.
+
+export type StoryDndStateResponse = {
+  game_id: number
+  state: DndState
+  catalog: DndCatalog | null
+}
+
+export type StoryDndCheckResponse = {
+  needs_check: boolean
+  check: DndPendingCheck | null
+  charged_tokens: number
+  user: AuthUser | null
+  state: DndState | null
+}
+
+export type StoryDndRollResponse = {
+  roll: DndRoll
+  state: DndState
+}
+
+export type StoryDndNpcStatsResponse = {
+  state: DndState
+  charged_tokens: number
+  user: AuthUser | null
+  rationale: string
+}
+
+export async function fetchStoryDndState(payload: {
+  token: string
+  gameId: number
+  includeCatalog?: boolean
+}): Promise<StoryDndStateResponse> {
+  const query = payload.includeCatalog === false ? '?include_catalog=false' : ''
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd${query}`, {
+    headers: { Authorization: `Bearer ${payload.token}` },
+  })
+}
+
+export async function updateStoryDndPlayMode(payload: {
+  token: string
+  gameId: number
+  playMode: DndPlayMode
+}): Promise<StoryDndStateResponse> {
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/play-mode`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({ play_mode: payload.playMode }),
+  })
+}
+
+export type StoryDndHeroInput = {
+  name?: string
+  race?: string
+  class?: string
+  background?: string
+  base_abilities?: Record<string, number>
+  asi_allocation?: Record<string, number>
+  skill_proficiencies?: string[]
+  level?: number
+  hp_current?: number
+  hp_max?: number
+  armor_class?: number
+  speed?: number
+  gold?: number
+  inventory?: string[]
+  inventory_note?: string
+  conditions?: { id: string; note?: string }[]
+  avatar_world_card_id?: number
+}
+
+export async function updateStoryDndHero(payload: {
+  token: string
+  gameId: number
+  hero: StoryDndHeroInput
+}): Promise<StoryDndStateResponse> {
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/hero`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify(payload.hero),
+  })
+}
+
+export async function applyStoryDndLevelUp(payload: {
+  token: string
+  gameId: number
+  asiAllocation: Record<string, number>
+}): Promise<StoryDndStateResponse> {
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/level-up`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({ asi_allocation: payload.asiAllocation }),
+  })
+}
+
+export async function updateStoryDndEnvironment(payload: {
+  token: string
+  gameId: number
+  season?: string
+  timeOfDay?: string
+  weather?: string
+  weatherNote?: string
+  day?: number
+}): Promise<StoryDndStateResponse> {
+  const body: Record<string, unknown> = {}
+  if (payload.season !== undefined) body.season = payload.season
+  if (payload.timeOfDay !== undefined) body.time_of_day = payload.timeOfDay
+  if (payload.weather !== undefined) body.weather = payload.weather
+  if (payload.weatherNote !== undefined) body.weather_note = payload.weatherNote
+  if (payload.day !== undefined) body.day = payload.day
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/environment`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateStoryDndNpc(payload: {
+  token: string
+  gameId: number
+  npcKey: string
+  update: Record<string, unknown>
+}): Promise<StoryDndStateResponse> {
+  return request<StoryDndStateResponse>(
+    `/api/story/games/${payload.gameId}/dnd/npcs/${encodeURIComponent(payload.npcKey)}`,
+    {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${payload.token}` },
+      body: JSON.stringify(payload.update),
+    },
+  )
+}
+
+export async function suggestStoryDndNpcStats(payload: {
+  token: string
+  gameId: number
+  npcKey: string
+}): Promise<StoryDndNpcStatsResponse> {
+  return request<StoryDndNpcStatsResponse>(
+    `/api/story/games/${payload.gameId}/dnd/npcs/${encodeURIComponent(payload.npcKey)}/ai-stats`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${payload.token}` },
+    },
+  )
+}
+
+export async function fetchStoryDndMeetingPrompt(payload: {
+  token: string
+  gameId: number
+  npcKey: string
+}): Promise<{ prompt: string }> {
+  return request<{ prompt: string }>(
+    `/api/story/games/${payload.gameId}/dnd/npcs/${encodeURIComponent(payload.npcKey)}/meeting-prompt`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${payload.token}` },
+    },
+  )
+}
+
+export async function analyzeStoryDndCheck(payload: {
+  token: string
+  gameId: number
+  prompt: string
+}): Promise<StoryDndCheckResponse> {
+  return request<StoryDndCheckResponse>(`/api/story/games/${payload.gameId}/dnd/check`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({ prompt: payload.prompt }),
+  })
+}
+
+export async function rollStoryDndCheck(payload: {
+  token: string
+  gameId: number
+  checkId?: string
+}): Promise<StoryDndRollResponse> {
+  return request<StoryDndRollResponse>(`/api/story/games/${payload.gameId}/dnd/roll`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({ check_id: payload.checkId ?? '' }),
+  })
+}
+
+export async function discardStoryDndCheck(payload: {
+  token: string
+  gameId: number
+}): Promise<StoryDndStateResponse> {
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/check`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${payload.token}` },
+  })
+}
+
+export async function resetStoryDndState(payload: {
+  token: string
+  gameId: number
+}): Promise<StoryDndStateResponse> {
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/reset`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${payload.token}` },
   })
 }

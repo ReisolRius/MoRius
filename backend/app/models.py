@@ -614,6 +614,15 @@ class StoryGame(Base):
         default="",
         server_default="",
     )
+    # Whole D&D mode state as one JSON blob: sheet, hit points, experience, inventory,
+    # conditions, weather/time, NPC relations, quests, notes and the pending dice check.
+    # Empty for every game that is not game_mode='dnd'.
+    dnd_state_payload: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        server_default="",
+    )
     canonical_state_pipeline_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

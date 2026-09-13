@@ -364,6 +364,30 @@ STORY_TURN_COST_STANDARD_LLM_MODELS = {
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_MISTRAL_NEMO,
 }
+
+# Narrator models that cannot carry D&D mode. The mode hands the model a long structured
+# system card (sheet, hit points, dice verdict, NPC relations) and expects it to honour a
+# roll result it did not choose; these two drop instructions long before that, which reads to
+# a player as the dice being ignored. Everything else stays available, including the cheap
+# tiers -- openai/gpt-5.6-luna-pro and deepseek/deepseek-v3.2 are the budget options -- and
+# every subscription model, so a subscriber's plan never becomes unusable in this mode.
+STORY_DND_BLOCKED_LLM_MODELS = {
+    STORY_LLM_MODEL_MISTRAL_NEMO,
+    STORY_LLM_MODEL_GLM47_FLASH,
+}
+# What a blocked game falls back to: the cheapest model that still follows the contract.
+STORY_DND_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_GPT_56_LUNA_PRO
+
+
+def is_story_dnd_supported_llm_model(model_name: str | None) -> bool:
+    return coerce_story_llm_model(model_name) not in STORY_DND_BLOCKED_LLM_MODELS
+
+
+def coerce_story_dnd_llm_model(model_name: str | None) -> str:
+    normalized = coerce_story_llm_model(model_name)
+    if normalized in STORY_DND_BLOCKED_LLM_MODELS:
+        return STORY_DND_DEFAULT_LLM_MODEL
+    return normalized
 STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
 STORY_IMAGE_MODEL_FLUX_LEGACY = "flux.2-pro"
 STORY_IMAGE_MODEL_FLUX_KLEIN_4B = "black-forest-labs/flux.2-klein-4b"

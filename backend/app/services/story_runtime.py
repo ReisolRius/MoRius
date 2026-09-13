@@ -36,6 +36,7 @@ from app.schemas import StoryGenerateRequest, StoryInstructionCardInput, UserOut
 from app.services.story_games import (
     STORY_RESPONSE_MAX_TOKENS_MAX,
     STORY_SUBSCRIPTION_LLM_MODELS,
+    coerce_story_dnd_llm_model,
     coerce_story_llm_model,
     get_story_reasoning_surcharge_tokens,
     normalize_story_environment_enabled,
@@ -83,6 +84,13 @@ from app.services.story_generation_cancel import (
     is_story_generation_cancelled,
     mark_story_generation_finished,
     mark_story_generation_started,
+)
+from app.services.story_dnd import (
+    build_dnd_instruction_card,
+    describe_roll_for_prompt,
+    get_game_dnd_state,
+    is_story_dnd_enabled,
+    set_game_dnd_state,
 )
 from app.services.story_novel import (
     build_story_novel_instruction_card,
@@ -152,6 +160,11 @@ STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES = 7
 STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 1_800
 STORY_ENVIRONMENT_TIME_TURN_SURCHARGE_TOKENS = 1
 STORY_CHARACTER_AUTOMATION_TURN_SURCHARGE_TOKENS = 1
+# D&D mode runs exactly one extra service request per turn (the upkeep module: hit points,
+# experience, inventory, conditions, quests, NPC relations and the passage of time). Priced
+# on the same basis as the modules above -- one sol per bounded service request.
+STORY_DND_TURN_SURCHARGE_TOKENS = 1
+STORY_DND_MAX_SERVICE_REQUESTS = 1
 STORY_STREAM_RETRY_DELAYS_SECONDS = (1.0, 2.5, 5.0, 8.0)
 STORY_CONTINUE_MODEL_PROMPT = (
     "Continue the current scene from exactly where the latest assistant response ended. "
@@ -1046,6 +1059,7 @@ def _calculate_story_service_surcharge_tokens(
     auto_npc_cards_enabled: bool,
     graph_enabled: bool,
     graph_request_cost_tokens: int = 0,
+    dnd_enabled: bool = False,
 ) -> int:
     surcharge = 0
     if environment_time_enabled:
@@ -1054,6 +1068,8 @@ def _calculate_story_service_surcharge_tokens(
         surcharge += STORY_CHARACTER_AUTOMATION_TURN_SURCHARGE_TOKENS
     if graph_enabled:
         surcharge += max(0, min(int(graph_request_cost_tokens or 0), STORY_GRAPH_MAX_SERVICE_REQUESTS))
+    if dnd_enabled:
+        surcharge += STORY_DND_TURN_SURCHARGE_TOKENS
     return surcharge
 
 
@@ -1616,6 +1632,8 @@ def _stream_story_response(
     reroll_carried_variant_history: list[dict[str, str]] | None = None,
     ambient_enabled: bool,
     visual_novel_enabled: bool,
+    dnd_enabled: bool = False,
+    dnd_consumed_roll: dict[str, Any] | None = None,
     show_gg_thoughts: bool,
     show_npc_thoughts: bool,
     story_generation_id: str,
@@ -2427,6 +2445,7 @@ def _stream_story_response(
         postprocess_status = STORY_POSTPROCESS_STATUS_COMMITTED
         postprocess_failed_modules: list[str] = []
         graph_analysis_result: dict[str, Any] | None = None
+        dnd_state_for_client: dict[str, Any] | None = None
 
         def _assistant_has_memory_block(items: list[Any]) -> bool:
             for item in items:
@@ -2587,6 +2606,85 @@ def _stream_story_response(
                     )
                     db.rollback()
 
+        if dnd_enabled:
+            yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "dnd_sync"})
+            if _stop_requested("dnd_sync"):
+                return
+            try:
+                from app.services.story_dnd_apply import (
+                    apply_dnd_turn_upkeep,
+                    sync_dnd_npcs_from_world_cards,
+                )
+                from app.services.story_dnd_service import (
+                    describe_upkeep_for_log,
+                    resolve_dnd_turn_upkeep,
+                )
+
+                current_dnd_state = sync_dnd_npcs_from_world_cards(
+                    get_game_dnd_state(game),
+                    deps.list_story_world_cards(db, game.id),
+                )
+                upkeep_payload: dict[str, Any] | None = None
+                with turn_service_deadline_scope(), use_story_turn_hard_budget(
+                    turn_service_hard_budget
+                ), use_story_service_http_request_budget(
+                    StoryServiceHttpRequestBudget(max_requests=STORY_DND_MAX_SERVICE_REQUESTS)
+                ):
+                    upkeep_payload = resolve_dnd_turn_upkeep(
+                        state=current_dnd_state,
+                        player_action=prompt,
+                        narrator_text=assistant_text_for_postprocess,
+                        roll_summary=describe_roll_for_prompt(dnd_consumed_roll),
+                        location_label=str(getattr(game, "current_location_label", "") or ""),
+                        existing_npc_cards=[
+                            {
+                                "id": int(getattr(card, "id", 0) or 0),
+                                "name": str(getattr(card, "title", "") or ""),
+                            }
+                            for card in deps.list_story_world_cards(db, game.id)
+                            if str(getattr(card, "kind", "") or "").strip().lower() == "npc"
+                        ],
+                        game_id=int(game.id),
+                    )
+                if _stop_requested("dnd_sync_resolved", rollback=True):
+                    return
+                next_dnd_state, dnd_changes = apply_dnd_turn_upkeep(
+                    current_dnd_state,
+                    upkeep_payload or {},
+                    turn_index=int(turn_index or 0),
+                )
+                next_dnd_state["turn_count"] = max(int(current_dnd_state.get("turn_count") or 0), 0) + 1
+                if isinstance(next_dnd_state.get("last_roll"), dict) and dnd_consumed_roll is not None:
+                    next_dnd_state["last_roll"]["consumed"] = True
+                dnd_state_for_client = set_game_dnd_state(game, next_dnd_state)
+                deps.touch_story_game(game)
+                commit_with_retry(db)
+                logger.info(
+                    "Story D&D upkeep applied: game_id=%s assistant_message_id=%s %s changes=%s",
+                    game.id,
+                    assistant_message.id,
+                    describe_upkeep_for_log(upkeep_payload or {}),
+                    "; ".join(dnd_changes[:12]) or "none",
+                )
+            except Exception:
+                # The sheet falling behind by one turn is survivable; losing the turn is not.
+                logger.exception(
+                    "Story D&D upkeep failed: game_id=%s assistant_message_id=%s",
+                    game.id,
+                    assistant_message.id,
+                )
+                db.rollback()
+                try:
+                    bumped_state = get_game_dnd_state(game)
+                    bumped_state["turn_count"] = max(int(bumped_state.get("turn_count") or 0), 0) + 1
+                    if isinstance(bumped_state.get("last_roll"), dict) and dnd_consumed_roll is not None:
+                        bumped_state["last_roll"]["consumed"] = True
+                    dnd_state_for_client = set_game_dnd_state(game, bumped_state)
+                    commit_with_retry(db)
+                except Exception:
+                    logger.exception("Failed to advance D&D turn counter: game_id=%s", game.id)
+                    db.rollback()
+
         actual_graph_cost_tokens = 0
         if graph_enabled and int(graph_request_budget.used_requests or 0) > 0:
             actual_graph_cost_tokens = max(
@@ -2719,6 +2817,8 @@ def _stream_story_response(
         }
         if graph_analysis_result is not None:
             done_payload["graph_analysis"] = graph_analysis_result
+        if dnd_state_for_client is not None:
+            done_payload["dnd"] = dnd_state_for_client
         if visual_novel_enabled:
             done_payload["novel_beats"] = novel_beats_payload
         game_payload = _safe_dump_stream_item(deps.story_game_summary_to_out(game))
@@ -2865,6 +2965,10 @@ def _generate_story_response_locked(
     story_model_name = coerce_story_llm_model(getattr(game, "story_llm_model", None))
     if payload.story_llm_model is not None:
         story_model_name = coerce_story_llm_model(payload.story_llm_model)
+    if is_story_dnd_enabled(game, user):
+        # Saved games and stale clients can still carry a narrator that cannot hold the D&D
+        # contract; snap those to the cheapest model that can rather than failing the turn.
+        story_model_name = coerce_story_dnd_llm_model(story_model_name)
     story_reasoning_enabled = normalize_story_reasoning_enabled(
         getattr(game, "story_reasoning_enabled", None),
         model_name=story_model_name,
@@ -2964,6 +3068,7 @@ def _generate_story_response_locked(
     if not can_use_visual_novel:
         ambient_enabled = False
     visual_novel_enabled = is_story_visual_novel_enabled(game, user)
+    dnd_enabled = is_story_dnd_enabled(game, user)
     logger.info(
         "Story generate settings: game_id=%s memory_optimization_enabled=%s payload_override=%s game_value=%s environment_enabled=%s environment_time_enabled=%s environment_weather_enabled=%s environment_payload_override=%s environment_time_payload_override=%s environment_weather_payload_override=%s environment_game_value=%s environment_time_game_value=%s environment_weather_game_value=%s ambient_enabled=%s ambient_payload_override=%s ambient_game_value=%s visual_novel_enabled=%s",
         game.id,
@@ -3612,6 +3717,28 @@ def _generate_story_response_locked(
     if visual_novel_enabled:
         visual_novel_instruction_card = build_story_novel_instruction_card()
         effective_instruction_cards = [*effective_instruction_cards, visual_novel_instruction_card]
+    dnd_state: dict[str, Any] | None = None
+    dnd_pending_roll: dict[str, Any] | None = None
+    if dnd_enabled:
+        try:
+            dnd_state = get_game_dnd_state(game)
+            raw_roll = dnd_state.get("last_roll")
+            # A roll is consumed by exactly one turn. Anything already spent stays in the
+            # state for the UI but never reaches the narrator twice.
+            if isinstance(raw_roll, dict) and not raw_roll.get("consumed"):
+                dnd_pending_roll = raw_roll
+            effective_instruction_cards = [
+                *effective_instruction_cards,
+                build_dnd_instruction_card(
+                    dnd_state,
+                    roll=dnd_pending_roll,
+                    location_label=str(getattr(game, "current_location_label", "") or ""),
+                ),
+            ]
+        except Exception:
+            logger.exception("Failed to build D&D instruction card; continuing without it: game_id=%s", game.id)
+            dnd_state = None
+            dnd_pending_roll = None
     try:
         from app.services.story_graph import build_story_graph_context_instruction
 
@@ -3662,6 +3789,7 @@ def _generate_story_response_locked(
         auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
         graph_enabled=graph_enabled_for_billing,
         graph_request_cost_tokens=precharged_graph_cost_tokens,
+        dnd_enabled=dnd_enabled,
     )
     reasoning_surcharge_tokens = get_story_reasoning_surcharge_tokens(
         story_model_name,
@@ -3711,6 +3839,8 @@ def _generate_story_response_locked(
         reroll_carried_variant_history=reroll_carried_variant_history,
         ambient_enabled=ambient_enabled,
         visual_novel_enabled=visual_novel_enabled,
+        dnd_enabled=dnd_enabled,
+        dnd_consumed_roll=dnd_pending_roll,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
         story_generation_id=story_generation_id,

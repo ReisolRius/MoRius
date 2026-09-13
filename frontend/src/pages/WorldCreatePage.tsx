@@ -50,7 +50,7 @@ import {
 } from '../services/storyApi'
 import { loadStoryTitleMap, persistStoryTitleMap, setStoryTitle } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
-import { canUseVisualNovelFeatures, type AuthUser } from '../types/auth'
+import { canUseDndMode, canUseVisualNovelFeatures, type AuthUser } from '../types/auth'
 import type {
   StoryCharacter,
   StoryCharacterEmotionAssets,
@@ -652,6 +652,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const [visibility, setVisibility] = useState<StoryGameVisibility>('private')
   const [gameMode, setGameMode] = useState<StoryGameMode>('rpg')
   const canUseVisualNovel = canUseVisualNovelFeatures(user.role)
+  // D&D mode is administrator-only while it is in testing; the server enforces the same.
+  const canUseDnd = canUseDndMode(user.role)
   const [activeWorldCreateSection, setActiveWorldCreateSection] = useState<WorldCreateSection>('main')
   const [isOpeningSceneExpanded, setIsOpeningSceneExpanded] = useState(false)
   const [isPublicationRulesDialogOpen, setIsPublicationRulesDialogOpen] = useState(false)
@@ -1868,7 +1870,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           cover_scale: coverScale,
           cover_position_x: coverPositionX,
           cover_position_y: coverPositionY,
-          gameMode: canUseVisualNovel ? gameMode : undefined,
+          gameMode: gameMode === 'dnd' && !canUseDnd ? undefined : canUseVisualNovel ? gameMode : undefined,
         })
         gameId = created.id
         draftGameIdRef.current = created.id
@@ -2174,7 +2176,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       isSaveInFlightRef.current = false
       setIsSubmitting(false)
     }
-  }, [ageRating, authToken, canSubmit, canUseVisualNovel, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, gameMode, genres, hasTemplateConflicts, instructionCards, isMyGamesEdit, isMyPublicationsEdit, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, resolvedEditingGameId, shouldConfirmPublishWithoutMainHero, title, user.id, visibility, worldProfile])
+  }, [ageRating, authToken, canSubmit, canUseDnd, canUseVisualNovel, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, gameMode, genres, hasTemplateConflicts, instructionCards, isMyGamesEdit, isMyPublicationsEdit, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, resolvedEditingGameId, shouldConfirmPublishWithoutMainHero, title, user.id, visibility, worldProfile])
 
   const handleCancelWorld = useCallback(() => {
     if (isEditMode) {
@@ -2794,11 +2796,16 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                   label="Тип игры"
                   value={gameMode}
                   onChange={(event) => setGameMode(event.target.value as StoryGameMode)}
-                  helperText="Доступно всем игрокам. Режим нельзя изменить после создания мира."
+                  helperText={
+                    gameMode === 'dnd'
+                      ? 'Полные правила D&D 5e: лист персонажа, броски кубиков, хиты и опыт. Режим в тестировании и доступен только администраторам. Изменить его после создания нельзя.'
+                      : 'Доступно всем игрокам. Режим нельзя изменить после создания мира.'
+                  }
                   fullWidth
                 >
                   <MenuItem value="rpg">Текстовая РПГ</MenuItem>
                   <MenuItem value="visual_novel">Визуальная новелла</MenuItem>
+                  {canUseDnd ? <MenuItem value="dnd">Режим D&amp;D</MenuItem> : null}
                 </TextField>
               ) : null}
             </Stack>

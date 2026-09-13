@@ -25,7 +25,11 @@ from app.services.text_encoding import sanitize_likely_utf8_mojibake
 # --- Game mode (chosen once at creation) ------------------------------------------------
 STORY_GAME_MODE_RPG = "rpg"
 STORY_GAME_MODE_VISUAL_NOVEL = "visual_novel"
-STORY_GAME_MODES = {STORY_GAME_MODE_RPG, STORY_GAME_MODE_VISUAL_NOVEL}
+# Direct D&D 5e mode: a normal story game plus the character sheet, dice checks, HP/XP and
+# relationship layer of app.services.story_dnd. Administrator-only while it is being tested,
+# see can_user_use_story_dnd() there.
+STORY_GAME_MODE_DND = "dnd"
+STORY_GAME_MODES = {STORY_GAME_MODE_RPG, STORY_GAME_MODE_VISUAL_NOVEL, STORY_GAME_MODE_DND}
 
 # --- Visual Novel beat kinds (one beat == one "Далее" page) ----------------------------
 STORY_NOVEL_BEAT_NARRATION = "narration"
@@ -115,6 +119,8 @@ def normalize_story_game_mode(value: Any) -> str:
         return normalized
     if normalized in {"vn", "novel", "visual", "visualnovel", "visual_novella", "novella"}:
         return STORY_GAME_MODE_VISUAL_NOVEL
+    if normalized in {"dnd5e", "dd", "d_and_d", "dungeons_and_dragons", "tabletop"}:
+        return STORY_GAME_MODE_DND
     return STORY_GAME_MODE_RPG
 
 

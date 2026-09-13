@@ -82,6 +82,12 @@ export function canUseStoryGraphFeatures(role: string | null | undefined): boole
   return true
 }
 
+// D&D mode is administrator-only while it is in testing, so an unfinished mode never reaches
+// players. The server enforces the same rule; this only keeps the UI honest.
+export function canUseDndMode(role: string | null | undefined): boolean {
+  return isAdministratorRole(role)
+}
+
 export function getRoleBadgeLabel(role: string | null | undefined): string {
   const normalizedRole = normalizeUserRole(role)
   return ROLE_BADGE_LABELS[normalizedRole] ?? ROLE_BADGE_LABELS.user

@@ -945,7 +945,7 @@ class StoryGameCreateRequest(BaseModel):
     environment_enabled: bool | None = None
     environment_time_enabled: bool | None = None
     environment_weather_enabled: bool | None = None
-    game_mode: Literal["rpg", "visual_novel"] | None = None
+    game_mode: Literal["rpg", "visual_novel", "dnd"] | None = None
 
 
 class StoryQuickStartRequest(BaseModel):
@@ -1982,7 +1982,7 @@ class StoryGameSummaryOut(BaseModel):
     graph_auto_apply_confidence: float = 0.78
     accelerated_service_enabled: bool = False
     ambient_enabled: bool
-    game_mode: Literal["rpg", "visual_novel"] = "rpg"
+    game_mode: Literal["rpg", "visual_novel", "dnd"] = "rpg"
     character_state_enabled: bool = False
     location_module_enabled: bool = True
     appearance_background_mode: str = "custom"
@@ -2480,3 +2480,100 @@ class AdminModerationCharacterDetailOut(BaseModel):
 class AdminModerationInstructionTemplateDetailOut(BaseModel):
     author: AdminModerationAuthorOut
     template: StoryInstructionTemplateOut
+
+
+# --- D&D mode ---------------------------------------------------------------------------
+# The state itself travels as a free-form dict: it is normalized server-side by
+# app.services.story_dnd on every read and write, so a second Pydantic mirror of the same
+# shape would only be a second place to keep in sync.
+
+
+class StoryDndStateOut(BaseModel):
+    game_id: int
+    state: dict[str, Any]
+    catalog: dict[str, Any] | None = None
+
+
+class StoryDndHeroUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+    race: str | None = Field(default=None, max_length=40)
+    character_class: str | None = Field(default=None, max_length=40, alias="class")
+    background: str | None = Field(default=None, max_length=80)
+    base_abilities: dict[str, int] | None = None
+    asi_allocation: dict[str, int] | None = None
+    skill_proficiencies: list[str] | None = Field(default=None, max_length=12)
+    level: int | None = Field(default=None, ge=1, le=20)
+    hp_current: int | None = Field(default=None, ge=0, le=9_999)
+    hp_max: int | None = Field(default=None, ge=1, le=9_999)
+    armor_class: int | None = Field(default=None, ge=1, le=40)
+    speed: int | None = Field(default=None, ge=0, le=200)
+    gold: int | None = Field(default=None, ge=0, le=9_999_999)
+    inventory: list[str] | None = Field(default=None, max_length=40)
+    inventory_note: str | None = Field(default=None, max_length=2_000)
+    conditions: list[dict[str, Any]] | None = Field(default=None, max_length=8)
+    avatar_world_card_id: int | None = Field(default=None, ge=1)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class StoryDndPlayModeRequest(BaseModel):
+    play_mode: Literal["game", "sandbox"]
+
+
+class StoryDndLevelUpRequest(BaseModel):
+    asi_allocation: dict[str, int] = Field(default_factory=dict)
+
+
+class StoryDndEnvironmentRequest(BaseModel):
+    season: str | None = Field(default=None, max_length=24)
+    time_of_day: str | None = Field(default=None, max_length=24)
+    weather: str | None = Field(default=None, max_length=24)
+    weather_note: str | None = Field(default=None, max_length=80)
+    day: int | None = Field(default=None, ge=1, le=100_000)
+
+
+class StoryDndNpcUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+    role: str | None = Field(default=None, max_length=80)
+    relation: str | None = Field(default=None, max_length=24)
+    relation_score: int | None = Field(default=None, ge=-100, le=100)
+    relation_note: str | None = Field(default=None, max_length=140)
+    level: int | None = Field(default=None, ge=1, le=20)
+    abilities: dict[str, int] | None = None
+    hp_current: int | None = Field(default=None, ge=0, le=9_999)
+    hp_max: int | None = Field(default=None, ge=1, le=9_999)
+    armor_class: int | None = Field(default=None, ge=1, le=40)
+    notes: str | None = Field(default=None, max_length=600)
+    is_active: bool | None = None
+
+
+class StoryDndCheckRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4_000)
+
+
+class StoryDndCheckOut(BaseModel):
+    needs_check: bool
+    check: dict[str, Any] | None = None
+    charged_tokens: int = 0
+    user: UserOut | None = None
+    state: dict[str, Any] | None = None
+
+
+class StoryDndRollRequest(BaseModel):
+    check_id: str = Field(default="", max_length=40)
+
+
+class StoryDndRollOut(BaseModel):
+    roll: dict[str, Any]
+    state: dict[str, Any]
+
+
+class StoryDndNpcStatsOut(BaseModel):
+    state: dict[str, Any]
+    charged_tokens: int = 0
+    user: UserOut | None = None
+    rationale: str = ""
+
+
+class StoryDndMeetingPromptOut(BaseModel):
+    prompt: str

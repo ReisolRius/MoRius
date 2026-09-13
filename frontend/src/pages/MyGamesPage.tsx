@@ -52,7 +52,7 @@ import {
 import { cloneStoryGame, deleteStoryGame, getCommunityWorld, listStoryGames, rateCommunityWorld } from '../services/storyApi'
 import { getDisplayStoryTitle, loadStoryTitleMap, persistStoryTitleMap, setStoryTitle, type StoryTitleMap } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
-import { canUseVisualNovelFeatures, type AuthUser } from '../types/auth'
+import { canUseDndMode, canUseVisualNovelFeatures, type AuthUser } from '../types/auth'
 import type { StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
 import { buildUnifiedMobileQuickActions, rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
 import { MobileCardItem } from '../components/mobile/MobileCardSlider'
@@ -1174,6 +1174,36 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                                 }}
                               >
                                 Новелла
+                              </Typography>
+                            </Box>
+                          ) : null}
+                          {canUseDndMode(user.role) && game.game_mode === 'dnd' ? (
+                            <Box
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                minHeight: 32,
+                                px: 1.15,
+                                py: 0.7,
+                                borderRadius: '999px',
+                                border: '1px solid rgba(240, 194, 74, 0.34)',
+                                background:
+                                  'linear-gradient(180deg, rgba(58, 42, 14, 0.86) 0%, rgba(38, 28, 10, 0.76) 100%)',
+                                color: 'rgba(250, 236, 200, 0.96)',
+                                backdropFilter: 'blur(12px)',
+                                boxShadow: '0 10px 28px rgba(0, 0, 0, 0.24)',
+                              }}
+                            >
+                              <Typography
+                                sx={{
+                                  fontSize: { xs: '0.76rem', md: '0.8rem' },
+                                  lineHeight: 1,
+                                  fontWeight: 700,
+                                  whiteSpace: 'nowrap',
+                                  letterSpacing: '0.01em',
+                                }}
+                              >
+                                D&amp;D
                               </Typography>
                             </Box>
                           ) : null}

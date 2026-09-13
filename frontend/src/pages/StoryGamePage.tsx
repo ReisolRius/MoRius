@@ -83,6 +83,13 @@ import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import ImageCropper from '../components/ImageCropper'
 import AdvancedRegenerationDialog from '../components/story/AdvancedRegenerationDialog'
+import DndCharacterSheetDialog from '../components/dnd/DndCharacterSheetDialog'
+import DndCodexPanel from '../components/dnd/DndCodexPanel'
+import DndDiceDialog from '../components/dnd/DndDiceDialog'
+import DndEnvironmentDialog from '../components/dnd/DndEnvironmentDialog'
+import DndLeftPanel from '../components/dnd/DndLeftPanel'
+import DndLevelUpDialog from '../components/dnd/DndLevelUpDialog'
+import { DndD20Icon } from '../components/dnd/DndIcons'
 import NovelPlacesPanel, {
   type NovelPlaceGeneratePayload,
   type NovelPlaceSavePayload,
@@ -116,6 +123,19 @@ import {
 } from '../services/authApi'
 import {
   addCommunityCharacter,
+  analyzeStoryDndCheck,
+  applyStoryDndLevelUp,
+  discardStoryDndCheck,
+  fetchStoryDndMeetingPrompt,
+  fetchStoryDndState,
+  resetStoryDndState,
+  rollStoryDndCheck,
+  suggestStoryDndNpcStats,
+  updateStoryDndEnvironment,
+  updateStoryDndHero,
+  updateStoryDndNpc,
+  updateStoryDndPlayMode,
+  type StoryDndHeroInput,
   createStoryCharacterRace,
   createStoryWorldDetailType,
   createStoryCharacter,
@@ -180,6 +200,7 @@ import {
 } from '../services/storyTitleStore'
 import type { AiAssistantChatResponse } from '../services/aiAssistantApi'
 import {
+  canUseDndMode,
   canUseStoryGraphFeatures,
   canUseVisualNovelFeatures,
   isAdministratorRole,
@@ -190,6 +211,11 @@ import {
   STORY_CHARACTER_EMOTION_LABELS,
   STORY_NOVEL_INCOGNITO_SPRITE_URL_BY_GENDER,
   type StoryAmbientProfile,
+  type DndCatalog,
+  type DndNpc,
+  type DndPendingCheck,
+  type DndRoll,
+  type DndState,
   type StoryAppearanceBackgroundMode,
   type StoryAppearanceTextStyle,
   type StoryAppearanceUiStyle,
@@ -308,7 +334,7 @@ type RightPanelMode = 'ai' | 'world'
 type AiPanelTab = 'instructions' | 'settings'
 type WorldPanelTab = 'story' | 'world'
 type CardsPanelTab = 'characters' | 'world' | 'instructions' | 'plot'
-type RightPanelSection = 'narrator' | CardsPanelTab | 'places' | 'engine' | 'appearance'
+type RightPanelSection = 'narrator' | CardsPanelTab | 'places' | 'dnd' | 'engine' | 'appearance'
 type NpcPanelSortMode = 'recent' | 'alphabetical_asc' | 'alphabetical_desc' | 'active_first'
 type EnvironmentModuleCardId = 'place' | 'time' | 'weather'
 type EnvironmentModuleCardPosition = {
@@ -2076,6 +2102,10 @@ function buildNarratorMenuItems(options: {
   subscriptionOptions: readonly StorySubscriptionNarratorModelOption[]
   unlockedSubscriptionModelIds: ReadonlySet<string>
   emphasizeTitle?: boolean
+  // Models a mode cannot use. D&D hands the narrator a long structured contract and a dice
+  // verdict it must honour; the weakest models drop both, which reads as the game ignoring
+  // its own rules. Hiding them beats letting a player pick a broken experience.
+  excludedModelIds?: ReadonlySet<string>
 }) {
   const {
     value,
@@ -2084,11 +2114,16 @@ function buildNarratorMenuItems(options: {
     subscriptionOptions,
     unlockedSubscriptionModelIds,
     emphasizeTitle = false,
+    excludedModelIds,
   } = options
 
   const items: ReactNode[] = []
 
-  for (const { family, models } of groupStoryNarratorsByFamily(STORY_NARRATOR_MODEL_OPTIONS)) {
+  const availableNarratorOptions = excludedModelIds?.size
+    ? STORY_NARRATOR_MODEL_OPTIONS.filter((option) => !excludedModelIds.has(option.id))
+    : STORY_NARRATOR_MODEL_OPTIONS
+
+  for (const { family, models } of groupStoryNarratorsByFamily(availableNarratorOptions)) {
     const containsSelection = models.some((model) => model.id === value)
     const isExpanded = expandedFamilyId === family.id
 
@@ -6343,6 +6378,14 @@ type StoryTurnCostRow = {
   values: [string, string, string, string, string]
 }
 
+// Mirrors STORY_DND_BLOCKED_LLM_MODELS in app/services/story_games.py. The server refuses
+// these for a D&D game anyway; this keeps them out of the picker so nobody has to discover
+// the refusal by hitting it.
+const STORY_DND_BLOCKED_NARRATOR_MODEL_IDS: ReadonlySet<string> = new Set([
+  'mistralai/mistral-nemo',
+  'z-ai/glm-4.7-flash',
+])
+
 const STORY_TURN_COST_COLUMNS = ['6k', '16k', '32k', '64k', '>64k'] as const
 const STORY_TURN_COST_BANDS = ['до 6000', '6001–16000', '16001–32000', '32001–64000', 'свыше 64000'] as const
 
@@ -8505,6 +8548,26 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isGameMenuOpen, setIsGameMenuOpen] = useState(false)
+  // --- D&D mode -----------------------------------------------------------------------
+  // One state blob plus the static rules catalogue, both fetched once per game. Everything
+  // the player edits round-trips through the API, so this is a cache of the server's truth
+  // and never the source of it.
+  const [dndState, setDndState] = useState<DndState | null>(null)
+  const [dndCatalog, setDndCatalog] = useState<DndCatalog | null>(null)
+  const [isDndLoading, setIsDndLoading] = useState(false)
+  const [isDndSaving, setIsDndSaving] = useState(false)
+  const [dndError, setDndError] = useState('')
+  const [dndSheetDialogOpen, setDndSheetDialogOpen] = useState(false)
+  const [dndLevelUpDialogOpen, setDndLevelUpDialogOpen] = useState(false)
+  const [dndEnvironmentDialogOpen, setDndEnvironmentDialogOpen] = useState(false)
+  const [dndBusyNpcKey, setDndBusyNpcKey] = useState<string | null>(null)
+  // The dice gate: a turn the player has typed, parked until the roll resolves.
+  const [dndPendingCheck, setDndPendingCheck] = useState<DndPendingCheck | null>(null)
+  const [dndPendingRoll, setDndPendingRoll] = useState<DndRoll | null>(null)
+  const [dndDiceDialogOpen, setDndDiceDialogOpen] = useState(false)
+  const [isDndRolling, setIsDndRolling] = useState(false)
+  const [dndDiceError, setDndDiceError] = useState('')
+  const dndHeldPromptRef = useRef<string | null>(null)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_WIDTH_DEFAULT)
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('ai')
@@ -9296,6 +9359,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const handleToggleNarratorFamily = useCallback((familyId: StoryNarratorFamilyId) => {
     setExpandedNarratorFamilyId((current) => (current === familyId ? null : familyId))
   }, [])
+  const isDndNarratorPicker = activeGameSummary?.game_mode === 'dnd' && canUseDndMode(user.role)
   const narratorMenuItems = useMemo(
     () =>
       buildNarratorMenuItems({
@@ -9304,8 +9368,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         onToggleFamily: handleToggleNarratorFamily,
         subscriptionOptions: STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS,
         unlockedSubscriptionModelIds,
+        excludedModelIds: isDndNarratorPicker ? STORY_DND_BLOCKED_NARRATOR_MODEL_IDS : undefined,
       }),
-    [expandedNarratorFamilyId, handleToggleNarratorFamily, storyLlmModel, unlockedSubscriptionModelIds],
+    [expandedNarratorFamilyId, handleToggleNarratorFamily, isDndNarratorPicker, storyLlmModel, unlockedSubscriptionModelIds],
   )
   const isSubscriptionNarratorSelected = useMemo(
     () => isStorySubscriptionNarratorModelId(storyLlmModel),
@@ -9574,6 +9639,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const effectiveAmbientEnabled = canUseVisualNovel && ambientEnabled
   const isVisualNovelMode = activeGameSummary?.game_mode === 'visual_novel'
   const isVisualNovelTechDemoEnabled = isVisualNovelMode && canUseVisualNovel
+  // D&D mode replaces the left menu's module list and adds the codex tab. Both flags are
+  // required: the server masks the mode away for anyone who is not an administrator, so a
+  // stale summary can never switch the interface on by itself.
+  const canUseDnd = canUseDndMode(user.role)
+  const isDndMode = activeGameSummary?.game_mode === 'dnd' && canUseDnd
   const visualNovelOpeningFallbackBlocks = useMemo(
     () => (isVisualNovelMode ? parseAssistantMessageBlocks(quickStartIntro) : []),
     [isVisualNovelMode, quickStartIntro],
@@ -9718,6 +9788,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     instructions: { title: 'Правила' },
     plot: { title: 'Сюжет и память' },
     places: { title: 'Места', eyebrow: 'Фоны сцены' },
+    dnd: { title: 'Партия', eyebrow: 'D&D 5e' },
     engine: { title: 'Движок', eyebrow: 'Продвинутое' },
     appearance: { title: 'Оформление', eyebrow: 'Фон · шрифт' },
   }
@@ -9730,6 +9801,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setRightPanelSection('narrator')
     setRightPanelMode('ai')
   }, [isVisualNovelTechDemoEnabled, rightPanelSection])
+  useEffect(() => {
+    if (isDndMode || rightPanelSection !== 'dnd') {
+      return
+    }
+    setRightPanelSection('narrator')
+    setRightPanelMode('ai')
+  }, [isDndMode, rightPanelSection])
   const environmentTimeEnabled = Boolean(
     activeGameSummary?.environment_time_enabled ?? activeGameSummary?.environment_enabled,
   )
@@ -15860,7 +15938,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
 
-    if (section === 'places') {
+    if (section === 'places' || section === 'dnd') {
       setRightPanelMode('world')
       return
     }
@@ -15869,6 +15947,195 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setActiveWorldPanelTab('story')
     setCardsPanelTab(section)
   }, [])
+
+  // --- D&D mode wiring ------------------------------------------------------------------
+
+  const applyDndState = useCallback((next: DndState | null, catalog?: DndCatalog | null) => {
+    if (next) {
+      setDndState(next)
+    }
+    if (catalog) {
+      setDndCatalog(catalog)
+    }
+  }, [])
+
+  const loadDndState = useCallback(
+    async (gameId: number, { withCatalog = false }: { withCatalog?: boolean } = {}) => {
+      setIsDndLoading(true)
+      setDndError('')
+      try {
+        const response = await fetchStoryDndState({ token: authToken, gameId, includeCatalog: withCatalog })
+        applyDndState(response.state, response.catalog)
+        // A check the player already paid for survives a reload: reopen the dice dialog with
+        // the same action parked behind it instead of silently eating both.
+        if (response.state.pending_check) {
+          dndHeldPromptRef.current = response.state.pending_check.prompt
+          setDndPendingCheck(response.state.pending_check)
+          setDndPendingRoll(null)
+          setDndDiceError('')
+          setDndDiceDialogOpen(true)
+        }
+      } catch (error) {
+        setDndError(error instanceof Error ? error.message : 'Не удалось загрузить лист персонажа')
+      } finally {
+        setIsDndLoading(false)
+      }
+    },
+    [applyDndState, authToken],
+  )
+
+  useEffect(() => {
+    if (!isDndMode || !activeGameId) {
+      setDndState(null)
+      setDndPendingCheck(null)
+      setDndPendingRoll(null)
+      setDndDiceDialogOpen(false)
+      dndHeldPromptRef.current = null
+      return
+    }
+    void loadDndState(activeGameId, { withCatalog: !dndCatalog })
+    // The catalogue is static; refetching it on every game switch would be pure waste.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGameId, isDndMode])
+
+  const runDndMutation = useCallback(
+    async (operation: () => Promise<{ state: DndState; catalog?: DndCatalog | null }>) => {
+      setIsDndSaving(true)
+      setDndError('')
+      try {
+        const response = await operation()
+        applyDndState(response.state, response.catalog ?? null)
+        return true
+      } catch (error) {
+        setDndError(error instanceof Error ? error.message : 'Не удалось сохранить изменения')
+        return false
+      } finally {
+        setIsDndSaving(false)
+      }
+    },
+    [applyDndState],
+  )
+
+  const handleDndSaveHero = useCallback(
+    async (hero: StoryDndHeroInput) => {
+      if (!activeGameId) {
+        return
+      }
+      const saved = await runDndMutation(() => updateStoryDndHero({ token: authToken, gameId: activeGameId, hero }))
+      if (saved) {
+        setDndSheetDialogOpen(false)
+      }
+    },
+    [activeGameId, authToken, runDndMutation],
+  )
+
+  const handleDndChangePlayMode = useCallback(
+    async (playMode: 'game' | 'sandbox') => {
+      if (!activeGameId) {
+        return
+      }
+      await runDndMutation(() => updateStoryDndPlayMode({ token: authToken, gameId: activeGameId, playMode }))
+    },
+    [activeGameId, authToken, runDndMutation],
+  )
+
+  const handleDndResetSheet = useCallback(async () => {
+    if (!activeGameId) {
+      return
+    }
+    const reset = await runDndMutation(() => resetStoryDndState({ token: authToken, gameId: activeGameId }))
+    if (reset) {
+      setDndSheetDialogOpen(false)
+    }
+  }, [activeGameId, authToken, runDndMutation])
+
+  const handleDndApplyLevelUp = useCallback(
+    async (asiAllocation: Record<string, number>) => {
+      if (!activeGameId) {
+        return
+      }
+      const applied = await runDndMutation(() =>
+        applyStoryDndLevelUp({ token: authToken, gameId: activeGameId, asiAllocation }),
+      )
+      if (applied) {
+        setDndLevelUpDialogOpen(false)
+      }
+    },
+    [activeGameId, authToken, runDndMutation],
+  )
+
+  const handleDndSaveEnvironment = useCallback(
+    async (payload: { season: string; timeOfDay: string; weather: string; weatherNote: string; day: number }) => {
+      if (!activeGameId) {
+        return
+      }
+      const saved = await runDndMutation(() =>
+        updateStoryDndEnvironment({ token: authToken, gameId: activeGameId, ...payload }),
+      )
+      if (saved) {
+        setDndEnvironmentDialogOpen(false)
+      }
+    },
+    [activeGameId, authToken, runDndMutation],
+  )
+
+  const handleDndSaveNpc = useCallback(
+    async (npcKey: string, update: Record<string, unknown>) => {
+      if (!activeGameId) {
+        return
+      }
+      setDndBusyNpcKey(npcKey)
+      try {
+        await runDndMutation(() => updateStoryDndNpc({ token: authToken, gameId: activeGameId, npcKey, update }))
+      } finally {
+        setDndBusyNpcKey(null)
+      }
+    },
+    [activeGameId, authToken, runDndMutation],
+  )
+
+  // The codex borrows portraits from the game's own character cards, so a D&D roster never
+  // needs its own upload flow.
+  const resolveDndNpcAvatar = useCallback(
+    (worldCardId: number | null): string | null => {
+      if (!worldCardId) {
+        return null
+      }
+      const card = worldCards.find((item) => item.id === worldCardId) ?? null
+      return resolveApiResourceUrl(resolveWorldCardAvatar(card))
+    },
+    [resolveWorldCardAvatar, worldCards],
+  )
+
+  const dndHeroAvatarUrl = useMemo(() => {
+    const explicitCardId = dndState?.hero.avatar_world_card_id ?? null
+    const explicitCard = explicitCardId ? worldCards.find((item) => item.id === explicitCardId) ?? null : null
+    // Falls back to whichever main hero card the game currently has selected, which is what
+    // the player already thinks of as "their" portrait.
+    return resolveApiResourceUrl(resolveWorldCardAvatar(explicitCard ?? mainHeroCard))
+  }, [dndState?.hero.avatar_world_card_id, mainHeroCard, resolveWorldCardAvatar, worldCards])
+
+  const handleDndSuggestNpcStats = useCallback(
+    async (npcKey: string) => {
+      if (!activeGameId) {
+        return
+      }
+      setDndBusyNpcKey(npcKey)
+      setDndError('')
+      try {
+        const response = await suggestStoryDndNpcStats({ token: authToken, gameId: activeGameId, npcKey })
+        applyDndState(response.state)
+        if (response.user) {
+          onUserUpdate(response.user)
+        }
+      } catch (error) {
+        setDndError(error instanceof Error ? error.message : 'Не удалось подобрать характеристики')
+      } finally {
+        setDndBusyNpcKey(null)
+      }
+    },
+    [activeGameId, applyDndState, authToken, onUserUpdate],
+  )
 
   const toggleResponseTokenLimitEnabled = useCallback(async () => {
     const targetGameId = activeGameId
@@ -18648,6 +18915,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             if (payload.graph_analysis) {
               setStoryGraphRefreshRevision((revision) => revision + 1)
             }
+            if (payload.dnd) {
+              // The turn's upkeep already recomputed hit points, experience, the roster and
+              // the clock, so the panels update without a second round trip.
+              setDndState(payload.dnd)
+            }
             applyPlotCardEvents(nextPlotEvents)
             applyWorldCardEvents(nextWorldEvents)
             const nextVnBeats = normalizeStoryVNBeats(payload.novel_beats)
@@ -19044,6 +19316,172 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [activeGameId, messages, syncComposerDraft, user.id],
   )
 
+  // One place that turns a composer draft into a turn: the optimistic user bubble, the draft
+  // bookkeeping and the generation call. D&D mode needs to run this *after* a dice roll
+  // rather than instead of it, which is why it is not inlined in handleSendPrompt any more.
+  const dispatchComposerTurn = useCallback(
+    async (targetGameId: number, normalizedPrompt: string) => {
+      const now = new Date().toISOString()
+      const temporaryUserMessageId = -Date.now()
+      setMessages((previousMessages) => [
+        ...previousMessages,
+        {
+          id: temporaryUserMessageId,
+          game_id: targetGameId,
+          role: 'user',
+          content: normalizedPrompt,
+          created_at: now,
+          updated_at: now,
+        },
+      ])
+      prepareComposerDraftForSubmission(targetGameId, normalizedPrompt)
+      await runStoryGeneration({
+        gameId: targetGameId,
+        prompt: normalizedPrompt,
+        instructionCards,
+        clearComposerOnStart: true,
+      })
+    },
+    [instructionCards, prepareComposerDraftForSubmission, runStoryGeneration],
+  )
+
+  // The dice gate. Asks the service model whether the declared action needs a roll; if it
+  // does, the turn waits in dndHeldPromptRef until the player has rolled (or declined).
+  // Anything that goes wrong here falls through to an ordinary turn -- a broken check must
+  // never cost the player their move.
+  const runDndPreTurnCheck = useCallback(
+    async (targetGameId: number, normalizedPrompt: string): Promise<'held' | 'proceed'> => {
+      if (!isDndMode) {
+        return 'proceed'
+      }
+      try {
+        const response = await analyzeStoryDndCheck({
+          token: authToken,
+          gameId: targetGameId,
+          prompt: normalizedPrompt,
+        })
+        if (response.user) {
+          onUserUpdate(response.user)
+        }
+        if (response.state) {
+          applyDndState(response.state)
+        }
+        if (!response.needs_check || !response.check) {
+          return 'proceed'
+        }
+        dndHeldPromptRef.current = normalizedPrompt
+        setDndPendingCheck(response.check)
+        setDndPendingRoll(null)
+        setDndDiceError('')
+        setDndDiceDialogOpen(true)
+        return 'held'
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : ''
+        if (detail.toLowerCase().includes('сол')) {
+          // Out of sols for the check specifically: say so, but still let the turn happen.
+          setDndError(detail)
+        }
+        return 'proceed'
+      }
+    },
+    [applyDndState, authToken, isDndMode, onUserUpdate],
+  )
+
+  const releaseDndHeldPrompt = useCallback(async () => {
+    const heldPrompt = dndHeldPromptRef.current
+    dndHeldPromptRef.current = null
+    setDndDiceDialogOpen(false)
+    setDndPendingCheck(null)
+    setDndPendingRoll(null)
+    setDndDiceError('')
+    if (!heldPrompt || !activeGameId) {
+      return
+    }
+    await dispatchComposerTurn(activeGameId, heldPrompt)
+  }, [activeGameId, dispatchComposerTurn])
+
+  const handleDndRoll = useCallback(async () => {
+    if (!activeGameId || !dndPendingCheck) {
+      return
+    }
+    setIsDndRolling(true)
+    setDndDiceError('')
+    try {
+      const response = await rollStoryDndCheck({
+        token: authToken,
+        gameId: activeGameId,
+        checkId: dndPendingCheck.id,
+      })
+      setDndPendingRoll(response.roll)
+      applyDndState(response.state)
+    } catch (error) {
+      setDndDiceError(error instanceof Error ? error.message : 'Не удалось бросить кубик')
+    } finally {
+      setIsDndRolling(false)
+    }
+  }, [activeGameId, applyDndState, authToken, dndPendingCheck])
+
+  const handleDndSkipRoll = useCallback(async () => {
+    if (activeGameId) {
+      try {
+        const response = await discardStoryDndCheck({ token: authToken, gameId: activeGameId })
+        applyDndState(response.state)
+      } catch {
+        // A stale pending check is harmless: it is only read by the next roll.
+      }
+    }
+    await releaseDndHeldPrompt()
+  }, [activeGameId, applyDndState, authToken, releaseDndHeldPrompt])
+
+  const handleDndCancelRoll = useCallback(async () => {
+    const heldPrompt = dndHeldPromptRef.current
+    dndHeldPromptRef.current = null
+    setDndDiceDialogOpen(false)
+    setDndPendingCheck(null)
+    setDndPendingRoll(null)
+    setDndDiceError('')
+    if (activeGameId) {
+      try {
+        const response = await discardStoryDndCheck({ token: authToken, gameId: activeGameId })
+        applyDndState(response.state)
+      } catch {
+        // Same as above -- nothing downstream depends on the discard succeeding.
+      }
+    }
+    // Give the player their sentence back rather than swallowing it.
+    if (heldPrompt) {
+      syncComposerDraft(heldPrompt)
+    }
+  }, [activeGameId, applyDndState, authToken, syncComposerDraft])
+
+  const handleDndMeetNpc = useCallback(
+    async (npc: DndNpc) => {
+      if (!activeGameId || isStoryTurnBusy) {
+        return
+      }
+      setDndBusyNpcKey(npc.key)
+      try {
+        const response = await fetchStoryDndMeetingPrompt({
+          token: authToken,
+          gameId: activeGameId,
+          npcKey: npc.key,
+        })
+        // A meeting is an ordinary turn: it goes through the same dice gate and costs the
+        // same as anything else the player types.
+        const gate = await runDndPreTurnCheck(activeGameId, response.prompt)
+        if (gate === 'held') {
+          return
+        }
+        await dispatchComposerTurn(activeGameId, response.prompt)
+      } catch (error) {
+        setDndError(error instanceof Error ? error.message : 'Не удалось организовать встречу')
+      } finally {
+        setDndBusyNpcKey(null)
+      }
+    },
+    [activeGameId, authToken, dispatchComposerTurn, isStoryTurnBusy, runDndPreTurnCheck],
+  )
+
   const sendStoryPrompt = useCallback(
     async (
       rawPrompt: string,
@@ -19221,27 +19659,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
 
-    const now = new Date().toISOString()
-    const temporaryUserMessageId = -Date.now()
-    setMessages((previousMessages) => [
-      ...previousMessages,
-      {
-        id: temporaryUserMessageId,
-        game_id: targetGameId,
-        role: 'user',
-        content: normalizedPrompt,
-        created_at: now,
-        updated_at: now,
-      },
-    ])
-    prepareComposerDraftForSubmission(targetGameId, normalizedPrompt)
-    await runStoryGeneration({
-      gameId: targetGameId,
-      prompt: normalizedPrompt,
-      instructionCards,
-      clearComposerOnStart: true,
-    })
-  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, instructionCards, isStoryTurnBusy, isVisualNovelInputLocked, isVoiceInputActive, onNavigate, prepareComposerDraftForSubmission, runStoryGeneration])
+    // In D&D mode the turn may pause here: if the action needs a roll, the dice dialog takes
+    // over and dispatches the turn itself once the player has rolled.
+    if ((await runDndPreTurnCheck(targetGameId, normalizedPrompt)) === 'held') {
+      return
+    }
+
+    await dispatchComposerTurn(targetGameId, normalizedPrompt)
+  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, dispatchComposerTurn, hasInsufficientTokensForTurn, isStoryTurnBusy, isVisualNovelInputLocked, isVoiceInputActive, onNavigate, runDndPreTurnCheck])
 
   const handleStopStoryGeneration = useCallback(async () => {
     const activeRequest = generationRequestRef.current
@@ -19900,6 +20325,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     'instructions',
     'plot',
     ...(isVisualNovelTechDemoEnabled ? (['places'] as const) : []),
+    ...(isDndMode ? (['dnd'] as const) : []),
   ]
   const rightPanelUtilitySections: RightPanelSection[] = ['engine', 'appearance']
   const getRightPanelSectionLabel = (section: RightPanelSection) => rightPanelSectionMeta[section].title
@@ -19928,6 +20354,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </g>
         </SvgIcon>
       )
+    }
+    if (section === 'dnd') {
+      return <DndD20Icon size={20} sx={{ color: 'inherit' }} />
     }
     if (section === 'engine') {
       return (
@@ -20672,6 +21101,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Stack>
           </Button>
 
+          {isDndMode ? null : (
           <Tooltip
             disableInteractive
             title={storyTurnCount >= 10 ? '' : `Доступно после 10 ходов (сейчас ${storyTurnCount})`}
@@ -20708,6 +21138,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               </Button>
             </Box>
           </Tooltip>
+          )}
 
           <Button
             onClick={handleLeaveStoryGame}
@@ -20727,6 +21158,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             Покинуть игру
           </Button>
 
+          {isDndMode ? null : (
           <Typography
             sx={{
               color: 'var(--morius-title-text)',
@@ -20741,7 +21173,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           >
             Модули
           </Typography>
+          )}
 
+          {isDndMode ? null : (
           <Stack direction="row" spacing={0.65} flexWrap="wrap" useFlexGap>
             <Button
               disableRipple
@@ -20772,8 +21206,26 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               </Button>
             ) : null}
           </Stack>
+          )}
         </Stack>
 
+        {isDndMode ? (
+          <Box
+            className="morius-scrollbar"
+            sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', px: 1.25, pt: 1.35, pb: 1.35 }}
+          >
+            <DndLeftPanel
+              state={dndState}
+              catalog={dndCatalog}
+              loading={isDndLoading}
+              error={dndError}
+              heroAvatarUrl={dndHeroAvatarUrl}
+              onOpenSheet={() => setDndSheetDialogOpen(true)}
+              onOpenLevelUp={() => setDndLevelUpDialogOpen(true)}
+              onOpenEnvironment={() => setDndEnvironmentDialogOpen(true)}
+            />
+          </Box>
+        ) : (
         <Box
           ref={environmentModulesScrollRef}
           className="morius-scrollbar"
@@ -21033,6 +21485,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Stack>
           </EnvironmentModuleCard>
         </Box>
+        )}
         <Button
           onClick={() => onNavigate('/profile')}
           sx={{
@@ -21334,7 +21787,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             />
           ) : null}
 
-          {!shouldShowRightPanelLoadingSkeleton && rightPanelSection !== 'places' && rightPanelMode === 'world' ? (
+          {!shouldShowRightPanelLoadingSkeleton && rightPanelSection === 'dnd' && isDndMode ? (
+            <DndCodexPanel
+              state={dndState}
+              catalog={dndCatalog}
+              locationLabel={latestLocationMemoryLabel}
+              loading={isDndLoading}
+              error={dndError}
+              busyNpcKey={dndBusyNpcKey}
+              resolveNpcAvatar={resolveDndNpcAvatar}
+              onMeetNpc={handleDndMeetNpc}
+              onSaveNpc={handleDndSaveNpc}
+              onSuggestNpcStats={handleDndSuggestNpcStats}
+            />
+          ) : null}
+
+          {!shouldShowRightPanelLoadingSkeleton && rightPanelSection !== 'places' && rightPanelSection !== 'dnd' && rightPanelMode === 'world' ? (
             <Stack data-tour-id="story-world-cards-panel" spacing={1.35} sx={{ minHeight: 0, flex: 1 }}>
               <Box
                 sx={{
@@ -30579,6 +31047,54 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           <Typography sx={{ color: 'inherit', fontWeight: 800, fontSize: '0.9rem' }}>Добавить нового ГГ</Typography>
         </MenuItem>
       </Menu>
+
+      {isDndMode ? (
+        <>
+          <DndCharacterSheetDialog
+            open={dndSheetDialogOpen}
+            state={dndState}
+            catalog={dndCatalog}
+            mainHeroCards={mainHeroCards}
+            resolveCardAvatar={(card) => resolveApiResourceUrl(resolveWorldCardAvatar(card))}
+            saving={isDndSaving}
+            error={dndError}
+            onClose={() => setDndSheetDialogOpen(false)}
+            onSave={handleDndSaveHero}
+            onChangePlayMode={handleDndChangePlayMode}
+            onReset={handleDndResetSheet}
+          />
+          <DndLevelUpDialog
+            key={dndLevelUpDialogOpen ? 'dnd-level-up-open' : 'dnd-level-up-closed'}
+            open={dndLevelUpDialogOpen}
+            state={dndState}
+            saving={isDndSaving}
+            error={dndError}
+            onClose={() => setDndLevelUpDialogOpen(false)}
+            onApply={handleDndApplyLevelUp}
+          />
+          <DndEnvironmentDialog
+            open={dndEnvironmentDialogOpen}
+            state={dndState}
+            catalog={dndCatalog}
+            saving={isDndSaving}
+            error={dndError}
+            onClose={() => setDndEnvironmentDialogOpen(false)}
+            onSave={handleDndSaveEnvironment}
+          />
+          <DndDiceDialog
+            open={dndDiceDialogOpen}
+            check={dndPendingCheck}
+            roll={dndPendingRoll}
+            catalog={dndCatalog}
+            rolling={isDndRolling}
+            error={dndDiceError}
+            onRoll={handleDndRoll}
+            onSkip={handleDndSkipRoll}
+            onCancel={handleDndCancelRoll}
+            onContinue={releaseDndHeldPrompt}
+          />
+        </>
+      ) : null}
 
       <AdvancedRegenerationDialog
         open={advancedRegenerationDialogOpen}

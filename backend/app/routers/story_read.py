@@ -40,7 +40,9 @@ from app.services.story_games import (
     story_game_summary_to_compact_out,
     story_game_summary_to_out,
 )
+from app.services.story_dnd import can_user_use_story_dnd
 from app.services.story_novel import (
+    STORY_GAME_MODE_DND,
     STORY_GAME_MODE_RPG,
     can_user_use_story_visual_novel,
     is_story_visual_novel_game,

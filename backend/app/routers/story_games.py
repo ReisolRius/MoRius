@@ -81,6 +81,7 @@ from app.services.story_games import (
     clone_story_graph_to_game,
     clone_story_world_cards_to_game,
     coerce_story_llm_model,
+    is_story_dnd_supported_llm_model,
     coerce_story_image_model,
     coerce_story_game_age_rating,
     ensure_story_game_public_card_snapshots,
@@ -140,11 +141,13 @@ from app.services.story_games import (
     STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
 )
 from app.services.story_novel import (
+    STORY_GAME_MODE_DND,
     STORY_GAME_MODE_RPG,
     STORY_GAME_MODE_VISUAL_NOVEL,
     can_user_use_story_visual_novel,
     normalize_story_game_mode,
 )
+from app.services.story_dnd import can_user_use_story_dnd, create_default_dnd_state, serialize_dnd_state
 from app.services.story_novel_bootstrap import ensure_story_novel_opening_scene_beats
 from app.services.story_cards import story_plot_card_to_out
 from app.services.story_character_state_fields import (
@@ -404,6 +407,20 @@ STORY_COMMUNITY_WORLD_AGE_FILTER_OPTIONS = {"6+", "16+", "18+"}
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _resolve_cloned_story_game_mode(source_game: Any, user: Any) -> str:
+    """Carry the source world's mode over only when the player is allowed to use it.
+
+    A published D&D world must not hand a non-administrator a mode that is still in testing,
+    and a clone of it plays perfectly well as an ordinary RPG.
+    """
+    mode = normalize_story_game_mode(getattr(source_game, "game_mode", None))
+    if mode == STORY_GAME_MODE_DND and not can_user_use_story_dnd(user):
+        return STORY_GAME_MODE_RPG
+    if mode == STORY_GAME_MODE_VISUAL_NOVEL and not can_user_use_story_visual_novel(user):
+        return STORY_GAME_MODE_RPG
+    return mode
 
 
 def _normalize_story_community_world_sort(value: str | None) -> str:
@@ -1891,10 +1908,14 @@ def list_story_games(
         game_ids=[game.id for game in games],
     )
     can_use_visual_novel = can_user_use_story_visual_novel(user)
+    can_use_dnd = can_user_use_story_dnd(user)
+
     def _mask_story_game_mode(summary: StoryGameSummaryOut) -> StoryGameSummaryOut:
-        if can_use_visual_novel:
-            return summary
-        return summary.model_copy(update={"game_mode": STORY_GAME_MODE_RPG})
+        if summary.game_mode == STORY_GAME_MODE_DND and not can_use_dnd:
+            return summary.model_copy(update={"game_mode": STORY_GAME_MODE_RPG})
+        if summary.game_mode == STORY_GAME_MODE_VISUAL_NOVEL and not can_use_visual_novel:
+            return summary.model_copy(update={"game_mode": STORY_GAME_MODE_RPG})
+        return summary
 
     if not compact:
         return [
@@ -2689,6 +2710,10 @@ def create_story_game(
     game_mode = normalize_story_game_mode(payload.game_mode)
     if game_mode == STORY_GAME_MODE_VISUAL_NOVEL and not can_use_visual_novel_mode:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    # D&D mode stays administrator-only while it is in testing, so a crafted payload cannot
+    # hand a player a half-finished mode.
+    if game_mode == STORY_GAME_MODE_DND and not can_user_use_story_dnd(user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
     game = StoryGame(
         user_id=user.id,
@@ -2738,6 +2763,16 @@ def create_story_game(
         environment_time_mode=coerce_story_environment_time_mode(None),
         environment_turn_step_minutes=normalize_story_environment_turn_step_minutes(None),
         game_mode=game_mode,
+        dnd_state_payload=(
+            serialize_dnd_state(create_default_dnd_state())
+            if game_mode == STORY_GAME_MODE_DND
+            else ""
+        ),
+        # The D&D codex is built on the ordinary NPC cards, and the relationship layer needs
+        # somebody to have a card before it can track a relationship. Both automations share
+        # one service request (and one sol), so turning them on here costs a single surcharge.
+        auto_npc_cards_enabled=(game_mode == STORY_GAME_MODE_DND),
+        character_state_enabled=(game_mode == STORY_GAME_MODE_DND),
         ambient_profile="",
         environment_current_datetime="",
         environment_current_weather="",
@@ -3036,10 +3071,13 @@ def clone_story_game(
         ),
         environment_time_mode=coerce_story_environment_time_mode(None),
         environment_turn_step_minutes=normalize_story_environment_turn_step_minutes(None),
-        game_mode=(
-            normalize_story_game_mode(getattr(source_game, "game_mode", None))
-            if can_user_use_story_visual_novel(user)
-            else STORY_GAME_MODE_RPG
+        game_mode=_resolve_cloned_story_game_mode(source_game, user),
+        # The sheet belongs to a playthrough, not to the world, so a clone starts fresh --
+        # and a non-administrator cloning a D&D world gets an ordinary RPG with no state.
+        dnd_state_payload=(
+            serialize_dnd_state(create_default_dnd_state())
+            if _resolve_cloned_story_game_mode(source_game, user) == STORY_GAME_MODE_DND
+            else ""
         ),
         ambient_profile=str(getattr(source_game, "ambient_profile", "") or ""),
         canonical_state_payload=str(getattr(source_game, "canonical_state_payload", "") or ""),
@@ -3252,6 +3290,16 @@ def update_story_game_settings(
     next_story_model = current_story_model
     if "story_llm_model" in payload.model_fields_set:
         next_story_model = normalize_story_llm_model(payload.story_llm_model)
+        if normalize_story_game_mode(getattr(game, "game_mode", None)) == STORY_GAME_MODE_DND and (
+            not is_story_dnd_supported_llm_model(next_story_model)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Эта модель слишком слабая для режима D&D: она не удерживает лист персонажа "
+                    "и результат броска. Выберите другую модель рассказчика."
+                ),
+            )
         game.story_llm_model = next_story_model
     story_model_changed = next_story_model != current_story_model
     if "story_reasoning_enabled" in payload.model_fields_set:

@@ -2,7 +2,7 @@ import type { AuthUser } from './auth'
 
 export type StoryRole = 'user' | 'assistant'
 export type StoryGameVisibility = 'private' | 'public'
-export type StoryGameMode = 'rpg' | 'visual_novel'
+export type StoryGameMode = 'rpg' | 'visual_novel' | 'dnd'
 export type StoryPublicationStatus = 'none' | 'pending' | 'approved' | 'rejected'
 export type SmartRegenerationOption =
   | 'fix_language'
@@ -790,6 +790,8 @@ export type StoryStreamDonePayload = {
   world_cards?: StoryWorldCard[]
   plot_card_created?: boolean
   graph_analysis?: StoryStreamGraphAnalysisPayload
+  // Present only for D&D games: the sheet, roster and clock after the turn's upkeep pass.
+  dnd?: DndState
   ambient?: StoryAmbientProfile
   postprocess_pending?: boolean
   cancelled?: boolean
@@ -873,4 +875,190 @@ export type StoryTurnImage = {
   image_data_url: string | null
   created_at: string
   updated_at: string
+}
+
+// --- D&D mode ----------------------------------------------------------------------------
+// Mirrors app/services/story_dnd.py. The server normalizes every field on read and write, so
+// the client treats these as display data and never as the source of truth for the rules.
+
+export type DndAbilityId = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha'
+export type DndPlayMode = 'game' | 'sandbox'
+export type DndCheckKind = 'ability' | 'skill' | 'saving_throw' | 'attack'
+export type DndAdvantage = 'none' | 'advantage' | 'disadvantage'
+export type DndOutcome = 'critical_success' | 'success' | 'failure' | 'critical_failure'
+
+export type DndHitPoints = {
+  current: number
+  max: number
+  temp: number
+}
+
+export type DndCondition = {
+  id: string
+  label: string
+  kind: 'buff' | 'debuff'
+  icon: string
+  description: string
+  note?: string
+}
+
+export type DndHero = {
+  name: string
+  race: string
+  class: string
+  background: string
+  level: number
+  xp: number
+  abilities: Record<DndAbilityId, number>
+  base_abilities: Record<DndAbilityId, number>
+  // Improvement points already spent per ability. Kept apart from `abilities` so saving the
+  // sheet (which re-derives base + race + improvements) cannot undo a level-up.
+  asi_allocation: Partial<Record<DndAbilityId, number>>
+  skill_proficiencies: string[]
+  saving_throw_proficiencies: DndAbilityId[]
+  hp: DndHitPoints
+  armor_class: number
+  speed: number
+  proficiency_bonus: number
+  inventory: string[]
+  inventory_note: string
+  gold: number
+  conditions: DndCondition[]
+  avatar_world_card_id: number | null
+  pending_asi_points: number
+}
+
+export type DndEnvironment = {
+  season: string
+  season_started_day: number
+  time_of_day: string
+  weather: string
+  weather_note: string
+  day: number
+  locked: boolean
+}
+
+export type DndNpc = {
+  key: string
+  world_card_id: number | null
+  name: string
+  role: string
+  relation: string
+  relation_score: number
+  relation_note: string
+  level: number
+  abilities: Record<DndAbilityId, number>
+  hp: DndHitPoints
+  armor_class: number
+  conditions: DndCondition[]
+  is_active: boolean
+  stats_source: 'ai' | 'manual'
+  notes: string
+}
+
+export type DndQuest = {
+  title: string
+  detail: string
+  status: 'active' | 'done' | 'failed'
+}
+
+export type DndNote = {
+  text: string
+  turn: number
+}
+
+export type DndModifierPart = {
+  key: string
+  label: string
+  value: number
+}
+
+export type DndPendingCheck = {
+  id: string
+  prompt: string
+  kind: DndCheckKind
+  skill: string
+  ability: string
+  die: number
+  dc: number
+  advantage: DndAdvantage
+  situational_modifier: number
+  situational_label: string
+  reason: string
+  target: string
+  success_hint: string
+  failure_hint: string
+  modifier_breakdown: DndModifierPart[]
+}
+
+export type DndRoll = {
+  id: string
+  check: DndPendingCheck | null
+  die: number
+  rolls: number[]
+  natural: number
+  advantage: DndAdvantage
+  modifier_total: number
+  modifier_breakdown: DndModifierPart[]
+  total: number
+  dc: number
+  outcome: DndOutcome
+  outcome_label?: string
+  consumed: boolean
+}
+
+export type DndLevelUp = {
+  from_level: number
+  to_level: number
+  asi_points: number
+  max_hp: number
+  reason: string
+  acknowledged: boolean
+}
+
+export type DndState = {
+  version: number
+  play_mode: DndPlayMode
+  setup_completed: boolean
+  turn_count: number
+  hero: DndHero
+  environment: DndEnvironment
+  npcs: DndNpc[]
+  quests: DndQuest[]
+  notes: DndNote[]
+  pending_check: DndPendingCheck | null
+  last_roll: DndRoll | null
+  last_level_up: DndLevelUp | null
+}
+
+export type DndCatalogEntry = { id: string; label: string }
+
+export type DndCatalog = {
+  abilities: { id: DndAbilityId; label: string; short: string }[]
+  races: { id: string; label: string; bonuses: Partial<Record<DndAbilityId, number>>; speed: number; traits: string[] }[]
+  classes: {
+    id: string
+    label: string
+    hit_die: number
+    primary: DndAbilityId[]
+    saving_throws: DndAbilityId[]
+    skills: string[]
+    starting_inventory: string[]
+  }[]
+  skills: { id: string; label: string; ability: DndAbilityId }[]
+  conditions: DndCondition[]
+  relations: { id: string; label: string; score: number }[]
+  seasons: DndCatalogEntry[]
+  times_of_day: DndCatalogEntry[]
+  weathers: DndCatalogEntry[]
+  season_weather: Record<string, string[]>
+  point_buy: { budget: number; min: number; max: number; cost: Record<string, number>; hard_cap: number }
+  sandbox: { min: number; max: number }
+  xp_thresholds: number[]
+  xp_buckets: Record<string, number>
+  asi_levels: number[]
+  max_level: number
+  dice: number[]
+  dc_labels: { value: number; label: string }[]
+  outcomes: Record<string, string>
 }

@@ -638,6 +638,11 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN canonical_state_payload TEXT NOT NULL DEFAULT ''"
         )
+    if "dnd_state_payload" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN dnd_state_payload TEXT NOT NULL DEFAULT ''"
+        )
     if "canonical_state_pipeline_enabled" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "

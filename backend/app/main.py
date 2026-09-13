@@ -64,6 +64,7 @@ from app.routers.health import router as health_router
 from app.routers.payments import router as payments_router
 from app.routers.referrals import router as referrals_router
 from app.routers.story_cards import router as story_cards_router
+from app.routers.story_dnd import router as story_dnd_router
 from app.routers.story_characters import router as story_characters_router
 from app.routers.story_generate import router as story_generate_router
 from app.routers.story_graph import router as story_graph_router
@@ -1754,6 +1755,7 @@ app.include_router(health_router)
 app.include_router(payments_router)
 app.include_router(referrals_router)
 app.include_router(story_cards_router)
+app.include_router(story_dnd_router)
 app.include_router(story_characters_router)
 app.include_router(story_generate_router)
 app.include_router(story_graph_router)
