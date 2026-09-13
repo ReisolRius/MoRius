@@ -139,11 +139,12 @@ import {
   selectVisiblePublicationItems,
   type PublicationSection,
 } from './MyPublicationsPage'
-import CloneSectionPicker, {
+import CloneSectionPicker from '../components/dialogs/CloneSectionPicker'
+import {
   CLONE_SECTION_DEFAULTS,
   type CloneSectionKey,
   type CloneSelectionState,
-} from '../components/dialogs/CloneSectionPicker'
+} from '../constants/cloneSections'
 
 type ProfilePageProps = {
   user: AuthUser

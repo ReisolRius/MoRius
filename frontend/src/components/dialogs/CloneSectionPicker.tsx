@@ -1,4 +1,5 @@
 import { Box, ButtonBase, Stack, Typography } from '@mui/material'
+import { CLONE_SECTION_ITEMS, type CloneSectionKey, type CloneSelectionState } from '../../constants/cloneSections'
 
 /**
  * The "what should the clone carry over" picker, shared by every clone dialog.
@@ -10,29 +11,6 @@ import { Box, ButtonBase, Stack, Typography } from '@mui/material'
  * is full and the block never reflows when a tile is toggled. The tick sits in a fixed-size
  * box for the same reason.
  */
-
-export type CloneSectionKey = 'instructions' | 'plot' | 'world' | 'main_hero' | 'history' | 'nodes'
-export type CloneSelectionState = Record<CloneSectionKey, boolean>
-
-// Hints are kept short on purpose: the tile is one line of `noWrap` text at the narrowest
-// phone width, so anything longer than ~16 characters would ellipsise there.
-export const CLONE_SECTION_ITEMS: Array<{ key: CloneSectionKey; label: string; hint: string }> = [
-  { key: 'instructions', label: 'Инструкции', hint: 'Карточки правил' },
-  { key: 'plot', label: 'Сюжет', hint: 'Карточки сюжета' },
-  { key: 'world', label: 'Мир', hint: 'Мир и NPC' },
-  { key: 'main_hero', label: 'ГГ', hint: 'Главный герой' },
-  { key: 'history', label: 'История', hint: 'Ходы и память' },
-  { key: 'nodes', label: 'Ноды', hint: 'Схема связей' },
-]
-
-export const CLONE_SECTION_DEFAULTS: CloneSelectionState = {
-  instructions: true,
-  plot: true,
-  world: true,
-  main_hero: true,
-  history: true,
-  nodes: true,
-}
 
 type CloneSectionPickerProps = {
   selection: CloneSelectionState

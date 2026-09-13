@@ -58,11 +58,12 @@ import { buildUnifiedMobileQuickActions, rememberLastPlayedGameCard } from '../u
 import { MobileCardItem } from '../components/mobile/MobileCardSlider'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
-import CloneSectionPicker, {
+import CloneSectionPicker from '../components/dialogs/CloneSectionPicker'
+import {
   CLONE_SECTION_DEFAULTS,
   type CloneSectionKey,
   type CloneSelectionState,
-} from '../components/dialogs/CloneSectionPicker'
+} from '../constants/cloneSections'
 
 
 
