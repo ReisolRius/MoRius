@@ -1460,6 +1460,11 @@ def _ensure_story_soft_undo_columns_exist() -> None:
                 f"ALTER TABLE {StoryMessage.__tablename__} "
                 "ADD COLUMN undone_at TIMESTAMP WITH TIME ZONE"
             )
+        if "dnd_state_snapshot" not in message_columns:
+            alter_statements.append(
+                f"ALTER TABLE {StoryMessage.__tablename__} "
+                "ADD COLUMN dnd_state_snapshot TEXT NOT NULL DEFAULT ''"
+            )
         if "variant_history_json" not in message_columns:
             alter_statements.append(
                 f"ALTER TABLE {StoryMessage.__tablename__} "
