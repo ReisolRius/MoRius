@@ -78,6 +78,11 @@ const STORY_GENERATION_INTERRUPTED_MESSAGE =
 const STORY_ROUTERAI_TEMPORARY_ERROR_MESSAGE =
   'RouterAI сейчас возвращает ошибку провайдера. Ход не был сгенерирован; повторите попытку позже.'
 const STORY_GENERATION_BUSY_RETRY_DELAYS_MS = [800, 1600, 2600, 4200, 7000] as const
+// Every story mutation shares the same per-game operation lock, so any of them can come
+// back with "the turn is still syncing" while the tail of a slow turn finishes. The 409 is
+// raised before the request touches anything, so retrying it can never apply an action
+// twice -- and waiting it out quietly is what the player actually wants.
+const STORY_BUSY_RETRY_DELAYS_MS = [600, 1200, 2200, 3600, 6000] as const
 const STORY_GENERATION_TRANSPORT_ERROR_MARKERS = [
   'network error',
   'failed to fetch',
@@ -329,7 +334,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const method = normalizeRequestMethod(options.method)
   const retryableMethod = isRetryableMethod(method)
 
-  for (let attempt = 0; attempt <= REQUEST_RETRY_DELAYS_MS.length; attempt += 1) {
+  const maxAttempts = Math.max(REQUEST_RETRY_DELAYS_MS.length, STORY_BUSY_RETRY_DELAYS_MS.length)
+
+  for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
     let response: Response
     try {
       response = await fetch(targetUrl, {
@@ -358,10 +365,20 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       continue
     }
 
+    const parsedError = await parseApiError(response)
+
+    if (
+      response.status === 409 &&
+      isStoryOperationBusyMessage(parsedError.message) &&
+      attempt < STORY_BUSY_RETRY_DELAYS_MS.length
+    ) {
+      await delay(STORY_BUSY_RETRY_DELAYS_MS[attempt])
+      continue
+    }
+
     if (GATEWAY_ERROR_STATUSES_STORY.has(response.status)) {
       dispatchServiceUnavailable()
     }
-    const parsedError = await parseApiError(response)
     throw new Error(normalizeStoryProviderErrorMessage(parsedError.message))
   }
 

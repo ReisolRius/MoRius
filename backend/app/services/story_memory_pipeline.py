@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.orm import Session
 
 from app import main as monolith_main
@@ -336,13 +336,51 @@ def _llm_service(*, service_model_only: bool = False) -> LlmModuleService:
 
 
 def _list_story_memory_blocks(db: Session, game_id: int) -> list[StoryMemoryBlock]:
+    from app.services.story_queries import story_memory_block_is_live_clause
+
     return list(
         db.scalars(
             select(StoryMemoryBlock)
-            .where(StoryMemoryBlock.game_id == int(game_id), StoryMemoryBlock.undone_at.is_(None))
+            .where(
+                StoryMemoryBlock.game_id == int(game_id),
+                StoryMemoryBlock.undone_at.is_(None),
+                story_memory_block_is_live_clause(),
+            )
             .order_by(StoryMemoryBlock.id.asc())
         )
     )
+
+
+def _purge_story_orphaned_memory_blocks(db: Session, game_id: int) -> int:
+    """Delete blocks whose turn no longer exists at all.
+
+    `story_memory_block_is_live_clause` already stops these from being read, so this only
+    keeps the table from growing. A block whose message row is merely *undone* is left alone:
+    undo is reversible, and restoring the turn has to bring its memory back with it.
+    """
+    normalized_game_id = int(game_id or 0)
+    if normalized_game_id <= 0:
+        return 0
+    orphan_ids = list(
+        db.scalars(
+            select(StoryMemoryBlock.id).where(
+                StoryMemoryBlock.game_id == normalized_game_id,
+                StoryMemoryBlock.assistant_message_id.is_not(None),
+                ~select(StoryMessage.id)
+                .where(StoryMessage.id == StoryMemoryBlock.assistant_message_id)
+                .exists(),
+            )
+        )
+    )
+    if not orphan_ids:
+        return 0
+    db.execute(sa_delete(StoryMemoryBlock).where(StoryMemoryBlock.id.in_(orphan_ids)))
+    logger.info(
+        "Purged orphaned story memory blocks: game_id=%s count=%s",
+        normalized_game_id,
+        len(orphan_ids),
+    )
+    return len(orphan_ids)
 
 
 def _list_story_latest_assistant_message_ids(db: Session, game_id: int, limit: int = 1) -> list[int]:

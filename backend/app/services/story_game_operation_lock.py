@@ -31,6 +31,16 @@ class StoryGameOperationBusyError(RuntimeError):
 class _StoryGameLockEntry:
     lock: Lock
     ref_count: int = 0
+    # Who is holding it and since when, so a busy error names the operation that is actually
+    # sitting on the lock instead of just saying the game is busy.
+    holder_operation: str = ""
+    holder_since: float = 0.0
+
+    def describe_holder(self) -> str:
+        operation = self.holder_operation or "unknown"
+        if self.holder_since <= 0.0:
+            return operation
+        return "%s (held for %.1fs)" % (operation, max(time.monotonic() - self.holder_since, 0.0))
 
 
 @dataclass
@@ -79,6 +89,8 @@ class StoryGameOperationLease:
                             self.operation,
                         )
 
+            entry.holder_operation = ""
+            entry.holder_since = 0.0
             entry.lock.release()
         finally:
             _release_lock_registry_reference(self.game_id, entry)
@@ -217,13 +229,16 @@ def acquire_story_game_operation_lock(
         acquired = entry.lock.acquire(timeout=max(float(wait_timeout_seconds), 0.0))
     if not acquired:
         logger.warning(
-            "Story game operation lock wait timed out: game_id=%s operation=%s waited_for=%.3fs",
+            "Story game operation lock wait timed out: game_id=%s operation=%s waited_for=%.3fs holder=%s",
             normalized_game_id,
             normalized_operation,
             max(time.monotonic() - wait_started_at, 0.0),
+            entry.describe_holder(),
         )
         _release_lock_registry_reference(normalized_game_id, entry)
         raise StoryGameOperationBusyError(STORY_GAME_OPERATION_BUSY_DETAIL)
+    entry.holder_operation = normalized_operation
+    entry.holder_since = time.monotonic()
     waited_for_seconds = max(time.monotonic() - wait_started_at, 0.0)
     if waited_for_seconds >= _LOCK_WAIT_LOG_THRESHOLD_SECONDS:
         logger.info(
@@ -242,6 +257,8 @@ def acquire_story_game_operation_lock(
         )
     except Exception:
         try:
+            entry.holder_operation = ""
+            entry.holder_since = 0.0
             entry.lock.release()
         finally:
             _release_lock_registry_reference(normalized_game_id, entry)

@@ -23,7 +23,9 @@ from app.services.story_undo import (
 )
 
 router = APIRouter()
-_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 3.0
+# Three seconds was shorter than the tail of a perfectly normal turn, so undo raced the
+# turn it was trying to undo and told the player the turn was "still syncing".
+_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 12.0
 _STORY_OPERATION_LOCK_CANCEL_WAIT_SECONDS = 20.0
 
 

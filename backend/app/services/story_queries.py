@@ -21,6 +21,30 @@ from app.models import (
     StoryWorldCardChangeEvent,
 )
 
+def story_memory_block_is_live_clause():
+    """SQL predicate for "this block still belongs to the story".
+
+    A memory block is live when it is not itself rolled back AND the turn it was written for
+    is still part of the transcript. The message is the single source of truth: reroll and
+    undo mark the *message* undone, and a crash (or a cancelled reroll after a provider
+    error) between that write and the cleanup used to strand the block -- invisible in the
+    transcript, yet still charged against the context budget on every later turn. That is the
+    "memory filled up out of nowhere while I never left the same turn" report.
+
+    Blocks with no assistant_message_id (location, weather, key facts, world profile) belong
+    to the game rather than to a single turn and are always live.
+    """
+    return or_(
+        StoryMemoryBlock.assistant_message_id.is_(None),
+        select(StoryMessage.id)
+        .where(
+            StoryMessage.id == StoryMemoryBlock.assistant_message_id,
+            StoryMessage.undone_at.is_(None),
+        )
+        .exists(),
+    )
+
+
 STORY_GAME_VISIBILITY_PUBLIC = "public"
 STORY_CARD_VISIBILITY_PUBLIC = "public"
 STORY_WORLD_CARD_KIND_MAIN_HERO = "main_hero"
@@ -291,7 +315,10 @@ def list_story_memory_blocks(
     if assistant_message_id is not None:
         query = query.where(StoryMemoryBlock.assistant_message_id == assistant_message_id)
     if not include_undone:
-        query = query.where(StoryMemoryBlock.undone_at.is_(None))
+        query = query.where(
+            StoryMemoryBlock.undone_at.is_(None),
+            story_memory_block_is_live_clause(),
+        )
     query = query.order_by(StoryMemoryBlock.id.asc())
     return db.scalars(query).all()
 

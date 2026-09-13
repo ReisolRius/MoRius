@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+import time
 from typing import Iterator
 
 
@@ -81,7 +82,91 @@ def use_story_service_http_request_budget_or_reserve(
         _active_story_service_http_budget.reset(token)
 
 
+class StoryTurnServiceDeadlineExceeded(RuntimeError):
+    """The turn spent its whole service-time allowance before this request started."""
+
+
+@dataclass
+class StoryTurnServiceDeadline:
+    """Wall-clock ceiling for the service-model work that follows one narrator turn.
+
+    The request budgets above cap how *many* service calls a turn may make, which says
+    nothing about how long they take: two modules that each sit on a 120-second read timeout
+    keep the per-game operation lock for four minutes, and every action the player takes in
+    the meantime comes back as "the turn is still syncing". This bounds the whole phase
+    instead. Modules that run out of time are simply reported as failed -- the post-process
+    pipeline already treats a failed module as retryable and picks it up on a later turn.
+
+    Deliberately NOT applied to the narrator request itself: that one is the turn, and the
+    player is watching it stream.
+    """
+
+    deadline_monotonic: float
+
+    def remaining_seconds(self) -> float:
+        return max(self.deadline_monotonic - time.monotonic(), 0.0)
+
+    def expired(self) -> bool:
+        return time.monotonic() >= self.deadline_monotonic
+
+
+_active_story_turn_service_deadline: ContextVar[
+    StoryTurnServiceDeadline | None
+] = ContextVar("active_story_turn_service_deadline", default=None)
+
+
+@contextmanager
+def use_story_turn_service_deadline(
+    total_seconds: float,
+) -> Iterator[StoryTurnServiceDeadline]:
+    deadline = StoryTurnServiceDeadline(
+        deadline_monotonic=time.monotonic() + max(float(total_seconds), 0.0)
+    )
+    token = _active_story_turn_service_deadline.set(deadline)
+    try:
+        yield deadline
+    finally:
+        _active_story_turn_service_deadline.reset(token)
+
+
+def story_turn_service_deadline_remaining_seconds() -> float | None:
+    """Seconds of service time this turn has left, or None when no deadline is in force."""
+    deadline = _active_story_turn_service_deadline.get()
+    if deadline is None:
+        return None
+    return deadline.remaining_seconds()
+
+
+def ensure_story_turn_service_deadline() -> None:
+    deadline = _active_story_turn_service_deadline.get()
+    if deadline is not None and deadline.expired():
+        raise StoryTurnServiceDeadlineExceeded(
+            "Story turn service time budget exhausted"
+        )
+
+
+def clamp_timeout_to_story_turn_service_deadline(
+    timeout: tuple[float, float] | float | None,
+    *,
+    minimum_read_seconds: float = 15.0,
+) -> tuple[float, float] | float | None:
+    """Shrink a request timeout so one slow call cannot outlive the turn's allowance.
+
+    Floored at `minimum_read_seconds` so a nearly-spent budget hands out a timeout the
+    provider could never answer within, turning a slow module into a guaranteed failure.
+    """
+    remaining = story_turn_service_deadline_remaining_seconds()
+    if remaining is None or timeout is None:
+        return timeout
+    capped_read = max(float(remaining), float(minimum_read_seconds))
+    if isinstance(timeout, tuple):
+        connect_seconds, read_seconds = timeout
+        return (connect_seconds, min(float(read_seconds), capped_read))
+    return min(float(timeout), capped_read)
+
+
 def consume_story_service_http_request() -> None:
+    ensure_story_turn_service_deadline()
     turn_budget = _active_story_turn_hard_budget.get()
     module_budget = _active_story_service_http_budget.get()
     # Enforce the turn-wide ceiling first so hitting it never half-consumes a module budget.

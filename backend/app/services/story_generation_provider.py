@@ -14,7 +14,10 @@ from app.services.provider_resilience import (
     is_content_policy_error,
     is_retryable_provider_error,
 )
-from app.services.story_service_budget import consume_story_service_http_request
+from app.services.story_service_budget import (
+    clamp_timeout_to_story_turn_service_deadline,
+    consume_story_service_http_request,
+)
 from app.services.story_games import (
     STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS,
     STORY_REASONING_MAX_TOKENS,
@@ -1573,6 +1576,7 @@ def _request_polza_story_text(
 
     last_error: RuntimeError | None = None
     timeout_value = request_timeout or (20, 120)
+    # Re-clamped per attempt below: a retry must not get the budget the first try had.
     prepared_messages_payload = _prepare_story_messages_for_model(
         messages_payload,
         translate_input=translate_input,
@@ -1623,7 +1627,7 @@ def _request_polza_story_text(
                     settings.polza_chat_url,
                     headers=headers,
                     json=payload,
-                    timeout=timeout_value,
+                    timeout=clamp_timeout_to_story_turn_service_deadline(timeout_value),
                 )
             except requests.RequestException as exc:
                 if attempt_index < len(retry_delays):

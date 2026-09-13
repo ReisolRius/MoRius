@@ -88,6 +88,16 @@ def _run_story_memory_compaction(game_id: int) -> None:
             return
         from app.services import story_memory_pipeline
 
+        # Reap blocks whose turn is gone before compacting: they cost nothing to read past
+        # (the live-block filter already hides them) but they would otherwise accumulate.
+        try:
+            story_memory_pipeline._purge_story_orphaned_memory_blocks(db, int(game_id))
+        except Exception:
+            logger.warning(
+                "Background orphaned-memory purge failed: game_id=%s", game_id, exc_info=True
+            )
+            db.rollback()
+
         # require_model_compaction stays False on purpose: a failure here has no caller to
         # report to, and raising would only lose the blocks that did compact successfully.
         # Failed blocks are left marked pending and retried by a later run.

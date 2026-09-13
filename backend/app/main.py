@@ -78,6 +78,7 @@ from app.routers.story_undo import router as story_undo_router
 from app.routers.story_world_cards import router as story_world_cards_router
 from app.services.story_service_budget import (
     StoryServiceHttpRequestBudget,
+    clamp_timeout_to_story_turn_service_deadline,
     consume_story_service_http_request,
     use_story_service_http_request_budget,
 )
@@ -8191,7 +8192,7 @@ def _post_story_ai_with_retries(
                 url,
                 headers=headers,
                 json=payload,
-                timeout=timeout,
+                timeout=clamp_timeout_to_story_turn_service_deadline(timeout),
             )
         except requests.RequestException as exc:
             last_error = RuntimeError(f"{operation} transport failed")

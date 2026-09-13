@@ -67,6 +67,7 @@ from app.services.story_service_budget import (
     StoryServiceHttpRequestBudget,
     use_story_service_http_request_budget,
     use_story_turn_hard_budget,
+    use_story_turn_service_deadline,
 )
 from app.services.story_smart_regeneration import (
     build_smart_regeneration_instruction_card,
@@ -125,6 +126,9 @@ STORY_SQLITE_BUSY_DETAIL = STORY_GAME_OPERATION_BUSY_DETAIL
 STORY_POSTPROCESS_STATUS_COMMITTED = "storyteller_succeeded_committed"
 STORY_POSTPROCESS_STATUS_FAILED_RETRYABLE = "storyteller_succeeded_postprocessing_failed_retryable"
 STORY_POSTPROCESS_STATUS_PENDING = "storyteller_succeeded_postprocessing_pending"
+# Whole-turn ceiling on post-narrator service work (world/character modules, baseline
+# memory sync). Memory compaction is not counted here -- it runs off-turn entirely.
+STORY_TURN_SERVICE_DEADLINE_SECONDS = 45.0
 STORY_GENERATE_LOCK_WAIT_SECONDS = 15.0
 STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 20.0
 STORY_GENERATE_LOCK_POLL_SECONDS = 0.75
@@ -2323,6 +2327,20 @@ def _stream_story_response(
     turn_service_hard_budget = StoryServiceHttpRequestBudget(
         max_requests=STORY_TURN_MAX_SERVICE_REQUESTS
     )
+
+    # One wall-clock allowance shared by every post-process phase of this turn. The request
+    # budget above caps how many service calls a turn makes; this caps how long they may
+    # take. Without it two modules sitting on their read timeouts keep the per-game
+    # operation lock for minutes, and everything the player does meanwhile comes back as
+    # "the turn is still syncing". A module that runs out of time is reported failed, which
+    # the pipeline already treats as retryable on a later turn.
+    turn_service_deadline_started_at = time.monotonic()
+
+    def turn_service_deadline_scope():
+        spent_seconds = max(time.monotonic() - turn_service_deadline_started_at, 0.0)
+        return use_story_turn_service_deadline(
+            max(STORY_TURN_SERVICE_DEADLINE_SECONDS - spent_seconds, 0.0)
+        )
     service_request_budget = StoryServiceHttpRequestBudget(
         max_requests=STORY_MEMORY_POSTPROCESS_MAX_SERVICE_REQUESTS
     )
@@ -2334,7 +2352,7 @@ def _stream_story_response(
         if _stop_requested("postprocess"):
             return
         try:
-            with use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(service_request_budget):
+            with turn_service_deadline_scope(), use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(service_request_budget):
                 unified_postprocess_payload = deps.resolve_story_turn_postprocess_payload(
                     db=db,
                     game=game,
@@ -2430,7 +2448,7 @@ def _stream_story_response(
             return False
 
         try:
-            with use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(service_request_budget):
+            with turn_service_deadline_scope(), use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(service_request_budget):
                 postprocess_result = deps.upsert_story_plot_memory_card(
                     db=db,
                     game=game,
@@ -2627,7 +2645,7 @@ def _stream_story_response(
         if needs_baseline_sync:
             if _stop_requested("baseline_sync"):
                 return
-            with use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(service_request_budget):
+            with turn_service_deadline_scope(), use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(service_request_budget):
                 baseline_synced = _best_effort_sync_story_turn_memory_and_environment(
                     deps=deps,
                     db=db,
