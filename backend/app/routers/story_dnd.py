@@ -28,6 +28,7 @@ from app.schemas import (
     StoryDndCheckRequest,
     StoryDndCombatAdvanceRequest,
     StoryDndDeathSaveOut,
+    StoryDndDifficultyRequest,
     StoryDndEnvironmentRequest,
     StoryDndHeroUpdateRequest,
     StoryDndInitiativeOut,
@@ -37,6 +38,7 @@ from app.schemas import (
     StoryDndNpcUpdateRequest,
     StoryDndPlayModeRequest,
     StoryDndRollOut,
+    StoryDndRollPolicyRequest,
     StoryDndRollRequest,
     StoryDndStateOut,
     UserOut,
@@ -68,6 +70,7 @@ from app.services.story_dnd import (
     combat_hero_participant,
     create_empty_dnd_combat,
     default_inventory_for,
+    difficulty_hero_bonus,
     dnd_sheet_locks,
     get_game_dnd_state,
     is_story_dnd_game,
@@ -77,6 +80,7 @@ from app.services.story_dnd import (
     normalize_dnd_check_kind,
     normalize_dnd_class_id,
     normalize_dnd_conditions,
+    normalize_dnd_difficulty,
     normalize_dnd_die,
     normalize_dnd_environment,
     normalize_dnd_inventory,
@@ -85,6 +89,7 @@ from app.services.story_dnd import (
     normalize_dnd_play_mode,
     normalize_dnd_race_id,
     normalize_dnd_relation_id,
+    normalize_dnd_roll_policy,
     normalize_dnd_season,
     normalize_dnd_skill_id,
     normalize_dnd_state,
@@ -96,13 +101,15 @@ from app.services.story_dnd import (
     proficiency_bonus,
     relation_id_for_score,
     resolve_check_advantage,
+    resolve_check_dc,
     roll_npc_initiatives,
-    start_dnd_combat_if_ready,
     set_game_dnd_state,
+    start_dnd_combat_if_ready,
     validate_hero_sheet,
 )
 from app.services.story_dnd_apply import sync_dnd_npcs_from_world_cards
 from app.services.story_dnd_service import (
+    DND_CHECK_RECENT_TURNS,
     build_dnd_meeting_prompt,
     dnd_action_needs_model_check,
 )
@@ -187,6 +194,30 @@ def _latest_assistant_text(db: Session, game_id: int) -> str:
     return str(getattr(message, "content", "") or "")
 
 
+def _recent_turns_transcript(db: Session, game_id: int, *, turns: int = 3) -> str:
+    """The last few exchanges, oldest first, as plain "Игрок:/Мастер:" lines.
+
+    The judge used to see only the newest narrator message, which is not enough to tell
+    "leaving on the errand I was just given" from "running away" -- the errand was in the
+    message before. A few exchanges is the smallest window that makes intent legible.
+    """
+    limit = max(int(turns), 1) * 2
+    rows = db.scalars(
+        select(StoryMessage)
+        .where(StoryMessage.game_id == int(game_id), StoryMessage.undone_at.is_(None))
+        .order_by(StoryMessage.id.desc())
+        .limit(limit)
+    ).all()
+    lines: list[str] = []
+    for message in reversed(rows):
+        text = " ".join(str(getattr(message, "content", "") or "").split()).strip()
+        if not text:
+            continue
+        speaker = "Игрок" if str(getattr(message, "role", "")) == "user" else "Мастер"
+        lines.append(f"{speaker}: {text[:900]}")
+    return "\n".join(lines)
+
+
 def _load_state(db: Session, game) -> dict[str, Any]:
     """Read the state and keep the NPC roster in step with the game's character cards."""
     state = get_game_dnd_state(game)
@@ -268,6 +299,38 @@ def update_story_dnd_play_mode(
             hero["base_abilities"] = dict(hero.get("abilities") or {})
             state["hero"] = hero
         state["play_mode"] = next_play_mode
+        normalized = _persist_state(db, game, state)
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
+
+
+@router.put("/api/story/games/{game_id}/dnd/difficulty", response_model=StoryDndStateOut)
+def update_story_dnd_difficulty(
+    game_id: int,
+    payload: StoryDndDifficultyRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryDndStateOut:
+    """Set how hard the world pushes back. Free, and applies from the next check onward."""
+    _user, game = _require_dnd_game(db, game_id=game_id, authorization=authorization)
+    with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_difficulty"):
+        state = _load_state(db, game)
+        state["difficulty"] = normalize_dnd_difficulty(payload.difficulty)
+        normalized = _persist_state(db, game, state)
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
+
+
+@router.put("/api/story/games/{game_id}/dnd/roll-policy", response_model=StoryDndStateOut)
+def update_story_dnd_roll_policy(
+    game_id: int,
+    payload: StoryDndRollPolicyRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryDndStateOut:
+    """Switch between living roleplay and a rules-lawyer table. Free: it changes no numbers."""
+    _user, game = _require_dnd_game(db, game_id=game_id, authorization=authorization)
+    with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_roll_policy"):
+        state = _load_state(db, game)
+        state["roll_policy"] = normalize_dnd_roll_policy(payload.roll_policy)
         normalized = _persist_state(db, game, state)
     return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
 
@@ -992,6 +1055,7 @@ def analyze_story_dnd_check(
             player_action=prompt_text,
             scene_tail=_latest_assistant_text(db, int(game.id)),
             location_label=str(getattr(game, "current_location_label", "") or ""),
+            recent_turns=_recent_turns_transcript(db, int(game.id), turns=DND_CHECK_RECENT_TURNS),
             game_id=int(game.id),
         )
     except Exception as exc:
@@ -1035,6 +1099,13 @@ def analyze_story_dnd_check(
         )
 
     hero = state.get("hero") if isinstance(state.get("hero"), dict) else {}
+    # An attack's difficulty is the target's armour class and a creature's save DC is the
+    # creature's own number -- neither is the model's to invent, so both are re-derived here
+    # before the die is ever offered. The table's difficulty dial lands on top.
+    resolved_dc, dc_source = resolve_check_dc(state, check)
+    check["dc"] = resolved_dc
+    check["dc_source"] = dc_source
+    check["difficulty_bonus"] = difficulty_hero_bonus(state.get("difficulty"))
     check["modifier_breakdown"] = build_check_modifier_breakdown(hero, check)
     check["advantage"] = resolve_check_advantage(hero, check)
 

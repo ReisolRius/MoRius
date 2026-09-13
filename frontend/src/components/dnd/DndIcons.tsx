@@ -335,13 +335,20 @@ export function DndLockIcon({ size = 20, sx, title }: GlyphProps) {
   )
 }
 
+// A small stack of coins seen from the side rather than a single face-on disc: at 19px the
+// face-on version was a circle inside a circle with an unreadable squiggle, which is exactly
+// what it looked like. A stack reads as "money" at any size and needs no inner detail.
 export function DndCoinIcon({ size = 20, sx, title }: GlyphProps) {
   return (
-    <Glyph size={size} sx={sx} title={title}>
-      <circle cx="12" cy="12" r="8.4" />
-      <circle cx="12" cy="12" r="5.1" />
-      <path d="M12 9.3v5.4M10.4 10.6h2.4a1.3 1.3 0 0 1 0 2.6h-1.6a1.3 1.3 0 0 0 0 2.6h2.4" />
-    </Glyph>
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: size, height: size, ...(sx as object) }}>
+      {title ? <title>{title}</title> : null}
+      <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <ellipse cx="12" cy="6.6" rx="7" ry="2.9" />
+        <path d="M5 6.6v4.1c0 1.6 3.1 2.9 7 2.9s7-1.3 7-2.9V6.6" />
+        <path d="M5 10.7v4.1c0 1.6 3.1 2.9 7 2.9s7-1.3 7-2.9v-4.1" />
+        <path d="M5 14.8v2.6c0 1.6 3.1 2.9 7 2.9s7-1.3 7-2.9v-2.6" />
+      </g>
+    </SvgIcon>
   )
 }
 

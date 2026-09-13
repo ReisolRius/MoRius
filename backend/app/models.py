@@ -908,6 +908,11 @@ class StoryMessage(Base):
     variant_history_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
     active_variant_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The D&D state as it stood right after this turn's upkeep. Empty for every game that is
+    # not game_mode='dnd'. Undo and redo read it so rolling a turn back also rolls back the
+    # sheet, the quests and the master's notes -- otherwise the story moves and the ledger
+    # does not, which is worse than having no undo at all.
+    dnd_state_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

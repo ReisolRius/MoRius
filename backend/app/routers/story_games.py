@@ -3105,6 +3105,28 @@ def clone_story_game(
         copy_main_hero=payload.copy_main_hero,
     )
 
+    # Carry the hero selection across with the cards. Cloning copied the main-hero card but
+    # left `active_main_hero_card_id` empty, so the new game had a hero nobody had chosen --
+    # visible as an empty character panel until the player deleted the card and re-added it.
+    if payload.copy_main_hero and not getattr(cloned_game, "active_main_hero_card_id", None):
+        source_active_hero_id = int(getattr(source_game, "active_main_hero_card_id", 0) or 0)
+        cloned_hero_id = int(cloned_card_id_map.get(("world_card", source_active_hero_id)) or 0)
+        if not cloned_hero_id:
+            cloned_hero_id = int(
+                db.scalar(
+                    select(StoryWorldCard.id)
+                    .where(
+                        StoryWorldCard.game_id == int(cloned_game.id),
+                        StoryWorldCard.kind == STORY_WORLD_CARD_KIND_MAIN_HERO,
+                    )
+                    .order_by(StoryWorldCard.id.asc())
+                    .limit(1)
+                )
+                or 0
+            )
+        if cloned_hero_id:
+            cloned_game.active_main_hero_card_id = cloned_hero_id
+
     if payload.copy_world and normalize_story_game_mode(cloned_game.game_mode) == STORY_GAME_MODE_VISUAL_NOVEL:
         source_places = db.scalars(
             select(StorySceneBackground)

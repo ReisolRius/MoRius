@@ -887,6 +887,10 @@ export type DndCheckKind = 'ability' | 'skill' | 'saving_throw' | 'attack' | 'de
 export type DndLifeState = 'alive' | 'dying' | 'stable' | 'dead'
 export type DndCombatSide = 'hero' | 'ally' | 'enemy'
 export type DndCombatPhase = 'idle' | 'initiative' | 'active'
+// How readily the table reaches for dice. Taste, not difficulty.
+export type DndRollPolicy = 'story' | 'strict'
+// How hard the world pushes back. Shifts every DC and the hero's own die.
+export type DndDifficulty = 'easy' | 'normal' | 'hard' | 'deadly'
 export type DndAdvantage = 'none' | 'advantage' | 'disadvantage'
 export type DndOutcome = 'critical_success' | 'success' | 'failure' | 'critical_failure'
 
@@ -1001,6 +1005,9 @@ export type DndPendingCheck = {
   modifier_breakdown: DndModifierPart[]
   // Populated when one declaration swings at several foes: a die each, resolved together.
   group_targets: string[]
+  // Where the difficulty came from ("КД цели «Бандит»") when it was derived rather than set.
+  dc_source: string
+  difficulty_bonus: number
 }
 
 export type DndGroupTargetResult = {
@@ -1096,6 +1103,9 @@ export type DndState = {
   last_roll: DndRoll | null
   last_level_up: DndLevelUp | null
   combat: DndCombat
+  roll_policy: DndRollPolicy
+  difficulty: DndDifficulty
+  scene_location: string
   locks?: DndSheetLocks
 }
 
@@ -1130,6 +1140,14 @@ export type DndCatalog = {
   death?: { dc: number; successes: number; failures: number; labels: Record<string, string> }
   combat?: { max_participants: number; sides: DndCombatSide[] }
   group?: { max_targets: number; dc_step: number }
+  roll_policies?: { id: DndRollPolicy; label: string }[]
+  difficulties?: {
+    id: DndDifficulty
+    label: string
+    dc_shift: number
+    hero_bonus: number
+    description: string
+  }[]
   max_level: number
   dice: number[]
   dc_labels: { value: number; label: string }[]

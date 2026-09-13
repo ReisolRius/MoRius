@@ -13,6 +13,7 @@ from app.services.story_dnd import (  # noqa: E402
     DND_OUTCOME_CRITICAL_SUCCESS,
     DND_OUTCOME_FAILURE,
     DND_OUTCOME_SUCCESS,
+    DND_RELATION_SCORES,
     POINT_BUY_BUDGET,
     STORY_DND_PLAY_MODE_SANDBOX,
     ability_modifier,
@@ -213,12 +214,30 @@ class DndRollTests(unittest.TestCase):
 class DndRelationTests(unittest.TestCase):
     def test_score_maps_to_the_right_band(self) -> None:
         self.assertEqual(relation_id_for_score(-100), "hostile")
-        self.assertEqual(relation_id_for_score(-70), "hostile")
+        self.assertEqual(relation_id_for_score(-75), "hostile")
         self.assertEqual(relation_id_for_score(-45), "hateful")
-        self.assertEqual(relation_id_for_score(-10), "wary")
+        self.assertEqual(relation_id_for_score(-20), "wary")
         self.assertEqual(relation_id_for_score(0), "neutral")
         self.assertEqual(relation_id_for_score(40), "friendly")
         self.assertEqual(relation_id_for_score(100), "in_love")
+
+    def test_the_neutral_band_is_symmetric(self) -> None:
+        """One point of friction must not read the same as a whole scene of goodwill.
+
+        The bands used to be lopsided -- a single -1 already showed "Настороженное" while +30
+        was still "Нейтральное" -- which made every relationship look either stuck or
+        suspicious. Neutral now covers the same distance in both directions.
+        """
+        for score in (-15, -8, 0, 8, 15):
+            self.assertEqual(relation_id_for_score(score), "neutral", score)
+        self.assertNotEqual(relation_id_for_score(-16), "neutral")
+        self.assertNotEqual(relation_id_for_score(16), "neutral")
+
+    def test_a_hand_picked_label_round_trips(self) -> None:
+        # Choosing a relation in the NPC editor stores its canonical score, and reading that
+        # score back has to land on the very label the player chose.
+        for relation_id, score in DND_RELATION_SCORES.items():
+            self.assertEqual(relation_id_for_score(score), relation_id, relation_id)
 
 
 class DndUpkeepClampTests(unittest.TestCase):
@@ -315,8 +334,9 @@ class DndUpkeepClampTests(unittest.TestCase):
         next_state, _changes = apply_dnd_turn_upkeep(
             state, {"npcs": [{"name": "Мира", "relation_delta": 999, "is_active": True}]}
         )
+        # The cap is the point: one turn cannot buy devotion, whatever the model asked for.
         self.assertLessEqual(next_state["npcs"][0]["relation_score"], 18)
-        self.assertEqual(next_state["npcs"][0]["relation"], "neutral")
+        self.assertNotIn(next_state["npcs"][0]["relation"], ("loyal", "devoted", "in_love"))
 
     def test_repeated_positive_turns_eventually_change_the_band(self) -> None:
         state = self._state_with_npc()
@@ -324,7 +344,8 @@ class DndUpkeepClampTests(unittest.TestCase):
             state, _changes = apply_dnd_turn_upkeep(
                 state, {"npcs": [{"name": "Мира", "relation_delta": 18, "is_active": True}]}
             )
-        self.assertEqual(state["npcs"][0]["relation"], "friendly")
+        self.assertIn(state["npcs"][0]["relation"], ("friendly", "loyal"))
+        self.assertGreater(state["npcs"][0]["relation_score"], 15)
 
     def test_npc_not_mentioned_leaves_the_stage(self) -> None:
         state = self._state_with_npc()

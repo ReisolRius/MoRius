@@ -17,7 +17,13 @@ import {
   Typography,
 } from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
-import type { DndCatalog, DndNpc, DndState } from '../../types/story'
+import type {
+  DndCatalog,
+  DndDifficulty,
+  DndNpc,
+  DndRollPolicy,
+  DndState,
+} from '../../types/story'
 import BaseDialog from '../dialogs/BaseDialog'
 import {
   DND_ABILITY_ORDER,
@@ -29,7 +35,57 @@ import {
   healthRatio,
   relationColor,
 } from './dndDisplay'
-import { DndConditionIcon, DndPeopleIcon, DndPinIcon, DndScrollIcon, DndSheetIcon, DndStarIcon } from './DndIcons'
+import {
+  DndConditionIcon,
+  DndD20Icon,
+  DndPeopleIcon,
+  DndPinIcon,
+  DndScrollIcon,
+  DndSheetIcon,
+  DndStarIcon,
+} from './DndIcons'
+
+// Both the quest list and the note list grow for the whole campaign. Capping their height
+// and letting them scroll keeps the panel's other sections reachable on a laptop screen.
+const scrollAreaSx = {
+  maxHeight: 216,
+  overflowY: 'auto',
+  pr: 0.4,
+  // The rail's own thin scrollbar treatment, so a scrolling card does not read as a
+  // different kind of surface from the ones around it.
+  scrollbarWidth: 'thin',
+  '&::-webkit-scrollbar': { width: 6 },
+  '&::-webkit-scrollbar-thumb': {
+    borderRadius: 999,
+    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 38%, transparent)',
+  },
+} as const
+
+const ROLL_POLICY_OPTIONS: { id: DndRollPolicy; label: string }[] = [
+  { id: 'story', label: 'Живой отыгрыш' },
+  { id: 'strict', label: 'Жёсткие правила' },
+]
+
+// Green through red, so the row reads as a scale at a glance without needing the labels.
+const DIFFICULTY_COLORS: Record<DndDifficulty, string> = {
+  easy: '#5bb87a',
+  normal: 'var(--morius-accent)',
+  hard: '#e0a93f',
+  deadly: '#e05252',
+}
+
+const FALLBACK_DIFFICULTIES: {
+  id: DndDifficulty
+  label: string
+  dc_shift: number
+  hero_bonus: number
+  description: string
+}[] = [
+  { id: 'easy', label: 'Лёгкая', dc_shift: -3, hero_bonus: 2, description: 'Мир снисходителен, герой везучий.' },
+  { id: 'normal', label: 'Обычная', dc_shift: 0, hero_bonus: 0, description: 'Чистые правила 5e без поправок.' },
+  { id: 'hard', label: 'Сложная', dc_shift: 3, hero_bonus: 0, description: 'Мир требователен, ошибки стоят дорого.' },
+  { id: 'deadly', label: 'Смертельная', dc_shift: 5, hero_bonus: -1, description: 'Выживание не подразумевается.' },
+]
 
 export type DndCodexPanelProps = {
   state: DndState | null
@@ -42,6 +98,8 @@ export type DndCodexPanelProps = {
   onMeetNpc: (npc: DndNpc) => void
   onSaveNpc: (npcKey: string, update: Record<string, unknown>) => void
   onSuggestNpcStats: (npcKey: string) => void
+  onChangeRollPolicy: (policy: DndRollPolicy) => void
+  onChangeDifficulty: (difficulty: DndDifficulty) => void
 }
 
 const cardSx = {
@@ -66,6 +124,52 @@ function SectionHeading({ icon, title, count }: { icon: React.ReactNode; title: 
     </Stack>
   )
 }
+
+// A relationship meter, centred on neutral. Without it the only visible signal was the band
+// label, which does not move for a long time -- so "-4 for lying to her" looked exactly like
+// "nothing happened", and the row's green health bar right underneath read as if the
+// relationship itself were full and fine.
+function RelationBar({ score, color }: { score: number; color: string }) {
+  const clamped = Math.max(-100, Math.min(100, Math.round(score)))
+  const magnitude = Math.abs(clamped) / 2 // half the track is one direction
+  return (
+    <Tooltip disableInteractive title={`Отношение: ${clamped > 0 ? '+' : ''}${clamped} из 100`}>
+      <Box
+        sx={{
+          position: 'relative',
+          height: 5,
+          borderRadius: '999px',
+          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 58%, #000 42%)',
+        }}
+      >
+        {/* The midline is the anchor: it is what makes "slightly negative" legible at a
+            glance instead of looking like a nearly-empty bar. */}
+        <Box
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            insetBlock: -1,
+            left: '50%',
+            width: '1px',
+            backgroundColor: 'color-mix(in srgb, var(--morius-text-secondary) 52%, transparent)',
+          }}
+        />
+        <Box
+          sx={{
+            position: 'absolute',
+            insetBlock: 0,
+            left: clamped >= 0 ? '50%' : `${50 - magnitude}%`,
+            width: `${magnitude}%`,
+            borderRadius: '999px',
+            backgroundColor: color,
+            transition: 'width 480ms cubic-bezier(0.22, 1, 0.36, 1), left 480ms cubic-bezier(0.22, 1, 0.36, 1)',
+          }}
+        />
+      </Box>
+    </Tooltip>
+  )
+}
+
 
 function HealthBar({ current, max }: { current: number; max: number }) {
   const ratio = healthRatio(current, max)
@@ -175,13 +279,42 @@ function NpcRow({
                 ур. {npc.level}
               </Typography>
             </Stack>
-            <Typography
-              noWrap
-              sx={{ color, fontSize: '0.74rem', fontWeight: 900, lineHeight: 1.2, textAlign: 'left' }}
-            >
-              Отношение: {relationLabel}
-            </Typography>
-            <HealthBar current={npc.hp.current} max={npc.hp.max} />
+            <Stack direction="row" spacing={0.5} alignItems="baseline" sx={{ width: '100%' }}>
+              <Typography
+                noWrap
+                sx={{ color, fontSize: '0.74rem', fontWeight: 900, lineHeight: 1.2, textAlign: 'left', flex: 1 }}
+              >
+                {relationLabel}
+              </Typography>
+              <Typography
+                sx={{
+                  color: 'var(--morius-text-secondary)',
+                  fontSize: '0.68rem',
+                  fontWeight: 800,
+                  lineHeight: 1.2,
+                }}
+              >
+                {npc.relation_score > 0 ? '+' : ''}
+                {npc.relation_score}
+              </Typography>
+            </Stack>
+            <RelationBar score={npc.relation_score} color={color} />
+            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ width: '100%' }}>
+              <Typography
+                sx={{
+                  color: 'var(--morius-text-secondary)',
+                  fontSize: '0.62rem',
+                  fontWeight: 800,
+                  lineHeight: 1,
+                  minWidth: 26,
+                }}
+              >
+                Хиты
+              </Typography>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <HealthBar current={npc.hp.current} max={npc.hp.max} />
+              </Box>
+            </Stack>
             {npc.role ? (
               <Typography
                 noWrap
@@ -503,6 +636,8 @@ export default function DndCodexPanel({
   onMeetNpc,
   onSaveNpc,
   onSuggestNpcStats,
+  onChangeRollPolicy,
+  onChangeDifficulty,
 }: DndCodexPanelProps) {
   const [expandedNpcKey, setExpandedNpcKey] = useState<string | null>(null)
   const [statsNpcKey, setStatsNpcKey] = useState<string | null>(null)
@@ -517,6 +652,14 @@ export default function DndCodexPanel({
   const finishedQuests = useMemo(
     () => (state?.quests ?? []).filter((quest) => quest.status !== 'active'),
     [state],
+  )
+  const difficultyOptions = useMemo(
+    () => (catalog?.difficulties?.length ? catalog.difficulties : FALLBACK_DIFFICULTIES),
+    [catalog],
+  )
+  const activeDifficulty = useMemo(
+    () => difficultyOptions.find((item) => item.id === (state?.difficulty ?? 'normal')) ?? null,
+    [difficultyOptions, state?.difficulty],
   )
   const statsNpc = useMemo(
     () => npcs.find((npc) => npc.key === statsNpcKey) ?? null,
@@ -539,6 +682,140 @@ export default function DndCodexPanel({
         <Typography sx={{ color: '#e07a7a', fontSize: '0.78rem', fontWeight: 800 }}>{error}</Typography>
       ) : null}
 
+      {/* --- Table settings ------------------------------------------------------------- */}
+      {/* Two dials that change how the game feels rather than what it contains, so they live
+          here on the dice tab instead of in the character sheet. The first decides how often
+          a die comes out at all; the second decides how hard the world pushes back. */}
+      <Box sx={cardSx}>
+        <SectionHeading icon={<DndD20Icon size={17} />} title="Правила стола" />
+
+        <Typography
+          sx={{
+            color: 'var(--morius-text-secondary)',
+            fontSize: '0.66rem',
+            fontWeight: 900,
+            letterSpacing: '0.05em',
+            mb: 0.5,
+          }}
+        >
+          КОГДА БРОСАТЬ КУБИК
+        </Typography>
+        <Stack
+          direction="row"
+          spacing={0.4}
+          sx={{
+            p: 0.35,
+            mb: 0.4,
+            borderRadius: '12px',
+            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
+          }}
+        >
+          {ROLL_POLICY_OPTIONS.map((option) => {
+            const isActive = (state.roll_policy ?? 'story') === option.id
+            return (
+              <Button
+                key={option.id}
+                onClick={() => onChangeRollPolicy(option.id)}
+                sx={{
+                  flex: 1,
+                  minHeight: 32,
+                  borderRadius: '9px',
+                  textTransform: 'none',
+                  fontSize: '0.76rem',
+                  fontWeight: 900,
+                  color: isActive ? '#11070A !important' : 'var(--morius-text-secondary) !important',
+                  backgroundColor: isActive ? 'var(--morius-accent)' : 'transparent',
+                  '&:hover': {
+                    backgroundColor: isActive
+                      ? 'var(--morius-accent)'
+                      : 'color-mix(in srgb, var(--morius-accent) 16%, transparent)',
+                  },
+                }}
+              >
+                {option.label}
+              </Button>
+            )
+          })}
+        </Stack>
+        <Typography
+          sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.75rem', lineHeight: 1.4, mb: 1.1 }}
+        >
+          {(state.roll_policy ?? 'story') === 'strict'
+            ? 'Жёсткие правила: почти любое спорное действие идёт через кубик, включая первую попытку уговорить или соврать.'
+            : 'Живой отыгрыш: разговор мастер ведёт по характеру персонажа, а кубик выходит, когда вы давите после отказа или рискуете по-настоящему.'}
+        </Typography>
+
+        <Typography
+          sx={{
+            color: 'var(--morius-text-secondary)',
+            fontSize: '0.66rem',
+            fontWeight: 900,
+            letterSpacing: '0.05em',
+            mb: 0.5,
+          }}
+        >
+          СЛОЖНОСТЬ
+        </Typography>
+        <Stack
+          direction="row"
+          spacing={0.35}
+          sx={{
+            p: 0.35,
+            mb: 0.4,
+            borderRadius: '12px',
+            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
+          }}
+        >
+          {difficultyOptions.map((option) => {
+            const isActive = (state.difficulty ?? 'normal') === option.id
+            return (
+              <Tooltip key={option.id} disableInteractive title={option.description}>
+                <Button
+                  onClick={() => onChangeDifficulty(option.id)}
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    minHeight: 30,
+                    px: 0.4,
+                    borderRadius: '9px',
+                    textTransform: 'none',
+                    fontSize: '0.7rem',
+                    fontWeight: 900,
+                    color: isActive ? '#11070A !important' : 'var(--morius-text-secondary) !important',
+                    backgroundColor: isActive ? DIFFICULTY_COLORS[option.id] : 'transparent',
+                    '&:hover': {
+                      backgroundColor: isActive
+                        ? DIFFICULTY_COLORS[option.id]
+                        : `color-mix(in srgb, ${DIFFICULTY_COLORS[option.id]} 22%, transparent)`,
+                    },
+                  }}
+                >
+                  {option.label}
+                </Button>
+              </Tooltip>
+            )
+          })}
+        </Stack>
+        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.75rem', lineHeight: 1.4 }}>
+          {activeDifficulty
+            ? `${activeDifficulty.description}${
+                activeDifficulty.dc_shift || activeDifficulty.hero_bonus
+                  ? ` (${[
+                      activeDifficulty.dc_shift
+                        ? `сложность ${activeDifficulty.dc_shift > 0 ? '+' : ''}${activeDifficulty.dc_shift}`
+                        : '',
+                      activeDifficulty.hero_bonus
+                        ? `к броскам героя ${activeDifficulty.hero_bonus > 0 ? '+' : ''}${activeDifficulty.hero_bonus}`
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(', ')})`
+                  : ''
+              }`
+            : 'Чистые правила 5e без поправок.'}
+        </Typography>
+      </Box>
+
       {/* --- Place --------------------------------------------------------------------- */}
       <Box sx={cardSx}>
         <SectionHeading icon={<DndPinIcon size={17} />} title="Место" />
@@ -548,6 +825,9 @@ export default function DndCodexPanel({
       </Box>
 
       {/* --- Quests -------------------------------------------------------------------- */}
+      {/* A quest is a promise the player made, so it reads as a checklist: a marker you can
+          scan down, the goal in bold, the small print under it. Finished ones stay visible
+          but stop competing for attention. */}
       <Box sx={cardSx}>
         <SectionHeading
           icon={<DndScrollIcon size={17} />}
@@ -555,46 +835,98 @@ export default function DndCodexPanel({
           count={activeQuests.length ? String(activeQuests.length) : undefined}
         />
         {activeQuests.length ? (
-          <Stack spacing={0.65}>
+          <Stack spacing={0.5} sx={scrollAreaSx}>
             {activeQuests.map((quest) => (
-              <Box key={quest.title}>
-                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.84rem', fontWeight: 900, lineHeight: 1.3 }}>
-                  {quest.title}
-                </Typography>
-                {quest.detail ? (
-                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.4 }}>
-                    {quest.detail}
+              <Stack
+                key={quest.title}
+                direction="row"
+                spacing={0.7}
+                sx={{
+                  px: 0.85,
+                  py: 0.7,
+                  borderRadius: '11px',
+                  borderLeft: '3px solid var(--morius-accent)',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 76%, transparent)',
+                }}
+              >
+                <Box
+                  aria-hidden
+                  sx={{
+                    mt: '5px',
+                    width: 6,
+                    height: 6,
+                    flexShrink: 0,
+                    borderRadius: '50%',
+                    border: '2px solid var(--morius-accent)',
+                  }}
+                />
+                <Stack spacing={0.15} sx={{ minWidth: 0 }}>
+                  <Typography
+                    sx={{ color: 'var(--morius-title-text)', fontSize: '0.84rem', fontWeight: 900, lineHeight: 1.3 }}
+                  >
+                    {quest.title}
                   </Typography>
-                ) : null}
-              </Box>
+                  {quest.detail ? (
+                    <Typography
+                      sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.77rem', lineHeight: 1.4 }}
+                    >
+                      {quest.detail}
+                    </Typography>
+                  ) : null}
+                </Stack>
+              </Stack>
             ))}
           </Stack>
         ) : (
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontStyle: 'italic' }}>
-            Заданий пока нет
+            Заданий пока нет — их отмечает мастер по ходу истории
           </Typography>
         )}
         {finishedQuests.length ? (
-          <Stack spacing={0.3} sx={{ mt: 0.85, pt: 0.7, borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 60%, transparent)' }}>
+          <Stack
+            spacing={0.35}
+            sx={{
+              mt: 0.85,
+              pt: 0.7,
+              borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 60%, transparent)',
+            }}
+          >
             {finishedQuests.map((quest) => (
-              <Typography
-                key={quest.title}
-                sx={{
-                  color: quest.status === 'done' ? '#5bb87a' : '#e0a93f',
-                  fontSize: '0.76rem',
-                  fontWeight: 800,
-                  textDecoration: 'line-through',
-                  textDecorationColor: 'color-mix(in srgb, currentColor 44%, transparent)',
-                }}
-              >
-                {quest.title}
-              </Typography>
+              <Stack key={quest.title} direction="row" spacing={0.55} alignItems="center">
+                <Box
+                  component="span"
+                  aria-hidden
+                  sx={{
+                    color: quest.status === 'done' ? '#5bb87a' : '#e0a93f',
+                    fontSize: '0.8rem',
+                    fontWeight: 950,
+                    lineHeight: 1,
+                  }}
+                >
+                  {quest.status === 'done' ? '✓' : '✕'}
+                </Box>
+                <Typography
+                  noWrap
+                  sx={{
+                    color: 'var(--morius-text-secondary)',
+                    fontSize: '0.76rem',
+                    fontWeight: 800,
+                    textDecoration: 'line-through',
+                    textDecorationColor: 'color-mix(in srgb, currentColor 44%, transparent)',
+                  }}
+                >
+                  {quest.title}
+                </Typography>
+              </Stack>
             ))}
           </Stack>
         ) : null}
       </Box>
 
       {/* --- Master notes --------------------------------------------------------------- */}
+      {/* Newest first, each stamped with the turn it came from, and the whole list scrolls:
+          the master accumulates these forever and an unbounded column pushed the character
+          list off the screen entirely. */}
       <Box sx={cardSx}>
         <SectionHeading
           icon={<DndSheetIcon size={17} />}
@@ -602,14 +934,42 @@ export default function DndCodexPanel({
           count={state.notes.length ? String(state.notes.length) : undefined}
         />
         {state.notes.length ? (
-          <Stack spacing={0.55}>
+          <Stack spacing={0.45} sx={scrollAreaSx}>
             {state.notes.map((note, index) => (
-              <Typography
+              <Stack
                 key={`${note.turn}-${index}`}
-                sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', lineHeight: 1.45 }}
+                direction="row"
+                spacing={0.7}
+                sx={{
+                  px: 0.85,
+                  py: 0.6,
+                  borderRadius: '10px',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 70%, transparent)',
+                }}
               >
-                {note.text}
-              </Typography>
+                {note.turn > 0 ? (
+                  <Tooltip disableInteractive title={`Ход ${note.turn}`}>
+                    <Typography
+                      sx={{
+                        flexShrink: 0,
+                        minWidth: 22,
+                        color: 'var(--morius-accent)',
+                        fontSize: '0.66rem',
+                        fontWeight: 950,
+                        lineHeight: 1.7,
+                        opacity: 0.85,
+                      }}
+                    >
+                      #{note.turn}
+                    </Typography>
+                  </Tooltip>
+                ) : null}
+                <Typography
+                  sx={{ color: 'var(--morius-text-primary)', fontSize: '0.79rem', lineHeight: 1.45 }}
+                >
+                  {note.text}
+                </Typography>
+              </Stack>
             ))}
           </Stack>
         ) : (

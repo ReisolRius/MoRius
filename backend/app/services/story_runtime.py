@@ -2665,11 +2665,14 @@ def _stream_story_response(
                     current_dnd_state,
                     upkeep_payload or {},
                     turn_index=int(turn_index or 0),
+                    location_label=str(getattr(game, "current_location_label", "") or ""),
                 )
                 next_dnd_state["turn_count"] = max(int(current_dnd_state.get("turn_count") or 0), 0) + 1
                 if isinstance(next_dnd_state.get("last_roll"), dict) and dnd_consumed_roll is not None:
                     next_dnd_state["last_roll"]["consumed"] = True
                 dnd_state_for_client = set_game_dnd_state(game, next_dnd_state)
+                # Stamp the turn with the sheet it produced, so undo can put it back.
+                assistant_message.dnd_state_snapshot = str(getattr(game, "dnd_state_payload", "") or "")
                 deps.touch_story_game(game)
                 commit_with_retry(db)
                 logger.info(
@@ -3748,7 +3751,15 @@ def _generate_story_response_locked(
             raw_roll = dnd_state.get("last_roll")
             # A roll is consumed by exactly one turn. Anything already spent stays in the
             # state for the UI but never reaches the narrator twice.
-            if isinstance(raw_roll, dict) and not raw_roll.get("consumed"):
+            #
+            # A reroll is the exception, and deliberately so: the player is asking for a
+            # different *telling* of the same beat, not a different outcome. Re-reading the
+            # spent roll keeps a failed stealth check failed no matter how many times the
+            # prose is regenerated -- rerolling until the dice change would make the dice
+            # pointless. Undoing the whole turn and replaying it does produce a new check,
+            # which is the honest way to get another shot at it.
+            is_reroll = bool(getattr(payload, "reroll_last_response", False))
+            if isinstance(raw_roll, dict) and (is_reroll or not raw_roll.get("consumed")):
                 dnd_pending_roll = raw_roll
             effective_instruction_cards = [
                 *effective_instruction_cards,

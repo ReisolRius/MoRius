@@ -35,6 +35,7 @@ from app.services.story_dnd import (
     award_experience,
     clamp_relation_score,
     create_empty_dnd_combat,
+    expire_dnd_conditions,
     normalize_dnd_combat,
     normalize_dnd_combat_side,
     normalize_dnd_condition_id,
@@ -193,11 +194,22 @@ def _apply_inventory(state: dict[str, Any], payload: dict[str, Any]) -> list[str
     return [f"inventory {len(current)}->{len(next_inventory)}"]
 
 
-def _apply_conditions(state: dict[str, Any], payload: dict[str, Any]) -> list[str]:
+def _apply_conditions(state: dict[str, Any], payload: dict[str, Any], *, turn_index: int = 0) -> list[str]:
     conditions_update = _as_dict(payload.get("conditions"))
-    if not conditions_update.get("should_update"):
-        return []
     hero = _as_dict(state.get("hero"))
+    changes: list[str] = []
+
+    # Time-out first, and unconditionally. A condition the narrator forgot to mention again is
+    # the common case, not the rare one -- without this the hero stays "Опутан" three scenes
+    # after the hand let go, which is the bug the player actually notices.
+    survivors, expired = expire_dnd_conditions(hero.get("conditions"), current_turn=int(turn_index or 0))
+    if expired:
+        hero["conditions"] = survivors
+        state["hero"] = hero
+        changes.append("conditions expired: " + ", ".join(expired))
+
+    if not conditions_update.get("should_update"):
+        return changes
     current = [item for item in _as_list(hero.get("conditions")) if isinstance(item, dict)]
     removed_ids = {
         normalize_dnd_condition_id(item)
@@ -215,13 +227,13 @@ def _apply_conditions(state: dict[str, Any], payload: dict[str, Any]) -> list[st
             raw_added.get("note") if isinstance(raw_added, dict) else "", max_length=120
         )
         kept = [item for item in kept if normalize_dnd_condition_id(item.get("id")) != condition_id]
-        kept.append({"id": condition_id, "note": note})
+        kept.append({"id": condition_id, "note": note, "turn": max(int(turn_index or 0), 0)})
     next_conditions = normalize_dnd_conditions(kept)
     if next_conditions == normalize_dnd_conditions(current):
-        return []
+        return changes
     hero["conditions"] = next_conditions
     state["hero"] = hero
-    return [f"conditions={len(next_conditions)}"]
+    return changes + [f"conditions={len(next_conditions)}"]
 
 
 def _apply_experience(state: dict[str, Any], payload: dict[str, Any]) -> list[str]:
@@ -414,12 +426,34 @@ def _find_npc_entry(npcs: list[dict[str, Any]], *, name: str, world_card_id: Any
     return None
 
 
-def _apply_npcs(state: dict[str, Any], payload: dict[str, Any]) -> list[str]:
+def _apply_npcs(
+    state: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    location_label: str = "",
+) -> list[str]:
     updates = [item for item in _as_list(payload.get("npcs")) if isinstance(item, dict)]
-    if not updates:
-        return []
     npcs = [item for item in _as_list(state.get("npcs")) if isinstance(item, dict)]
     changes: list[str] = []
+
+    # Leaving a place empties it. Without this the stage flag was self-sustaining: an NPC left
+    # marked present goes into the next prompt as "NPC В СЦЕНЕ", the narrator dutifully gives
+    # them a line, and the upkeep marks them present again -- which is how the archmage the
+    # hero said goodbye to on a city street ends up speaking from the catacomb doorway.
+    next_location = normalize_single_line(location_label, max_length=160)
+    previous_location = normalize_single_line(state.get("scene_location"), max_length=160)
+    if next_location and next_location.casefold() != previous_location.casefold():
+        departed = [npc.get("name") for npc in npcs if npc.get("is_active")]
+        for npc in npcs:
+            npc["is_active"] = False
+        if departed:
+            changes.append("scene changed, stage cleared: " + ", ".join(str(name) for name in departed))
+    if next_location:
+        state["scene_location"] = next_location
+
+    if not updates:
+        state["npcs"] = npcs
+        return changes
     touched_keys: set[str] = set()
 
     for update in updates:
@@ -723,6 +757,7 @@ def apply_dnd_turn_upkeep(
     payload: dict[str, Any],
     *,
     turn_index: int = 0,
+    location_label: str = "",
 ) -> tuple[dict[str, Any], list[str]]:
     """Apply one upkeep payload. Returns the normalized next state and a change log."""
     working = normalize_dnd_state(state)
@@ -731,12 +766,12 @@ def apply_dnd_turn_upkeep(
     changes: list[str] = []
     changes.extend(_apply_hero_vitals(working, payload))
     changes.extend(_apply_inventory(working, payload))
-    changes.extend(_apply_conditions(working, payload))
+    changes.extend(_apply_conditions(working, payload, turn_index=turn_index))
     changes.extend(_apply_experience(working, payload))
     changes.extend(_apply_environment(working, payload))
     changes.extend(_apply_quests(working, payload))
     changes.extend(_apply_master_notes(working, payload, turn_index=turn_index))
-    changes.extend(_apply_npcs(working, payload))
+    changes.extend(_apply_npcs(working, payload, location_label=location_label))
     # Combat reads the hit points every applier above it has already written, so it runs last.
     changes.extend(_apply_combat(working, payload))
     if str(_as_dict(working.get("hero")).get("life_state") or "") == DND_LIFE_STATE_DEAD:

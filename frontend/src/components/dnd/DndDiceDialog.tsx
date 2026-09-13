@@ -9,7 +9,7 @@
 // driven by one interval, then a settle. No library, nothing to load, and it degrades to a
 // plain number if `prefers-reduced-motion` is set.
 
-import { Box, Button, Stack, Typography, useMediaQuery } from '@mui/material'
+import { Box, Button, Stack, Tooltip, Typography, useMediaQuery } from '@mui/material'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DndCatalog, DndPendingCheck, DndRoll } from '../../types/story'
 import BaseDialog from '../dialogs/BaseDialog'
@@ -39,8 +39,8 @@ export type DndDiceDialogProps = {
   onContinue: () => void
 }
 
-const TUMBLE_MS = 1150
-const SCRAMBLE_INTERVAL_MS = 62
+const TUMBLE_MS = 1450
+const SCRAMBLE_INTERVAL_MS = 52
 
 type Phase = 'ready' | 'tumbling' | 'settled'
 
@@ -58,6 +58,7 @@ function DieFace({
   accent: string
 }) {
   const isTumbling = phase === 'tumbling' && !reducedMotion
+  const isSettled = phase === 'settled'
   return (
     <Box
       sx={{
@@ -68,8 +69,57 @@ function DieFace({
         alignItems: 'center',
         justifyContent: 'center',
         mx: 'auto',
+        // The die falls into frame rather than appearing in it, which is what makes the
+        // throw feel like a throw instead of a spinner.
+        animation: isTumbling ? `morius-dice-toss ${TUMBLE_MS}ms cubic-bezier(0.3, 0.7, 0.3, 1) forwards` : 'none',
+        '@keyframes morius-dice-toss': {
+          '0%': { transform: 'translateY(-18px) scale(0.86)' },
+          '18%': { transform: 'translateY(6px) scale(1.06)' },
+          '42%': { transform: 'translateY(-10px) scale(0.97)' },
+          '68%': { transform: 'translateY(4px) scale(1.02)' },
+          '86%': { transform: 'translateY(-2px) scale(0.995)' },
+          '100%': { transform: 'translateY(0) scale(1)' },
+        },
       }}
     >
+      {/* A shadow under the die, tightening as it lands: the cue that sells the drop. */}
+      <Box
+        aria-hidden
+        sx={{
+          position: 'absolute',
+          bottom: 2,
+          left: '50%',
+          width: 72,
+          height: 9,
+          borderRadius: '50%',
+          transform: 'translateX(-50%)',
+          background: 'radial-gradient(ellipse, rgba(0,0,0,0.5), transparent 72%)',
+          animation: isTumbling ? `morius-dice-shadow ${TUMBLE_MS}ms cubic-bezier(0.3, 0.7, 0.3, 1) forwards` : 'none',
+          '@keyframes morius-dice-shadow': {
+            '0%': { opacity: 0.18, transform: 'translateX(-50%) scaleX(0.6)' },
+            '18%': { opacity: 0.55, transform: 'translateX(-50%) scaleX(1.08)' },
+            '42%': { opacity: 0.3, transform: 'translateX(-50%) scaleX(0.78)' },
+            '100%': { opacity: 0.46, transform: 'translateX(-50%) scaleX(1)' },
+          },
+        }}
+      />
+      {/* A ring that snaps outward the moment the number lands. */}
+      {isSettled ? (
+        <Box
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            inset: 6,
+            borderRadius: '50%',
+            border: `2px solid ${accent}`,
+            animation: 'morius-dice-impact 620ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
+            '@keyframes morius-dice-impact': {
+              from: { opacity: 0.85, transform: 'scale(0.72)' },
+              to: { opacity: 0, transform: 'scale(1.45)' },
+            },
+          }}
+        />
+      ) : null}
       {/* Glow behind the die, brightening as the result settles. */}
       <Box
         aria-hidden
@@ -93,12 +143,25 @@ function DieFace({
           justifyContent: 'center',
           color: accent,
           transformStyle: 'preserve-3d',
-          animation: isTumbling ? `morius-dice-tumble ${TUMBLE_MS}ms cubic-bezier(0.34, 0.62, 0.3, 1) forwards` : 'none',
+          animation: isTumbling
+            ? `morius-dice-tumble ${TUMBLE_MS}ms cubic-bezier(0.16, 0.78, 0.28, 1) forwards`
+            : isSettled
+              ? 'morius-dice-land 440ms cubic-bezier(0.22, 1, 0.36, 1)'
+              : 'none',
+          // Spins fast, then visibly *slows* into its final face instead of stopping dead --
+          // the easing does the work, the keyframes only keep the rotation uneven enough to
+          // look like a physical object rather than a loading spinner.
           '@keyframes morius-dice-tumble': {
-            '0%': { transform: 'rotateX(0deg) rotateY(0deg) scale(1)' },
-            '30%': { transform: 'rotateX(420deg) rotateY(260deg) scale(1.12)' },
-            '65%': { transform: 'rotateX(760deg) rotateY(540deg) scale(0.94)' },
-            '100%': { transform: 'rotateX(1080deg) rotateY(720deg) scale(1)' },
+            '0%': { transform: 'rotateX(0deg) rotateY(0deg) rotateZ(0deg)' },
+            '25%': { transform: 'rotateX(520deg) rotateY(300deg) rotateZ(40deg)' },
+            '55%': { transform: 'rotateX(900deg) rotateY(660deg) rotateZ(-25deg)' },
+            '80%': { transform: 'rotateX(1120deg) rotateY(860deg) rotateZ(12deg)' },
+            '100%': { transform: 'rotateX(1188deg) rotateY(900deg) rotateZ(0deg)' },
+          },
+          '@keyframes morius-dice-land': {
+            '0%': { transform: 'scale(1.14)' },
+            '55%': { transform: 'scale(0.95)' },
+            '100%': { transform: 'scale(1)' },
           },
         }}
       >
@@ -113,6 +176,15 @@ function DieFace({
             textShadow: '0 2px 14px rgba(0,0,0,0.62)',
             transform: phase === 'settled' ? 'scale(1)' : 'scale(0.92)',
             transition: 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)',
+            // While tumbling the scrambling digits stay dim, so the real number arriving
+            // reads as an event rather than one more frame of noise.
+            opacity: isTumbling ? 0.72 : 1,
+            animation: isSettled ? 'morius-dice-number 520ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none',
+            '@keyframes morius-dice-number': {
+              '0%': { transform: 'scale(1.5)', opacity: 0.2 },
+              '45%': { transform: 'scale(0.92)', opacity: 1 },
+              '100%': { transform: 'scale(1)', opacity: 1 },
+            },
           }}
         >
           {value ?? `d${die}`}
@@ -286,6 +358,11 @@ export default function DndDiceDialog({
               {activeCheck.reason}
             </Typography>
           ) : null}
+          {activeCheck?.dc_source ? (
+            <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.74rem', fontWeight: 800 }}>
+              {activeCheck.dc_source}
+            </Typography>
+          ) : null}
         </Stack>
 
         <Stack direction="row" spacing={0.6} justifyContent="center" flexWrap="wrap" useFlexGap>
@@ -297,15 +374,24 @@ export default function DndDiceDialog({
               backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 86%, transparent)',
             }}
           >
-            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.8rem', fontWeight: 900 }}>
-              Сложность {dc}
-              {difficultyLabel(catalog, dc) ? (
-                <Box component="span" sx={{ color: 'var(--morius-text-secondary)', fontWeight: 700 }}>
-                  {' · '}
-                  {difficultyLabel(catalog, dc)}
-                </Box>
-              ) : null}
-            </Typography>
+            <Tooltip
+              disableInteractive
+              title={
+                activeCheck?.dc_source
+                  ? `Сложность взята не с потолка: ${activeCheck.dc_source}`
+                  : 'Сложность назначил мастер по ситуации'
+              }
+            >
+              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.8rem', fontWeight: 900 }}>
+                Сложность {dc}
+                {difficultyLabel(catalog, dc) ? (
+                  <Box component="span" sx={{ color: 'var(--morius-text-secondary)', fontWeight: 700 }}>
+                    {' · '}
+                    {difficultyLabel(catalog, dc)}
+                  </Box>
+                ) : null}
+              </Typography>
+            </Tooltip>
           </Box>
           {advantage !== 'none' ? (
             <Box

@@ -30,9 +30,11 @@ import type {
   StoryGraphSuggestion,
   StoryGameMode,
   DndCatalog,
+  DndDifficulty,
   DndPendingCheck,
   DndPlayMode,
   DndRoll,
+  DndRollPolicy,
   DndState,
   StoryImageModelId,
   StoryMemoryOptimizationMode,
@@ -4166,6 +4168,30 @@ export async function discardStoryDndCheck(payload: {
   return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/check`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${payload.token}` },
+  })
+}
+
+export async function updateStoryDndRollPolicy(payload: {
+  token: string
+  gameId: number
+  rollPolicy: DndRollPolicy
+}): Promise<StoryDndStateResponse> {
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/roll-policy`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({ roll_policy: payload.rollPolicy }),
+  })
+}
+
+export async function updateStoryDndDifficulty(payload: {
+  token: string
+  gameId: number
+  difficulty: DndDifficulty
+}): Promise<StoryDndStateResponse> {
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/difficulty`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({ difficulty: payload.difficulty }),
   })
 }
 

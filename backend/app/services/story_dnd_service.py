@@ -39,12 +39,14 @@ from app.services.story_dnd import (
     DND_TIME_LABELS,
     DND_WEATHER_LABELS,
     DND_XP_AWARD_BUCKETS,
+    STORY_DND_ROLL_POLICY_STRICT,
     ability_modifier,
     describe_combat_for_prompt,
     describe_environment,
     describe_hero_for_prompt,
     normalize_dnd_class_id,
     normalize_dnd_race_id,
+    normalize_dnd_roll_policy,
 )
 
 
@@ -61,6 +63,12 @@ DND_NPC_STATS_MAX_OUTPUT_TOKENS = 420
 # Input caps. The narrator's own context already carries the story; these modules only need
 # the tail of it, and paying for more would push a one-sol call past its margin.
 DND_SCENE_TAIL_MAX_CHARS = 2_400
+# How much of the conversation the judge sees. One message was not enough: "иду к реке"
+# right after an NPC hands out an errand reads as fleeing when the errand is invisible.
+# A few exchanges tell "leaving on a job" from "running away" without turning a one-sol
+# module into a context-sized one.
+DND_CHECK_RECENT_TURNS = 3
+DND_CHECK_HISTORY_MAX_CHARS = 2_600
 DND_PLAYER_ACTION_MAX_CHARS = 1_200
 DND_NPC_DESCRIPTION_MAX_CHARS = 1_200
 
@@ -137,6 +145,7 @@ _UPKEEP_PAYLOAD_KEYS = frozenset(
         "combat",
     }
 )
+
 
 class DndCheckPayload(BaseModel):
     """Whether the player's declared action needs a roll, and which one."""
@@ -569,12 +578,40 @@ def build_local_check_fallback(player_action: Any) -> dict[str, Any]:
     return {"needs_check": False}
 
 
+def _describe_active_npcs_for_check(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Who is in the scene, and what kind of person they are.
+
+    Difficulty for a social action is mostly a fact about the other person: a warm innkeeper
+    who already likes the hero is not the same DC as a cold archmage who caught them stealing.
+    Without the character notes the judge was pricing every conversation the same.
+    """
+    result: list[dict[str, Any]] = []
+    for npc in (state.get("npcs") if isinstance(state.get("npcs"), list) else []):
+        if not isinstance(npc, dict) or not npc.get("is_active"):
+            continue
+        result.append(
+            {
+                "name": npc.get("name"),
+                "role": npc.get("role"),
+                "level": npc.get("level"),
+                "relation": npc.get("relation"),
+                "relation_score": npc.get("relation_score"),
+                "relation_note": npc.get("relation_note"),
+                "character": _head(npc.get("notes"), 300),
+            }
+        )
+        if len(result) >= 6:
+            break
+    return result
+
+
 def _build_check_messages(
     *,
     state: dict[str, Any],
     player_action: str,
     scene_tail: str,
     location_label: str,
+    recent_turns: str = "",
 ) -> list[dict[str, str]]:
     hero = state.get("hero") if isinstance(state.get("hero"), dict) else {}
     abilities = hero.get("abilities") if isinstance(hero.get("abilities"), dict) else {}
@@ -582,11 +619,28 @@ def _build_check_messages(
         f"{ability_id}={abilities.get(ability_id, 10)}({ability_modifier(abilities.get(ability_id)):+d})"
         for ability_id in ABILITY_IDS
     )
-    active_npcs = [
-        {"name": npc.get("name"), "role": npc.get("role"), "relation": npc.get("relation")}
-        for npc in (state.get("npcs") if isinstance(state.get("npcs"), list) else [])
-        if isinstance(npc, dict) and npc.get("is_active")
-    ][:6]
+    active_npcs = _describe_active_npcs_for_check(state)
+    policy = normalize_dnd_roll_policy(state.get("roll_policy"))
+    policy_block = (
+        (
+            "РЕЖИМ СТОЛА: ЖЁСТКИЕ ПРАВИЛА. Проверка нужна почти на любое спорное действие, "
+            "включая первую попытку убеждения, обмана и запугивания. Сомневаешься — назначай "
+            "бросок."
+        )
+        if policy == STORY_DND_ROLL_POLICY_STRICT
+        else (
+            "РЕЖИМ СТОЛА: ЖИВОЙ ОТЫГРЫШ (включён по умолчанию). Кубик — крайняя мера, а не "
+            "первая.\n"
+            "- Первая попытка поговорить, попросить, объясниться, извиниться, поторговаться "
+            "или что-то предложить НЕ требует броска: рассказчик отыграет ответ по характеру "
+            "NPC и его отношению к герою. Верни needs_check=false.\n"
+            "- Бросок на убеждение/обман/запугивание нужен ТОЛЬКО если игрок давит после "
+            "отказа, лжёт о проверяемом факте, требует чего-то против интересов NPC или "
+            "ставка по-настоящему высока (жизнь, свобода, большие деньги).\n"
+            "- Физический риск, воровство, скрытность, взлом, атака и сопротивление эффекту "
+            "по-прежнему требуют броска всегда."
+        )
+    )
     return [
         {
             "role": "system",
@@ -597,8 +651,36 @@ def _build_check_messages(
                 "\n"
                 "ГЛАВНОЕ ПРАВИЛО: текст игрока — это ПОПЫТКА, а не факт. Если игрок написал в "
                 "прошедшем времени («украл», «убедил», «зарезал», «проскользнул незаметно»), это "
-                "всё равно заявка на попытку, и она почти всегда требует броска. Формулировка "
-                "«получилось» НЕ отменяет проверку.\n"
+                "всё равно заявка на попытку. Формулировка «получилось» НЕ отменяет проверку.\n"
+                "\n"
+                f"{policy_block}\n"
+                "\n"
+                "КОНТЕКСТ ОБЯЗАТЕЛЕН. Тебе дана история последних ходов — прочитай её прежде "
+                "чем решать: одна и та же фраза значит разное в разных сценах.\n"
+                "- Герой уходит ПОСЛЕ полученного задания или законченного разговора — это "
+                "просто переход, needs_check=false. Это НЕ побег.\n"
+                "- Побег требует броска только если герою прямо мешают уйти: держат, "
+                "преследуют, заперли, угрожают.\n"
+                "- Действие, которое NPC только что сам разрешил или предложил, проверки не "
+                "требует.\n"
+                "- Герой возвращает украденное, отдаёт вещь, платит, выполняет просьбу — это "
+                "не воровство и не обман, броска не нужно.\n"
+                "\n"
+                "СЛОЖНОСТЬ ЗАВИСИТ ОТ СОБЕСЕДНИКА. Тебе даны характеры NPC в сцене и их "
+                "отношение к герою. Добрый, открытый или уже расположенный NPC — СЛ ниже "
+                "(8-12). Холодный, подозрительный, враждебный или высокопоставленный — выше "
+                "(16-22). Отношение friendly и выше даёт -3 к СЛ, wary +3, hostile +5.\n"
+                "\n"
+                "ВХОДЯЩАЯ АТАКА. Если сцена оборвалась на том, что враг атакует героя "
+                "(замахнулся, рванулся, тянутся когти), этот ход прежде всего решает, "
+                "достанет ли удар. Верни kind='saving_throw' и ОБЯЗАТЕЛЬНО заполни target "
+                "именем этого существа. Если герой при этом бьёт в ответ — kind='attack' с "
+                "тем же target.\n"
+                "\n"
+                "ЦЕЛЬ ВАЖНЕЕ ЧИСЛА. Для любой атаки и любого спасброска против существа "
+                "всегда заполняй target его именем. dc оценивай приблизительно — система "
+                "заменит его на КД цели или на собственную сложность существа, чтобы одна и "
+                "та же тварь не оказывалась каждый раз разной по трудности.\n"
                 "\n"
                 "Бросок НУЖЕН, когда исход не предрешён и провал имеет последствия:\n"
                 "- кража, карманничество, подлог, подмена — sleight_of_hand;\n"
@@ -615,9 +697,11 @@ def _build_check_messages(
                 "Если действие затрагивает другого персонажа против его воли — бросок нужен "
                 "практически всегда.\n"
                 "\n"
-                "Бросок НЕ нужен только для: перемещения, осмотра без поиска скрытого, обычного "
-                "разговора без давления и обмана, бытовых действий (сесть, поесть, достать свою "
-                "вещь) и того, что герой заведомо умеет и никто ему не мешает.\n"
+                "Бросок НЕ нужен для: перемещения и ухода из сцены, осмотра без поиска "
+                "скрытого, обычного разговора и вопросов, бытовых действий (сесть, поесть, "
+                "достать свою вещь, передать предмет), выполнения чужой просьбы и того, что "
+                "герой заведомо умеет и никто ему не мешает. Лишний бросок раздражает игрока "
+                "сильнее пропущенного: сомневаешься в бытовой сцене — значит не нужен.\n"
                 "\n"
                 "Сложность (dc) по шкале 5e: 5 очень легко, 10 легко, 15 средне, 20 сложно, "
                 "25 очень сложно, 30 почти невозможно. Учитывай цель: обокрасть пьяного "
@@ -648,9 +732,11 @@ def _build_check_messages(
                 f"состояния {_dump_json([item.get('id') for item in (hero.get('conditions') or []) if isinstance(item, dict)])}.\n"
                 f"МЕСТО: {location_label or 'неизвестно'}\n"
                 f"ОБСТАНОВКА: {describe_environment(state)}\n"
-                f"NPC В СЦЕНЕ: {_dump_json(active_npcs)}\n"
+                f"NPC В СЦЕНЕ (их характер решает сложность): {_dump_json(active_npcs)}\n"
                 + (f"БОЙ ИДЁТ:\n{describe_combat_for_prompt(state)}\n" if describe_combat_for_prompt(state) else "")
                 + "\n"
+                f"ИСТОРИЯ ПОСЛЕДНИХ ХОДОВ (читай, чтобы понять смысл действия):\n"
+                f"{recent_turns or 'нет'}\n\n"
                 f"ПРЕДЫДУЩАЯ СЦЕНА:\n{scene_tail or 'нет'}\n\n"
                 f"ДЕЙСТВИЕ ИГРОКА:\n{player_action}\n\n"
                 "Верни JSON строго такого вида:\n"
@@ -671,6 +757,7 @@ def analyze_dnd_action_check(
     player_action: str,
     scene_tail: str = "",
     location_label: str = "",
+    recent_turns: str = "",
     game_id: int | None = None,
 ) -> dict[str, Any]:
     """One service request. Raises on transport failure; callers treat that as "no check"."""
@@ -679,6 +766,7 @@ def analyze_dnd_action_check(
         player_action=_head(player_action, DND_PLAYER_ACTION_MAX_CHARS),
         scene_tail=_tail(scene_tail, DND_SCENE_TAIL_MAX_CHARS),
         location_label=str(location_label or "").strip()[:160],
+        recent_turns=_tail(recent_turns, DND_CHECK_HISTORY_MAX_CHARS),
     )
     payload, _meta = _llm_service().call_json(
         messages=messages,
@@ -723,6 +811,12 @@ def _build_upkeep_messages(
         for quest in (state.get("quests") if isinstance(state.get("quests"), list) else [])
         if isinstance(quest, dict)
     ]
+    hero_for_conditions = state.get("hero") if isinstance(state.get("hero"), dict) else {}
+    current_conditions = [
+        {"id": item.get("id"), "label": item.get("label"), "note": item.get("note")}
+        for item in (hero_for_conditions.get("conditions") or [])
+        if isinstance(item, dict)
+    ]
     return [
         {
             "role": "system",
@@ -747,6 +841,12 @@ def _build_upkeep_messages(
                 "- inventory.added / removed: только предметы, явно полученные или потраченные. "
                 "Деньги сюда не пиши.\n"
                 f"- conditions: только из списка {_condition_catalog_line()}.\n"
+                "  СНИМАТЬ состояния так же важно, как вешать. Тебе дан список текущих "
+                "состояний героя. Если по тексту хода состояние больше не действует — впиши "
+                "его id в conditions.removed и поставь should_update=true. Отпустили из "
+                "захвата — сними grappled и restrained. Встал — prone. Пришёл в себя, "
+                "успокоился, вылечился, вышел из боя — сними соответствующее. Не оставляй "
+                "висеть то, чего в сцене уже нет.\n"
                 "- environment.elapsed: сколько игрового времени заняла сцена — "
                 f"{', '.join(f'{key} ({label})' for key, label in DND_ELAPSED_LABELS.items())}. "
                 "Если герой просто поговорил или прошёл десяток шагов — 'minutes' или 'none'. "
@@ -767,7 +867,10 @@ def _build_upkeep_messages(
                 "нового не открылось. Не пересказывай сцену — только факт.\n"
                 "\n"
                 "- npcs: по одному объекту на каждого важного именованного NPC, участвовавшего в "
-                "сцене. is_active=true, если он присутствует в сцене прямо сейчас. relation_delta "
+                "сцене. is_active=true СТРОГО если он физически находится рядом с героем в "
+                "конце этого хода. Герой ушёл, уехал, вошёл в другое помещение, попрощался — "
+                "значит оставшиеся позади НЕ активны (is_active=false). Упоминание в мыслях, "
+                "воспоминание или голос издалека активностью не считаются. relation_delta "
                 "от -18 до 18 — насколько изменилось отношение К ГЕРОЮ за этот ход. Меняй его "
                 "ВСЕГДА, когда герой сделал что-то значимое для этого NPC: помог (+3..+10), спас "
                 "(+10..+18), сделал подарок (+2..+6), солгал и был пойман (-4..-10), попытался "
@@ -791,6 +894,8 @@ def _build_upkeep_messages(
             "role": "user",
             "content": (
                 f"ЛИСТ ПЕРСОНАЖА:\n{describe_hero_for_prompt(state)}\n\n"
+                f"ТЕКУЩИЕ СОСТОЯНИЯ ГЕРОЯ (сними те, что уже не действуют): "
+                f"{_dump_json(current_conditions)}\n"
                 f"ТЕКУЩЕЕ ВРЕМЯ И ПОГОДА: {describe_environment(state)} "
                 f"(season={environment.get('season')}, time_of_day={environment.get('time_of_day')}, "
                 f"weather={environment.get('weather')}, day={environment.get('day')})\n"

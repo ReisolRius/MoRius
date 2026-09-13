@@ -346,6 +346,59 @@ def _restore_story_environment_state_after_assistant_step_change(
         )
 
 
+def _restore_story_dnd_state_after_assistant_step_change(
+    *,
+    db: Session,
+    game: StoryGame,
+) -> None:
+    """Put the D&D sheet back to whatever the newest surviving turn left behind.
+
+    Snapshots are written per assistant message, so "the state after undo" is simply the
+    snapshot on the latest turn that is still visible -- and an empty history means the sheet
+    goes back to how it started. Without this the story rewinds while experience, quests,
+    hit points and the master's notes stay where the undone turn left them.
+    """
+    if not str(getattr(game, "dnd_state_payload", "") or "").strip():
+        return
+    try:
+        latest_snapshot = db.scalar(
+            select(StoryMessage.dnd_state_snapshot)
+            .where(
+                StoryMessage.game_id == game.id,
+                StoryMessage.role == STORY_ASSISTANT_ROLE,
+                StoryMessage.undone_at.is_(None),
+                StoryMessage.dnd_state_snapshot != "",
+            )
+            .order_by(StoryMessage.id.desc())
+            .limit(1)
+        )
+    except Exception:
+        logger.exception("Failed to read D&D snapshot for assistant-step change: game_id=%s", game.id)
+        return
+
+    from app.services.story_dnd import create_default_dnd_state, serialize_dnd_state
+
+    try:
+        if latest_snapshot:
+            game.dnd_state_payload = str(latest_snapshot)
+        else:
+            # Every D&D turn has been rolled back: keep the character the player built, drop
+            # everything the story added to it.
+            from app.services.story_dnd import deserialize_dnd_state
+
+            previous = deserialize_dnd_state(getattr(game, "dnd_state_payload", ""))
+            fresh = create_default_dnd_state()
+            fresh["play_mode"] = previous.get("play_mode")
+            fresh["roll_policy"] = previous.get("roll_policy")
+            fresh["difficulty"] = previous.get("difficulty")
+            fresh["hero"] = previous.get("hero")
+            fresh["setup_completed"] = previous.get("setup_completed", False)
+            fresh["npcs"] = previous.get("npcs") or []
+            game.dnd_state_payload = serialize_dnd_state(fresh)
+    except Exception:
+        logger.exception("Failed to restore D&D state after assistant-step change: game_id=%s", game.id)
+
+
 def restore_story_world_card_from_snapshot(
     db: Session,
     game_id: int,
@@ -1095,6 +1148,7 @@ def undo_story_assistant_step(
             touch_game=False,
         )
         last_message.undone_at = _utcnow()
+        _restore_story_dnd_state_after_assistant_step_change(db=db, game=game)
         touch_story_game(game)
         db.commit()
         return "assistant_message_deleted"
@@ -1164,6 +1218,7 @@ def redo_story_assistant_step(
             touch_game=False,
         )
         latest_undone_message.undone_at = None
+        _restore_story_dnd_state_after_assistant_step_change(db=db, game=game)
         touch_story_game(game)
         db.commit()
         return "assistant_message_restored"

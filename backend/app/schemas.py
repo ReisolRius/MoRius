@@ -2521,6 +2521,18 @@ class StoryDndPlayModeRequest(BaseModel):
     play_mode: Literal["game", "sandbox"]
 
 
+class StoryDndRollPolicyRequest(BaseModel):
+    """How readily the table reaches for dice. Taste, not difficulty."""
+
+    roll_policy: Literal["story", "strict"]
+
+
+class StoryDndDifficultyRequest(BaseModel):
+    """How hard the world pushes back. Shifts every DC and the hero's own die."""
+
+    difficulty: Literal["easy", "normal", "hard", "deadly"]
+
+
 class StoryDndLevelUpRequest(BaseModel):
     asi_allocation: dict[str, int] = Field(default_factory=dict)
 

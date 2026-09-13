@@ -135,10 +135,12 @@ import {
   rollStoryDndCheck,
   rollStoryDndInitiative,
   suggestStoryDndNpcStats,
+  updateStoryDndDifficulty,
   updateStoryDndEnvironment,
   updateStoryDndHero,
   updateStoryDndNpc,
   updateStoryDndPlayMode,
+  updateStoryDndRollPolicy,
   type StoryDndHeroInput,
   createStoryCharacterRace,
   createStoryWorldDetailType,
@@ -217,8 +219,10 @@ import {
   type StoryAmbientProfile,
   type DndCatalog,
   type DndCombatant,
+  type DndDifficulty,
   type DndNpc,
   type DndPendingCheck,
+  type DndRollPolicy,
   type DndRoll,
   type DndState,
   type StoryAppearanceBackgroundMode,
@@ -8573,6 +8577,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isDndRolling, setIsDndRolling] = useState(false)
   const [dndDiceError, setDndDiceError] = useState('')
   const [isDndInitiativeRolling, setIsDndInitiativeRolling] = useState(false)
+  // The dice gate runs *before* generation starts, so isStoryTurnBusy is still false for the
+  // couple of seconds it takes. Without this the player presses Enter again, a second turn is
+  // dispatched, and the server's generate lock resolves the race by cancelling the first --
+  // which is what produced two different answers and a narrator repeating the previous scene.
+  // The ref is the real guard (state updates are async); the state drives the spinner.
+  const [isDndCheckPending, setIsDndCheckPending] = useState(false)
+  const dndCheckPendingRef = useRef(false)
   const dndHeldPromptRef = useRef<string | null>(null)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_WIDTH_DEFAULT)
@@ -16047,6 +16058,26 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [activeGameId, authToken, runDndMutation],
   )
 
+  const handleDndChangeRollPolicy = useCallback(
+    async (rollPolicy: DndRollPolicy) => {
+      if (!activeGameId) {
+        return
+      }
+      await runDndMutation(() => updateStoryDndRollPolicy({ token: authToken, gameId: activeGameId, rollPolicy }))
+    },
+    [activeGameId, authToken, runDndMutation],
+  )
+
+  const handleDndChangeDifficulty = useCallback(
+    async (difficulty: DndDifficulty) => {
+      if (!activeGameId) {
+        return
+      }
+      await runDndMutation(() => updateStoryDndDifficulty({ token: authToken, gameId: activeGameId, difficulty }))
+    },
+    [activeGameId, authToken, runDndMutation],
+  )
+
   const handleDndResetSheet = useCallback(async () => {
     if (!activeGameId) {
       return
@@ -19364,6 +19395,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (!isDndMode) {
         return 'proceed'
       }
+      dndCheckPendingRef.current = true
+      setIsDndCheckPending(true)
       try {
         const response = await analyzeStoryDndCheck({
           token: authToken,
@@ -19392,6 +19425,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setDndError(detail)
         }
         return 'proceed'
+      } finally {
+        dndCheckPendingRef.current = false
+        setIsDndCheckPending(false)
       }
     },
     [applyDndState, authToken, isDndMode, onUserUpdate],
@@ -19523,7 +19559,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
   const handleDndMeetNpc = useCallback(
     async (npc: DndNpc) => {
-      if (!activeGameId || isStoryTurnBusy) {
+      if (!activeGameId || isStoryTurnBusy || dndCheckPendingRef.current) {
         return
       }
       setDndBusyNpcKey(npc.key)
@@ -19678,7 +19714,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setIsVoiceInputActive(false)
     }
 
-    if (isStoryTurnBusy || isVisualNovelInputLocked) {
+    if (isStoryTurnBusy || isVisualNovelInputLocked || dndCheckPendingRef.current) {
       return
     }
 
@@ -21866,6 +21902,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               onMeetNpc={handleDndMeetNpc}
               onSaveNpc={handleDndSaveNpc}
               onSuggestNpcStats={handleDndSuggestNpcStats}
+              onChangeRollPolicy={handleDndChangeRollPolicy}
+              onChangeDifficulty={handleDndChangeDifficulty}
             />
           ) : null}
 
@@ -30159,7 +30197,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Box>
           <Box
             data-tour-id="story-composer-input"
-            className={isFinalizingStoryTurn ? 'morius-composer-waiting' : undefined}
+            className={isFinalizingStoryTurn || isDndCheckPending ? 'morius-composer-waiting' : undefined}
             sx={{
               width: '100%',
               borderRadius: isVisualNovelTechDemoEnabled ? '14px' : '18px',
@@ -30317,7 +30355,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               ref={textAreaRef}
               rows={1}
               defaultValue={composerDraftRef.current}
-              placeholder={inputPlaceholder}
+              placeholder={isDndCheckPending ? 'Мастер решает, нужен ли бросок…' : inputPlaceholder}
               maxLength={STORY_PROMPT_MAX_LENGTH}
               disabled={isVisualNovelInputLocked || isStoryGenerationActive || hasInsufficientTokensForTurn}
               onChange={handleComposerInputChange}
@@ -30405,9 +30443,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               >
                 <IconButton
                   className="morius-composer-send-button"
-                  aria-label={isStoryGenerationActive ? 'Остановить генерацию' : isFinalizingStoryTurn ? 'Отправка станет доступна после обработки' : 'Отправить'}
+                  aria-label={isStoryGenerationActive ? 'Остановить генерацию' : isDndCheckPending ? 'Мастер проверяет действие' : isFinalizingStoryTurn ? 'Отправка станет доступна после обработки' : 'Отправить'}
                   onClick={handleVoiceActionClick}
-                  disabled={isStoryGenerationActive ? false : (isVisualNovelInputLocked || isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
+                  disabled={isStoryGenerationActive ? false : (isDndCheckPending || isVisualNovelInputLocked || isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
                   sx={{
                     '@keyframes morius-voice-pulse': {
                       '0%, 100%': {
@@ -30454,7 +30492,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     },
                   }}
                 >
-                  {isStoryGenerationActive ? (
+                  {isDndCheckPending ? (
+                    // The dice gate takes a couple of seconds and used to look like nothing
+                    // happened, so players pressed send again. Now the button itself says
+                    // it is working.
+                    <CircularProgress size={16} thickness={5} sx={{ color: 'var(--morius-accent)' }} />
+                  ) : isStoryGenerationActive ? (
                     <Box
                       className="morius-stop-button"
                       sx={{

@@ -68,6 +68,90 @@ def normalize_dnd_play_mode(value: Any) -> str:
     return STORY_DND_PLAY_MODE_GAME
 
 
+# --- Roll policy -------------------------------------------------------------------------
+
+# How readily the table reaches for dice. This is a taste setting, not a difficulty one: the
+# DCs and the maths are identical either way, what changes is how much of the fiction gets
+# resolved by a die instead of by the Master reading the room.
+#
+# ``story``  -- the default. A first attempt at talking to somebody is *played*, not rolled:
+#               the narrator answers from that NPC's character and their relationship to the
+#               hero. The dice come out when the player pushes against a refusal, when the
+#               action is physically risky, or when failure would actually cost something.
+# ``strict`` -- closer to a rules-lawyer table. Almost any contested action is a check.
+STORY_DND_ROLL_POLICY_STORY = "story"
+STORY_DND_ROLL_POLICY_STRICT = "strict"
+STORY_DND_ROLL_POLICIES = (STORY_DND_ROLL_POLICY_STORY, STORY_DND_ROLL_POLICY_STRICT)
+DEFAULT_DND_ROLL_POLICY = STORY_DND_ROLL_POLICY_STORY
+
+DND_ROLL_POLICY_LABELS: dict[str, str] = {
+    STORY_DND_ROLL_POLICY_STORY: "Живой отыгрыш",
+    STORY_DND_ROLL_POLICY_STRICT: "Жёсткие правила",
+}
+
+
+def normalize_dnd_roll_policy(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in STORY_DND_ROLL_POLICIES:
+        return normalized
+    # A boolean toggle in the UI: "жёсткие правила включены" is the strict end.
+    if normalized in {"true", "1", "hard", "hardcore", "rules", "жёсткие", "жесткие"}:
+        return STORY_DND_ROLL_POLICY_STRICT
+    return DEFAULT_DND_ROLL_POLICY
+
+
+# --- Difficulty ---------------------------------------------------------------------------
+
+# A single dial over the whole table. `dc_shift` moves every difficulty the master sets;
+# `hero_bonus` is a flat modifier on the hero's own d20. Two knobs rather than one because
+# lowering a DC and helping the hero feel different at the table: the first makes the world
+# gentler, the second makes the character better, and easy mode wants a bit of both.
+STORY_DND_DIFFICULTY_EASY = "easy"
+STORY_DND_DIFFICULTY_NORMAL = "normal"
+STORY_DND_DIFFICULTY_HARD = "hard"
+STORY_DND_DIFFICULTY_DEADLY = "deadly"
+STORY_DND_DIFFICULTIES = (
+    STORY_DND_DIFFICULTY_EASY,
+    STORY_DND_DIFFICULTY_NORMAL,
+    STORY_DND_DIFFICULTY_HARD,
+    STORY_DND_DIFFICULTY_DEADLY,
+)
+DEFAULT_DND_DIFFICULTY = STORY_DND_DIFFICULTY_NORMAL
+
+# (label, dc shift, hero bonus, short description)
+DND_DIFFICULTY_TABLE: dict[str, tuple[str, int, int, str]] = {
+    STORY_DND_DIFFICULTY_EASY: ("Лёгкая", -3, 2, "Мир снисходителен, герой везучий."),
+    STORY_DND_DIFFICULTY_NORMAL: ("Обычная", 0, 0, "Чистые правила 5e без поправок."),
+    STORY_DND_DIFFICULTY_HARD: ("Сложная", 3, 0, "Мир требователен, ошибки стоят дорого."),
+    STORY_DND_DIFFICULTY_DEADLY: ("Смертельная", 5, -1, "Выживание не подразумевается."),
+}
+
+
+def normalize_dnd_difficulty(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in STORY_DND_DIFFICULTIES:
+        return normalized
+    aliases = {
+        "лёгкая": STORY_DND_DIFFICULTY_EASY,
+        "легкая": STORY_DND_DIFFICULTY_EASY,
+        "story": STORY_DND_DIFFICULTY_EASY,
+        "обычная": STORY_DND_DIFFICULTY_NORMAL,
+        "medium": STORY_DND_DIFFICULTY_NORMAL,
+        "сложная": STORY_DND_DIFFICULTY_HARD,
+        "смертельная": STORY_DND_DIFFICULTY_DEADLY,
+        "nightmare": STORY_DND_DIFFICULTY_DEADLY,
+    }
+    return aliases.get(normalized, DEFAULT_DND_DIFFICULTY)
+
+
+def difficulty_dc_shift(value: Any) -> int:
+    return DND_DIFFICULTY_TABLE[normalize_dnd_difficulty(value)][1]
+
+
+def difficulty_hero_bonus(value: Any) -> int:
+    return DND_DIFFICULTY_TABLE[normalize_dnd_difficulty(value)][2]
+
+
 # --- Abilities ---------------------------------------------------------------------------
 
 ABILITY_IDS: tuple[str, ...] = ("str", "dex", "con", "int", "wis", "cha")
@@ -470,6 +554,29 @@ def max_hit_points(class_id: str, con_score: Any, level: Any) -> int:
     return max(normalized_level, total)
 
 
+# Classes whose kit is built around finesse or ranged weapons. For them an attack is a DEX
+# roll whenever DEX is the better score -- which is why a rogue with a shortsword swings with
+# Ловкость 16 (+3) and not Сила 12 (+1). The model used to pick this, and picked wrong.
+DND_FINESSE_CLASSES: frozenset[str] = frozenset({"rogue", "monk", "ranger", "bard"})
+
+
+def attack_ability_for_hero(hero: dict[str, Any]) -> str:
+    """Which ability the hero's attacks key off.
+
+    Faithful enough to 5e for a text game: a finesse-minded class uses the better of STR and
+    DEX, a class whose primary ability is DEX uses DEX, and everyone else swings with STR.
+    Spellcasters attacking with their casting stat is handled by the caster classes' primary.
+    """
+    abilities = hero.get("abilities") if isinstance(hero.get("abilities"), dict) else {}
+    class_id = normalize_dnd_class_id(hero.get("class"))
+    dnd_class = DND_CLASS_BY_ID.get(class_id, DND_CLASS_BY_ID[DEFAULT_CLASS_ID])
+    strength_mod = ability_modifier(abilities.get("str"))
+    dexterity_mod = ability_modifier(abilities.get("dex"))
+    if class_id in DND_FINESSE_CLASSES or "dex" in dnd_class.primary:
+        return "dex" if dexterity_mod >= strength_mod else "str"
+    return "str"
+
+
 def armor_class(class_id: str, dex_score: Any) -> int:
     dnd_class = DND_CLASS_BY_ID.get(normalize_dnd_class_id(class_id), DND_CLASS_BY_ID[DEFAULT_CLASS_ID])
     dex_mod = ability_modifier(dex_score)
@@ -519,6 +626,51 @@ DND_CONDITIONS: tuple[DndCondition, ...] = (
 )
 DND_CONDITION_BY_ID: dict[str, DndCondition] = {item.id: item for item in DND_CONDITIONS}
 DND_MAX_CONDITIONS = 8
+
+# How many turns a condition may survive without the narrator mentioning it again. Being
+# grappled is something that happens *in a moment*; the model that put it on the sheet is the
+# same model that has to remember to take it off, and when it forgets the player is left
+# "Опутан" three scenes after the hand let go. These budgets are the backstop: the fiction can
+# always re-apply a condition next turn, but nothing physical lasts forever by accident.
+#
+# Conditions absent from this table (exhaustion, wounded, well_fed) are slow by nature and
+# persist until something in the story changes them.
+DND_CONDITION_TURN_BUDGET: dict[str, int] = {
+    "grappled": 2,
+    "restrained": 2,
+    "prone": 1,
+    "stunned": 1,
+    "incapacitated": 2,
+    "paralyzed": 2,
+    "frightened": 3,
+    "charmed": 3,
+    "blinded": 3,
+    "deafened": 3,
+    "poisoned": 5,
+    "petrified": 5,
+    "unconscious": 8,
+    "hidden": 2,
+    "shielded": 1,
+    "hasted": 2,
+    "raging": 3,
+    "inspired": 4,
+    "blessed": 4,
+}
+
+
+def expire_dnd_conditions(conditions: Any, *, current_turn: int) -> tuple[list[dict[str, Any]], list[str]]:
+    """Drop every volatile condition whose budget has run out. Returns (kept, expired ids)."""
+    kept: list[dict[str, Any]] = []
+    expired: list[str] = []
+    for item in normalize_dnd_conditions(conditions):
+        condition_id = normalize_dnd_condition_id(item.get("id"))
+        budget = DND_CONDITION_TURN_BUDGET.get(condition_id)
+        applied_turn = _clamp_int(item.get("turn"), 0, 10_000_000, 0)
+        if budget is not None and applied_turn and int(current_turn) - applied_turn >= budget:
+            expired.append(condition_id)
+            continue
+        kept.append(item)
+    return kept, expired
 
 
 def normalize_dnd_condition_id(value: Any) -> str:
@@ -641,19 +793,27 @@ def time_of_day_distance(from_id: str, to_id: str) -> int:
 
 # Ordered worst to best. The service model returns a label, never a number, and the score is
 # what actually drives drift so a single rude line cannot jump an ally straight to "враждебное".
-DND_RELATIONS: tuple[tuple[str, str, int], ...] = (
-    ("hostile", "Враждебное", -80),
-    ("hateful", "Ненависть", -60),
-    ("wary", "Настороженное", -30),
-    ("neutral", "Нейтральное", 0),
-    ("friendly", "Дружеское", 35),
-    ("loyal", "Преданное", 60),
-    ("devoted", "Обожание", 75),
-    ("in_love", "Влюблена", 90),
+# (id, label, canonical score, lower bound of the band)
+#
+# The canonical score is what picking a label by hand sets. The lower bound is what turns a
+# score back into a label, and the two are deliberately different: with a single number the
+# bands came out lopsided, so a single point of annoyance (-1) already read "Настороженное"
+# while a whole scene of goodwill (+30) was still "Нейтральное". Neutral now spans -15..+15,
+# which is what makes a relationship look like it is holding steady rather than flickering.
+DND_RELATIONS: tuple[tuple[str, str, int, int], ...] = (
+    ("hostile", "Враждебное", -80, -100),
+    ("hateful", "Ненависть", -60, -70),
+    ("wary", "Настороженное", -30, -40),
+    ("neutral", "Нейтральное", 0, -15),
+    ("friendly", "Дружеское", 35, 16),
+    ("loyal", "Преданное", 60, 50),
+    ("devoted", "Обожание", 75, 70),
+    ("in_love", "Влюблена", 90, 86),
 )
 DND_RELATION_IDS = tuple(item[0] for item in DND_RELATIONS)
 DND_RELATION_LABELS = {item[0]: item[1] for item in DND_RELATIONS}
 DND_RELATION_SCORES = {item[0]: item[2] for item in DND_RELATIONS}
+DND_RELATION_THRESHOLDS = {item[0]: item[3] for item in DND_RELATIONS}
 DEFAULT_RELATION = "neutral"
 DND_RELATION_SCORE_MIN = -100
 DND_RELATION_SCORE_MAX = 100
@@ -684,7 +844,7 @@ def relation_id_for_score(score: Any) -> str:
     except (TypeError, ValueError):
         normalized = 0
     best_id = DND_RELATIONS[0][0]
-    for relation_id, _label, threshold in DND_RELATIONS:
+    for relation_id, _label, _canonical, threshold in DND_RELATIONS:
         if normalized >= threshold:
             best_id = relation_id
     return best_id
@@ -1080,6 +1240,75 @@ def perform_roll(
     )
 
 
+def _find_creature_for_check(state: dict[str, Any], target_name: Any) -> dict[str, Any] | None:
+    """The creature a check is aimed at: first the current fight, then the wider roster."""
+    key = normalize_single_line(target_name, max_length=80).casefold()
+    if not key:
+        return None
+    combat = state.get("combat") if isinstance(state.get("combat"), dict) else {}
+    for participant in (combat.get("participants") or []):
+        if not isinstance(participant, dict):
+            continue
+        name = normalize_single_line(participant.get("name"), max_length=80).casefold()
+        if name and (name == key or key in name or name in key):
+            return participant
+    for npc in (state.get("npcs") if isinstance(state.get("npcs"), list) else []):
+        if not isinstance(npc, dict):
+            continue
+        name = normalize_single_line(npc.get("name"), max_length=80).casefold()
+        if name and (name == key or key in name or name in key):
+            return npc
+    return None
+
+
+def creature_save_dc(creature: dict[str, Any] | None) -> int:
+    """The 5e monster formula: 8 + proficiency + the creature's best offensive modifier.
+
+    Fixed for a given creature, which is the point -- resisting the same beast twice should
+    be the same difficulty both times, not two different numbers a model happened to pick.
+    """
+    if not isinstance(creature, dict):
+        return 0
+    level = normalize_dnd_level(creature.get("level"))
+    abilities = creature.get("abilities") if isinstance(creature.get("abilities"), dict) else {}
+    best_modifier = max(
+        (ability_modifier(abilities.get(ability_id)) for ability_id in ABILITY_IDS),
+        default=0,
+    )
+    return normalize_dnd_dc(8 + proficiency_bonus(level) + best_modifier)
+
+
+def resolve_check_dc(state: dict[str, Any], check: dict[str, Any]) -> tuple[int, str]:
+    """The difficulty actually used, plus a short note explaining where it came from.
+
+    Three sources, in order of authority:
+      1. An attack names a target -- the DC is that creature's armour class, full stop.
+      2. A saving throw against a named creature -- the DC is that creature's save DC.
+      3. Anything else keeps the master's number.
+    The table's difficulty dial is then applied on top of all three.
+    """
+    base_dc = normalize_dnd_dc(check.get("dc"))
+    kind = normalize_dnd_check_kind(check.get("kind"))
+    source = ""
+    creature = _find_creature_for_check(state, check.get("target"))
+
+    if kind == DND_CHECK_KIND_ATTACK and creature is not None:
+        armour = _clamp_int(creature.get("armor_class"), 1, 40, 0)
+        if armour:
+            base_dc = normalize_dnd_dc(armour)
+            source = f"КД цели «{creature.get('name')}»"
+    elif kind == DND_CHECK_KIND_SAVE and creature is not None:
+        creature_dc = creature_save_dc(creature)
+        if creature_dc:
+            base_dc = creature_dc
+            source = f"сложность спасброска от «{creature.get('name')}»"
+
+    shift = difficulty_dc_shift(state.get("difficulty"))
+    if shift:
+        base_dc = normalize_dnd_dc(base_dc + shift)
+    return base_dc, source
+
+
 def build_check_modifier_breakdown(hero: dict[str, Any], check: dict[str, Any]) -> list[dict[str, Any]]:
     """Every number that lands on the die, itemised so the dialog can show its maths."""
     breakdown: list[dict[str, Any]] = []
@@ -1090,8 +1319,13 @@ def build_check_modifier_breakdown(hero: dict[str, Any], check: dict[str, Any]) 
     ability_id = normalize_dnd_ability_id(check.get("ability"))
     if not ability_id and skill_id:
         ability_id = DND_SKILL_ABILITY.get(skill_id, "")
+    if kind == DND_CHECK_KIND_ATTACK:
+        # Not a suggestion from the model: which arm a character swings with is a fact about
+        # their class and their scores. A rogue attacks with Ловкость even when the narrator
+        # wrote "сокрушительный удар".
+        ability_id = attack_ability_for_hero(hero)
     if not ability_id:
-        ability_id = "dex" if kind == DND_CHECK_KIND_ATTACK else "wis"
+        ability_id = "wis"
 
     ability_mod = ability_modifier(abilities.get(ability_id, DEFAULT_ABILITY_SCORE))
     breakdown.append(
@@ -1125,6 +1359,16 @@ def build_check_modifier_breakdown(hero: dict[str, Any], check: dict[str, Any]) 
         breakdown.append({"key": "condition:exhaustion", "label": "Истощение", "value": -2})
     if "inspired" in condition_ids:
         breakdown.append({"key": "condition:inspired", "label": "Вдохновение", "value": 2})
+
+    hero_bonus = _clamp_int(check.get("difficulty_bonus"), -5, 5, 0)
+    if hero_bonus:
+        breakdown.append(
+            {
+                "key": "difficulty",
+                "label": "Сложность игры",
+                "value": hero_bonus,
+            }
+        )
 
     situational = check.get("situational_modifier")
     try:
@@ -1250,6 +1494,9 @@ def normalize_dnd_conditions(value: Any) -> list[dict[str, Any]]:
                 "icon": condition.icon,
                 "description": condition.description,
                 "note": note,
+                # The turn it was applied on, so a volatile condition can time out even when
+                # the narrator never mentions it again. 0 means "unknown / always been there".
+                "turn": _clamp_int(item.get("turn") if isinstance(item, dict) else 0, 0, 10_000_000, 0),
             }
         )
         if len(result) >= DND_MAX_CONDITIONS:
@@ -1257,15 +1504,57 @@ def normalize_dnd_conditions(value: Any) -> list[dict[str, Any]]:
     return result
 
 
+# "Мешочек с 15 зм" is a line in the rulebook's starting kit, but it is not a *thing* the
+# character carries around -- it is their starting money. Leaving it in the pack meant the
+# gold counter read zero while the inventory bragged about twelve gold pieces.
+_STARTING_COIN_PATTERN = re.compile(
+    r"(\d{1,6})\s*(?:зм|зол(?:отых|отые|отым|отом|\.)?|gp|gold)\b",
+    re.IGNORECASE,
+)
+_COIN_ITEM_PATTERN = re.compile(
+    r"^\s*(?:мешоч?ек|кошел[ьё]к|кошель|сумка|пояс|мешок|кошелёк)\b.*$",
+    re.IGNORECASE,
+)
+
+
+def extract_starting_gold(items: Iterable[Any]) -> tuple[int, list[str]]:
+    """Split a starting kit into (coins, everything else).
+
+    Only a line that is *about* the money is consumed -- a "Мешочек с 15 зм" becomes 15 gold
+    and disappears, while a "Компонентный мешочек" (which carries no amount) stays an item.
+    """
+    gold = 0
+    remaining: list[str] = []
+    for raw in items or []:
+        text = normalize_single_line(raw, max_length=120)
+        if not text:
+            continue
+        match = _STARTING_COIN_PATTERN.search(text)
+        if match and _COIN_ITEM_PATTERN.match(text):
+            try:
+                gold += int(match.group(1))
+            except (TypeError, ValueError):
+                remaining.append(text)
+            continue
+        remaining.append(text)
+    return min(gold, 9_999_999), remaining
+
+
 def default_inventory_for(class_id: str, race_id: str) -> list[str]:
     dnd_class = DND_CLASS_BY_ID.get(normalize_dnd_class_id(class_id), DND_CLASS_BY_ID[DEFAULT_CLASS_ID])
-    items = list(dnd_class.starting_inventory)
+    _gold, items = extract_starting_gold(dnd_class.starting_inventory)
     race = DND_RACE_BY_ID.get(normalize_dnd_race_id(race_id))
     if race is not None and race.id == "dwarf":
         items.append("Дварфийский походный инструмент")
     if race is not None and race.id == "elf":
         items.append("Эльфийский плащ")
     return items
+
+
+def default_gold_for(class_id: str) -> int:
+    dnd_class = DND_CLASS_BY_ID.get(normalize_dnd_class_id(class_id), DND_CLASS_BY_ID[DEFAULT_CLASS_ID])
+    gold, _items = extract_starting_gold(dnd_class.starting_inventory)
+    return gold
 
 
 def normalize_dnd_inventory(value: Any) -> list[str]:
@@ -1399,9 +1688,20 @@ def normalize_dnd_hero(value: Any, *, play_mode: str) -> dict[str, Any]:
         computed_max_hp = _clamp_int(raw_max, 1, 9_999, computed_max_hp)
     hp = normalize_dnd_hp(source.get("hp"), max_hp=computed_max_hp)
 
+    raw_gold = _clamp_int(source.get("gold"), 0, 9_999_999, -1)
     inventory = normalize_dnd_inventory(source.get("inventory"))
     if not inventory:
         inventory = default_inventory_for(class_id, race_id)
+        if raw_gold < 0:
+            raw_gold = default_gold_for(class_id)
+    else:
+        # A pack written before coins were money, or one the narrator wrote a purse into:
+        # move the amount to the gold line rather than leaving it as a thing on a list.
+        carried_gold, inventory = extract_starting_gold(inventory)
+        if carried_gold:
+            raw_gold = max(raw_gold, 0) + carried_gold
+    if raw_gold < 0:
+        raw_gold = 0
     inventory_note = normalize_text_value(source.get("inventory_note"), max_length=DND_INVENTORY_MAX_LENGTH)
 
     computed_ac = armor_class(class_id, abilities.get("dex"))
@@ -1446,7 +1746,7 @@ def normalize_dnd_hero(value: Any, *, play_mode: str) -> dict[str, Any]:
         "proficiency_bonus": proficiency_bonus(level),
         "inventory": inventory,
         "inventory_note": inventory_note,
-        "gold": _clamp_int(source.get("gold"), 0, 9_999_999, 0),
+        "gold": _clamp_int(raw_gold, 0, 9_999_999, 0),
         "conditions": normalize_dnd_conditions(source.get("conditions")),
         "death_saves": death_saves,
         "is_dead": is_dead,
@@ -1816,6 +2116,10 @@ def normalize_dnd_pending_check(value: Any) -> dict[str, Any] | None:
         "advantage": normalize_dnd_advantage(value.get("advantage")),
         "situational_modifier": _clamp_int(value.get("situational_modifier"), -5, 5, 0),
         "situational_label": normalize_single_line(value.get("situational_label"), max_length=60),
+        # Where the difficulty came from ("КД цели «Бандит»"), so the dice dialog can show
+        # the player that the number was derived rather than guessed.
+        "dc_source": normalize_single_line(value.get("dc_source"), max_length=80),
+        "difficulty_bonus": _clamp_int(value.get("difficulty_bonus"), -5, 5, 0),
         "reason": normalize_single_line(value.get("reason"), max_length=200),
         "target": normalize_single_line(value.get("target"), max_length=80),
         "success_hint": normalize_single_line(value.get("success_hint"), max_length=200),
@@ -1911,6 +2215,12 @@ def normalize_dnd_state(value: Any) -> dict[str, Any]:
         "npcs": npcs,
         "quests": normalize_dnd_quests(source.get("quests")),
         "notes": normalize_dnd_notes(source.get("notes")),
+        "roll_policy": normalize_dnd_roll_policy(source.get("roll_policy")),
+        "difficulty": normalize_dnd_difficulty(source.get("difficulty")),
+        # Where the party was standing when the last turn ended. Used to clear the stage:
+        # an NPC does not follow the hero into the next location just because the last
+        # scene left them flagged as present.
+        "scene_location": normalize_single_line(source.get("scene_location"), max_length=160),
         "pending_check": normalize_dnd_pending_check(source.get("pending_check")),
         "last_roll": normalize_dnd_last_roll(source.get("last_roll")),
         "last_level_up": normalize_dnd_level_up(source.get("last_level_up")),
@@ -2450,6 +2760,12 @@ DND_NARRATOR_RULES = (
     "БОЙ. Если сцена перешла в бой, ты получишь блок БОЙ с порядком инициативы. Ходи строго "
     "по нему: описывай только ход того, чья очередь, и заканчивай ответ на действии героя или "
     "прямо перед ним. Не проматывай раунды целиком.\n"
+    "- Удар ПО ГЕРОЮ не попадает автоматически. Когда враг атакует, описывай атаку как "
+    "происходящую — замах, бросок, рывок когтей — и обрывай ответ ДО того, как станет ясно, "
+    "попал он или нет. Попадание и урон решит бросок на следующем ходу. Не пиши «когти "
+    "вспарывают плечо» по своей воле.\n"
+    "- Единственное исключение: тебе явно передан РЕЗУЛЬТАТ БРОСКА, где герой провалил "
+    "защиту. Тогда попадание описывай смело и конкретно.\n"
     "\n"
     "МИР. Соблюдай текущее время суток, сезон и погоду: они меняются постепенно и только "
     "вместе с течением игрового времени.\n"
@@ -2496,7 +2812,22 @@ def build_dnd_instruction_card(
         sections.extend(["", "NPC В СЦЕНЕ:", active_npcs])
     known_npcs = describe_npcs_for_prompt(state, only_active=False, limit=12)
     if known_npcs and known_npcs != active_npcs:
-        sections.extend(["", "ЗНАКОМЫЕ ПЕРСОНАЖИ:", known_npcs])
+        sections.extend(
+            [
+                "",
+                "ЗНАКОМЫЕ ПЕРСОНАЖИ (их НЕТ в сцене — это справка о прошлых встречах). "
+                "Не давай им реплик и не вводи их в сцену без причины из текста:",
+                known_npcs,
+            ]
+        )
+    if not active_npcs:
+        sections.extend(
+            [
+                "",
+                "В СЦЕНЕ НЕТ ЗНАКОМЫХ ПЕРСОНАЖЕЙ. Герой один или среди новых лиц — не "
+                "возвращай в сцену тех, с кем он уже попрощался или от кого ушёл.",
+            ]
+        )
     quests = describe_quests_for_prompt(state)
     if quests:
         sections.extend(["", "АКТИВНЫЕ ЗАДАНИЯ:", quests])
@@ -2630,4 +2961,18 @@ def build_dnd_catalog() -> dict[str, Any]:
             "sides": list(DND_COMBAT_SIDES),
         },
         "group": {"max_targets": DND_GROUP_MAX_TARGETS, "dc_step": DND_GROUP_DC_STEP},
+        "difficulties": [
+            {
+                "id": difficulty_id,
+                "label": entry[0],
+                "dc_shift": entry[1],
+                "hero_bonus": entry[2],
+                "description": entry[3],
+            }
+            for difficulty_id, entry in DND_DIFFICULTY_TABLE.items()
+        ],
+        "roll_policies": [
+            {"id": policy_id, "label": DND_ROLL_POLICY_LABELS[policy_id]}
+            for policy_id in STORY_DND_ROLL_POLICIES
+        ],
     }
