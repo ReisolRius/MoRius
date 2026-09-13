@@ -30,6 +30,7 @@ import type {
   StoryGraphSuggestion,
   StoryGameMode,
   DndCatalog,
+  DndCurrencyId,
   DndDifficulty,
   DndPendingCheck,
   DndPlayMode,
@@ -4041,6 +4042,7 @@ export type StoryDndHeroInput = {
   armor_class?: number
   speed?: number
   gold?: number
+  purse?: number
   inventory?: string[]
   inventory_note?: string
   conditions?: { id: string; note?: string }[]
@@ -4180,6 +4182,18 @@ export async function updateStoryDndRollPolicy(payload: {
     method: 'PUT',
     headers: { Authorization: `Bearer ${payload.token}` },
     body: JSON.stringify({ roll_policy: payload.rollPolicy }),
+  })
+}
+
+export async function updateStoryDndCurrency(payload: {
+  token: string
+  gameId: number
+  currency: DndCurrencyId
+}): Promise<StoryDndStateResponse> {
+  return request<StoryDndStateResponse>(`/api/story/games/${payload.gameId}/dnd/currency`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${payload.token}` },
+    body: JSON.stringify({ currency: payload.currency }),
   })
 }
 

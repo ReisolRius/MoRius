@@ -891,6 +891,13 @@ export type DndCombatPhase = 'idle' | 'initiative' | 'active'
 export type DndRollPolicy = 'story' | 'strict'
 // How hard the world pushes back. Shifts every DC and the hero's own die.
 export type DndDifficulty = 'easy' | 'normal' | 'hard' | 'deadly'
+export type DndCurrencyId = 'fantasy' | 'modern' | 'cyberpunk'
+// What a character feels right now, as opposed to how they feel about the hero in general.
+export type DndMood =
+  | 'furious' | 'angry' | 'hurt' | 'wary_mood'
+  | 'calm' | 'amused' | 'warm' | 'grateful'
+
+export type DndCoinPart = { id: string; label: string; short: string; count: number }
 export type DndAdvantage = 'none' | 'advantage' | 'disadvantage'
 export type DndOutcome = 'critical_success' | 'success' | 'failure' | 'critical_failure'
 
@@ -933,6 +940,11 @@ export type DndHero = {
   inventory_note: string
   gold: number
   conditions: DndCondition[]
+  // The purse in the setting's smallest coin. `gold` is derived from it for convenience;
+  // `purse_display` and `purse_parts` are how the panels show it.
+  purse: number
+  purse_display: string
+  purse_parts: DndCoinPart[]
   death_saves: { successes: number; failures: number }
   is_dead: boolean
   // Derived server-side from hit points and death saves; never written independently.
@@ -966,6 +978,14 @@ export type DndNpc = {
   armor_class: number
   conditions: DndCondition[]
   is_active: boolean
+  // Set the moment they first walk on stage. From then on the master owns them.
+  has_appeared: boolean
+  mood: DndMood
+  mood_note: string
+  mood_turn: number
+  // Every label this character has answered to, so "Слуга Алисии" and "Томас" stay one person.
+  aliases: string[]
+  position: string
   stats_source: 'ai' | 'manual'
   notes: string
 }
@@ -1105,6 +1125,7 @@ export type DndState = {
   combat: DndCombat
   roll_policy: DndRollPolicy
   difficulty: DndDifficulty
+  currency: DndCurrencyId
   scene_location: string
   locks?: DndSheetLocks
 }
@@ -1141,6 +1162,12 @@ export type DndCatalog = {
   combat?: { max_participants: number; sides: DndCombatSide[] }
   group?: { max_targets: number; dc_step: number }
   roll_policies?: { id: DndRollPolicy; label: string }[]
+  currencies?: {
+    id: DndCurrencyId
+    label: string
+    denominations: { id: string; label: string; short: string; value: number }[]
+    presets: { poor: number; normal: number; rich: number }
+  }[]
   difficulties?: {
     id: DndDifficulty
     label: string

@@ -135,6 +135,7 @@ import {
   rollStoryDndCheck,
   rollStoryDndInitiative,
   suggestStoryDndNpcStats,
+  updateStoryDndCurrency,
   updateStoryDndDifficulty,
   updateStoryDndEnvironment,
   updateStoryDndHero,
@@ -219,6 +220,7 @@ import {
   type StoryAmbientProfile,
   type DndCatalog,
   type DndCombatant,
+  type DndCurrencyId,
   type DndDifficulty,
   type DndNpc,
   type DndPendingCheck,
@@ -16068,6 +16070,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [activeGameId, authToken, runDndMutation],
   )
 
+  const handleDndChangeCurrency = useCallback(
+    async (currency: DndCurrencyId) => {
+      if (!activeGameId) {
+        return
+      }
+      await runDndMutation(() => updateStoryDndCurrency({ token: authToken, gameId: activeGameId, currency }))
+    },
+    [activeGameId, authToken, runDndMutation],
+  )
+
   const handleDndChangeDifficulty = useCallback(
     async (difficulty: DndDifficulty) => {
       if (!activeGameId) {
@@ -21326,6 +21338,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               onOpenSheet={() => setDndSheetDialogOpen(true)}
               onOpenLevelUp={() => setDndLevelUpDialogOpen(true)}
               onOpenEnvironment={() => setDndEnvironmentDialogOpen(true)}
+              onChangePlayMode={handleDndChangePlayMode}
             />
           </Box>
         ) : (
@@ -21904,6 +21917,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               onSuggestNpcStats={handleDndSuggestNpcStats}
               onChangeRollPolicy={handleDndChangeRollPolicy}
               onChangeDifficulty={handleDndChangeDifficulty}
+              onChangeCurrency={handleDndChangeCurrency}
             />
           ) : null}
 
@@ -31195,7 +31209,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             error={dndError}
             onClose={() => setDndSheetDialogOpen(false)}
             onSave={handleDndSaveHero}
-            onChangePlayMode={handleDndChangePlayMode}
             onReset={handleDndResetSheet}
           />
           <DndLevelUpDialog

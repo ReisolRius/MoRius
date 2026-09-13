@@ -54,7 +54,6 @@ export type DndCharacterSheetDialogProps = {
   error: string
   onClose: () => void
   onSave: (hero: StoryDndHeroInput) => void
-  onChangePlayMode: (playMode: 'game' | 'sandbox') => void
   onReset: () => void
 }
 
@@ -130,7 +129,6 @@ export default function DndCharacterSheetDialog({
   error,
   onClose,
   onSave,
-  onChangePlayMode,
   onReset,
 }: DndCharacterSheetDialogProps) {
   const isSandbox = state?.play_mode === 'sandbox'
@@ -138,6 +136,9 @@ export default function DndCharacterSheetDialog({
   const identityLocked = Boolean(locks?.identity_locked) && !isSandbox
   const abilitiesLocked = Boolean(locks?.abilities_locked) && !isSandbox
   const skillSlots = locks?.skill_slots ?? state?.hero.skill_slots ?? 6
+  // Character creation is open until the story starts; sandbox keeps it open forever.
+  const setupOpen = !locks?.started || isSandbox
+
   const [name, setName] = useState('')
   const [raceId, setRaceId] = useState('human')
   const [classId, setClassId] = useState('fighter')
@@ -150,10 +151,55 @@ export default function DndCharacterSheetDialog({
   const [hpCurrent, setHpCurrent] = useState(10)
   const [armorClass, setArmorClass] = useState(10)
   const [speed, setSpeed] = useState(30)
-  const [gold, setGold] = useState(0)
+  const [purse, setPurse] = useState(0)
   const [inventoryText, setInventoryText] = useState('')
   const [inventoryNote, setInventoryNote] = useState('')
   const [avatarCardId, setAvatarCardId] = useState<number | null>(null)
+
+  const currency = useMemo(
+    () => (catalog?.currencies ?? []).find((item) => item.id === (state?.currency ?? 'fantasy')) ?? null,
+    [catalog, state?.currency],
+  )
+  const currencyLabel = currency?.label.split('—')[0].trim() ?? 'Фэнтези'
+  const purseDenominations = useMemo(() => currency?.denominations ?? [], [currency])
+  const wealthPresets = useMemo(() => {
+    if (!currency) {
+      return []
+    }
+    return [
+      { id: 'poor', label: 'Бедняк', amount: currency.presets.poor },
+      { id: 'normal', label: 'Обычный', amount: currency.presets.normal },
+      { id: 'rich', label: 'Богач', amount: currency.presets.rich },
+    ]
+  }, [currency])
+  // The purse is one number; these are the coins it comes to. Editing a coin box rebuilds the
+  // number, which is what keeps "3 gold and 4 silver" and "340" the same thing.
+  const coinCounts = useMemo(() => {
+    const result: Record<string, number> = {}
+    let remaining = Math.max(0, purse)
+    for (const denomination of purseDenominations) {
+      result[denomination.id] = Math.floor(remaining / denomination.value)
+      remaining -= result[denomination.id] * denomination.value
+    }
+    return result
+  }, [purse, purseDenominations])
+  const purseDisplay = useMemo(() => {
+    const parts = purseDenominations
+      .map((denomination) => ({ short: denomination.short, count: coinCounts[denomination.id] ?? 0 }))
+      .filter((part) => part.count > 0)
+    if (!parts.length) {
+      return `0 ${purseDenominations[purseDenominations.length - 1]?.short ?? ''}`.trim()
+    }
+    return parts.map((part) => `${part.count} ${part.short}`).join(' ')
+  }, [coinCounts, purseDenominations])
+  const handleCoinChange = (denominationId: string, raw: string) => {
+    const next = Math.max(0, Math.min(9_999_999, Number(raw) || 0))
+    const total = purseDenominations.reduce((sum, denomination) => {
+      const count = denomination.id === denominationId ? next : coinCounts[denomination.id] ?? 0
+      return sum + count * denomination.value
+    }, 0)
+    setPurse(total)
+  }
 
   // Re-seed the form when the dialog opens, and again when the play mode changes -- switching
   // to sandbox rewrites the ability basis server-side, so the form has to follow. Deliberately
@@ -176,7 +222,7 @@ export default function DndCharacterSheetDialog({
     setHpCurrent(hero.hp.current)
     setArmorClass(hero.armor_class)
     setSpeed(hero.speed)
-    setGold(hero.gold)
+    setPurse(hero.purse)
     setInventoryText(hero.inventory.join(', '))
     setInventoryNote(hero.inventory_note)
     setAvatarCardId(hero.avatar_world_card_id)
@@ -261,8 +307,12 @@ export default function DndCharacterSheetDialog({
     if (!abilitiesLocked) {
       hero.base_abilities = base
     }
-    if (isSandbox) {
-      hero.gold = gold
+    if (setupOpen) {
+      hero.purse = purse
+      hero.inventory = inventoryText
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
     }
     if (avatarCardId) {
       hero.avatar_world_card_id = avatarCardId
@@ -273,10 +323,6 @@ export default function DndCharacterSheetDialog({
       hero.hp_current = hpCurrent
       hero.armor_class = armorClass
       hero.speed = speed
-      hero.inventory = inventoryText
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
     }
     onSave(hero)
   }
@@ -351,39 +397,8 @@ export default function DndCharacterSheetDialog({
       }
     >
       <Stack spacing={1.5}>
-        {/* --- Play mode ------------------------------------------------------------- */}
-        <Stack
-          direction="row"
-          spacing={0.6}
-          sx={{
-            p: 0.4,
-            borderRadius: '14px',
-            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, transparent)',
-          }}
-        >
-          {(['game', 'sandbox'] as const).map((mode) => {
-            const isActive = (state?.play_mode ?? 'game') === mode
-            return (
-              <DndSurfaceButton
-                key={mode}
-                active={isActive}
-                onClick={() => onChangePlayMode(mode)}
-                disabled={saving}
-                sx={{
-                  flex: 1,
-                  minHeight: 40,
-                  borderRadius: '11px',
-                  fontSize: '0.86rem',
-                  fontWeight: 900,
-                  borderColor: isActive ? 'var(--morius-accent)' : 'transparent',
-                  backgroundColor: isActive ? 'var(--morius-accent)' : 'transparent',
-                }}
-              >
-                {mode === 'game' ? 'Режим игры' : 'Режим песочницы'}
-              </DndSurfaceButton>
-            )
-          })}
-        </Stack>
+        {/* The play-mode switch lives in the left menu now: it is a one-time decision about
+            what kind of game this is, not something to reach for from inside the sheet. */}
         <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.45 }}>
           {isSandbox
             ? 'Песочница: характеристики от 1 до 30, свободный уровень, хиты и инвентарь — и всё это остаётся доступным для правки в любой момент. Правила игры при этом те же: заявка игрока остаётся попыткой, броски обязательны, NPC ведут себя по своему характеру. Время и погоду вы задаёте сами.'
@@ -759,21 +774,63 @@ export default function DndCharacterSheetDialog({
                 fullWidth
                 sx={fieldSx}
               />
-              <TextField
-                label="Золото"
-                type="number"
-                value={gold}
-                onChange={(event) => setGold(Math.max(0, Number(event.target.value) || 0))}
-                fullWidth
-                sx={fieldSx}
-              />
+            </Stack>
+          </>
+        ) : null}
+
+        {/* --- Starting money ----------------------------------------------------------- */}
+        {/* Open while the character is still being built, in any mode. Wanting to start rich
+            is a character concept, not a cheat, and it should not require sandbox. */}
+        {setupOpen ? (
+          <>
+            <SectionTitle hint={currencyLabel}>Стартовые деньги</SectionTitle>
+            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mb: 0.3 }}>
+              {wealthPresets.map((preset) => (
+                <Chip
+                  key={preset.id}
+                  label={preset.label}
+                  onClick={() => setPurse(preset.amount)}
+                  sx={{
+                    borderRadius: '999px',
+                    fontSize: '0.74rem',
+                    fontWeight: 800,
+                    height: 28,
+                    color: purse === preset.amount ? '#11070A' : 'var(--morius-text-secondary)',
+                    backgroundColor:
+                      purse === preset.amount
+                        ? '#e0c05a'
+                        : 'color-mix(in srgb, var(--morius-elevated-bg) 86%, transparent)',
+                    '&:hover': {
+                      backgroundColor: purse === preset.amount ? '#e0c05a' : 'rgba(224, 192, 90, 0.18)',
+                    },
+                  }}
+                />
+              ))}
+            </Stack>
+            <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+              {purseDenominations.map((denomination) => (
+                <TextField
+                  key={denomination.id}
+                  label={denomination.label}
+                  type="number"
+                  size="small"
+                  value={coinCounts[denomination.id] ?? 0}
+                  onChange={(event) => handleCoinChange(denomination.id, event.target.value)}
+                  sx={{ ...fieldSx, width: 116 }}
+                />
+              ))}
+              <Stack justifyContent="center" sx={{ pl: 0.4 }}>
+                <Typography sx={{ color: '#e0c05a', fontSize: '0.86rem', fontWeight: 950 }}>
+                  {purseDisplay}
+                </Typography>
+              </Stack>
             </Stack>
           </>
         ) : null}
 
         {/* --- Inventory --------------------------------------------------------------- */}
-        <SectionTitle hint={isSandbox ? 'через запятую' : 'ведёт мастер'}>Инвентарь</SectionTitle>
-        {isSandbox ? (
+        <SectionTitle hint={setupOpen ? 'через запятую' : 'ведёт мастер'}>Инвентарь</SectionTitle>
+        {setupOpen ? (
           <TextField
             value={inventoryText}
             onChange={(event) => setInventoryText(event.target.value)}
@@ -781,7 +838,8 @@ export default function DndCharacterSheetDialog({
             multiline
             minRows={2}
             maxRows={6}
-            placeholder="Меч, зелье лечения, верёвка 15 метров"
+            placeholder="Короткий меч, кожаный доспех, тёмно-красная роба, скрытые клинки на предплечьях"
+            helperText="Допишите сюда всё, что у героя есть по предыстории — своя одежда, памятная вещь, необычное оружие"
             sx={fieldSx}
           />
         ) : (

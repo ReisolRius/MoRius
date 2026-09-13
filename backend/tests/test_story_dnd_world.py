@@ -124,6 +124,81 @@ class DndIdentityTests(unittest.TestCase):
         )
         self.assertEqual(len(state["npcs"]), 1)
 
+    def test_a_named_character_absorbs_the_placeholder_even_on_a_loose_answer(self) -> None:
+        """The model is asked for the roster label and sometimes answers with the job.
+
+        It reported was_called="Телохранитель" for a row filed as "Слуга Алисии", which left
+        the party with two cards for one man. The role and the place in the room both point at
+        the same row, so the merge still happens.
+        """
+        state = normalize_dnd_state(
+            {
+                "turn_count": 6,
+                "scene_location": "Чайный дом",
+                "npcs": [
+                    {"name": "Алисия", "is_active": True},
+                    {
+                        "name": "Слуга Алисии",
+                        "role": "телохранитель",
+                        "is_active": True,
+                        "position": "за спиной госпожи",
+                    },
+                ],
+            }
+        )
+        next_state, _changes = apply_dnd_turn_upkeep(
+            state,
+            {
+                "npcs": [
+                    {"name": "Алисия", "is_active": True},
+                    {
+                        "name": "Томас",
+                        "role": "телохранитель",
+                        "is_active": True,
+                        "position": "за спиной госпожи",
+                        "was_called": "Телохранитель",
+                    },
+                ]
+            },
+            turn_index=7,
+            location_label="Чайный дом",
+        )
+        names = {npc["name"] for npc in next_state["npcs"]}
+        self.assertEqual(names, {"Алисия", "Томас"})
+        thomas = next(npc for npc in next_state["npcs"] if npc["name"] == "Томас")
+        self.assertIn("Слуга Алисии", thomas["aliases"])
+
+    def test_two_real_people_are_never_welded_together(self) -> None:
+        # The merge is deliberately narrow: a row filed under a real name is never a
+        # placeholder, however well the roles line up.
+        state = normalize_dnd_state(
+            {
+                "turn_count": 6,
+                "scene_location": "Казарма",
+                "npcs": [
+                    {"name": "Герта", "role": "маг", "is_active": True, "position": "у окна"},
+                    {"name": "Алисия", "role": "маг", "is_active": True, "position": "у окна"},
+                ],
+            }
+        )
+        next_state, _changes = apply_dnd_turn_upkeep(
+            state,
+            {
+                "npcs": [
+                    {
+                        "name": "Алисия",
+                        "role": "маг",
+                        "is_active": True,
+                        "position": "у окна",
+                        "was_called": "Маг",
+                    }
+                ]
+            },
+            turn_index=7,
+            location_label="Казарма",
+        )
+        self.assertEqual(len(next_state["npcs"]), 2)
+
     def test_appearing_on_stage_is_remembered(self) -> None:
         state = normalize_dnd_state({"npcs": [{"name": "Герта", "is_active": True}]})
         self.assertTrue(state["npcs"][0]["has_appeared"])

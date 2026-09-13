@@ -48,6 +48,7 @@ export type DndLeftPanelProps = {
   onOpenSheet: () => void
   onOpenLevelUp: () => void
   onOpenEnvironment: () => void
+  onChangePlayMode: (playMode: 'game' | 'sandbox') => void
 }
 
 const cardSx = {
@@ -126,6 +127,7 @@ export default function DndLeftPanel({
   onOpenSheet,
   onOpenLevelUp,
   onOpenEnvironment,
+  onChangePlayMode,
 }: DndLeftPanelProps) {
   const [showAllStats, setShowAllStats] = useState(false)
   const [inventoryOpen, setInventoryOpen] = useState(false)
@@ -455,13 +457,30 @@ export default function DndLeftPanel({
         <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.9rem', fontWeight: 900, flex: 1 }}>
           Золото
         </Typography>
-        <Typography sx={{ color: '#e0c05a', fontSize: '0.95rem', fontWeight: 950, lineHeight: 1 }}>
-          {hero.gold.toLocaleString('ru-RU')}
-          <Box component="span" sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', fontWeight: 800 }}>
-            {' '}
-            зм
-          </Box>
-        </Typography>
+        {/* The purse, split into whatever coins the setting uses. Reading it off the parts
+            rather than a single "gold" number is what lets small change exist at all. */}
+        <Stack direction="row" spacing={0.5} alignItems="baseline" sx={{ minWidth: 0 }}>
+          {(hero.purse_parts?.length ? hero.purse_parts : []).map((part) => (
+            <Typography
+              key={part.id}
+              sx={{ color: '#e0c05a', fontSize: '0.95rem', fontWeight: 950, lineHeight: 1 }}
+            >
+              {part.count.toLocaleString('ru-RU')}
+              <Box
+                component="span"
+                sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.7rem', fontWeight: 800 }}
+              >
+                {' '}
+                {part.short}
+              </Box>
+            </Typography>
+          ))}
+          {hero.purse_parts?.length ? null : (
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', fontWeight: 900 }}>
+              {hero.purse_display || '—'}
+            </Typography>
+          )}
+        </Stack>
       </Box>
 
       {/* --- Death saves ------------------------------------------------------------------ */}
@@ -719,6 +738,75 @@ export default function DndLeftPanel({
               )
             })}
           </Stack>
+        </Box>
+      ) : null}
+
+      {/* --- Play mode ------------------------------------------------------------------- */}
+      {/* A decision about what kind of game this is, taken once before it starts. Flipping it
+          mid-story would let a character the world has already reacted to be rewritten, so
+          after the first turn it stops being an option and becomes a label. */}
+      {state.turn_count === 0 ? (
+        <Box sx={cardSx}>
+          <Typography
+            sx={{
+              color: 'var(--morius-text-secondary)',
+              fontSize: '0.66rem',
+              fontWeight: 900,
+              letterSpacing: '0.06em',
+              mb: 0.6,
+            }}
+          >
+            РЕЖИМ ИГРЫ
+          </Typography>
+          <Stack
+            direction="row"
+            spacing={0.4}
+            sx={{
+              p: 0.35,
+              borderRadius: '12px',
+              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
+            }}
+          >
+            {(['game', 'sandbox'] as const).map((mode) => {
+              const active = state.play_mode === mode
+              return (
+                <Button
+                  key={mode}
+                  onClick={() => onChangePlayMode(mode)}
+                  sx={{
+                    flex: 1,
+                    minHeight: 32,
+                    borderRadius: '9px',
+                    textTransform: 'none',
+                    fontSize: '0.76rem',
+                    fontWeight: 900,
+                    color: active ? '#11070A !important' : 'var(--morius-text-secondary) !important',
+                    backgroundColor: active
+                      ? mode === 'sandbox'
+                        ? '#f0c24a'
+                        : 'var(--morius-accent)'
+                      : 'transparent',
+                    '&:hover': {
+                      backgroundColor: active
+                        ? mode === 'sandbox'
+                          ? '#f0c24a'
+                          : 'var(--morius-accent)'
+                        : 'color-mix(in srgb, var(--morius-accent) 16%, transparent)',
+                    },
+                  }}
+                >
+                  {mode === 'game' ? 'Обычный' : 'Песочница'}
+                </Button>
+              )
+            })}
+          </Stack>
+          <Typography
+            sx={{ mt: 0.6, color: 'var(--morius-text-secondary)', fontSize: '0.74rem', lineHeight: 1.4 }}
+          >
+            {isSandbox
+              ? 'Песочница: характеристики, деньги, уровень и NPC меняются в любой момент. Опыт и задания идут своим чередом. Выбирается один раз — до первого хода.'
+              : 'Обычный: строгие правила D&D 5e. После первого хода лист фиксируется, дальше героя ведёт история. Выбирается один раз — до первого хода.'}
+          </Typography>
         </Box>
       ) : null}
 

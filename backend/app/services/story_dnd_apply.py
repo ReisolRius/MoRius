@@ -39,6 +39,7 @@ from app.services.story_dnd import (
     clamp_relation_score,
     create_empty_dnd_combat,
     currency_to_base_units,
+    _looks_like_a_role_not_a_name,
     dedupe_dnd_npcs,
     expire_dnd_conditions,
     format_currency,
@@ -500,6 +501,49 @@ def _find_npc_entry(npcs: list[dict[str, Any]], *, name: str, world_card_id: Any
     return None
 
 
+def _find_placeholder_for_alias(
+    npcs: list[dict[str, Any]],
+    entry: dict[str, Any],
+    *,
+    alias: str,
+    update: dict[str, Any],
+) -> dict[str, Any] | None:
+    """The nameless roster row this newly-named character actually is, if there is one.
+
+    Deliberately narrow. A merge that fires wrongly welds two real people together, which is
+    far worse than leaving a duplicate, so all of this has to line up: the other row is filed
+    under a job rather than a name, it was on stage this scene, it is not the row we are
+    already looking at, and the model's own answer points at it -- by matching its job, its
+    place in the room, or the label it was filed under.
+    """
+    entry_key = _npc_match_key(entry.get("name"))
+    alias_key = _npc_match_key(alias)
+    update_role = _npc_match_key(update.get("role"))
+    update_position = _npc_match_key(update.get("position"))
+    for candidate in npcs:
+        if not isinstance(candidate, dict):
+            continue
+        candidate_name = normalize_single_line(candidate.get("name"), max_length=80)
+        candidate_key = _npc_match_key(candidate_name)
+        if not candidate_key or candidate_key == entry_key:
+            continue
+        if not _looks_like_a_role_not_a_name(candidate_name):
+            continue
+        if not candidate.get("has_appeared"):
+            continue
+        candidate_role = _npc_match_key(candidate.get("role"))
+        candidate_position = _npc_match_key(candidate.get("position"))
+        points_at_it = (
+            (alias_key and (alias_key in candidate_key or candidate_key in alias_key))
+            or (alias_key and candidate_role and alias_key == candidate_role)
+            or (update_role and candidate_role and update_role == candidate_role)
+            or (update_position and candidate_position and update_position == candidate_position)
+        )
+        if points_at_it:
+            return candidate
+    return None
+
+
 def _apply_npcs(
     state: dict[str, Any],
     payload: dict[str, Any],
@@ -586,6 +630,17 @@ def _apply_npcs(
                 aliases.append(alias)
                 entry["aliases"] = aliases[:6]
                 changes.append(f"{name}: ранее «{alias}»")
+            # The model is asked to quote the roster label back and will sometimes answer with
+            # the job instead ("Телохранитель" for a row filed as "Слуга Алисии"). Adopt the
+            # placeholder's own label too, so the two rows collapse in the dedupe pass below.
+            placeholder = _find_placeholder_for_alias(npcs, entry, alias=alias, update=update)
+            if placeholder is not None:
+                placeholder_name = normalize_single_line(placeholder.get("name"), max_length=80)
+                aliases = [item for item in (entry.get("aliases") or []) if isinstance(item, str)]
+                if placeholder_name.casefold() not in {item.casefold() for item in aliases}:
+                    aliases.append(placeholder_name)
+                    entry["aliases"] = aliases[:6]
+                    changes.append(f"{name}: опознан как «{placeholder_name}»")
 
         try:
             relation_delta = int(update.get("relation_delta") or 0)

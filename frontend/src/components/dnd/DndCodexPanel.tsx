@@ -19,6 +19,7 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import type {
   DndCatalog,
+  DndCurrencyId,
   DndDifficulty,
   DndNpc,
   DndRollPolicy,
@@ -28,16 +29,20 @@ import BaseDialog from '../dialogs/BaseDialog'
 import {
   DND_ABILITY_ORDER,
   DND_ABILITY_SHORT,
+  DND_MOOD_LABELS,
   DND_RELATION_LABELS,
   abilityModifier,
   formatModifier,
   healthColor,
   healthRatio,
+  moodColor,
   relationColor,
 } from './dndDisplay'
 import {
   DndConditionIcon,
+  DndCoinIcon,
   DndD20Icon,
+  DndLockIcon,
   DndPeopleIcon,
   DndPinIcon,
   DndScrollIcon,
@@ -74,6 +79,12 @@ const DIFFICULTY_COLORS: Record<DndDifficulty, string> = {
   deadly: '#e05252',
 }
 
+const FALLBACK_CURRENCIES: { id: DndCurrencyId; label: string }[] = [
+  { id: 'fantasy', label: 'Фэнтези' },
+  { id: 'modern', label: 'Современность' },
+  { id: 'cyberpunk', label: 'Киберпанк' },
+]
+
 const FALLBACK_DIFFICULTIES: {
   id: DndDifficulty
   label: string
@@ -100,6 +111,7 @@ export type DndCodexPanelProps = {
   onSuggestNpcStats: (npcKey: string) => void
   onChangeRollPolicy: (policy: DndRollPolicy) => void
   onChangeDifficulty: (difficulty: DndDifficulty) => void
+  onChangeCurrency: (currency: DndCurrencyId) => void
 }
 
 const cardSx = {
@@ -206,6 +218,7 @@ function NpcRow({
   onToggle,
   onMeet,
   onEdit,
+  sandbox,
 }: {
   npc: DndNpc
   avatarUrl: string | null
@@ -214,9 +227,11 @@ function NpcRow({
   onToggle: () => void
   onMeet: () => void
   onEdit: () => void
+  sandbox: boolean
 }) {
   const relationLabel = DND_RELATION_LABELS[npc.relation] ?? npc.relation
   const color = relationColor(npc.relation)
+  const locked = npc.has_appeared && !sandbox
   return (
     <Box
       sx={{
@@ -282,10 +297,31 @@ function NpcRow({
             <Stack direction="row" spacing={0.5} alignItems="baseline" sx={{ width: '100%' }}>
               <Typography
                 noWrap
-                sx={{ color, fontSize: '0.74rem', fontWeight: 900, lineHeight: 1.2, textAlign: 'left', flex: 1 }}
+                sx={{ color, fontSize: '0.74rem', fontWeight: 900, lineHeight: 1.2, textAlign: 'left' }}
               >
                 {relationLabel}
               </Typography>
+              {/* The second clock. A character can be in love and furious at the same time,
+                  and the panel has to be able to say so without one hiding the other. */}
+              {npc.mood && npc.mood !== 'calm' ? (
+                <Tooltip disableInteractive title={npc.mood_note || 'Настроение прямо сейчас'}>
+                  <Typography
+                    noWrap
+                    sx={{
+                      color: moodColor(npc.mood),
+                      fontSize: '0.68rem',
+                      fontWeight: 800,
+                      lineHeight: 1.2,
+                      flex: 1,
+                      textAlign: 'left',
+                    }}
+                  >
+                    · {(DND_MOOD_LABELS[npc.mood] ?? npc.mood).toLowerCase()}
+                  </Typography>
+                </Tooltip>
+              ) : (
+                <Box sx={{ flex: 1 }} />
+              )}
               <Typography
                 sx={{
                   color: 'var(--morius-text-secondary)',
@@ -315,12 +351,13 @@ function NpcRow({
                 <HealthBar current={npc.hp.current} max={npc.hp.max} />
               </Box>
             </Stack>
-            {npc.role ? (
+            {npc.role || npc.aliases?.length ? (
               <Typography
                 noWrap
                 sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.7rem', fontWeight: 700, textAlign: 'left' }}
               >
                 {npc.role}
+                {npc.aliases?.length ? `${npc.role ? ' · ' : ''}ранее «${npc.aliases[0]}»` : ''}
               </Typography>
             ) : null}
           </Stack>
@@ -404,22 +441,40 @@ function NpcRow({
             >
               Встретиться
             </Button>
-            <Button
-              onClick={onEdit}
-              disabled={busy}
-              sx={{
-                minHeight: 34,
-                px: 1.2,
-                borderRadius: '10px',
-                textTransform: 'none',
-                fontSize: '0.78rem',
-                fontWeight: 900,
-                color: 'var(--morius-title-text) !important',
-                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, transparent) !important',
-              }}
+            {/* Once a character has walked on stage they belong to the master. Setting their
+                lore -- an old enemy who hates the hero on sight, a lover who already adores
+                them -- is something you do before the meeting, not during it. */}
+            <Tooltip
+              disableInteractive
+              title={
+                locked
+                  ? 'Персонаж уже появился в истории — дальше им управляет мастер'
+                  : 'Задать характеристики и отношение до первой встречи'
+              }
             >
-              Статы
-            </Button>
+              <span>
+                <Button
+                  onClick={onEdit}
+                  disabled={busy || locked}
+                  startIcon={locked ? <DndLockIcon size={14} /> : undefined}
+                  sx={{
+                    minHeight: 34,
+                    px: 1.2,
+                    borderRadius: '10px',
+                    textTransform: 'none',
+                    fontSize: '0.78rem',
+                    fontWeight: 900,
+                    color: 'var(--morius-title-text) !important',
+                    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, transparent) !important',
+                    '&.Mui-disabled': {
+                      color: 'color-mix(in srgb, var(--morius-title-text) 46%, transparent) !important',
+                    },
+                  }}
+                >
+                  Статы
+                </Button>
+              </span>
+            </Tooltip>
           </Stack>
         </Stack>
       </Collapse>
@@ -638,6 +693,7 @@ export default function DndCodexPanel({
   onSuggestNpcStats,
   onChangeRollPolicy,
   onChangeDifficulty,
+  onChangeCurrency,
 }: DndCodexPanelProps) {
   const [expandedNpcKey, setExpandedNpcKey] = useState<string | null>(null)
   const [statsNpcKey, setStatsNpcKey] = useState<string | null>(null)
@@ -657,6 +713,12 @@ export default function DndCodexPanel({
     () => (catalog?.difficulties?.length ? catalog.difficulties : FALLBACK_DIFFICULTIES),
     [catalog],
   )
+  const currencyOptions = useMemo(
+    () => (catalog?.currencies?.length ? catalog.currencies : FALLBACK_CURRENCIES),
+    [catalog],
+  )
+  // Prices get quoted in this money the moment play starts, so it stops being a choice then.
+  const setupOpen = (state?.turn_count ?? 0) === 0
   const activeDifficulty = useMemo(
     () => difficultyOptions.find((item) => item.id === (state?.difficulty ?? 'normal')) ?? null,
     [difficultyOptions, state?.difficulty],
@@ -796,6 +858,66 @@ export default function DndCodexPanel({
             )
           })}
         </Stack>
+        {setupOpen ? (
+          <>
+            <Typography
+              sx={{
+                color: 'var(--morius-text-secondary)',
+                fontSize: '0.66rem',
+                fontWeight: 900,
+                letterSpacing: '0.05em',
+                mt: 1.1,
+                mb: 0.5,
+              }}
+            >
+              ВАЛЮТА МИРА
+            </Typography>
+            <Stack
+              direction="row"
+              spacing={0.35}
+              sx={{
+                p: 0.35,
+                mb: 0.4,
+                borderRadius: '12px',
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
+              }}
+            >
+              {currencyOptions.map((option) => {
+                const isActive = (state.currency ?? 'fantasy') === option.id
+                return (
+                  <Button
+                    key={option.id}
+                    onClick={() => onChangeCurrency(option.id)}
+                    startIcon={isActive ? <DndCoinIcon size={14} /> : undefined}
+                    sx={{
+                      flex: 1,
+                      minWidth: 0,
+                      minHeight: 30,
+                      px: 0.4,
+                      borderRadius: '9px',
+                      textTransform: 'none',
+                      fontSize: '0.7rem',
+                      fontWeight: 900,
+                      color: isActive ? '#11070A !important' : 'var(--morius-text-secondary) !important',
+                      backgroundColor: isActive ? '#e0c05a' : 'transparent',
+                      '&:hover': {
+                        backgroundColor: isActive ? '#e0c05a' : 'rgba(224, 192, 90, 0.18)',
+                      },
+                    }}
+                  >
+                    {option.label.split('—')[0].trim()}
+                  </Button>
+                )
+              })}
+            </Stack>
+            <Typography
+              sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.75rem', lineHeight: 1.4, mb: 1.1 }}
+            >
+              Мелкие траты считаются по номиналам и дают сдачу. Выбирается до первого хода.
+            </Typography>
+          </>
+        ) : null}
+
         <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.75rem', lineHeight: 1.4 }}>
           {activeDifficulty
             ? `${activeDifficulty.description}${
@@ -998,6 +1120,7 @@ export default function DndCodexPanel({
                 onToggle={() => setExpandedNpcKey((previous) => (previous === npc.key ? null : npc.key))}
                 onMeet={() => onMeetNpc(npc)}
                 onEdit={() => setStatsNpcKey(npc.key)}
+                sandbox={state.play_mode === 'sandbox'}
               />
             ))}
           </Stack>

@@ -91,6 +91,35 @@ export const DND_RELATION_LABELS: Record<string, string> = {
   in_love: 'Влюблена',
 }
 
+// Noun labels so they sit correctly after any character's name.
+export const DND_MOOD_LABELS: Record<string, string> = {
+  furious: 'Ярость',
+  angry: 'Злость',
+  hurt: 'Обида',
+  wary_mood: 'Настороженность',
+  calm: 'Спокойствие',
+  amused: 'Хорошее расположение',
+  warm: 'Теплота',
+  grateful: 'Благодарность',
+}
+
+export function moodColor(mood: string): string {
+  switch (mood) {
+    case 'furious':
+    case 'angry':
+      return '#e05252'
+    case 'hurt':
+    case 'wary_mood':
+      return '#e0a93f'
+    case 'warm':
+    case 'grateful':
+    case 'amused':
+      return '#5bb87a'
+    default:
+      return 'var(--morius-text-secondary)'
+  }
+}
+
 export const DND_OUTCOME_LABELS: Record<DndOutcome, string> = {
   critical_success: 'Критический успех',
   success: 'Успех',
