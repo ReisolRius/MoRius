@@ -181,16 +181,23 @@ class StoryDndRouterTests(unittest.TestCase):
         self.assertEqual(result.state["environment"]["season"], "winter")
         self.assertEqual(result.state["environment"]["weather"], "snow")
 
-    def test_environment_locks_after_the_first_turn(self) -> None:
+    def test_the_player_can_correct_the_clock_mid_game(self) -> None:
+        """The clock is driven by a model that sometimes gets it wrong.
+
+        This used to be locked after the first turn, which meant a player who narrated
+        "вечером я пошёл в гильдию" and watched the panel stay on morning had no way to fix
+        it and played the rest of the session at the wrong hour. The *narrator* is still
+        bounded -- that guard lives in the upkeep's elapsed budget, not here.
+        """
         state = dnd_router.get_game_dnd_state(self.game)
         state["turn_count"] = 3
         dnd_router.set_game_dnd_state(self.game, state)
         self.db.commit()
-        with self._as(self.admin), self.assertRaises(HTTPException) as caught:
-            dnd_router.update_story_dnd_environment(
+        with self._as(self.admin):
+            result = dnd_router.update_story_dnd_environment(
                 self.game.id, StoryDndEnvironmentRequest(time_of_day="night"), None, self.db
             )
-        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(result.state["environment"]["time_of_day"], "night")
 
     def test_sandbox_unlocks_the_environment_again(self) -> None:
         state = dnd_router.get_game_dnd_state(self.game)

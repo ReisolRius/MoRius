@@ -3761,6 +3761,39 @@ def _generate_story_response_locked(
             is_reroll = bool(getattr(payload, "reroll_last_response", False))
             if isinstance(raw_roll, dict) and (is_reroll or not raw_roll.get("consumed")):
                 dnd_pending_roll = raw_roll
+            if is_reroll:
+                # A reroll retells one turn, so it has to start from the world as it stood
+                # *before* that turn. Otherwise the narrator writes a fresh version of the
+                # scene while the sheet still carries the quest, the notes and the hit points
+                # the discarded version produced -- which is how a rerolled Alicia hedges about
+                # a walk the quest log already says she agreed to.
+                #
+                # The discarded response has already been dropped from the visible history by
+                # this point, so the newest surviving snapshot *is* the pre-reroll world.
+                try:
+                    from app.services.story_dnd import deserialize_dnd_state
+
+                    previous_snapshot = db.scalar(
+                        select(StoryMessage.dnd_state_snapshot)
+                        .where(
+                            StoryMessage.game_id == game.id,
+                            StoryMessage.role == deps.story_assistant_role,
+                            StoryMessage.undone_at.is_(None),
+                            StoryMessage.dnd_state_snapshot != "",
+                        )
+                        .order_by(StoryMessage.id.desc())
+                        .limit(1)
+                    )
+                    if previous_snapshot:
+                        dnd_state = deserialize_dnd_state(previous_snapshot)
+                        set_game_dnd_state(game, dnd_state)
+                        # The roll itself survives the rewind on purpose: a failed stealth
+                        # check stays failed however many times the prose is regenerated.
+                        carried_roll = dnd_state.get("last_roll")
+                        if isinstance(carried_roll, dict):
+                            dnd_pending_roll = carried_roll
+                except Exception:
+                    logger.exception("Failed to rewind D&D state for a reroll: game_id=%s", game.id)
             effective_instruction_cards = [
                 *effective_instruction_cards,
                 build_dnd_instruction_card(

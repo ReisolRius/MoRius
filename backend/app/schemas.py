@@ -2509,6 +2509,9 @@ class StoryDndHeroUpdateRequest(BaseModel):
     armor_class: int | None = Field(default=None, ge=1, le=40)
     speed: int | None = Field(default=None, ge=0, le=200)
     gold: int | None = Field(default=None, ge=0, le=9_999_999)
+    # The purse in base units (coppers, cents, credits). Editable before the first turn in any
+    # mode -- a player who wants to open the story rich should not have to use sandbox for it.
+    purse: int | None = Field(default=None, ge=0, le=1_000_000_000)
     inventory: list[str] | None = Field(default=None, max_length=40)
     inventory_note: str | None = Field(default=None, max_length=2_000)
     conditions: list[dict[str, Any]] | None = Field(default=None, max_length=8)
@@ -2531,6 +2534,12 @@ class StoryDndDifficultyRequest(BaseModel):
     """How hard the world pushes back. Shifts every DC and the hero's own die."""
 
     difficulty: Literal["easy", "normal", "hard", "deadly"]
+
+
+class StoryDndCurrencyRequest(BaseModel):
+    """Which money the setting uses. Chosen once, before the first turn."""
+
+    currency: Literal["fantasy", "modern", "cyberpunk"]
 
 
 class StoryDndLevelUpRequest(BaseModel):

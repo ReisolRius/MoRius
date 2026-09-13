@@ -21,13 +21,16 @@ from app.services.story_dnd import (
     DND_COMBAT_PHASE_ACTIVE,
     DND_COMBAT_SIDE_ENEMY,
     DND_COMBAT_SIDE_HERO,
+    DEFAULT_MOOD,
     DND_LIFE_STATE_DEAD,
     DND_MAX_NOTES,
+    DND_MOOD_TURN_BUDGET,
     DND_MAX_NPCS,
     DND_MAX_QUESTS,
     DND_RELATION_MAX_TURN_DELTA,
     DND_TIME_IDS,
     DND_WEATHER_LABELS,
+    DND_PURSE_MAX,
     STORY_DND_PLAY_MODE_SANDBOX,
     advance_dnd_combat_turn,
     advance_environment_season,
@@ -35,7 +38,11 @@ from app.services.story_dnd import (
     award_experience,
     clamp_relation_score,
     create_empty_dnd_combat,
+    currency_to_base_units,
+    dedupe_dnd_npcs,
     expire_dnd_conditions,
+    format_currency,
+    get_dnd_currency,
     normalize_dnd_combat,
     normalize_dnd_combat_side,
     normalize_dnd_condition_id,
@@ -43,6 +50,7 @@ from app.services.story_dnd import (
     normalize_dnd_environment,
     normalize_dnd_inventory,
     normalize_dnd_level,
+    normalize_dnd_mood,
     normalize_dnd_play_mode,
     normalize_dnd_relation_id,
     normalize_dnd_state,
@@ -147,16 +155,29 @@ def _apply_hero_vitals(state: dict[str, Any], payload: dict[str, Any]) -> list[s
         is_dead=hero.get("is_dead"),
     )
 
+    money = get_dnd_currency(state.get("currency"))
     gold_update = _as_dict(payload.get("gold"))
     if gold_update.get("should_update"):
-        try:
-            delta = int(gold_update.get("delta") or 0)
-        except (TypeError, ValueError):
-            delta = 0
-        delta = max(-GOLD_DELTA_CEILING, min(GOLD_DELTA_CEILING, delta))
+        # The model may answer in whole coins ({"gp": 3, "sp": 4}) or in a plain number of the
+        # main denomination. Both land in base units, which is the only unit the purse knows --
+        # and the only way paying five coppers out of fifteen gold comes to 14 зм 9 см 5 мм
+        # instead of silently costing a gold piece.
+        coins = gold_update.get("coins")
+        if isinstance(coins, dict) and coins:
+            delta = currency_to_base_units(coins, money.id)
+        else:
+            try:
+                delta = int(gold_update.get("delta") or 0) * money.main.value
+            except (TypeError, ValueError):
+                delta = 0
+        base_ceiling = GOLD_DELTA_CEILING * money.main.value
+        delta = max(-base_ceiling, min(base_ceiling, delta))
         if delta:
-            hero["gold"] = max(0, int(hero.get("gold") or 0) + delta)
-            changes.append(f"gold{delta:+d}")
+            before = int(hero.get("purse") or 0)
+            hero["purse"] = max(0, min(DND_PURSE_MAX, before + delta))
+            changes.append(
+                f"purse {format_currency(before, money.id)} -> {format_currency(hero['purse'], money.id)}"
+            )
 
     state["hero"] = hero
     return changes
@@ -267,6 +288,12 @@ def _apply_environment(state: dict[str, Any], payload: dict[str, Any]) -> list[s
     environment = normalize_dnd_environment(_as_dict(state.get("environment")), locked=True)
     elapsed = normalize_dnd_elapsed(environment_update.get("elapsed"))
     max_slots, min_days, max_days = DND_ELAPSED_BOUNDS[elapsed]
+    # The budget guards against a model drifting the clock on its own. When the player is the
+    # one who narrated the jump -- "вечером я заглянул в гильдию", "прошла неделя" -- the guard
+    # is the thing standing between them and the scene they asked for, so it stands down.
+    if bool(environment_update.get("player_declared")):
+        max_slots = len(DND_TIME_IDS)
+        max_days = max(max_days, 60)
     changes: list[str] = []
 
     current_time = normalize_dnd_time_of_day(environment.get("time_of_day"))
@@ -348,15 +375,33 @@ def _apply_quests(state: dict[str, Any], payload: dict[str, Any]) -> list[str]:
 
     for status, key in (("done", "completed"), ("failed", "failed")):
         for raw_title in _as_list(quests_update.get(key)):
-            quest = by_key.get(_npc_match_key(raw_title))
+            requested = _npc_match_key(raw_title)
+            quest = by_key.get(requested)
+            if quest is None and requested:
+                # The model rarely quotes a title back word for word. Matching on a shared
+                # prefix or containment is the difference between quests that close and a
+                # panel that fills up with things the player finished ages ago.
+                quest = next(
+                    (
+                        item
+                        for item in quests
+                        if item.get("status") == "active"
+                        and (
+                            requested in _npc_match_key(item.get("title"))
+                            or _npc_match_key(item.get("title")) in requested
+                        )
+                    ),
+                    None,
+                )
             if quest is None or quest.get("status") == status:
                 continue
             quest["status"] = status
             changes.append(f"quest {status}: {quest.get('title')}")
 
-    # Finished quests stay visible for a while but must never crowd out live ones.
+    # Finished quests stay visible for a while but must never crowd out live ones, and only
+    # the most recent few are worth remembering at all.
     active = [quest for quest in quests if quest.get("status") == "active"]
-    finished = [quest for quest in quests if quest.get("status") != "active"]
+    finished = [quest for quest in quests if quest.get("status") != "active"][-4:]
     state["quests"] = (active + finished)[:DND_MAX_QUESTS]
     return changes
 
@@ -367,9 +412,34 @@ def _apply_master_notes(state: dict[str, Any], payload: dict[str, Any], *, turn_
         for note in _as_list(payload.get("master_notes"))
     ]
     fresh = [note for note in raw_notes if note]
-    if not fresh:
-        return []
     existing = [item for item in _as_list(state.get("notes")) if isinstance(item, dict)]
+    changes: list[str] = []
+
+    # A note the story has moved past is worse than no note: it keeps feeding the narrator a
+    # fact that stopped being true. The model names the ones to drop; matching is fuzzy
+    # because it will paraphrase them.
+    retired = [
+        _npc_match_key(item)
+        for item in _as_list(payload.get("retired_notes"))
+        if _npc_match_key(item)
+    ]
+    if retired:
+        kept_notes = [
+            item
+            for item in existing
+            if not any(
+                token in _npc_match_key(item.get("text")) or _npc_match_key(item.get("text")) in token
+                for token in retired
+            )
+        ]
+        if len(kept_notes) != len(existing):
+            changes.append(f"notes retired {len(existing) - len(kept_notes)}")
+            existing = kept_notes
+
+    if not fresh:
+        if changes:
+            state["notes"] = existing[:DND_MAX_NOTES]
+        return changes
     existing_keys = {_npc_match_key(item.get("text")) for item in existing}
     added = 0
     for note in fresh:
@@ -378,8 +448,12 @@ def _apply_master_notes(state: dict[str, Any], payload: dict[str, Any], *, turn_
         existing_keys.add(_npc_match_key(note))
         existing.insert(0, {"text": note, "turn": max(int(turn_index or 0), 0)})
         added += 1
+    # Oldest notes fall off the end. The cap is the point: an unbounded ledger is how the
+    # master's memory turns into noise nobody reads.
     state["notes"] = existing[:DND_MAX_NOTES]
-    return [f"notes+{added}"] if added else []
+    if added:
+        changes.append(f"notes+{added}")
+    return changes
 
 
 # --- NPCs ------------------------------------------------------------------------------------
@@ -431,6 +505,7 @@ def _apply_npcs(
     payload: dict[str, Any],
     *,
     location_label: str = "",
+    turn_index: int = 0,
 ) -> list[str]:
     updates = [item for item in _as_list(payload.get("npcs")) if isinstance(item, dict)]
     npcs = [item for item in _as_list(state.get("npcs")) if isinstance(item, dict)]
@@ -446,6 +521,7 @@ def _apply_npcs(
         departed = [npc.get("name") for npc in npcs if npc.get("is_active")]
         for npc in npcs:
             npc["is_active"] = False
+            npc["position"] = ""
         if departed:
             changes.append("scene changed, stage cleared: " + ", ".join(str(name) for name in departed))
     if next_location:
@@ -482,6 +558,34 @@ def _apply_npcs(
         if update.get("role") and not entry.get("role"):
             entry["role"] = normalize_single_line(update.get("role"), max_length=80)
         entry["is_active"] = bool(update.get("is_active"))
+        if entry["is_active"]:
+            entry["has_appeared"] = True
+        position = normalize_single_line(update.get("position"), max_length=120)
+        if position:
+            entry["position"] = position
+        elif not entry["is_active"]:
+            entry["position"] = ""
+        mood = normalize_dnd_mood(update.get("mood")) if update.get("mood") else ""
+        if mood:
+            entry["mood"] = mood
+            entry["mood_turn"] = max(int(turn_index or 0), 0)
+            entry["mood_note"] = normalize_single_line(update.get("mood_note"), max_length=140)
+        elif (
+            normalize_dnd_mood(entry.get("mood")) != DEFAULT_MOOD
+            and int(entry.get("mood_turn") or 0)
+            and int(turn_index or 0) - int(entry.get("mood_turn") or 0) >= DND_MOOD_TURN_BUDGET
+        ):
+            # A mood is a scene-level thing. Nobody stays furious for six scenes because the
+            # narrator stopped mentioning it.
+            entry["mood"] = DEFAULT_MOOD
+            entry["mood_note"] = ""
+        alias = normalize_single_line(update.get("was_called"), max_length=80)
+        if alias and alias.casefold() != normalize_single_line(entry.get("name"), max_length=80).casefold():
+            aliases = [item for item in (entry.get("aliases") or []) if isinstance(item, str)]
+            if alias.casefold() not in {item.casefold() for item in aliases}:
+                aliases.append(alias)
+                entry["aliases"] = aliases[:6]
+                changes.append(f"{name}: ранее «{alias}»")
 
         try:
             relation_delta = int(update.get("relation_delta") or 0)
@@ -771,7 +875,17 @@ def apply_dnd_turn_upkeep(
     changes.extend(_apply_environment(working, payload))
     changes.extend(_apply_quests(working, payload))
     changes.extend(_apply_master_notes(working, payload, turn_index=turn_index))
-    changes.extend(_apply_npcs(working, payload, location_label=location_label))
+    changes.extend(
+        _apply_npcs(working, payload, location_label=location_label, turn_index=turn_index)
+    )
+    # Collapse anyone the turn introduced twice under different labels before the state is
+    # handed on -- one character, one row, one relationship.
+    deduped, merged_names = dedupe_dnd_npcs(
+        [item for item in _as_list(working.get("npcs")) if isinstance(item, dict)]
+    )
+    if merged_names:
+        working["npcs"] = deduped
+        changes.append("npc merged: " + ", ".join(merged_names))
     # Combat reads the hit points every applier above it has already written, so it runs last.
     changes.extend(_apply_combat(working, payload))
     if str(_as_dict(working.get("hero")).get("life_state") or "") == DND_LIFE_STATE_DEAD:

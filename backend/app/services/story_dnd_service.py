@@ -32,6 +32,7 @@ from app.services.story_dnd import (
     ABILITY_SHORT_LABELS,
     DND_CONDITION_BY_ID,
     DND_GROUP_MAX_TARGETS,
+    DND_MOOD_LABELS,
     DND_RELATION_LABELS,
     DND_SEASON_LABELS,
     DND_SKILL_ABILITY,
@@ -44,6 +45,7 @@ from app.services.story_dnd import (
     describe_combat_for_prompt,
     describe_environment,
     describe_hero_for_prompt,
+    get_dnd_currency,
     normalize_dnd_class_id,
     normalize_dnd_race_id,
     normalize_dnd_roll_policy,
@@ -215,6 +217,22 @@ class DndValueUpdate(BaseModel):
     delta: int = 0
     value: int = 0
     reason: str = ""
+    # Money only: {"gp": 3, "cp": -5}. Present so a five-copper bribe costs five coppers
+    # rather than being rounded up to the one denomination a flat `delta` could express.
+    coins: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("coins", mode="before")
+    @classmethod
+    def _coerce_coins(cls, value: Any) -> dict[str, int]:
+        if not isinstance(value, dict):
+            return {}
+        result: dict[str, int] = {}
+        for key, raw in value.items():
+            try:
+                result[str(key or "").strip().lower()] = int(round(float(str(raw).strip())))
+            except (TypeError, ValueError):
+                continue
+        return result
 
     @field_validator("delta", "value", mode="before")
     @classmethod
@@ -256,6 +274,10 @@ class DndEnvironmentUpdate(BaseModel):
     weather: str = ""
     weather_note: str = ""
     day_delta: int = 0
+    # Set when the *player* narrated the jump ("вечером я пошёл в гильдию", "прошла неделя").
+    # The elapsed budget exists to stop a model from teleporting a standing scene to nightfall;
+    # it has no business overruling a player who said out loud what time it is.
+    player_declared: bool = False
 
     @field_validator("day_delta", mode="before")
     @classmethod
@@ -292,6 +314,15 @@ class DndNpcUpdate(BaseModel):
     relation_note: str = ""
     hp_delta: int = 0
     level: int | None = None
+    # Where this character physically is, in a few words. Without it the narrator loses track
+    # of the room: a bodyguard standing behind a chair turns up in the doorway next turn.
+    position: str = ""
+    # How they feel right now, as opposed to how they feel about the hero in general.
+    mood: str = ""
+    mood_note: str = ""
+    # The label this character was known by before they were named, so "Слуга Алисии" and
+    # "Томас" end up as one person instead of two.
+    was_called: str = ""
 
     @field_validator("relation_delta", "hp_delta", mode="before")
     @classmethod
@@ -366,6 +397,7 @@ class DndUpkeepPayload(BaseModel):
     environment: DndEnvironmentUpdate = Field(default_factory=DndEnvironmentUpdate)
     quests: DndQuestsUpdate = Field(default_factory=DndQuestsUpdate)
     master_notes: list[str] = Field(default_factory=list)
+    retired_notes: list[str] = Field(default_factory=list)
     npcs: list[DndNpcUpdate] = Field(default_factory=list)
     combat: DndCombatUpdate = Field(default_factory=DndCombatUpdate)
 
@@ -794,12 +826,22 @@ def _build_upkeep_messages(
     existing_npc_cards: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
     environment = state.get("environment") if isinstance(state.get("environment"), dict) else {}
+    money = get_dnd_currency(state.get("currency"))
+    money_line = ", ".join(
+        f"{denomination.id} — {denomination.label} ({denomination.short})"
+        for denomination in money.denominations
+    )
+    money_main = money.main.label
+    mood_line = ", ".join(f"{mood_id} ({label.lower()})" for mood_id, label in DND_MOOD_LABELS.items())
     known_npcs = [
         {
             "name": npc.get("name"),
+            "aliases": npc.get("aliases"),
             "world_card_id": npc.get("world_card_id"),
             "relation": npc.get("relation"),
             "relation_score": npc.get("relation_score"),
+            "mood": npc.get("mood"),
+            "position": npc.get("position"),
             "hp": npc.get("hp"),
             "level": npc.get("level"),
         }
@@ -830,10 +872,13 @@ def _build_upkeep_messages(
                 "менялись. Оценивай урон по здравому смыслу 5e (удар кинжалом 2-6, меч 5-10, "
                 "падение с высоты 5-20, смертельная ловушка 15-40). should_update=true только "
                 "когда урон или лечение действительно описаны.\n"
-                "- gold.delta: отрицательное, когда герой заплатил, дал взятку, купил или потерял "
-                "деньги; положительное, когда получил награду, нашёл монеты или продал вещь. "
-                "Считай по тексту: «отдаёшь двадцать золотых» = -20. Золото НЕ является "
-                "предметом инвентаря — никогда не пиши его в inventory.\n"
+                "- gold: деньги героя. Заполняй gold.coins монетами ТОГО номинала, который "
+                f"назван в тексте. Доступные номиналы: {money_line}. «Отдаёшь пять медяков» — "
+                "это coins с -5 по мелкой монете, «получил двадцать золотых» — +20 по крупной. "
+                "Система сама разменяет крупные монеты, поэтому НЕ округляй мелкую трату до "
+                f"крупной. Если номинал не назван — считай, что речь о «{money_main}», и "
+                "заполни gold.delta числом этих монет. Деньги НЕ являются предметом инвентаря "
+                "— никогда не пиши их в inventory.\n"
                 "- xp_bucket: none (ничего значимого), minor (мелкое препятствие, полезная "
                 "находка), notable (реальный бой, трудная проверка, сцена разрешена), major "
                 "(опасная схватка или важная цель), milestone (завершён квест, побеждён босс, "
@@ -852,6 +897,12 @@ def _build_upkeep_messages(
                 "Если герой просто поговорил или прошёл десяток шагов — 'minutes' или 'none'. "
                 "Время суток и погоду меняй только когда это действительно следует из текста; "
                 "сезон не указывай — его считает система по календарю.\n"
+                "  ЕСЛИ ВРЕМЯ НАЗВАЛ САМ ИГРОК в своём ходе («вечером я пошёл», «прошла "
+                "неделя», «ночью мы приехали», «на следующее утро») — поставь "
+                "player_declared=true, укажи нужное time_of_day и, если прошли сутки и больше, "
+                "day_delta. Игрок вправе перескочить время, и система обязана это принять. "
+                "elapsed выбирай по названному сроку: с утра до вечера — 'half_day', сутки — "
+                "'day', неделя — 'weeks'.\n"
                 "\n"
                 "- quests.added: ОБЯЗАТЕЛЬНО добавляй задание каждый раз, когда герою дали "
                 "поручение, задачу, цель или он взял на себя обязательство — даже если слово "
@@ -865,6 +916,10 @@ def _build_upkeep_messages(
                 "имена и места, раскрытые тайны, угрозы в адрес героя, долги, репутация. "
                 "Пиши 1-3 заметки за ход, когда такое произошло; пустой список, когда ничего "
                 "нового не открылось. Не пересказывай сцену — только факт.\n"
+                "- retired_notes: заметки из списка ТЕКУЩИЕ ЗАМЕТКИ, которые перестали быть "
+                "правдой или потеряли смысл — обещание выполнено, угроза снята, персонаж ушёл "
+                "из истории, тайна раскрыта. Перечисли их текст или узнаваемую часть. Мусор в "
+                "памяти мастера вреднее, чем его отсутствие.\n"
                 "\n"
                 "- npcs: по одному объекту на каждого важного именованного NPC, участвовавшего в "
                 "сцене. is_active=true СТРОГО если он физически находится рядом с героем в "
@@ -877,6 +932,18 @@ def _build_upkeep_messages(
                 "обокрасть или ударить (-8..-18), оскорбил (-3..-8), выполнил поручение "
                 "(+6..+14). 0 ставь только когда между ними правда ничего не произошло. "
                 "relation_note — одна фраза почему. Безымянную массовку не включай.\n"
+                "  position — где персонаж физически находится в конце хода, несколько слов: "
+                "«за спиной госпожи», «в дверях», «за столиком напротив». Заполняй для каждого "
+                "активного NPC: без этого рассказчик теряет расстановку и переставляет людей "
+                "по комнате сам.\n"
+                f"  mood — что персонаж чувствует ПРЯМО СЕЙЧАС, отдельно от общего отношения: "
+                f"{mood_line}. Отношение меняется медленно, настроение — за одну сцену. "
+                "Влюблённый может злиться, враг — быть благодарным. mood_note — одна фраза "
+                "почему.\n"
+                "  was_called — ОБЯЗАТЕЛЬНО, если персонаж раньше обозначался безлико, а в "
+                "этом ходу получил имя: укажи прежнее обозначение («Слуга Алисии», "
+                "«незнакомец»). Это единственный способ не завести на одного человека две "
+                "карточки.\n"
                 "\n"
                 "- combat: сцена перешла в бой? started=true в тот ход, когда бой НАЧАЛСЯ "
                 "(обнажили оружие, напали, засада). in_combat=true, пока бой идёт. ended=true, "
@@ -910,15 +977,17 @@ def _build_upkeep_messages(
                 "Верни JSON строго такого вида:\n"
                 '{"hp": {"should_update": false, "delta": 0, "reason": ""}, '
                 '"temp_hp": {"should_update": false, "value": 0}, '
-                '"gold": {"should_update": false, "delta": 0}, '
+                '"gold": {"should_update": false, "delta": 0, "coins": {}}, '
                 '"xp_bucket": "none", "xp_reason": "", '
                 '"inventory": {"should_update": false, "added": [], "removed": []}, '
                 '"conditions": {"should_update": false, "added": [{"id": "poisoned", "note": ""}], "removed": []}, '
-                '"environment": {"elapsed": "minutes", "time_of_day": "", "weather": "", "weather_note": "", "day_delta": 0}, '
+                '"environment": {"elapsed": "minutes", "time_of_day": "", "weather": "", '
+                '"weather_note": "", "day_delta": 0, "player_declared": false}, '
                 '"quests": {"added": [{"title": "", "detail": ""}], "completed": [], "failed": []}, '
-                '"master_notes": ["Короткий важный факт для мастера"], '
+                '"master_notes": ["Короткий важный факт для мастера"], "retired_notes": [], '
                 '"npcs": [{"name": "Имя", "world_card_id": null, "role": "кто он", "is_active": true, '
-                '"relation_delta": 0, "relation_note": "", "hp_delta": 0, "level": null}], '
+                '"relation_delta": 0, "relation_note": "", "hp_delta": 0, "level": null, '
+                '"position": "где стоит", "mood": "calm", "mood_note": "", "was_called": ""}], '
                 '"combat": {"started": false, "in_combat": false, "ended": false, "title": "", '
                 '"participants": [{"name": "Имя", "side": "enemy", "role": "", "max_hp": 11, '
                 '"armor_class": 12, "dex_modifier": 1}], "defeated": [], "advance_turns": 0}}'

@@ -27,6 +27,7 @@ from app.schemas import (
     StoryDndCheckOut,
     StoryDndCheckRequest,
     StoryDndCombatAdvanceRequest,
+    StoryDndCurrencyRequest,
     StoryDndDeathSaveOut,
     StoryDndDifficultyRequest,
     StoryDndEnvironmentRequest,
@@ -71,6 +72,7 @@ from app.services.story_dnd import (
     create_empty_dnd_combat,
     default_inventory_for,
     difficulty_hero_bonus,
+    get_dnd_currency,
     dnd_sheet_locks,
     get_game_dnd_state,
     is_story_dnd_game,
@@ -80,6 +82,7 @@ from app.services.story_dnd import (
     normalize_dnd_check_kind,
     normalize_dnd_class_id,
     normalize_dnd_conditions,
+    normalize_dnd_currency_id,
     normalize_dnd_difficulty,
     normalize_dnd_die,
     normalize_dnd_environment,
@@ -291,6 +294,16 @@ def update_story_dnd_play_mode(
     with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_play_mode"):
         state = _load_state(db, game)
         next_play_mode = normalize_dnd_play_mode(payload.play_mode)
+        # Sandbox is a decision about what kind of game this is, taken before it starts.
+        # Flipping it mid-story would let a player rewrite a character the world has already
+        # reacted to -- and flipping it back would strand the numbers sandbox allowed.
+        if next_play_mode != normalize_dnd_play_mode(state.get("play_mode")) and int(
+            state.get("turn_count") or 0
+        ) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Режим игры выбирается до первого хода и дальше не меняется",
+            )
         if next_play_mode == STORY_DND_PLAY_MODE_SANDBOX:
             # Sandbox edits the scores directly instead of a point-buy base plus bonuses, so
             # carry the character's *effective* numbers across. Otherwise switching modes
@@ -299,6 +312,30 @@ def update_story_dnd_play_mode(
             hero["base_abilities"] = dict(hero.get("abilities") or {})
             state["hero"] = hero
         state["play_mode"] = next_play_mode
+        normalized = _persist_state(db, game, state)
+    return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
+
+
+@router.put("/api/story/games/{game_id}/dnd/currency", response_model=StoryDndStateOut)
+def update_story_dnd_currency(
+    game_id: int,
+    payload: StoryDndCurrencyRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryDndStateOut:
+    """Pick the setting's money. Before the first turn only: prices are quoted in it."""
+    _user, game = _require_dnd_game(db, game_id=game_id, authorization=authorization)
+    with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_currency"):
+        state = _load_state(db, game)
+        next_currency = normalize_dnd_currency_id(payload.currency)
+        if next_currency != normalize_dnd_currency_id(state.get("currency")) and int(
+            state.get("turn_count") or 0
+        ) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Валюта выбирается до первого хода: цены в истории уже названы в ней",
+            )
+        state["currency"] = next_currency
         normalized = _persist_state(db, game, state)
     return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
 
@@ -504,10 +541,31 @@ def update_story_dnd_hero(
         )
         if play_mode == STORY_DND_PLAY_MODE_SANDBOX and payload.speed is not None:
             hero["speed"] = max(0, int(payload.speed))
-        if payload.gold is not None:
-            hero["gold"] = max(0, int(payload.gold))
+        # Money and kit belong to the player while the character is still being built, in any
+        # mode: "I want to start rich, and I described my own coat and blades in my backstory"
+        # is character creation, not cheating. Once the story has begun the master owns both.
+        setup_open = not locks.get("started") or play_mode == STORY_DND_PLAY_MODE_SANDBOX
+        if payload.purse is not None:
+            if not setup_open:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="После первого хода деньгами распоряжается мастер игры",
+                )
+            hero["purse"] = max(0, int(payload.purse))
+        elif payload.gold is not None:
+            if not setup_open:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="После первого хода деньгами распоряжается мастер игры",
+                )
+            hero["purse"] = max(0, int(payload.gold)) * get_dnd_currency(state.get("currency")).main.value
 
         if payload.inventory is not None:
+            if not setup_open:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="После первого хода инвентарь ведёт мастер игры",
+                )
             hero["inventory"] = normalize_dnd_inventory(payload.inventory)
         elif class_changed:
             hero["inventory"] = default_inventory_for(class_id, race_id)
@@ -605,13 +663,10 @@ def update_story_dnd_environment(
     _user, game = _require_dnd_game(db, game_id=game_id, authorization=authorization)
     with _acquire_lease_or_409(game_id=int(game.id), operation="dnd_environment"):
         state = _load_state(db, game)
-        play_mode = normalize_dnd_play_mode(state.get("play_mode"))
-        locked = bool(state.get("turn_count", 0) > 0) and play_mode != STORY_DND_PLAY_MODE_SANDBOX
-        if locked:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="После первого хода время и погоду можно менять только в режиме песочницы",
-            )
+        # Editable at any point, deliberately. The clock is driven by a model that will
+        # sometimes get it wrong, and a player who can see the sky is wrong has to be able to
+        # say so -- the alternative is playing an evening scene at noon for the rest of the
+        # session. The *narrator* still cannot move it freely; that guard lives in the upkeep.
         environment = dict(state.get("environment") or {})
         if payload.season is not None:
             environment["season"] = normalize_dnd_season(payload.season)
@@ -629,7 +684,11 @@ def update_story_dnd_environment(
             )
         if payload.weather_note is not None:
             environment["weather_note"] = normalize_single_line(payload.weather_note, max_length=80)
-        state["environment"] = normalize_dnd_environment(environment, locked=locked)
+        state["environment"] = normalize_dnd_environment(
+            environment,
+            locked=bool(state.get("turn_count", 0) > 0)
+            and normalize_dnd_play_mode(state.get("play_mode")) != STORY_DND_PLAY_MODE_SANDBOX,
+        )
         normalized = _persist_state(db, game, state)
     return StoryDndStateOut(game_id=int(game.id), state=_with_sheet_locks(normalized), catalog=None)
 
@@ -658,6 +717,20 @@ def update_story_dnd_npc(
         )
         if entry is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Персонаж не найден")
+
+        # Before a character walks on stage the player may set them up however the lore wants
+        # -- an old enemy who hates them on sight, a lover who already adores them. The moment
+        # they have actually appeared, they belong to the master: otherwise a relationship can
+        # be rewritten in the middle of the scene it is supposed to be driving.
+        play_mode = normalize_dnd_play_mode(state.get("play_mode"))
+        if bool(entry.get("has_appeared")) and play_mode != STORY_DND_PLAY_MODE_SANDBOX:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Персонаж уже появился в истории — дальше им управляет мастер. "
+                    "Задать характер и отношение можно было до первой встречи."
+                ),
+            )
 
         if payload.name is not None:
             entry["name"] = normalize_single_line(payload.name, max_length=80)

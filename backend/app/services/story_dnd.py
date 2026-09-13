@@ -100,6 +100,145 @@ def normalize_dnd_roll_policy(value: Any) -> str:
     return DEFAULT_DND_ROLL_POLICY
 
 
+# --- Money ----------------------------------------------------------------------------------
+
+# The purse is a single integer in the *smallest* coin the setting has, and every larger
+# denomination is a way of reading that integer. That is the whole design, and it is what
+# makes change work: paying five coppers out of fifteen gold is 1500 - 5, not "take a gold
+# piece because that is the only field we have". Nothing in the game ever stores "15 gold";
+# it stores 1500 and knows how to say it out loud.
+
+
+@dataclass(frozen=True)
+class DndDenomination:
+    id: str
+    label: str  # "золотой"
+    short: str  # "зм"
+    value: int  # how many base units one of these is worth
+
+
+@dataclass(frozen=True)
+class DndCurrency:
+    id: str
+    label: str
+    # Largest first, so formatting is a single greedy pass.
+    denominations: tuple[DndDenomination, ...]
+    # What a starting purse is worth, in base units, at three broad walks of life.
+    start_poor: int
+    start_normal: int
+    start_rich: int
+
+    @property
+    def base(self) -> DndDenomination:
+        return self.denominations[-1]
+
+    @property
+    def main(self) -> DndDenomination:
+        """The coin people quote prices in: gold for fantasy, dollars for modern."""
+        return self.denominations[0]
+
+
+DND_CURRENCIES: tuple[DndCurrency, ...] = (
+    DndCurrency(
+        "fantasy",
+        "Фэнтези — медь, серебро, золото",
+        # No platinum: 5e quotes prices in gold, and a fifteen-gold purse reading "1 пм 5 зм"
+        # is arithmetically right and humanly wrong.
+        (
+            DndDenomination("gp", "золотой", "зм", 100),
+            DndDenomination("sp", "серебряный", "см", 10),
+            DndDenomination("cp", "медный", "мм", 1),
+        ),
+        start_poor=500,
+        start_normal=1_500,
+        start_rich=25_000,
+    ),
+    DndCurrency(
+        "modern",
+        "Современность — доллары и центы",
+        (
+            DndDenomination("usd", "доллар", "$", 100),
+            DndDenomination("cent", "цент", "¢", 1),
+        ),
+        start_poor=5_000,
+        start_normal=40_000,
+        start_rich=1_500_000,
+    ),
+    DndCurrency(
+        "cyberpunk",
+        "Киберпанк — кредиты и эдди",
+        (
+            DndDenomination("kcr", "тысяча кредитов", "ткр", 1_000),
+            DndDenomination("cr", "кредит", "кр", 1),
+        ),
+        start_poor=2_000,
+        start_normal=15_000,
+        start_rich=500_000,
+    ),
+)
+DND_CURRENCY_BY_ID: dict[str, DndCurrency] = {item.id: item for item in DND_CURRENCIES}
+DEFAULT_DND_CURRENCY = "fantasy"
+DND_PURSE_MAX = 1_000_000_000
+
+
+def normalize_dnd_currency_id(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in DND_CURRENCY_BY_ID:
+        return normalized
+    aliases = {
+        "фэнтези": "fantasy", "фентези": "fantasy", "dnd": "fantasy", "gold": "fantasy",
+        "современный": "modern", "modern_day": "modern", "usd": "modern", "dollars": "modern",
+        "киберпанк": "cyberpunk", "cyber": "cyberpunk", "credits": "cyberpunk", "sci_fi": "cyberpunk",
+    }
+    return aliases.get(normalized, DEFAULT_DND_CURRENCY)
+
+
+def get_dnd_currency(value: Any) -> DndCurrency:
+    return DND_CURRENCY_BY_ID[normalize_dnd_currency_id(value)]
+
+
+def split_currency(amount: Any, currency: Any) -> list[dict[str, Any]]:
+    """Break a purse into coins, largest first, skipping denominations that come out zero."""
+    money = get_dnd_currency(currency)
+    remaining = max(0, min(DND_PURSE_MAX, _clamp_int(amount, 0, DND_PURSE_MAX, 0)))
+    parts: list[dict[str, Any]] = []
+    for denomination in money.denominations:
+        count, remaining = divmod(remaining, denomination.value)
+        if count:
+            parts.append(
+                {
+                    "id": denomination.id,
+                    "label": denomination.label,
+                    "short": denomination.short,
+                    "count": int(count),
+                }
+            )
+    return parts
+
+
+def format_currency(amount: Any, currency: Any, *, max_parts: int = 3) -> str:
+    """A purse as a person would say it: "14 зм 9 см 5 мм", or "0 мм" when empty."""
+    money = get_dnd_currency(currency)
+    parts = split_currency(amount, money.id)
+    if not parts:
+        return f"0 {money.base.short}"
+    return " ".join(f"{part['count']} {part['short']}" for part in parts[:max_parts])
+
+
+def currency_to_base_units(counts: Any, currency: Any) -> int:
+    """Turn {"gp": 3, "sp": 4} into base units. Unknown keys are ignored, not guessed at."""
+    money = get_dnd_currency(currency)
+    by_id = {denomination.id: denomination for denomination in money.denominations}
+    total = 0
+    if isinstance(counts, dict):
+        for key, raw in counts.items():
+            denomination = by_id.get(str(key or "").strip().lower())
+            if denomination is None:
+                continue
+            total += _clamp_int(raw, -DND_PURSE_MAX, DND_PURSE_MAX, 0) * denomination.value
+    return max(-DND_PURSE_MAX, min(DND_PURSE_MAX, total))
+
+
 # --- Difficulty ---------------------------------------------------------------------------
 
 # A single dial over the whole table. `dc_shift` moves every difficulty the master sets;
@@ -810,6 +949,43 @@ DND_RELATIONS: tuple[tuple[str, str, int, int], ...] = (
     ("devoted", "Обожание", 75, 70),
     ("in_love", "Влюблена", 90, 86),
 )
+# A relationship has two clocks. `relation` is the slow one -- where this person stands with
+# the hero after everything so far. `mood` is the fast one: how the last few minutes went.
+# Keeping them apart is what lets "мы влюблены, но поссорились" be a state the game can hold,
+# instead of a quarrel wiping out a romance or a romance papering over a quarrel.
+# Noun labels, not adjectives: the same word has to sit correctly after any character's name,
+# and "Алисия — обижен" is exactly the kind of seam that breaks immersion.
+DND_MOODS: tuple[tuple[str, str, int], ...] = (
+    ("furious", "Ярость", -3),
+    ("angry", "Злость", -2),
+    ("hurt", "Обида", -2),
+    ("wary_mood", "Настороженность", -1),
+    ("calm", "Спокойствие", 0),
+    ("amused", "Хорошее расположение", 1),
+    ("warm", "Теплота", 2),
+    ("grateful", "Благодарность", 2),
+)
+DND_MOOD_IDS = tuple(item[0] for item in DND_MOODS)
+DND_MOOD_LABELS = {item[0]: item[1] for item in DND_MOODS}
+# How a mood tilts a social check against this character, in DC points.
+DND_MOOD_DC_SHIFT = {item[0]: -item[2] for item in DND_MOODS}
+DEFAULT_MOOD = "calm"
+# A mood is a scene-level thing: it fades if nothing keeps it alive.
+DND_MOOD_TURN_BUDGET = 4
+
+
+def normalize_dnd_mood(value: Any) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in DND_MOOD_LABELS:
+        return normalized
+    lowered = str(value or "").strip().lower()
+    for mood_id, label in DND_MOOD_LABELS.items():
+        if label.lower() == lowered:
+            return mood_id
+    aliases = {"neutral": DEFAULT_MOOD, "happy": "amused", "sad": "hurt", "mad": "angry", "wary": "wary_mood"}
+    return aliases.get(normalized, DEFAULT_MOOD)
+
+
 DND_RELATION_IDS = tuple(item[0] for item in DND_RELATIONS)
 DND_RELATION_LABELS = {item[0]: item[1] for item in DND_RELATIONS}
 DND_RELATION_SCORES = {item[0]: item[2] for item in DND_RELATIONS}
@@ -848,6 +1024,51 @@ def relation_id_for_score(score: Any) -> str:
         if normalized >= threshold:
             best_id = relation_id
     return best_id
+
+
+# Skills that are really a question about the other person. A friend is easier to persuade, a
+# furious guard harder to talk down, and someone in love is famously easy to lie to -- so this
+# is the set where the relationship belongs in the arithmetic rather than only in the prose.
+DND_SOCIAL_SKILLS: frozenset[str] = frozenset(
+    {"persuasion", "deception", "intimidation", "performance", "insight", "animal_handling"}
+)
+
+# How the long game tilts a social DC. Negative makes the check easier.
+DND_RELATION_DC_SHIFT: dict[str, int] = {
+    "hostile": 6,
+    "hateful": 5,
+    "wary": 3,
+    "neutral": 0,
+    "friendly": -3,
+    "loyal": -5,
+    "devoted": -6,
+    "in_love": -7,
+}
+
+
+def relation_check_shift(npc: dict[str, Any] | None, *, kind: str, skill: str) -> tuple[int, str]:
+    """The relationship's effect on one check, plus a line explaining it.
+
+    Intimidation is the deliberate exception: being adored does not make you scarier, it makes
+    you less frightening, so the sign flips for that one skill.
+    """
+    if not isinstance(npc, dict):
+        return 0, ""
+    normalized_skill = normalize_dnd_skill_id(skill)
+    if normalized_skill not in DND_SOCIAL_SKILLS and normalize_dnd_check_kind(kind) != DND_CHECK_KIND_SAVE:
+        return 0, ""
+    relation_id = normalize_dnd_relation_id(npc.get("relation"))
+    shift = DND_RELATION_DC_SHIFT.get(relation_id, 0)
+    if normalized_skill == "intimidation":
+        shift = -shift
+    mood_id = normalize_dnd_mood(npc.get("mood"))
+    shift += DND_MOOD_DC_SHIFT.get(mood_id, 0)
+    if not shift:
+        return 0, ""
+    parts = [DND_RELATION_LABELS.get(relation_id, relation_id).lower()]
+    if mood_id != DEFAULT_MOOD:
+        parts.append(DND_MOOD_LABELS.get(mood_id, mood_id).lower())
+    return shift, f"{npc.get('name')}: {', '.join(parts)}"
 
 
 def clamp_relation_score(value: Any) -> int:
@@ -1303,6 +1524,13 @@ def resolve_check_dc(state: dict[str, Any], check: dict[str, Any]) -> tuple[int,
             base_dc = creature_dc
             source = f"сложность спасброска от «{creature.get('name')}»"
 
+    relation_shift, relation_note = relation_check_shift(
+        creature, kind=kind, skill=str(check.get("skill") or "")
+    )
+    if relation_shift:
+        base_dc = normalize_dnd_dc(base_dc + relation_shift)
+        source = f"{source}; {relation_note}" if source else relation_note
+
     shift = difficulty_dc_shift(state.get("difficulty"))
     if shift:
         base_dc = normalize_dnd_dc(base_dc + shift)
@@ -1552,9 +1780,16 @@ def default_inventory_for(class_id: str, race_id: str) -> list[str]:
 
 
 def default_gold_for(class_id: str) -> int:
+    """The class kit's coin, in whole gold pieces (the unit the 5e tables are written in)."""
     dnd_class = DND_CLASS_BY_ID.get(normalize_dnd_class_id(class_id), DND_CLASS_BY_ID[DEFAULT_CLASS_ID])
     gold, _items = extract_starting_gold(dnd_class.starting_inventory)
     return gold
+
+
+def default_purse_for(class_id: str, currency: Any = DEFAULT_DND_CURRENCY) -> int:
+    """The same kit converted into the setting's base units."""
+    money = get_dnd_currency(currency)
+    return default_gold_for(class_id) * money.main.value
 
 
 def normalize_dnd_inventory(value: Any) -> list[str]:
@@ -1609,7 +1844,12 @@ def normalize_dnd_asi_allocation(value: Any) -> dict[str, int]:
     return result
 
 
-def normalize_dnd_hero(value: Any, *, play_mode: str) -> dict[str, Any]:
+def normalize_dnd_hero(
+    value: Any,
+    *,
+    play_mode: str,
+    currency: Any = DEFAULT_DND_CURRENCY,
+) -> dict[str, Any]:
     source = value if isinstance(value, dict) else {}
     race_id = normalize_dnd_race_id(source.get("race"))
     class_id = normalize_dnd_class_id(source.get("class"))
@@ -1688,20 +1928,28 @@ def normalize_dnd_hero(value: Any, *, play_mode: str) -> dict[str, Any]:
         computed_max_hp = _clamp_int(raw_max, 1, 9_999, computed_max_hp)
     hp = normalize_dnd_hp(source.get("hp"), max_hp=computed_max_hp)
 
-    raw_gold = _clamp_int(source.get("gold"), 0, 9_999_999, -1)
+    money = get_dnd_currency(currency)
+    # The purse is the truth. `gold` is only read here to carry an older sheet across, since
+    # it used to hold whole gold pieces rather than base units.
+    raw_purse = _clamp_int(source.get("purse"), 0, DND_PURSE_MAX, -1)
+    if raw_purse < 0:
+        legacy_gold = _clamp_int(source.get("gold"), 0, 9_999_999, -1)
+        raw_purse = legacy_gold * money.main.value if legacy_gold >= 0 else -1
+
     inventory = normalize_dnd_inventory(source.get("inventory"))
     if not inventory:
         inventory = default_inventory_for(class_id, race_id)
-        if raw_gold < 0:
-            raw_gold = default_gold_for(class_id)
+        if raw_purse < 0:
+            raw_purse = default_purse_for(class_id, money.id)
     else:
         # A pack written before coins were money, or one the narrator wrote a purse into:
-        # move the amount to the gold line rather than leaving it as a thing on a list.
+        # move the amount onto the money line rather than leaving it as a thing on a list.
         carried_gold, inventory = extract_starting_gold(inventory)
         if carried_gold:
-            raw_gold = max(raw_gold, 0) + carried_gold
-    if raw_gold < 0:
-        raw_gold = 0
+            raw_purse = max(raw_purse, 0) + carried_gold * money.main.value
+    if raw_purse < 0:
+        raw_purse = 0
+    raw_purse = _clamp_int(raw_purse, 0, DND_PURSE_MAX, 0)
     inventory_note = normalize_text_value(source.get("inventory_note"), max_length=DND_INVENTORY_MAX_LENGTH)
 
     computed_ac = armor_class(class_id, abilities.get("dex"))
@@ -1746,7 +1994,12 @@ def normalize_dnd_hero(value: Any, *, play_mode: str) -> dict[str, Any]:
         "proficiency_bonus": proficiency_bonus(level),
         "inventory": inventory,
         "inventory_note": inventory_note,
-        "gold": _clamp_int(raw_gold, 0, 9_999_999, 0),
+        "purse": raw_purse,
+        # Derived, never authoritative: the whole-coin count in the denomination people quote
+        # prices in, plus the string the panels show.
+        "gold": raw_purse // max(money.main.value, 1),
+        "purse_display": format_currency(raw_purse, money.id),
+        "purse_parts": split_currency(raw_purse, money.id),
         "conditions": normalize_dnd_conditions(source.get("conditions")),
         "death_saves": death_saves,
         "is_dead": is_dead,
@@ -1817,6 +2070,16 @@ def normalize_dnd_npc(value: Any) -> dict[str, Any] | None:
     if explicit_relation and not str(value.get("relation_score") or "").strip().lstrip("-").isdigit():
         relation_score = DND_RELATION_SCORES.get(explicit_relation, 0)
     world_card_id = value.get("world_card_id")
+    # Every name this character has answered to. "Слуга Алисии" becomes "Томас" mid-scene, and
+    # without a memory of the old label the roster ends up holding both as separate people.
+    aliases: list[str] = []
+    for raw_alias in normalize_string_list(value.get("aliases"), max_items=6, max_length=80):
+        alias = normalize_single_line(raw_alias, max_length=80)
+        if alias and alias.casefold() != name.casefold() and alias.casefold() not in {
+            item.casefold() for item in aliases
+        }:
+            aliases.append(alias)
+    is_active = bool(value.get("is_active", False))
     return {
         "key": normalize_single_line(value.get("key") or name, max_length=80).lower(),
         "world_card_id": (
@@ -1834,10 +2097,115 @@ def normalize_dnd_npc(value: Any) -> dict[str, Any] | None:
         "hp": normalize_dnd_hp(value.get("hp"), max_hp=max_hp),
         "armor_class": _clamp_int(value.get("armor_class"), 1, 40, 10 + ability_modifier(abilities.get("dex"))),
         "conditions": normalize_dnd_conditions(value.get("conditions")),
-        "is_active": bool(value.get("is_active", False)),
+        "is_active": is_active,
+        # Once a character has actually appeared they belong to the story, not to the setup
+        # screen: the sheet locks and the master drives them from there. Sandbox ignores this.
+        "has_appeared": bool(value.get("has_appeared", False)) or is_active,
+        "mood": normalize_dnd_mood(value.get("mood")),
+        "mood_note": normalize_single_line(value.get("mood_note"), max_length=140),
+        "mood_turn": _clamp_int(value.get("mood_turn"), 0, 10_000_000, 0),
+        "aliases": aliases,
+        "position": normalize_single_line(value.get("position"), max_length=120),
         "stats_source": "manual" if str(value.get("stats_source") or "") == "manual" else "ai",
         "notes": normalize_text_value(value.get("notes"), max_length=600),
     }
+
+
+def npc_identity_keys(npc: dict[str, Any]) -> set[str]:
+    """Everything this character can be recognised by: name, key and every past alias."""
+    keys = {
+        normalize_single_line(npc.get("name"), max_length=80).casefold(),
+        str(npc.get("key") or "").casefold(),
+    }
+    for alias in (npc.get("aliases") or []):
+        keys.add(normalize_single_line(alias, max_length=80).casefold())
+    keys.discard("")
+    return keys
+
+
+def merge_dnd_npcs(primary: dict[str, Any], duplicate: dict[str, Any]) -> dict[str, Any]:
+    """Fold a duplicate entry into the one we are keeping, losing nothing that was learned.
+
+    Named beats unnamed, manual stats beat guessed ones, the stronger feeling wins over a
+    default, and every label either of them went by is kept so the pair cannot split again.
+    """
+    merged = dict(primary)
+    merged["aliases"] = sorted(
+        {
+            alias
+            for alias in (
+                list(primary.get("aliases") or [])
+                + list(duplicate.get("aliases") or [])
+                + [normalize_single_line(duplicate.get("name"), max_length=80)]
+            )
+            if alias and alias.casefold() != normalize_single_line(primary.get("name"), max_length=80).casefold()
+        }
+    )[:6]
+    if not merged.get("role") and duplicate.get("role"):
+        merged["role"] = duplicate.get("role")
+    if not merged.get("notes") and duplicate.get("notes"):
+        merged["notes"] = duplicate.get("notes")
+    if not merged.get("position") and duplicate.get("position"):
+        merged["position"] = duplicate.get("position")
+    if str(duplicate.get("stats_source") or "") == "manual" and str(merged.get("stats_source") or "") != "manual":
+        for field_name in ("abilities", "hp", "armor_class", "level"):
+            merged[field_name] = duplicate.get(field_name, merged.get(field_name))
+        merged["stats_source"] = "manual"
+    if abs(int(duplicate.get("relation_score") or 0)) > abs(int(merged.get("relation_score") or 0)):
+        merged["relation_score"] = duplicate.get("relation_score")
+        merged["relation"] = duplicate.get("relation")
+        if duplicate.get("relation_note"):
+            merged["relation_note"] = duplicate.get("relation_note")
+    if normalize_dnd_mood(merged.get("mood")) == DEFAULT_MOOD:
+        merged["mood"] = duplicate.get("mood", merged.get("mood"))
+        merged["mood_note"] = duplicate.get("mood_note", merged.get("mood_note"))
+    merged["is_active"] = bool(primary.get("is_active")) or bool(duplicate.get("is_active"))
+    merged["has_appeared"] = bool(primary.get("has_appeared")) or bool(duplicate.get("has_appeared"))
+    if duplicate.get("world_card_id") and not merged.get("world_card_id"):
+        merged["world_card_id"] = duplicate.get("world_card_id")
+    return merged
+
+
+def dedupe_dnd_npcs(npcs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Collapse entries that are the same character under different labels."""
+    kept: list[dict[str, Any]] = []
+    merged_names: list[str] = []
+    for npc in npcs:
+        if not isinstance(npc, dict):
+            continue
+        keys = npc_identity_keys(npc)
+        match_index = next(
+            (index for index, existing in enumerate(kept) if npc_identity_keys(existing) & keys),
+            None,
+        )
+        if match_index is None:
+            kept.append(npc)
+            continue
+        existing = kept[match_index]
+        # The one with a real name stays; an unnamed role becomes an alias of it.
+        primary, duplicate = (existing, npc)
+        existing_is_role = _looks_like_a_role_not_a_name(existing.get("name"))
+        incoming_is_role = _looks_like_a_role_not_a_name(npc.get("name"))
+        if existing_is_role and not incoming_is_role:
+            primary, duplicate = npc, existing
+        kept[match_index] = merge_dnd_npcs(primary, duplicate)
+        merged_names.append(str(duplicate.get("name") or ""))
+    return kept, [name for name in merged_names if name]
+
+
+# Labels that describe a job rather than a person. A character introduced as one of these and
+# later given a name should keep the name and file the description as an alias.
+_ROLE_LIKE_PATTERN = re.compile(
+    r"^(?:слуга|служанка|стражник|страж|охранник|телохранитель|торговец|трактирщик|"
+    r"мальчишка|посыльный|незнакомец|незнакомка|человек|мужчина|женщина|девушка|парень|"
+    r"старик|старуха|прохожий|путник|бандит|разбойник|грабитель|солдат|капитан|жрец|"
+    r"монах|маг|лучник|воин)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_a_role_not_a_name(value: Any) -> bool:
+    return bool(_ROLE_LIKE_PATTERN.match(normalize_single_line(value, max_length=80)))
 
 
 def normalize_dnd_quests(value: Any) -> list[dict[str, Any]]:
@@ -2184,7 +2552,8 @@ def normalize_dnd_state(value: Any) -> dict[str, Any]:
     source = value if isinstance(value, dict) else {}
     play_mode = normalize_dnd_play_mode(source.get("play_mode"))
     turn_count = _clamp_int(source.get("turn_count"), 0, 10_000_000, 0)
-    hero = normalize_dnd_hero(source.get("hero"), play_mode=play_mode)
+    currency_id = normalize_dnd_currency_id(source.get("currency"))
+    hero = normalize_dnd_hero(source.get("hero"), play_mode=play_mode, currency=currency_id)
 
     npcs: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
@@ -2200,6 +2569,9 @@ def normalize_dnd_state(value: Any) -> dict[str, Any]:
             npcs.append(normalized)
             if len(npcs) >= DND_MAX_NPCS:
                 break
+    # "Слуга Алисии" and "Томас" are one person the moment the story says so; collapsing them
+    # here means every reader of the state sees one character, not two half-remembered ones.
+    npcs, _merged = dedupe_dnd_npcs(npcs)
 
     return {
         "version": STORY_DND_STATE_VERSION,
@@ -2215,6 +2587,7 @@ def normalize_dnd_state(value: Any) -> dict[str, Any]:
         "npcs": npcs,
         "quests": normalize_dnd_quests(source.get("quests")),
         "notes": normalize_dnd_notes(source.get("notes")),
+        "currency": currency_id,
         "roll_policy": normalize_dnd_roll_policy(source.get("roll_policy")),
         "difficulty": normalize_dnd_difficulty(source.get("difficulty")),
         # Where the party was standing when the last turn ended. Used to clear the stage:
@@ -2529,7 +2902,7 @@ def describe_hero_for_prompt(state: dict[str, Any]) -> str:
         f"Хиты: {hp.get('current', 0)}/{hp.get('max', 0)}"
         + (f" (+{hp.get('temp')} врем.)" if int(hp.get("temp") or 0) > 0 else "")
         + f"; КД {hero.get('armor_class')}; бонус мастерства {format_modifier(hero.get('proficiency_bonus') or 2)}; скорость {hero.get('speed')} футов.",
-        f"Золото: {int(hero.get('gold') or 0)} зм.",
+        f"Деньги: {hero.get('purse_display') or '0'}.",
     ]
     life_state = str(hero.get("life_state") or DND_LIFE_STATE_ALIVE)
     if life_state != DND_LIFE_STATE_ALIVE:
@@ -2566,6 +2939,39 @@ def describe_hero_for_prompt(state: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# What each band means at the table, in the narrator's own terms. Without this the state said
+# "Влюблена" and the scene stayed politely cold, because a label is not an instruction.
+DND_RELATION_BEHAVIOUR: dict[str, str] = {
+    "hostile": "открытая враждебность — оскорбляет, угрожает, мешает, при случае ударит первым",
+    "hateful": "ненависть — цедит слова сквозь зубы, ищет повод навредить, ни о чём не просит",
+    "wary": "настороженность — держит дистанцию, отвечает коротко, проверяет каждое слово",
+    "neutral": "нейтралитет — вежливо, по делу, без личного интереса",
+    "friendly": "дружба — рад встрече, шутит, идёт навстречу в мелочах, делится слухами",
+    "loyal": "преданность — прикроет, поможет себе в ущерб, говорит откровенно",
+    "devoted": "обожание — ищет одобрения героя, восхищается вслух, тревожится за него",
+    "in_love": (
+        "влюблённость — ищет близости и прикосновений, ревнует, теряется от внимания героя, "
+        "зовёт по имени и прощает многое. ХОЛОДНАЯ ВЕЖЛИВОСТЬ ЗДЕСЬ НЕУМЕСТНА"
+    ),
+}
+
+
+def describe_npc_relationship(npc: dict[str, Any]) -> str:
+    """One line the narrator can act on: the feeling, the mood, and what both look like."""
+    relation_id = normalize_dnd_relation_id(npc.get("relation"))
+    label = DND_RELATION_LABELS.get(relation_id, relation_id)
+    behaviour = DND_RELATION_BEHAVIOUR.get(relation_id, "")
+    mood_id = normalize_dnd_mood(npc.get("mood"))
+    line = f"{label} ({npc.get('relation_score', 0):+d})"
+    if mood_id != DEFAULT_MOOD:
+        line += f", настроение — {DND_MOOD_LABELS.get(mood_id, mood_id).lower()}"
+        if npc.get("mood_note"):
+            line += f" ({npc.get('mood_note')})"
+    if behaviour:
+        line += f". Отыгрывай как {behaviour}"
+    return line
+
+
 def describe_npcs_for_prompt(state: dict[str, Any], *, only_active: bool = False, limit: int = 12) -> str:
     npcs = state.get("npcs") if isinstance(state.get("npcs"), list) else []
     selected = [npc for npc in npcs if isinstance(npc, dict) and (not only_active or npc.get("is_active"))]
@@ -2573,17 +2979,13 @@ def describe_npcs_for_prompt(state: dict[str, Any], *, only_active: bool = False
         return ""
     lines: list[str] = []
     for npc in selected[:limit]:
-        hp = npc.get("hp") if isinstance(npc.get("hp"), dict) else {}
-        relation_label = DND_RELATION_LABELS.get(normalize_dnd_relation_id(npc.get("relation")), "")
         role = npc.get("role")
-        line = (
-            f"- {npc.get('name')}"
-            + (f" ({role})" if role else "")
-            + f": уровень {npc.get('level')}, хиты {hp.get('current', 0)}/{hp.get('max', 0)},"
-            f" отношение к герою — {relation_label}"
-        )
+        line = f"- {npc.get('name')}" + (f" ({role})" if role else "") + ": "
+        line += describe_npc_relationship(npc)
         if npc.get("relation_note"):
-            line += f" ({npc.get('relation_note')})"
+            line += f". Почему: {npc.get('relation_note')}"
+        if npc.get("position"):
+            line += f". Где: {npc.get('position')}"
         lines.append(line + ".")
     return "\n".join(lines)
 
@@ -2600,6 +3002,23 @@ def describe_quests_for_prompt(state: dict[str, Any]) -> str:
         f"- {quest.get('title')}" + (f": {quest.get('detail')}" if quest.get("detail") else "")
         for quest in quests[:DND_MAX_QUESTS]
     )
+
+
+def describe_scene_layout(state: dict[str, Any]) -> str:
+    """Who is standing where, for the characters who are actually present.
+
+    The narrator loses the room between turns: a bodyguard placed behind his mistress's chair
+    reappears in the doorway two paragraphs later. Carrying the blocking forward costs a line
+    and removes a whole class of small continuity breaks.
+    """
+    lines: list[str] = []
+    for npc in (state.get("npcs") if isinstance(state.get("npcs"), list) else []):
+        if not isinstance(npc, dict) or not npc.get("is_active"):
+            continue
+        where = normalize_single_line(npc.get("position"), max_length=120)
+        if where:
+            lines.append(f"- {npc.get('name')}: {where}")
+    return "\n".join(lines)
 
 
 def describe_notes_for_prompt(state: dict[str, Any], *, limit: int = 6) -> str:
@@ -2809,7 +3228,22 @@ def build_dnd_instruction_card(
         sections.append("МЕСТО: " + location_label)
     active_npcs = describe_npcs_for_prompt(state, only_active=True, limit=6)
     if active_npcs:
-        sections.extend(["", "NPC В СЦЕНЕ:", active_npcs])
+        sections.extend(
+            [
+                "",
+                "NPC В СЦЕНЕ (их отношение и настроение обязательны к отыгрышу):",
+                active_npcs,
+            ]
+        )
+    layout = describe_scene_layout(state)
+    if layout:
+        sections.extend(
+            [
+                "",
+                "РАССТАНОВКА (не переставляй людей молча — если кто-то сменил место, покажи это):",
+                layout,
+            ]
+        )
     known_npcs = describe_npcs_for_prompt(state, only_active=False, limit=12)
     if known_npcs and known_npcs != active_npcs:
         sections.extend(
@@ -2961,6 +3395,27 @@ def build_dnd_catalog() -> dict[str, Any]:
             "sides": list(DND_COMBAT_SIDES),
         },
         "group": {"max_targets": DND_GROUP_MAX_TARGETS, "dc_step": DND_GROUP_DC_STEP},
+        "currencies": [
+            {
+                "id": money.id,
+                "label": money.label,
+                "denominations": [
+                    {
+                        "id": denomination.id,
+                        "label": denomination.label,
+                        "short": denomination.short,
+                        "value": denomination.value,
+                    }
+                    for denomination in money.denominations
+                ],
+                "presets": {
+                    "poor": money.start_poor,
+                    "normal": money.start_normal,
+                    "rich": money.start_rich,
+                },
+            }
+            for money in DND_CURRENCIES
+        ],
         "difficulties": [
             {
                 "id": difficulty_id,
