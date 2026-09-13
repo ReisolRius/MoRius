@@ -60,12 +60,12 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertTrue(created.story_reasoning_enabled)
 
     def test_reasoning_surcharges_match_supported_model_catalog(self) -> None:
-        self.assertEqual(get_story_reasoning_surcharge_tokens("google/gemini-2.5-pro", reasoning_enabled=True), 6)
+        self.assertEqual(get_story_reasoning_surcharge_tokens("google/gemini-2.5-pro", reasoning_enabled=True), 8)
         self.assertEqual(
             get_story_reasoning_surcharge_tokens("google/gemini-3.1-pro-preview", reasoning_enabled=True),
             10,
         )
-        self.assertEqual(get_story_reasoning_surcharge_tokens("anthropic/claude-sonnet-4.6", reasoning_enabled=True), 10)
+        self.assertEqual(get_story_reasoning_surcharge_tokens("anthropic/claude-sonnet-4.6", reasoning_enabled=True), 12)
         self.assertEqual(get_story_reasoning_surcharge_tokens("google/gemini-2.5-pro", reasoning_enabled=False), 0)
         self.assertFalse(is_story_reasoning_supported_model("mistralai/mistral-nemo"))
         self.assertEqual(get_story_reasoning_surcharge_tokens("mistralai/mistral-nemo", reasoning_enabled=True), 0)
@@ -221,13 +221,14 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertIn("не отменяют маркеры", prompt)
 
     def test_cost_tiers_respect_model_context_caps(self) -> None:
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 20)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 38)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 27)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 51)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.2"), 20)
+        # GLM 5.2 stops at 64k, so past the tier-4 ceiling it is still charged tier 4.
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.2"), 20)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 18)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 30)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 14)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 23)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 36)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 17)
 
     def test_new_polza_models_have_planned_turn_costs(self) -> None:
         self.assertEqual(
@@ -283,8 +284,8 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_turn_cost_tokens(64_001, "deepseek/deepseek-v4-pro-0813"), 48)
         self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-r1-0528"), 7)
         self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-r1-0528"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-r1-0528"), 10)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-r1-0528"), 14)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-r1-0528"), 11)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-r1-0528"), 17)
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="deepseek/deepseek-v4-pro-0813"),
             128_000,
@@ -297,16 +298,16 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             normalize_story_context_limit_chars(128_000, model_name="z-ai/glm-5.2"),
             64_000,
         )
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-2.5-pro"), 23)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 42)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 72)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-pro-preview"), 34)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-2.5-pro"), 30)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 54)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 90)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-pro-preview"), 43)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "z-ai/glm-4.7"), 8)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "openai/gpt-5.6-luna-pro"), 4)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "openai/gpt-5.6-luna-pro"), 12)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-flash-lite"), 9)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k2.6"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.6"), 24)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k2.6"), 10)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.6"), 31)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k3"), 40)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k3"), 120)
 
@@ -319,20 +320,20 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "z-ai/glm-4.7-flash": (4, 4, 4, 5, 5),
             "deepseek/deepseek-v3.2": (4, 5, 6, 7, 7),
             "deepseek/deepseek-v4-pro-0813": (5, 8, 14, 26, 48),
-            "deepseek/deepseek-r1-0528": (7, 8, 10, 14, 14),
-            "z-ai/glm-4.7": (6, 7, 8, 10, 10),
-            "z-ai/glm-5": (6, 8, 10, 14, 14),
-            "aion-labs/aion-2.0": (8, 10, 12, 18, 30),
-            "aion-labs/aion-3.0": (20, 24, 38, 65, 65),
+            "deepseek/deepseek-r1-0528": (7, 8, 11, 17, 17),
+            "z-ai/glm-4.7": (6, 7, 8, 12, 12),
+            "z-ai/glm-5": (6, 8, 10, 17, 17),
+            "aion-labs/aion-2.0": (8, 10, 13, 23, 36),
+            "aion-labs/aion-3.0": (20, 30, 48, 85, 85),
             "qwen/qwen3.7-plus": (6, 8, 10, 16, 16),
             "openai/gpt-5.6-luna-pro": (2, 3, 4, 7, 12),
             "google/gemini-3.1-flash-lite": (6, 7, 9, 13, 13),
-            "z-ai/glm-5.1": (8, 10, 14, 20, 38),
+            "z-ai/glm-5.1": (8, 10, 16, 27, 51),
             "z-ai/glm-5.2": (8, 10, 14, 20, 20),
-            "google/gemini-2.5-pro": (17, 19, 23, 33, 33),
-            "google/gemini-3.1-pro-preview": (22, 28, 34, 54, 54),
-            "anthropic/claude-sonnet-4.6": (22, 30, 42, 72, 72),
-            "moonshotai/kimi-k2.6": (5, 6, 8, 13, 24),
+            "google/gemini-2.5-pro": (17, 22, 30, 47, 47),
+            "google/gemini-3.1-pro-preview": (23, 31, 43, 67, 67),
+            "anthropic/claude-sonnet-4.6": (24, 36, 54, 90, 90),
+            "moonshotai/kimi-k2.6": (5, 7, 10, 17, 31),
             "moonshotai/kimi-k3": (22, 30, 40, 72, 120),
         }
         usage_by_tier = (6_000, 6_001, 16_001, 32_001, 64_001)
@@ -530,7 +531,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             memory_optimization_enabled=True,
         )
 
-        self.assertEqual(cost, 22)
+        self.assertEqual(cost, 24)
 
     def test_accelerated_service_flag_does_not_change_runtime_turn_cost(self) -> None:
         cost = _calculate_story_turn_cost_tokens(
@@ -587,7 +588,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             memory_optimization_enabled=True,
         )
 
-        self.assertEqual(cost, 42)
+        self.assertEqual(cost, 54)
 
     def test_runtime_turn_cost_ignores_hidden_service_context_cards(self) -> None:
         cost = _calculate_story_turn_cost_tokens(
@@ -601,7 +602,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             memory_optimization_enabled=True,
         )
 
-        self.assertEqual(cost, 22)
+        self.assertEqual(cost, 24)
 
     def test_runtime_turn_cost_ignores_hidden_instruction_prompts(self) -> None:
         cost = _calculate_story_turn_cost_tokens(
@@ -621,7 +622,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             memory_optimization_enabled=True,
         )
 
-        self.assertEqual(cost, 22)
+        self.assertEqual(cost, 24)
 
     def test_standard_models_have_updated_64k_tier(self) -> None:
         self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v3.2"), 7)

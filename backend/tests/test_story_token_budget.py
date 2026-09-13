@@ -9,7 +9,11 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import main  # noqa: E402
-from app.services.story_token_budget import TokenBudgetService, TokenCounter  # noqa: E402
+from app.services.story_token_budget import (  # noqa: E402
+    TokenBudgetService,
+    TokenCounter,
+    story_token_units,
+)
 
 
 class StoryTokenBudgetTests(unittest.TestCase):
@@ -27,11 +31,27 @@ class StoryTokenBudgetTests(unittest.TestCase):
         self.assertEqual(result.compressed_budget, 6_000)
         self.assertEqual(result.facts_budget, 4_000)
 
-    def test_token_counter_is_word_like_not_character_length(self) -> None:
+    def test_token_counter_is_sub_word_not_word_or_character_length(self) -> None:
+        # A Cyrillic word is worth more than one token and less than its character count:
+        # real BPE tokenizers split Russian into 2-3 sub-word pieces. Counting one token per
+        # word (the old behaviour) ran 1.48x light against o200k_base on real MoRius content.
         counter = TokenCounter(safety_margin=1.0)
+        phrase = "очень длинное слово"
 
-        self.assertEqual(counter.count_text("очень длинное слово", apply_margin=False), 3)
-        self.assertLess(counter.count_text("очень длинное слово"), len("очень длинное слово"))
+        estimated = counter.count_text(phrase, apply_margin=False)
+
+        self.assertGreater(estimated, len(phrase.split()))
+        self.assertLess(estimated, len(phrase))
+        self.assertEqual(estimated, 7)
+
+    def test_token_estimate_is_additive_across_whitespace_splits(self) -> None:
+        # The trimmers accumulate units run by run, so a split must not change the total.
+        text = "Алекс нашёл артефакт, и дверь открылась."
+
+        self.assertEqual(
+            story_token_units(text),
+            sum(story_token_units(part) for part in text.split()),
+        )
 
     def test_memory_prompt_cards_are_dropped_whole_instead_of_sentence_trimmed(self) -> None:
         card = {
@@ -122,7 +142,7 @@ class StoryTokenBudgetTests(unittest.TestCase):
             instruction_cards=[],
             plot_cards=cards,
             world_cards=[],
-            context_limit_tokens=2_200,
+            context_limit_tokens=6_000,
             reserved_history_tokens=0,
         )
 

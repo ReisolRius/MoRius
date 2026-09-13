@@ -23,6 +23,7 @@ from app.services.story_memory import (
     normalize_story_memory_layer,
 )
 from app.services.sqlite_write_guard import commit_with_retry, is_database_busy_session_error
+from app.services.story_token_budget import estimate_story_tokens
 from app.services.story_game_operation_lock import (
     STORY_GAME_OPERATION_BUSY_DETAIL,
     StoryGameOperationBusyError,
@@ -71,10 +72,7 @@ def _normalize_story_message_content(content: str | None) -> str:
 
 
 def _estimate_story_tokens(value: str) -> int:
-    normalized = str(value or "").strip()
-    if not normalized:
-        return 0
-    return max(1, (len(normalized) + 3) // 4)
+    return estimate_story_tokens(value)
 
 
 def _build_story_raw_memory_block_title(content: str) -> str:

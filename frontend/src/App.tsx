@@ -133,6 +133,71 @@ function isWikiPath(pathname: string): boolean {
   return pathname === '/wiki'
 }
 
+/** Per-route SEO head, for the handful of pages a signed-out visitor (and therefore a crawler)
+ *  can actually reach. Everything else is behind the login wall and is excluded in robots.txt,
+ *  so it deliberately falls back to the site-level canonical and description in index.html. */
+const SEO_SITE_ORIGIN = 'https://morius-ai.ru'
+
+const SEO_BY_PATH: Record<string, { title: string; description: string }> = {
+  '/': {
+    title: 'Текстовая РПГ с ИИ — MoRius: нейросеть ведёт игру как гейм-мастер',
+    description:
+      'MoRius — текстовая РПГ с ИИ: нейросеть ведёт игру как гейм-мастер в D&D, а вы отыгрываете своего персонажа. Создавайте миры и персонажей, играйте в текстовые приключения на русском языке бесплатно.',
+  },
+  '/wiki': {
+    title: 'MoRius Wiki — Мориус Вики, F.A.Q. и гайды по MoRius',
+    description:
+      'База знаний MoRius: как начать текстовую РПГ с ИИ, как устроены карточки мира и персонажей, память истории, выбор рассказчика и стоимость хода.',
+  },
+  '/publication-rules': {
+    title: 'Правила публикации миров — MoRius',
+    description: 'Что можно и что нельзя публиковать в библиотеке миров MoRius, и как проходит модерация.',
+  },
+  '/subscription-terms': {
+    title: 'Условия подписки — MoRius',
+    description: 'Тарифы подписки MoRius: доступные модели рассказчика, дневные лимиты ходов и порядок продления.',
+  },
+  '/privacy-policy': {
+    title: 'Политика конфиденциальности — MoRius',
+    description: 'Какие данные собирает MoRius, как они хранятся и как их удалить.',
+  },
+  '/terms-of-service': {
+    title: 'Пользовательское соглашение — MoRius',
+    description: 'Условия использования сервиса MoRius: права, обязанности и ограничения.',
+  },
+}
+
+function setMetaContent(selector: string, content: string): void {
+  const element = document.head.querySelector<HTMLMetaElement>(selector)
+  if (element) {
+    element.setAttribute('content', content)
+  }
+}
+
+function useSeoHead(pathname: string): void {
+  useEffect(() => {
+    const seo = SEO_BY_PATH[pathname]
+    if (!seo) {
+      // Not a public route: leave the document head on its site-level defaults rather than
+      // inventing metadata for a page no crawler is allowed to index anyway.
+      return
+    }
+    document.title = seo.title
+    setMetaContent('meta[name="description"]', seo.description)
+    setMetaContent('meta[property="og:title"]', seo.title)
+    setMetaContent('meta[property="og:description"]', seo.description)
+    setMetaContent('meta[name="twitter:title"]', seo.title)
+    setMetaContent('meta[name="twitter:description"]', seo.description)
+
+    const canonicalUrl = `${SEO_SITE_ORIGIN}${pathname === '/' ? '/' : pathname}`
+    setMetaContent('meta[property="og:url"]', canonicalUrl)
+    const canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]')
+    if (canonical) {
+      canonical.setAttribute('href', canonicalUrl)
+    }
+  }, [pathname])
+}
+
 function parseAuthRouteMode(search: string): AuthRouteMode {
   const mode = new URLSearchParams(search).get('mode')
   if (mode === 'register' || mode === 'reset') {
@@ -364,6 +429,7 @@ function RouteTransitionFallback() {
 function App() {
   const { setCustomTheme, setStoryHistoryFontFamily, setStoryHistoryFontWeight, setTheme } = useMoriusThemeController()
   const [path, setPath] = useState(() => normalizePath(window.location.pathname))
+  useSeoHead(path)
   const [authToken, setAuthToken] = useState<string | null>(initialSession.token)
   const [authUser, setAuthUser] = useState<AuthUser | null>(initialSession.user)
   const [isHydratingSession, setIsHydratingSession] = useState(Boolean(initialSession.token))

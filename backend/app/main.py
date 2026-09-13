@@ -87,6 +87,11 @@ from app.services.provider_resilience import (
     is_retryable_provider_error,
 )
 from app.services.sqlite_write_guard import commit_with_retry
+from app.services.story_token_budget import (
+    STORY_TOKEN_UNIT_DENOMINATOR,
+    estimate_story_tokens,
+    story_token_units,
+)
 from app.schemas import (
     StoryCharacterAvatarGenerateOut,
     StoryCharacterAvatarGenerateRequest,
@@ -315,6 +320,11 @@ STORY_CONTEXT_LIMIT_MAX_TOKENS = 64_000
 STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS = 128_000
 STORY_AION_CONTEXT_WINDOW_TOKENS = 131_072
 STORY_CONTEXT_LIMIT_AION_MAX_TOKENS = 108_000
+# Headroom between our own estimate and the provider's real tokenizer, used when fitting a
+# prompt to a model's hard context window. estimate_story_tokens() now measures p99 at 1.02
+# against o200k_base on this project's own content, so 1.12 covers that plus tokenizer
+# variation between providers. It was doing much more work before the estimator was fixed:
+# the old word-count estimator ran 1.48x light, so this factor was never going to save it.
 STORY_AION_INPUT_TOKENIZER_SAFETY_FACTOR = 1.12
 STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS = 2_048
 STORY_CONTEXT_RESPONSE_RESERVE_SAFETY_TOKENS = STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS
@@ -2336,13 +2346,7 @@ def _add_user_tokens(db: Session, user_id: int, tokens: int) -> None:
 
 
 def _estimate_story_tokens(value: str) -> int:
-    normalized = _normalize_story_message_content(value)
-    if not normalized:
-        return 0
-    matches = STORY_TOKEN_ESTIMATE_PATTERN.findall(normalized.lower().replace("ё", "е"))
-    if matches:
-        return len(matches)
-    return max(1, math.ceil(len(normalized) / 4))
+    return estimate_story_tokens(_normalize_story_message_content(value))
 
 
 def _trim_story_text_tail_by_tokens(value: str, token_limit: int) -> str:
@@ -2352,15 +2356,25 @@ def _trim_story_text_tail_by_tokens(value: str, token_limit: int) -> str:
     if token_limit <= 0:
         return ""
 
-    matches = list(STORY_TOKEN_ESTIMATE_PATTERN.finditer(normalized.lower().replace("ё", "е")))
+    matches = list(STORY_TOKEN_ESTIMATE_PATTERN.finditer(normalized))
     if not matches:
         char_limit = max(token_limit * 4, 1)
         return normalized[-char_limit:]
-    if len(matches) <= token_limit:
+    if estimate_story_tokens(normalized) <= token_limit:
         return normalized
 
-    start_token_index = len(matches) - token_limit
-    start_char_index = matches[start_token_index].start()
+    # A matched run is no longer worth exactly one token, so walk backwards accumulating the
+    # weighted units story_token_units() would charge for each run and cut where the budget
+    # runs out. Units are additive over whitespace splits, so this lands on the same total.
+    unit_budget = token_limit * STORY_TOKEN_UNIT_DENOMINATOR
+    consumed_units = 0
+    start_char_index = len(normalized)
+    for match in reversed(matches):
+        run_units = story_token_units(match.group(0))
+        if consumed_units + run_units > unit_budget:
+            break
+        consumed_units += run_units
+        start_char_index = match.start()
     return normalized[start_char_index:].lstrip()
 
 

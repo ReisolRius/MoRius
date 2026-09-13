@@ -555,6 +555,7 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
                           <Box sx={{ minWidth: 0 }}>
                             <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
                               <Typography
+                                component="h2"
                                 sx={{
                                   fontSize: { xs: '1.02rem', md: '1.14rem' },
                                   fontWeight: 700,

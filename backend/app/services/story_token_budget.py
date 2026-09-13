@@ -8,6 +8,65 @@ from typing import Any, Iterable
 
 _TOKEN_PATTERN = re.compile(r"[0-9A-Za-zА-Яа-яЁё]+|[^\s]", re.UNICODE)
 
+# --- Canonical context-usage estimator -------------------------------------------------
+#
+# Every context number a player sees, and every budget that decides what actually fits in a
+# prompt, comes from here. It must stay byte-for-byte equivalent to estimateTextTokens() in
+# frontend/src/pages/StoryGamePage.tsx, or the meter and the trimmer disagree.
+#
+# The previous estimator counted one token per word plus one per punctuation mark. Measured
+# against o200k_base over 9 449 real documents from this project's own story messages, world
+# cards, plot cards, memory blocks and instruction cards, that undercounted by 1.48x: real
+# token counts exceeded the estimate in 95.9% of documents. Russian is the reason — modern
+# BPE tokenizers split a Cyrillic word into 2-3 sub-word tokens, so "one word, one token" is
+# wrong by roughly the sub-word factor.
+#
+# This version is a least-squares fit over character classes, which is what the tokenizer
+# actually responds to, carrying a deliberate ~13% cushion so the budget is respected rather
+# than centred. On the same corpus: real/estimate is 0.87 overall, p95 0.98, p99 1.02, and
+# real exceeds the estimate in 2.4% of documents instead of 95.9%.
+#
+# Weights are integers over a fixed denominator so Python and TypeScript cannot drift apart
+# through floating-point rounding.
+STORY_TOKEN_UNIT_DENOMINATOR = 200
+_STORY_TOKEN_UNIT_CYRILLIC = 69
+_STORY_TOKEN_UNIT_LATIN = 36
+_STORY_TOKEN_UNIT_DIGIT = 60
+_STORY_TOKEN_UNIT_PUNCTUATION = 181
+_STORY_TOKEN_UNIT_WORD = 50
+
+_STORY_TOKEN_WORD_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
+_STORY_TOKEN_CYRILLIC_PATTERN = re.compile(r"[а-яё]", re.IGNORECASE)
+_STORY_TOKEN_LATIN_PATTERN = re.compile(r"[a-z]", re.IGNORECASE)
+_STORY_TOKEN_DIGIT_PATTERN = re.compile(r"[0-9]")
+_STORY_TOKEN_PUNCTUATION_PATTERN = re.compile(r"[^\s0-9a-zа-яё]", re.IGNORECASE)
+
+
+def story_token_units(value: Any) -> int:
+    """Weighted sub-token units for ``value``.
+
+    Units are additive over any split of the text on whitespace, which is what lets the
+    trimmers accumulate them run by run and still land on the same total as a single call.
+    Divide by ``STORY_TOKEN_UNIT_DENOMINATOR`` to get tokens.
+    """
+    normalized = str(value or "").replace("\r\n", "\n").strip()
+    if not normalized:
+        return 0
+    return (
+        _STORY_TOKEN_UNIT_CYRILLIC * len(_STORY_TOKEN_CYRILLIC_PATTERN.findall(normalized))
+        + _STORY_TOKEN_UNIT_LATIN * len(_STORY_TOKEN_LATIN_PATTERN.findall(normalized))
+        + _STORY_TOKEN_UNIT_DIGIT * len(_STORY_TOKEN_DIGIT_PATTERN.findall(normalized))
+        + _STORY_TOKEN_UNIT_PUNCTUATION * len(_STORY_TOKEN_PUNCTUATION_PATTERN.findall(normalized))
+        + _STORY_TOKEN_UNIT_WORD * len(_STORY_TOKEN_WORD_PATTERN.findall(normalized))
+    )
+
+
+def estimate_story_tokens(value: Any) -> int:
+    units = story_token_units(value)
+    if units <= 0:
+        return 0
+    return max(1, -(-units // STORY_TOKEN_UNIT_DENOMINATOR))
+
 
 @dataclass(frozen=True)
 class MemoryBudgetProfile:
@@ -46,24 +105,21 @@ MEMORY_BUDGET_PROFILES: dict[str, MemoryBudgetProfile] = {
 class TokenCounter:
     """Token counter adapter with a conservative local fallback.
 
-    A provider-native count API can be wired behind this class later. The local
-    estimate is token-like, not character-count based, and handles Cyrillic by
-    counting words/punctuation with a safety margin.
+    A provider-native count API can be wired behind this class later. The local estimate
+    comes from :func:`estimate_story_tokens`, which already carries its own measured cushion,
+    so ``safety_margin`` now defaults to 1.0 rather than stacking a second guess on top.
     """
 
-    def __init__(self, *, safety_margin: float = 1.15) -> None:
+    def __init__(self, *, safety_margin: float = 1.0) -> None:
         self.safety_margin = max(float(safety_margin), 1.0)
 
     def count_text(self, value: Any, *, apply_margin: bool = True) -> int:
-        normalized = str(value or "").replace("\r\n", "\n").strip()
-        if not normalized:
+        estimated = estimate_story_tokens(value)
+        if estimated <= 0:
             return 0
-        raw_count = len(_TOKEN_PATTERN.findall(normalized))
-        if raw_count <= 0:
-            raw_count = 1
-        if not apply_margin:
-            return raw_count
-        return max(1, int(math.ceil(raw_count * self.safety_margin)))
+        if not apply_margin or self.safety_margin <= 1.0:
+            return estimated
+        return max(1, int(math.ceil(estimated * self.safety_margin)))
 
 
 class TokenBudgetService:

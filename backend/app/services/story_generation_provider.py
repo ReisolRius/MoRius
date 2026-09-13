@@ -27,6 +27,11 @@ from app.services.story_games import (
     is_story_reasoning_supported_model,
 )
 from app.services.text_encoding import repair_likely_utf8_mojibake_deep
+from app.services.story_token_budget import (
+    STORY_TOKEN_UNIT_DENOMINATOR,
+    estimate_story_tokens,
+    story_token_units,
+)
 
 
 def _bind_monolith_names() -> None:
@@ -139,12 +144,22 @@ def _trim_story_text_head_by_tokens(value: str, token_limit: int) -> str:
     normalized = _normalize_story_message_content(value)
     if not normalized or token_limit <= 0:
         return ""
-    matches = list(STORY_TOKEN_ESTIMATE_PATTERN.finditer(normalized.lower()))
+    matches = list(STORY_TOKEN_ESTIMATE_PATTERN.finditer(normalized))
     if not matches:
         return normalized[: max(token_limit * 4, 1)].rstrip()
-    if len(matches) <= token_limit:
+    if estimate_story_tokens(normalized) <= token_limit:
         return normalized
-    end_char_index = matches[max(int(token_limit), 1) - 1].end()
+    # Matched runs cost more than one token each, so accumulate the same weighted units
+    # estimate_story_tokens() charges instead of treating one match as one token.
+    unit_budget = max(int(token_limit), 1) * STORY_TOKEN_UNIT_DENOMINATOR
+    consumed_units = 0
+    end_char_index = 0
+    for match in matches:
+        run_units = story_token_units(match.group(0))
+        if consumed_units + run_units > unit_budget:
+            break
+        consumed_units += run_units
+        end_char_index = match.end()
     return normalized[:end_char_index].rstrip()
 
 

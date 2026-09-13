@@ -31,6 +31,7 @@ from app.services.story_memory import (
     story_memory_block_to_out,
 )
 from app.services.story_queries import get_user_story_game_or_404, list_story_memory_blocks, touch_story_game
+from app.services.story_token_budget import estimate_story_tokens
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -55,8 +56,7 @@ def _acquire_story_operation_lease_or_409(*, game_id: int, operation: str):
 
 
 def _estimate_memory_token_count(text_value: str) -> int:
-    matches = _MEMORY_TOKEN_ESTIMATE_PATTERN.findall(text_value)
-    return max(len(matches), 1)
+    return max(estimate_story_tokens(text_value), 1)
 
 
 def _get_key_memory_block_or_404(db: Session, game_id: int, block_id: int) -> StoryMemoryBlock:

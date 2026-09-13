@@ -1,5 +1,19 @@
 User-agent: *
 Allow: /
 
+# Everything below needs a signed-in account. A crawler that follows these links only ever sees
+# the login wall, so indexing them spends crawl budget on duplicate thin pages.
+Disallow: /home
+Disallow: /dashboard
+Disallow: /games
+Disallow: /shop
+Disallow: /profile
+Disallow: /worlds
+Disallow: /bug-reports
+
+# Auth and referral links differ only by query string; without this the same page is crawled
+# many times over under different URLs.
+Clean-param: ref&utm_source&utm_medium&utm_campaign&utm_content&utm_term&from&mode
+
 Host: morius-ai.ru
 Sitemap: https://morius-ai.ru/sitemap.xml

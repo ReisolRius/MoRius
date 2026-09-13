@@ -165,28 +165,47 @@ STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16_000
 STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32_000
 STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64_000
 STORY_TURN_COST_TIER_5_CONTEXT_LIMIT_MAX = 128_000
+# Every tier below is sized to keep a >= 55% margin, re-derived 2026-09-13 against live
+# RouterAI rates. The basis, none of which is recoverable from the numbers themselves:
+#
+#   Revenue. Worst case a player can actually buy into is the cheapest pack per sol
+#   (Летописец, 7000 sols for 5990 RUB) *while a 10% storewide promo runs* -> 0.7701 RUB/sol
+#   gross. Net of 8% turnover tax, 3.5% YooKassa and a 5% hosting/infrastructure allowance
+#   (2500 RUB/mo at ~50k RUB turnover) -> 0.6431 RUB per sol.
+#
+#   Cost. Input = the tier's full context ceiling, since that is the most the player can be
+#   charged for at that tier. Output = 3000 tokens: sol turns ignore the per-game response
+#   setting because story_runtime forces STORY_RESPONSE_MAX_TOKENS_MAX. Reasoning tokens are
+#   billed on top of output, at internal_reasoning where the provider publishes one.
+#
+#   Two modes, priced separately. Reasoning off (the default) is what the base tiers cover.
+#   Reasoning on adds STORY_REASONING_SURCHARGE_BY_MODEL, which is sized so base + surcharge
+#   still clears 55% with a full STORY_REASONING_MAX_TOKENS budget. For the models in
+#   STORY_REASONING_MINIMUM_LLM_MODELS the "off" state still reserves their mandatory
+#   minimum, so that reserve is already inside the base tier.
+#
+# Tier 5 only applies to models whose context reaches past 64k (see
+# STORY_EXTENDED_CONTEXT_LLM_MODELS and Aion 2.0's 108k); for the rest it is never charged.
 STORY_TURN_COST_DEEPSEEK_TIERS = (4, 5, 6, 7, 12)
 STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS = (5, 8, 14, 26, 48)
-STORY_TURN_COST_DEEPSEEK_R1_TIERS = (7, 8, 10, 14, 22)
+STORY_TURN_COST_DEEPSEEK_R1_TIERS = (7, 8, 11, 17, 22)
 STORY_TURN_COST_GLM47_FLASH_TIERS = (4, 4, 4, 5, 5)
-STORY_TURN_COST_GLM47_TIERS = (6, 7, 8, 10, 16)
-STORY_TURN_COST_AION_TIERS = (8, 10, 12, 18, 30)
-STORY_TURN_COST_AION3_TIERS = (20, 24, 38, 65, 65)
+STORY_TURN_COST_GLM47_TIERS = (6, 7, 8, 12, 16)
+STORY_TURN_COST_AION_TIERS = (8, 10, 13, 23, 36)
+STORY_TURN_COST_AION3_TIERS = (20, 30, 48, 85, 85)
 STORY_TURN_COST_QWEN_TIERS = (6, 8, 10, 16, 28)
-STORY_TURN_COST_GLM5_TIERS = (6, 8, 10, 14, 24)
+STORY_TURN_COST_GLM5_TIERS = (6, 8, 10, 17, 24)
 STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS = (6, 7, 9, 13, 21)
-STORY_TURN_COST_GEMINI_25_PRO_TIERS = (17, 19, 23, 33, 51)
-STORY_TURN_COST_GLM51_TIERS = (8, 10, 14, 20, 38)
+STORY_TURN_COST_GEMINI_25_PRO_TIERS = (17, 22, 30, 47, 51)
+STORY_TURN_COST_GLM51_TIERS = (8, 10, 16, 27, 51)
 STORY_TURN_COST_GLM52_TIERS = (8, 10, 14, 20, 36)
-STORY_TURN_COST_GEMINI_31_PRO_TIERS = (22, 28, 34, 54, 89)
-STORY_TURN_COST_CLAUDE_SONNET_TIERS = (22, 30, 42, 72, 120)
-STORY_TURN_COST_KIMI_K26_TIERS = (5, 6, 8, 13, 24)
+STORY_TURN_COST_GEMINI_31_PRO_TIERS = (23, 31, 43, 67, 89)
+STORY_TURN_COST_CLAUDE_SONNET_TIERS = (24, 36, 54, 90, 120)
+STORY_TURN_COST_KIMI_K26_TIERS = (5, 7, 10, 17, 31)
 STORY_TURN_COST_KIMI_K3_TIERS = (22, 30, 40, 72, 120)
 # GPT-5.6 Luna Pro. RouterAI 2026-09-13: 21.91 RUB / 1M prompt, 131.44 RUB / 1M completion.
-# Sized so every tier keeps >= 55% margin under the worst case a player can buy into: the
-# cheapest pack (7000 sols for 5990 RUB) *while a 10% storewide promo runs*, minus 8% turnover
-# tax, 3.5% YooKassa and a 5% hosting/infrastructure allowance -> 0.6431 RUB per sol net.
-# Cost per turn assumes the tier's full context ceiling in and the 3000-token sol cap out.
+# Re-checked against those live rates: 57-61% across all five tiers with reasoning off and
+# 58-61% with it on, so the launch prices still hold and are left alone.
 STORY_TURN_COST_GPT_56_LUNA_PRO_TIERS = (2, 3, 4, 7, 12)
 STORY_REASONING_MAX_TOKENS = 2_048
 STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS = 128
@@ -305,20 +324,21 @@ STORY_REASONING_FIXED_LLM_MODELS = {
     STORY_LLM_MODEL_DEEPSEEK_R1,
 }
 
-# Incremental add-on above the model's off/minimum mode. Values are model-specific and
-# based on RouterAI's 2026-08-17 reasoning/completion rates, the least expensive sol pack
-# (0.856 RUB/sol), and a 2.5x safety multiplier for tax, payment and routing variance.
+# Incremental add-on above the model's off/minimum mode, re-derived 2026-09-13 on the same
+# basis as the turn tiers above. Each value is the smallest whole number of sols that keeps
+# base tier + surcharge at >= 55% margin at *every* tier once a full
+# STORY_REASONING_MAX_TOKENS budget is billed on top of the 3000 output tokens.
 STORY_REASONING_SURCHARGE_BY_MODEL: dict[str, int] = {
     STORY_LLM_MODEL_GLM5: 2,
-    STORY_LLM_MODEL_GLM51: 2,
+    STORY_LLM_MODEL_GLM51: 3,
     STORY_LLM_MODEL_GLM52: 2,
     STORY_LLM_MODEL_GLM47_FLASH: 1,
     STORY_LLM_MODEL_GLM47: 2,
     STORY_LLM_MODEL_DEEPSEEK_V32: 1,
     STORY_LLM_MODEL_DEEPSEEK_V4_PRO: 2,
     STORY_LLM_MODEL_GEMINI_31_FLASH_LITE: 1,
-    STORY_LLM_MODEL_CLAUDE_SONNET_46: 10,
-    STORY_LLM_MODEL_GEMINI_25_PRO: 6,
+    STORY_LLM_MODEL_CLAUDE_SONNET_46: 12,
+    STORY_LLM_MODEL_GEMINI_25_PRO: 8,
     # Gemini 3.x takes a thinking *level*, not a token budget, so "medium" has no ceiling we
     # control — priced for ~4K reasoning tokens rather than the 2_048 the other models cap at.
     STORY_LLM_MODEL_GEMINI_31_PRO: 10,

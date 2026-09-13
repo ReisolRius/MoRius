@@ -395,17 +395,16 @@ select {
   max-width: var(--morius-action-size) !important;
   max-height: var(--morius-action-size) !important;
   border-radius: 12px !important;
-  border: var(--morius-border-width) solid rgba(255,255,255,0.09) !important;
-  background: rgba(255,255,255,0.03) !important;
+  border: none !important;
+  background: rgba(255,255,255,0.07) !important;
   color: #cfcdd4 !important;
   box-shadow: none !important;
   overflow: visible !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-header-ai-button:hover {
-  background: rgba(255,255,255,0.06) !important;
+  background: rgba(255,255,255,0.12) !important;
   color: var(--morius-title-text) !important;
-  border-color: var(--morius-hover-border) !important;
   box-shadow: none !important;
 }
 

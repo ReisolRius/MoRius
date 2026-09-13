@@ -933,35 +933,35 @@ const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
 const STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64000
 const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [4, 5, 6, 7, 12]
 const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [5, 8, 14, 26, 48]
-const STORY_TURN_COST_DEEPSEEK_R1_TIERS: readonly [number, number, number, number, number] = [7, 8, 10, 14, 22]
+const STORY_TURN_COST_DEEPSEEK_R1_TIERS: readonly [number, number, number, number, number] = [7, 8, 11, 17, 22]
 const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [4, 4, 4, 5, 5]
-const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [6, 7, 8, 10, 16]
-const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [8, 10, 12, 18, 30]
-const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [20, 24, 38, 65, 65]
-const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 14, 24]
+const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [6, 7, 8, 12, 16]
+const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [8, 10, 13, 23, 36]
+const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [20, 30, 48, 85, 85]
+const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 17, 24]
 const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [6, 7, 9, 13, 21]
-const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [17, 19, 23, 33, 51]
-const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 38]
+const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [17, 22, 30, 47, 51]
+const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [8, 10, 16, 27, 51]
 const STORY_TURN_COST_GLM52_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 36]
-const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [22, 28, 34, 54, 89]
-const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [22, 30, 42, 72, 120]
+const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [23, 31, 43, 67, 89]
+const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [24, 36, 54, 90, 120]
 const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
-const STORY_TURN_COST_KIMI_K26_TIERS: readonly [number, number, number, number, number] = [5, 6, 8, 13, 24]
+const STORY_TURN_COST_KIMI_K26_TIERS: readonly [number, number, number, number, number] = [5, 7, 10, 17, 31]
 const STORY_TURN_COST_KIMI_K3_TIERS: readonly [number, number, number, number, number] = [22, 30, 40, 72, 120]
 // Mirrors STORY_TURN_COST_GPT_56_LUNA_PRO_TIERS in backend/app/services/story_games.py.
 const STORY_TURN_COST_GPT_56_LUNA_PRO_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 7, 12]
 const STORY_REASONING_MAX_TOKENS = 2048
 const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, number>> = {
   'z-ai/glm-5': 2,
-  'z-ai/glm-5.1': 2,
+  'z-ai/glm-5.1': 3,
   'z-ai/glm-5.2': 2,
   'z-ai/glm-4.7-flash': 1,
   'z-ai/glm-4.7': 2,
   'deepseek/deepseek-v3.2': 1,
   'deepseek/deepseek-v4-pro-0813': 2,
   'google/gemini-3.1-flash-lite': 1,
-  'anthropic/claude-sonnet-4.6': 10,
-  'google/gemini-2.5-pro': 6,
+  'anthropic/claude-sonnet-4.6': 12,
+  'google/gemini-2.5-pro': 8,
   'google/gemini-3.1-pro-preview': 10,
   'qwen/qwen3.7-plus': 1,
   'moonshotai/kimi-k2.6': 2,
@@ -1372,7 +1372,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'z-ai/glm-5.2',
     title: 'GLM 5.2',
     description:
-      'Новая GLM для выразительного рассказчика: держит сцену и причинность, лучше раскрывает характеры и диалоги. Стоимость: 8/10/14/20 солов до 64K контекста.',
+      'Новая GLM для выразительного рассказчика: держит сцену и причинность, лучше раскрывает характеры и диалоги. Контекст до 64K.',
     portraitSrc: narratorOgmaPortrait,
     portraitAlt: 'GLM 5.2',
     stats: [
@@ -1554,7 +1554,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'moonshotai/kimi-k2.6',
     title: 'Kimi K2.6',
     description:
-      'Универсальный рассказчик Moonshot AI с сильной памятью и живыми ансамблевыми сценами. До 128K контекста; стоимость хода — 5/6/8/12/20 солов.',
+      'Универсальный рассказчик Moonshot AI с сильной памятью и живыми ансамблевыми сценами. Контекст до 128K.',
     portraitSrc: narratorFreyaPortrait,
     portraitAlt: 'Kimi K2.6',
     stats: [
@@ -1567,7 +1567,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'moonshotai/kimi-k3',
     title: 'Kimi K3',
     description:
-      'Флагман Moonshot AI для сложных долгих историй: удерживает дальние сюжетные дуги, мотивы и последствия. До 128K контекста; стоимость — 22/30/40/72/120 солов.',
+      'Флагман Moonshot AI для сложных долгих историй: удерживает дальние сюжетные дуги, мотивы и последствия. Контекст до 128K.',
     portraitSrc: narratorVelesPortrait,
     portraitAlt: 'Kimi K3',
     stats: [
@@ -1751,7 +1751,11 @@ const STORY_SETTINGS_INFO_TEXT = {
     'Админ-настройка. При грубой поломке формата или языка заменяет ответ короткой безопасной сценой вместо сохранения проблемного текста.',
   temperature:
     'Только для опытных. Настройка того, насколько креативно и смело будет отвечать ИИ.',
-  contextUsage: 'Следите за тем, сколько у вас осталось места в памяти истории для ИИ.',
+  // Says plainly what the meter counts and what it does not: it shows the player's own
+  // content, while the same limit also has to hold the service prompt they never see.
+  contextUsage:
+    'Следите за тем, сколько у вас осталось места в памяти истории для ИИ. Здесь учтено только ваше содержимое: карточки и текст истории. '
+    + 'Служебные промпты рассказчика в счётчик не входят, но занимают часть того же лимита, поэтому при маленьком лимите карточки могут обрезаться раньше, чем полоска заполнится.',
 } as const
 
 function shouldLogStoryPerf(): boolean {
@@ -1906,6 +1910,282 @@ function renderNarratorMenuItemLabel(
       {highlight ? <NarratorHighlightBadge highlight={highlight} /> : null}
     </Stack>
   )
+}
+
+// --- Narrator families -----------------------------------------------------------------
+//
+// Seventeen narrators in one flat list is a wall of names a newcomer cannot navigate, and
+// most of it is version noise: five GLMs, three DeepSeeks, three Geminis. Grouping by vendor
+// family turns it into nine rows, and only the family you open shows its versions.
+type StoryNarratorFamilyId =
+  | 'glm'
+  | 'deepseek'
+  | 'gemini'
+  | 'aion'
+  | 'kimi'
+  | 'gpt'
+  | 'qwen'
+  | 'claude'
+  | 'mistral'
+
+type StoryNarratorFamily = { id: StoryNarratorFamilyId; label: string; vendor: string }
+
+const STORY_NARRATOR_FAMILIES: readonly StoryNarratorFamily[] = [
+  { id: 'glm', label: 'GLM', vendor: 'Z.ai' },
+  { id: 'deepseek', label: 'DeepSeek', vendor: 'DeepSeek' },
+  { id: 'gemini', label: 'Gemini', vendor: 'Google' },
+  { id: 'aion', label: 'Aion', vendor: 'AionLabs' },
+  { id: 'kimi', label: 'Kimi', vendor: 'Moonshot' },
+  { id: 'gpt', label: 'GPT', vendor: 'OpenAI' },
+  { id: 'qwen', label: 'Qwen', vendor: 'Alibaba' },
+  { id: 'claude', label: 'Claude', vendor: 'Anthropic' },
+  { id: 'mistral', label: 'Mistral', vendor: 'Mistral AI' },
+]
+
+function getStoryNarratorFamilyId(modelId: string): StoryNarratorFamilyId {
+  const vendor = modelId.split('/')[0] ?? ''
+  switch (vendor) {
+    case 'z-ai':
+      return 'glm'
+    case 'deepseek':
+      return 'deepseek'
+    case 'google':
+      return 'gemini'
+    case 'aion-labs':
+      return 'aion'
+    case 'moonshotai':
+      return 'kimi'
+    case 'openai':
+      return 'gpt'
+    case 'qwen':
+      return 'qwen'
+    case 'anthropic':
+      return 'claude'
+    case 'mistralai':
+    default:
+      return 'mistral'
+  }
+}
+
+// Families in catalogue order, each carrying only the models actually present in `options`.
+function groupStoryNarratorsByFamily<T extends { id: string }>(
+  options: readonly T[],
+): { family: StoryNarratorFamily; models: T[] }[] {
+  const byFamily = new Map<StoryNarratorFamilyId, T[]>()
+  for (const option of options) {
+    const familyId = getStoryNarratorFamilyId(option.id)
+    const bucket = byFamily.get(familyId)
+    if (bucket) {
+      bucket.push(option)
+    } else {
+      byFamily.set(familyId, [option])
+    }
+  }
+  return STORY_NARRATOR_FAMILIES.flatMap((family) => {
+    const models = byFamily.get(family.id)
+    return models && models.length > 0 ? [{ family, models }] : []
+  })
+}
+
+// The strongest badge in a family, so a collapsed row still advertises what is inside it.
+const STORY_NARRATOR_HIGHLIGHT_RANK: Record<StoryNarratorHighlightTone, number> = {
+  flagship: 3,
+  rp: 2,
+  budget: 1,
+}
+
+function getStoryNarratorFamilyHighlight(models: readonly { id: string }[]): StoryNarratorHighlight | undefined {
+  let best: StoryNarratorHighlight | undefined
+  for (const model of models) {
+    const highlight = STORY_NARRATOR_HIGHLIGHTS[model.id as StoryNarratorModelId]
+    if (!highlight) {
+      continue
+    }
+    if (!best || STORY_NARRATOR_HIGHLIGHT_RANK[highlight.tone] > STORY_NARRATOR_HIGHLIGHT_RANK[best.tone]) {
+      best = highlight
+    }
+  }
+  return best
+}
+
+function NarratorFamilyRow({
+  family,
+  models,
+  isExpanded,
+  containsSelection,
+}: {
+  family: StoryNarratorFamily
+  models: readonly { id: string }[]
+  isExpanded: boolean
+  containsSelection: boolean
+}) {
+  const highlight = getStoryNarratorFamilyHighlight(models)
+  return (
+    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ width: '100%', minWidth: 0 }}>
+      <SvgIcon
+        sx={{
+          fontSize: 17,
+          flexShrink: 0,
+          color: 'var(--morius-text-secondary)',
+          transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+          transition: 'transform 180ms ease',
+        }}
+      >
+        <path d="m9 18 6-6-6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </SvgIcon>
+      <Box
+        component="span"
+        sx={{
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontWeight: containsSelection ? 950 : 800,
+          color: containsSelection ? 'var(--morius-title-text)' : 'var(--morius-text-primary)',
+        }}
+      >
+        {family.label}
+      </Box>
+      <Box
+        component="span"
+        sx={{
+          flexShrink: 0,
+          color: 'var(--morius-text-secondary)',
+          fontSize: '0.72rem',
+          fontWeight: 700,
+        }}
+      >
+        {family.vendor} · {models.length}
+      </Box>
+      {highlight ? <NarratorHighlightBadge highlight={highlight} /> : null}
+    </Stack>
+  )
+}
+
+// Builds the whole narrator menu: one row per family, expanding in place to its versions,
+// followed by the subscription group. Returned as a flat array because MUI's Select takes
+// its options as direct children — a wrapping element would break value matching.
+//
+// The selected model's row is only mounted while its family is open, so every call site must
+// also pass `renderValue`; otherwise the closed Select would render blank. See
+// renderNarratorSelectValue below.
+function buildNarratorMenuItems(options: {
+  value: string
+  expandedFamilyId: StoryNarratorFamilyId | null
+  onToggleFamily: (familyId: StoryNarratorFamilyId) => void
+  subscriptionOptions: readonly StorySubscriptionNarratorModelOption[]
+  unlockedSubscriptionModelIds: ReadonlySet<string>
+  emphasizeTitle?: boolean
+}) {
+  const {
+    value,
+    expandedFamilyId,
+    onToggleFamily,
+    subscriptionOptions,
+    unlockedSubscriptionModelIds,
+    emphasizeTitle = false,
+  } = options
+
+  const items: ReactNode[] = []
+
+  for (const { family, models } of groupStoryNarratorsByFamily(STORY_NARRATOR_MODEL_OPTIONS)) {
+    const containsSelection = models.some((model) => model.id === value)
+    const isExpanded = expandedFamilyId === family.id
+
+    // A single-model family has no versions worth hiding behind a disclosure.
+    if (models.length === 1) {
+      const only = models[0]
+      items.push(
+        <MenuItem key={only.id} value={only.id} sx={{ pl: 1.35 }}>
+          {renderNarratorMenuItemLabel(only.title, STORY_NARRATOR_HIGHLIGHTS[only.id], { emphasizeTitle })}
+        </MenuItem>,
+      )
+      continue
+    }
+
+    items.push(
+      <MenuItem
+        key={`family-${family.id}`}
+        sx={{
+          pl: 1.05,
+          backgroundColor: isExpanded ? 'color-mix(in srgb, var(--morius-accent) 9%, transparent)' : 'transparent',
+          '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 13%, transparent) !important' },
+        }}
+      >
+        {/* The toggle lives on an inner element, not on the MenuItem: Select clones every
+            child and REPLACES its onClick with its own selection handler, so a handler put on
+            the MenuItem never runs and the menu just closes on a valueless item. Handling the
+            click on a descendant lets it fire first, and stopping propagation there keeps
+            Select's handler — and the close it would trigger — from running at all. */}
+        <Box
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onToggleFamily(family.id)
+          }}
+          sx={{ width: '100%', minWidth: 0, display: 'flex', alignItems: 'center', py: 0.25, mx: -1.05, px: 1.05 }}
+        >
+          <NarratorFamilyRow
+            family={family}
+            models={models}
+            isExpanded={isExpanded}
+            containsSelection={containsSelection}
+          />
+        </Box>
+      </MenuItem>,
+    )
+
+    if (!isExpanded) {
+      continue
+    }
+    for (const model of models) {
+      items.push(
+        <MenuItem key={model.id} value={model.id} sx={{ pl: 3.9, minHeight: 36 }}>
+          {renderNarratorMenuItemLabel(model.title, STORY_NARRATOR_HIGHLIGHTS[model.id], { emphasizeTitle })}
+        </MenuItem>,
+      )
+    }
+  }
+
+  items.push(
+    <MenuItem
+      key="subscription-header"
+      disabled
+      divider
+      sx={{
+        opacity: 1,
+        fontSize: '0.68rem',
+        fontWeight: 900,
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+        color: 'var(--morius-accent)',
+      }}
+    >
+      Модели по подписке
+    </MenuItem>,
+  )
+  for (const option of subscriptionOptions) {
+    const unlocked = unlockedSubscriptionModelIds.has(option.id)
+    items.push(
+      <MenuItem key={option.id} value={option.id} disabled={!unlocked} sx={{ pl: 1.35 }}>
+        {renderNarratorMenuItemLabel(option.title, STORY_NARRATOR_HIGHLIGHTS[option.id], {
+          suffix: unlocked ? '' : ` · ${option.minPlanTitle}`,
+        })}
+      </MenuItem>,
+    )
+  }
+
+  return items
+}
+
+// The closed Select must name the selected narrator even when its family row is collapsed.
+function renderNarratorSelectValue(
+  value: string,
+  subscriptionOptions: readonly StorySubscriptionNarratorModelOption[],
+): ReactNode {
+  const paid = STORY_NARRATOR_MODEL_OPTIONS.find((option) => option.id === value)
+  const title = paid?.title ?? subscriptionOptions.find((option) => option.id === value)?.title ?? value
+  return renderNarratorMenuItemLabel(title, STORY_NARRATOR_HIGHLIGHTS[value as StoryNarratorModelId])
 }
 
 function SettingsInfoTooltipIcon({ text }: { text: string }) {
@@ -3373,7 +3653,6 @@ const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'НПС'
 const MAIN_HERO_INLINE_TAG_PATTERN = /\[\[\s*GG(?:\s*:\s*([^\]]+?))?\s*\]\]/giu
 const MAIN_HERO_FALLBACK_NAME = 'Главный Герой'
 const SPEAKER_REFERENCE_PREFIX_PATTERN = /^(?:char|character|\u043f\u0435\u0440\u0441\u043e\u043d\u0430\u0436)\s*:\s*/iu
-const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+|[^\s]/gi
 const STORY_SENTENCE_MATCH_PATTERN = /[^.!?\u2026]+[.!?\u2026]?/gu
 const STORY_BULLET_PREFIX_PATTERN = /^\s*[-\u2022*]+\s*/u
 const STORY_MATCH_TOKEN_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+/gi
@@ -6055,10 +6334,17 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   return STORY_TURN_COST_DEEPSEEK_TIERS
 }
 
-// Both the plain-text tooltip and the table below are rendered from this one list, which reads
+// Both the plain-text tooltip and the tables below are rendered from this one list, which reads
 // the same STORY_TURN_COST_*_TIERS constants the charge itself uses. Hardcoding either copy lets
 // the quoted price drift away from the charged one, which is exactly what players notice.
-type StoryTurnCostRow = { title: string; values: [string, string, string, string, string] }
+type StoryTurnCostRow = {
+  id: StoryNarratorModelId
+  title: string
+  values: [string, string, string, string, string]
+}
+
+const STORY_TURN_COST_COLUMNS = ['6k', '16k', '32k', '64k', '>64k'] as const
+const STORY_TURN_COST_BANDS = ['до 6000', '6001–16000', '16001–32000', '32001–64000', 'свыше 64000'] as const
 
 function getStoryTurnCostRows(): StoryTurnCostRow[] {
   return STORY_NARRATOR_MODEL_OPTIONS.map((option) => {
@@ -6067,118 +6353,252 @@ function getStoryTurnCostRows(): StoryTurnCostRow[] {
     // The fifth tier is only ever charged by models whose context reaches past 64k.
     const beyond64k = contextMax > STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX ? String(tiers[4]) : '—'
     return {
+      id: option.id,
       title: option.title,
       values: [String(tiers[0]), String(tiers[1]), String(tiers[2]), String(tiers[3]), beyond64k],
     }
   })
 }
 
-function getStoryTurnCostTooltipText(): string {
-  const header =
-    'Стоимость хода зависит от рассказчика и использованного контекста, но не выше выбранного лимита:'
-  const bands = ['до 6000', '6001–16000', '16001–32000', '32001–64000', 'свыше 64000']
-  const lines = getStoryTurnCostRows().flatMap((row) => [
-    `${row.title}:`,
-    ...row.values.flatMap((value, index) => (value === '—' ? [] : [`${bands[index]} — ${value} ед.`])),
-    '',
-  ])
-  return [header, '', ...lines].join('\n')
+// Kept short on purpose. The full matrix is eighteen models by five bands, which is a wall of
+// text in a hover tooltip -- it lives in the price dialog instead, where it can be read at leisure.
+// Derived from the catalogue so it cannot fall behind it, unlike the hand-written list of
+// model names this replaced.
+function getStoryNarratorPickerHint(): string {
+  const families = groupStoryNarratorsByFamily(STORY_NARRATOR_MODEL_OPTIONS)
+    .map(({ family, models }) => (models.length > 1 ? `${family.label} (${models.length})` : family.label))
+  return `Рассказчики сгруппированы по семействам: ${families.join(', ')}. Нажмите на семейство, чтобы раскрыть его версии.`
 }
 
-function StoryTurnCostTooltipContent() {
-  const rows = getStoryTurnCostRows()
-  const columns = ['6k', '16k', '32k', '64k', '>64k']
+function getStoryTurnCostTooltipText(): string {
+  return [
+    'Стоимость хода зависит от рассказчика и того, сколько контекста ушло в ход, но никогда не выше выбранного лимита.',
+    '',
+    'Тарифные ступени: до 6000, 6001–16000, 16001–32000, 32001–64000 и свыше 64000 токенов.',
+    'Полный прайс по всем рассказчикам — по клику на счётчик стоимости над полем ввода.',
+  ].join('\n')
+}
+
+function StoryTurnCostValueCell({ value, isHighlighted }: { value: string; isHighlighted: boolean }) {
+  const isEmpty = value === '—'
+  return (
+    <Box
+      component="span"
+      sx={{
+        minHeight: 26,
+        borderRadius: '8px',
+        display: 'grid',
+        placeItems: 'center',
+        backgroundColor: isEmpty
+          ? 'color-mix(in srgb, var(--morius-card-bg) 45%, transparent)'
+          : isHighlighted
+            ? 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-card-bg))'
+            : 'color-mix(in srgb, var(--morius-card-bg) 82%, #000 18%)',
+        color: isEmpty ? 'var(--morius-text-secondary)' : 'var(--morius-text-primary)',
+        fontSize: '0.78rem',
+        fontWeight: 900,
+        lineHeight: 1,
+        fontVariantNumeric: 'tabular-nums',
+      }}
+    >
+      {value}
+    </Box>
+  )
+}
+
+// The full price list, grouped by narrator family. Flat, it was eighteen near-identical rows
+// where the only way to compare GLM 5.1 against GLM 5.2 was to hunt for them; grouped, each
+// family is one block and the version differences sit side by side.
+function StoryTurnCostTable({ highlightModelId }: { highlightModelId?: StoryNarratorModelId }) {
+  const rowsById = new Map(getStoryTurnCostRows().map((row) => [row.id, row]))
+  const groups = groupStoryNarratorsByFamily(STORY_NARRATOR_MODEL_OPTIONS)
+  const gridTemplate = 'minmax(132px, 1fr) repeat(5, minmax(40px, 52px))'
 
   return (
-    <Box sx={{ width: 500, maxWidth: 'calc(100vw - 28px)' }}>
-      <Stack spacing={0.85}>
-        <Stack spacing={0.16}>
-          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 900, lineHeight: 1.16 }}>
-            Стоимость хода
+    <Stack spacing={1.15}>
+      <Box
+        sx={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 1,
+          display: 'grid',
+          gridTemplateColumns: gridTemplate,
+          alignItems: 'center',
+          columnGap: 0.5,
+          px: 0.7,
+          py: 0.55,
+          borderRadius: '10px',
+          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 92%, #000 8%)',
+        }}
+      >
+        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', fontWeight: 900, lineHeight: 1 }}>
+          рассказчик
+        </Typography>
+        {STORY_TURN_COST_COLUMNS.map((column) => (
+          <Typography
+            key={column}
+            sx={{
+              color: 'var(--morius-text-secondary)',
+              fontSize: '0.68rem',
+              fontWeight: 900,
+              lineHeight: 1,
+              textAlign: 'center',
+            }}
+          >
+            {column}
           </Typography>
-          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.32 }}>
-            Валюта за один ответ. Если фактический контекст вышел за выбранный лимит, переплата не берется.
-          </Typography>
-          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', lineHeight: 1.32 }}>
-            Модули: время +1, авто-состояния/автокарточки вместе +1, граф ИИ до +5 с возвратом неиспользованного.
-          </Typography>
-          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', lineHeight: 1.32 }}>
-            Для reasoning-only моделей обязательный минимальный уровень уже включён. Усиление и модули показываются отдельной надбавкой.
-          </Typography>
-        </Stack>
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(158px, 1fr) repeat(5, minmax(42px, 50px))',
-            alignItems: 'center',
-            columnGap: 0.5,
-            rowGap: 0.32,
-            borderRadius: '12px',
-            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
-            background: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, transparent)',
-            p: 0.65,
-            overflow: 'hidden',
-          }}
-        >
-          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', fontWeight: 900, lineHeight: 1 }}>
-            модель
-          </Typography>
-          {columns.map((column) => (
-            <Typography
-              key={column}
-              sx={{
-                color: 'var(--morius-text-secondary)',
-                fontSize: '0.68rem',
-                fontWeight: 900,
-                lineHeight: 1,
-                textAlign: 'center',
-              }}
-            >
-              {column}
+        ))}
+      </Box>
+
+      {groups.map(({ family, models }) => (
+        <Stack key={family.id} spacing={0.3}>
+          <Stack direction="row" alignItems="baseline" spacing={0.65} sx={{ px: 0.75 }}>
+            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.76rem', fontWeight: 950, lineHeight: 1 }}>
+              {family.label}
             </Typography>
-          ))}
-          {rows.map((row) => (
-            <Fragment key={row.title}>
-              <Typography
-                sx={{
-                  color: 'var(--morius-title-text)',
-                  fontSize: '0.75rem',
-                  fontWeight: 850,
-                  lineHeight: 1.12,
-                  minWidth: 0,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {row.title}
-              </Typography>
-              {row.values.map((value, index) => (
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.66rem', fontWeight: 700, lineHeight: 1 }}>
+              {family.vendor}
+            </Typography>
+          </Stack>
+          <Box
+            sx={{
+              borderRadius: '11px',
+              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 55%, transparent)',
+              px: 0.7,
+              py: 0.45,
+            }}
+          >
+            {models.map((model) => {
+              const row = rowsById.get(model.id)
+              if (!row) {
+                return null
+              }
+              const highlight = STORY_NARRATOR_HIGHLIGHTS[model.id]
+              const isSelected = model.id === highlightModelId
+              return (
                 <Box
-                  key={`${row.title}-${columns[index]}`}
-                  component="span"
+                  key={model.id}
                   sx={{
-                    minHeight: 24,
-                    borderRadius: '7px',
                     display: 'grid',
-                    placeItems: 'center',
-                    backgroundColor:
-                      value === '—'
-                        ? 'color-mix(in srgb, var(--morius-card-bg) 52%, transparent)'
-                        : 'color-mix(in srgb, var(--morius-card-bg) 82%, #000 18%)',
-                    color: value === '—' ? 'var(--morius-text-secondary)' : 'var(--morius-text-primary)',
-                    fontSize: '0.74rem',
-                    fontWeight: 900,
-                    lineHeight: 1,
-                    fontVariantNumeric: 'tabular-nums',
+                    gridTemplateColumns: gridTemplate,
+                    alignItems: 'center',
+                    columnGap: 0.5,
+                    py: 0.28,
                   }}
                 >
-                  {value}
+                  <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0, pr: 0.5 }}>
+                    <Typography
+                      sx={{
+                        color: isSelected ? 'var(--morius-accent)' : 'var(--morius-title-text)',
+                        fontSize: '0.78rem',
+                        fontWeight: isSelected ? 950 : 800,
+                        lineHeight: 1.15,
+                        minWidth: 0,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {row.title}
+                    </Typography>
+                    {highlight ? <NarratorHighlightBadge highlight={highlight} /> : null}
+                  </Stack>
+                  {row.values.map((value, index) => (
+                    <StoryTurnCostValueCell
+                      key={`${model.id}-${STORY_TURN_COST_COLUMNS[index]}`}
+                      value={value}
+                      isHighlighted={isSelected}
+                    />
+                  ))}
                 </Box>
-              ))}
-            </Fragment>
-          ))}
-        </Box>
+              )
+            })}
+          </Box>
+        </Stack>
+      ))}
+    </Stack>
+  )
+}
+
+// What hovering the cost chip shows: the price of the turn you are about to take, not the
+// whole catalogue. The catalogue is one click away and reads far better sitting still.
+function StoryTurnCostHoverCard({
+  modelId,
+  modelTitle,
+  contextLimitTokens,
+  totalCostTokens,
+}: {
+  modelId: StoryNarratorModelId
+  modelTitle: string
+  contextLimitTokens: number
+  totalCostTokens: number
+}) {
+  const tiers = getStoryNarratorTurnCostTiers(modelId)
+  const contextMax = getStoryContextLimitMax(modelId)
+  const tierIndex =
+    contextLimitTokens <= STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX
+      ? 0
+      : contextLimitTokens <= STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX
+        ? 1
+        : contextLimitTokens <= STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX
+          ? 2
+          : contextLimitTokens <= STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX
+            ? 3
+            : 4
+  const baseCost = tiers[tierIndex]
+  const extras = Math.max(0, totalCostTokens - baseCost)
+
+  return (
+    <Box sx={{ width: 268, maxWidth: 'calc(100vw - 28px)', p: 0.35 }}>
+      <Stack spacing={0.75}>
+        <Stack spacing={0.1}>
+          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.94rem', fontWeight: 900, lineHeight: 1.16 }}>
+            {modelTitle}
+          </Typography>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem', lineHeight: 1.3 }}>
+            Ступень {STORY_TURN_COST_BANDS[tierIndex]} токенов
+            {contextMax <= STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX ? ' · максимум 64K' : ''}
+          </Typography>
+        </Stack>
+
+        <Stack spacing={0.3}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between">
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>Базовый ход</Typography>
+            <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>
+              {baseCost}
+            </Typography>
+          </Stack>
+          {extras > 0 ? (
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>
+                Рассуждение и модули
+              </Typography>
+              <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.8rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>
+                +{extras}
+              </Typography>
+            </Stack>
+          ) : null}
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent="space-between"
+            sx={{ pt: 0.4, borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)' }}
+          >
+            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.8rem', fontWeight: 900 }}>
+              Итого за ход
+            </Typography>
+            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 950, fontVariantNumeric: 'tabular-nums' }}>
+              {totalCostTokens}
+            </Typography>
+          </Stack>
+        </Stack>
+
+        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.7rem', lineHeight: 1.32 }}>
+          Если фактический контекст вышел за выбранный лимит, переплата не берётся.
+        </Typography>
+        <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.72rem', fontWeight: 800, lineHeight: 1.25 }}>
+          Нажмите, чтобы открыть прайс всех рассказчиков
+        </Typography>
       </Stack>
     </Box>
   )
@@ -6686,16 +7106,56 @@ function formatContextChars(value: number): string {
   return CONTEXT_NUMBER_FORMATTER.format(Math.max(0, Math.round(value)))
 }
 
-function estimateTextTokens(value: string): number {
+// Weighted sub-token units for `value`. Must stay identical to story_token_units() in
+// backend/app/services/story_token_budget.py, which carries the full rationale: the old
+// one-token-per-word rule ran 1.48x light against o200k_base on 9 449 real MoRius documents,
+// because BPE tokenizers split a Cyrillic word into 2-3 sub-word pieces. Weights are
+// integers over a fixed denominator so JS and Python cannot drift through float rounding.
+// Units are additive over whitespace splits, which is what lets the trimmer accumulate them
+// run by run and land on the same total.
+const STORY_TOKEN_UNIT_DENOMINATOR = 200
+const STORY_TOKEN_UNIT_CYRILLIC = 69
+const STORY_TOKEN_UNIT_LATIN = 36
+const STORY_TOKEN_UNIT_DIGIT = 60
+const STORY_TOKEN_UNIT_PUNCTUATION = 181
+const STORY_TOKEN_UNIT_WORD = 50
+
+const STORY_TOKEN_WORD_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+/gi
+const STORY_TOKEN_CYRILLIC_PATTERN = /[\u0430-\u044f\u0451]/gi
+const STORY_TOKEN_LATIN_PATTERN = /[a-z]/gi
+const STORY_TOKEN_DIGIT_PATTERN = /[0-9]/g
+const STORY_TOKEN_PUNCTUATION_PATTERN = /[^\s0-9a-z\u0430-\u044f\u0451]/gi
+
+function countStoryPatternMatches(value: string, pattern: RegExp): number {
+  pattern.lastIndex = 0
+  let count = 0
+  while (pattern.exec(value) !== null) {
+    count += 1
+  }
+  pattern.lastIndex = 0
+  return count
+}
+
+function storyTokenUnits(value: string): number {
   const normalized = value.replace(/\r\n/g, '\n').trim()
   if (!normalized) {
     return 0
   }
-  const matches = normalized.toLowerCase().replace(/\u0451/g, '\u0435').match(STORY_TOKEN_ESTIMATE_PATTERN)
-  if (matches && matches.length > 0) {
-    return matches.length
+  return (
+    STORY_TOKEN_UNIT_CYRILLIC * countStoryPatternMatches(normalized, STORY_TOKEN_CYRILLIC_PATTERN) +
+    STORY_TOKEN_UNIT_LATIN * countStoryPatternMatches(normalized, STORY_TOKEN_LATIN_PATTERN) +
+    STORY_TOKEN_UNIT_DIGIT * countStoryPatternMatches(normalized, STORY_TOKEN_DIGIT_PATTERN) +
+    STORY_TOKEN_UNIT_PUNCTUATION * countStoryPatternMatches(normalized, STORY_TOKEN_PUNCTUATION_PATTERN) +
+    STORY_TOKEN_UNIT_WORD * countStoryPatternMatches(normalized, STORY_TOKEN_WORD_PATTERN)
+  )
+}
+
+function estimateTextTokens(value: string): number {
+  const units = storyTokenUnits(value)
+  if (units <= 0) {
+    return 0
   }
-  return Math.max(1, Math.ceil(normalized.length / 4))
+  return Math.max(1, Math.ceil(units / STORY_TOKEN_UNIT_DENOMINATOR))
 }
 
 function trimStoryTextTailByTokens(value: string, tokenLimit: number): string {
@@ -6704,15 +7164,27 @@ function trimStoryTextTailByTokens(value: string, tokenLimit: number): string {
     return ''
   }
   const tokenPattern = /[0-9a-z\u0430-\u044f\u0451]+|[^\s]/gi
-  const matches = [...normalized.toLowerCase().replace(/\u0451/g, '\u0435').matchAll(tokenPattern)]
+  const matches = [...normalized.matchAll(tokenPattern)]
   if (matches.length === 0) {
     const charLimit = Math.max(tokenLimit * 4, 1)
     return normalized.slice(-charLimit)
   }
-  if (matches.length <= tokenLimit) {
+  if (estimateTextTokens(normalized) <= tokenLimit) {
     return normalized
   }
-  const startIndex = matches[matches.length - tokenLimit]?.index ?? 0
+  // A matched run is worth more than one token now, so walk back accumulating the same
+  // weighted units estimateTextTokens() charges instead of counting one token per match.
+  const unitBudget = tokenLimit * STORY_TOKEN_UNIT_DENOMINATOR
+  let consumedUnits = 0
+  let startIndex = normalized.length
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const runUnits = storyTokenUnits(matches[index][0])
+    if (consumedUnits + runUnits > unitBudget) {
+      break
+    }
+    consumedUnits += runUnits
+    startIndex = matches[index].index ?? 0
+  }
   return normalized.slice(startIndex).trimStart()
 }
 
@@ -8208,6 +8680,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [mainHeroPreviewOpen, setMainHeroPreviewOpen] = useState(false)
   const [characterAvatarPreview, setCharacterAvatarPreview] = useState<CharacterAvatarPreviewState | null>(null)
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
+  const [isTurnCostDialogOpen, setIsTurnCostDialogOpen] = useState(false)
   const [contextLimitDraft, setContextLimitDraft] = useState(String(STORY_DEFAULT_CONTEXT_LIMIT))
   const autoRoundedContextLimitKeyRef = useRef<string | null>(null)
   const [storySettingsTab, setStorySettingsTab] = useState<StorySettingsTab>('generation')
@@ -8811,6 +9284,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const unlockedSubscriptionModelIds = useMemo(
     () => new Set<StoryNarratorModelId>((user.subscription?.models ?? []) as StoryNarratorModelId[]),
     [user.subscription],
+  )
+  // Which narrator family is open in the picker. Seeded from the current selection so the
+  // menu opens showing where you already are, and reseeded whenever the model changes.
+  const [expandedNarratorFamilyId, setExpandedNarratorFamilyId] = useState<StoryNarratorFamilyId | null>(
+    () => getStoryNarratorFamilyId(storyLlmModel),
+  )
+  useEffect(() => {
+    setExpandedNarratorFamilyId(getStoryNarratorFamilyId(storyLlmModel))
+  }, [storyLlmModel])
+  const handleToggleNarratorFamily = useCallback((familyId: StoryNarratorFamilyId) => {
+    setExpandedNarratorFamilyId((current) => (current === familyId ? null : familyId))
+  }, [])
+  const narratorMenuItems = useMemo(
+    () =>
+      buildNarratorMenuItems({
+        value: storyLlmModel,
+        expandedFamilyId: expandedNarratorFamilyId,
+        onToggleFamily: handleToggleNarratorFamily,
+        subscriptionOptions: STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS,
+        unlockedSubscriptionModelIds,
+      }),
+    [expandedNarratorFamilyId, handleToggleNarratorFamily, storyLlmModel, unlockedSubscriptionModelIds],
   )
   const isSubscriptionNarratorSelected = useMemo(
     () => isStorySubscriptionNarratorModelId(storyLlmModel),
@@ -23727,30 +24222,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             '& .MuiSelect-icon': { display: 'none' },
                           }}
                         >
-                          {STORY_NARRATOR_MODEL_OPTIONS.map((option) => (
-                            <MenuItem key={option.id} value={option.id}>
-                              {renderNarratorMenuItemLabel(option.title, STORY_NARRATOR_HIGHLIGHTS[option.id], {
-                                emphasizeTitle: true,
-                              })}
-                            </MenuItem>
-                          ))}
-                          <MenuItem
-                            disabled
-                            divider
-                            sx={{ opacity: 1, fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--morius-accent)' }}
-                          >
-                            Модели по подписке
-                          </MenuItem>
-                          {STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS.map((option) => {
-                            const unlocked = unlockedSubscriptionModelIds.has(option.id)
-                            return (
-                              <MenuItem key={option.id} value={option.id} disabled={!unlocked}>
-                                {renderNarratorMenuItemLabel(option.title, STORY_NARRATOR_HIGHLIGHTS[option.id], {
-                                  suffix: unlocked ? '' : ` · ${option.minPlanTitle}`,
-                                })}
-                              </MenuItem>
-                            )
-                          })}
+                          {narratorMenuItems}
                         </Select>
                       </FormControl>
                       {isSubscriptionNarratorSelected ? (
@@ -24812,12 +25284,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <Box data-tour-id="story-settings-narrator-panel" sx={{ pb: 0.9 }}>
                         <SettingsSectionLabel
                           text="Выбор рассказчика"
-                          tooltip={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны DeepSeek V4 Pro, DeepSeek R1, GLM 5.1, GLM 5.2, AionLabs, Aion 3.0, Qwen 3.7 Plus, Gemini 2.5 Pro, Gemini 3.1 Pro и Claude Sonnet 4.6.`}
+                          tooltip={`${STORY_SETTINGS_INFO_TEXT.narrator} ${getStoryNarratorPickerHint()}`}
                         />
                         <FormControl fullWidth size="small" sx={{ mt: 0.85 }}>
                           <Select
                             value={storyLlmModel}
                             disabled={isSavingStorySettings || isGenerating}
+                            renderValue={(selected) =>
+                              renderNarratorSelectValue(String(selected), STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS)
+                            }
                             onChange={(event: SelectChangeEvent<string>) => {
                               const nextModel = normalizeStoryNarratorModelId(event.target.value)
                               void persistStoryNarratorModel(nextModel)
@@ -24874,30 +25349,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               },
                             }}
                           >
-                            {STORY_NARRATOR_MODEL_OPTIONS.map((option) => (
-                              <MenuItem key={option.id} value={option.id}>
-                                {renderNarratorMenuItemLabel(option.title, STORY_NARRATOR_HIGHLIGHTS[option.id], {
-                                  emphasizeTitle: true,
-                                })}
-                              </MenuItem>
-                            ))}
-                            <MenuItem
-                              disabled
-                              divider
-                              sx={{ opacity: 1, fontSize: '0.68rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--morius-accent)' }}
-                            >
-                              Модели по подписке
-                            </MenuItem>
-                            {STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS.map((option) => {
-                              const unlocked = unlockedSubscriptionModelIds.has(option.id)
-                              return (
-                                <MenuItem key={option.id} value={option.id} disabled={!unlocked}>
-                                  {renderNarratorMenuItemLabel(option.title, STORY_NARRATOR_HIGHLIGHTS[option.id], {
-                                    suffix: unlocked ? '' : ` · ${option.minPlanTitle}`,
-                                  })}
-                                </MenuItem>
-                              )
-                            })}
+                            {narratorMenuItems}
                           </Select>
                         </FormControl>
                         {isSubscriptionNarratorSelected ? (
@@ -28945,7 +29397,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         </Typography>
                       </Stack>
                     ) : (
-                      <StoryTurnCostTooltipContent />
+                      <StoryTurnCostHoverCard
+                        modelId={storyLlmModel}
+                        modelTitle={selectedNarratorOption.title}
+                        contextLimitTokens={contextLimitChars}
+                        totalCostTokens={currentTurnCostTokens}
+                      />
                     )
                   }
                   componentsProps={{
@@ -28966,19 +29423,37 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }}
                 >
                   <Box
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Стоимость хода и прайс рассказчиков"
+                    onClick={() => setIsTurnCostDialogOpen(true)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setIsTurnCostDialogOpen(true)
+                      }
+                    }}
                     sx={{
                       minWidth: { xs: 54, sm: 60, md: 72 },
                       px: { xs: 0.5, md: 0.85 },
                       height: { xs: 34, md: COMPOSER_TOP_ACTION_BUTTON_SIZE },
                       borderRadius: { xs: '12px', md: '16px' },
-                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
-                      background: 'color-mix(in srgb, var(--morius-card-bg) 90%, #000 10%)',
+                      border: 'none',
+                      background: 'color-mix(in srgb, var(--morius-card-bg) 82%, #000 18%)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: { xs: 0.3, md: 0.48 },
-                      cursor: 'help',
+                      cursor: 'pointer',
                       flexShrink: 0,
+                      transition: 'background-color 150ms ease',
+                      '&:hover': {
+                        background: 'color-mix(in srgb, var(--morius-card-bg) 66%, #000 34%)',
+                      },
+                      '&:focus-visible': {
+                        outline: '2px solid var(--morius-accent)',
+                        outlineOffset: '2px',
+                      },
                     }}
                   >
                     {!isSubscriptionNarratorSelected || currentTurnCostTokens > 0 ? (
@@ -29158,8 +29633,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   sx={{
                     position: 'absolute',
                     left: { xs: 12, sm: 14 },
-                    top: isVisualNovelTechDemoEnabled ? { xs: 16, md: 18 } : '50%',
-                    transform: isVisualNovelTechDemoEnabled ? 'none' : 'translateY(-50%)',
+                    // Anchored to the top rather than centred: on a long draft the composer
+                    // grows downwards, and a centred avatar drifts away from the first line.
+                    // 8px reproduces the centred position at the composer's minimum height.
+                    top: isVisualNovelTechDemoEnabled ? { xs: 16, md: 18 } : 8,
+                    transform: 'none',
                     width: 42,
                     height: 42,
                     minWidth: 42,
@@ -29356,9 +29834,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 component="span"
                 sx={{
                   position: 'absolute',
-                  top: '50%',
+                  // Top-anchored for the same reason as the avatar, and offset so the two
+                  // stay on one optical line: avatar 42px at 8 and button 34px at 12 share
+                  // a centre at 29px.
+                  top: isVisualNovelTechDemoEnabled ? { xs: 20, md: 22 } : 12,
                   right: 14,
-                  transform: 'translateY(-50%)',
+                  transform: 'none',
                   display: 'inline-flex',
                   zIndex: 2,
                 }}
@@ -29444,27 +29925,26 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Box>
                   ) : (
                     <Box className="morius-send-button-circle">
+                      {/* A paper plane rather than a bare up-arrow: it reads as "send this"
+                          instead of "scroll up", and the tilted silhouette sits better in a
+                          circle than a vertical stroke. */}
                       <svg
-                        width="15"
-                        height="15"
+                        width="16"
+                        height="16"
                         viewBox="0 0 24 24"
                         fill="none"
                         aria-hidden="true"
-                        style={{ display: 'block' }}
+                        style={{ display: 'block', transform: 'translate(0.5px, -0.5px)' }}
                       >
                         <path
-                          d="M12 19V5.6"
-                          stroke="#ffffff"
-                          strokeWidth="2.4"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
+                          d="M20.3 3.7 3.9 10.2c-.85.34-.8 1.56.07 1.83l6.2 1.9 1.9 6.2c.27.87 1.49.92 1.83.07L20.3 3.7Z"
+                          fill="#ffffff"
                         />
                         <path
-                          d="M5.7 11.4L12 5.1L18.3 11.4"
-                          stroke="#ffffff"
-                          strokeWidth="2.4"
+                          d="M20.3 3.7 10.17 13.93"
+                          stroke="var(--accent, #4c8dff)"
+                          strokeWidth="1.6"
                           strokeLinecap="round"
-                          strokeLinejoin="round"
                         />
                       </svg>
                     </Box>
@@ -29535,6 +30015,35 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Stack>
         </Stack>
       </Box>
+
+      <BaseDialog
+        open={isTurnCostDialogOpen}
+        onClose={() => setIsTurnCostDialogOpen(false)}
+        transitionComponent={DialogTransition}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 900, pb: 0.6 }}>Стоимость хода</DialogTitle>
+        <DialogContent sx={{ pt: '6px !important' }}>
+          <Stack spacing={1.15}>
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', lineHeight: 1.4 }}>
+              Столбцы — сколько контекста ушло в ход. Списывается ступень, в которую попал ход, но не выше
+              выбранного лимита: если фактический контекст вышел за него, переплата не берётся.
+            </Typography>
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.4 }}>
+              Модули сверху: время +1, авто-состояния и автокарточки вместе +1, граф ИИ до +5 с возвратом
+              неиспользованного. Для моделей с обязательным рассуждением минимальный уровень уже включён в цену,
+              а усиленный показывается отдельной надбавкой.
+            </Typography>
+            <StoryTurnCostTable highlightModelId={storyLlmModel} />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={() => setIsTurnCostDialogOpen(false)} sx={{ fontWeight: 800 }}>
+            Закрыть
+          </Button>
+        </DialogActions>
+      </BaseDialog>
 
       <BaseDialog
         open={contextBudgetWarning !== null}

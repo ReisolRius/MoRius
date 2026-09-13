@@ -20,6 +20,7 @@ import ProgressiveImage from '../components/media/ProgressiveImage'
 import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import { WORLD_GENRE_OPTIONS } from '../constants/worldGenres'
 import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
+import { GAME_COVER_ASPECT, GAME_COVER_ASPECT_CSS } from '../constants/gameCover'
 import { STORY_WORLD_BANNER_ASPECT } from '../utils/storyWorldCards'
 import {
   createCoinTopUpPayment,
@@ -2485,8 +2486,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                   <Box
                     sx={{
                       width: '100%',
-                      height: { xs: 188, sm: 230, md: 292 },
-                      maxHeight: { md: 292 },
+                      // Same ratio the card uses, so this preview is the crop, not an
+                      // arbitrarily tall letterbox that hides part of what was framed.
+                      aspectRatio: GAME_COVER_ASPECT_CSS,
+                      maxHeight: { md: 340 },
                       position: 'relative',
                       background: coverImageUrl
                         ? 'transparent'
@@ -3660,7 +3663,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       {coverCropSource ? (
         <ImageCropper
           imageSrc={coverCropSource}
-          aspect={3 / 2}
+          aspect={GAME_COVER_ASPECT}
           frameRadius={12}
           title="Настройка обложки"
           onCancel={handleCancelCoverCrop}

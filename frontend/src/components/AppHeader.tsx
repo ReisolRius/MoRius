@@ -142,14 +142,13 @@ const shellButtonSx = {
   maxWidth: HEADER_BUTTON_SIZE,
   maxHeight: HEADER_BUTTON_SIZE,
   borderRadius: '12px !important',
-  border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
-  backgroundColor: 'rgba(255,255,255,0.03) !important',
+  border: 'none !important',
+  backgroundColor: 'rgba(255,255,255,0.07) !important',
   color: '#cfcdd4 !important',
-  transition: 'background-color 160ms ease, color 160ms ease, border-color 160ms ease',
+  transition: 'background-color 160ms ease, color 160ms ease',
   '&:hover': {
     color: 'var(--morius-title-text) !important',
-    backgroundColor: 'rgba(255,255,255,0.06) !important',
-    borderColor: 'var(--morius-hover-border)',
+    backgroundColor: 'rgba(255,255,255,0.12) !important',
   },
   '&:active': {
     backgroundColor: 'rgba(255,255,255,0.08) !important',
@@ -168,8 +167,8 @@ const headerRoundActionButtonSx = {
   p: 0,
   borderRadius: '12px !important',
   color: '#cfcdd4 !important',
-  backgroundColor: 'rgba(255,255,255,0.03) !important',
-  border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
+  backgroundColor: 'rgba(255,255,255,0.07) !important',
+  border: 'none !important',
   boxShadow: 'none !important',
   opacity: '1 !important',
   transition: 'background-color 160ms ease, color 160ms ease',
@@ -177,8 +176,7 @@ const headerRoundActionButtonSx = {
   overflow: 'hidden',
   '&:hover': {
     color: 'var(--morius-title-text) !important',
-    backgroundColor: 'rgba(255,255,255,0.06) !important',
-    borderColor: 'var(--morius-hover-border)',
+    backgroundColor: 'rgba(255,255,255,0.12) !important',
     opacity: '1 !important',
   },
   '&:active': {
@@ -905,7 +903,7 @@ function AppHeader({
             maxWidth: 'calc(100vw - 28px)',
             p: 1.4,
             borderRadius: '20px',
-            border: 'var(--morius-border-width) solid rgba(255,255,255,0.1)',
+            border: 'none',
             background: 'linear-gradient(180deg, #171a20 0%, #12151a 100%)',
             boxShadow: '0 30px 70px -20px rgba(0,0,0,0.86)',
             overflow: 'hidden',
@@ -927,12 +925,11 @@ function AppHeader({
                 textTransform: 'none',
                 color: 'var(--morius-title-text)',
                 borderRadius: '15px',
-                border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
-                backgroundColor: 'rgba(255,255,255,0.035)',
+                border: 'none',
+                backgroundColor: 'rgba(255,255,255,0.06)',
                 gap: 1.25,
                 '&:hover': {
-                  backgroundColor: 'rgba(255,255,255,0.065)',
-                  borderColor: 'rgba(255,255,255,0.15)',
+                  backgroundColor: 'rgba(255,255,255,0.1)',
                 },
                 '&.Mui-disabled': { opacity: 0.5, color: 'var(--morius-title-text)' },
               }}
@@ -945,9 +942,9 @@ function AppHeader({
                   display: 'grid',
                   placeItems: 'center',
                   borderRadius: '13px',
-                  color: '#9ebcff',
-                  border: 'var(--morius-border-width) solid rgba(91,137,238,0.48)',
-                  background: 'linear-gradient(145deg, rgba(69,103,182,0.28), rgba(38,52,88,0.44))',
+                  color: '#bcd2ff',
+                  border: 'none',
+                  background: 'linear-gradient(150deg, rgba(92,136,232,0.5), rgba(56,86,164,0.42))',
                 }}
               >
                 {headerContinueAction.iconMarkup ? (
@@ -1013,11 +1010,10 @@ function AppHeader({
                       textTransform: 'none',
                       color: 'var(--morius-title-text)',
                       borderRadius: '15px',
-                      border: 'var(--morius-border-width) solid rgba(255,255,255,0.09)',
-                      backgroundColor: 'rgba(255,255,255,0.035)',
+                      border: 'none',
+                      backgroundColor: 'rgba(255,255,255,0.06)',
                       '&:hover': {
-                        backgroundColor: 'rgba(255,255,255,0.065)',
-                        borderColor: 'rgba(255,255,255,0.15)',
+                        backgroundColor: 'rgba(255,255,255,0.1)',
                       },
                       '&.Mui-disabled': { opacity: 0.5, color: 'var(--morius-title-text)' },
                     }}
@@ -1029,9 +1025,9 @@ function AppHeader({
                         display: 'grid',
                         placeItems: 'center',
                         borderRadius: '11px',
-                        color: '#9ebcff',
-                        border: 'var(--morius-border-width) solid rgba(91,137,238,0.42)',
-                        backgroundColor: 'rgba(57,82,143,0.2)',
+                        color: '#bcd2ff',
+                        border: 'none',
+                        background: 'linear-gradient(150deg, rgba(92,136,232,0.5), rgba(56,86,164,0.42))',
                       }}
                     >
                       {item.iconMarkup ? <ThemedSvgIcon markup={item.iconMarkup} size={19} /> : null}
@@ -1077,11 +1073,10 @@ function AppHeader({
                 textTransform: 'none',
                 color: '#f1d48a',
                 borderRadius: '15px',
-                border: 'var(--morius-border-width) solid rgba(205,166,89,0.48)',
-                background: 'linear-gradient(90deg, rgba(205,166,89,0.12), rgba(205,166,89,0.035))',
+                border: 'none',
+                background: 'linear-gradient(90deg, rgba(205,166,89,0.22), rgba(205,166,89,0.08))',
                 '&:hover': {
-                  borderColor: 'rgba(226,190,109,0.7)',
-                  background: 'linear-gradient(90deg, rgba(205,166,89,0.18), rgba(205,166,89,0.06))',
+                  background: 'linear-gradient(90deg, rgba(226,190,109,0.32), rgba(205,166,89,0.13))',
                 },
                 '&.Mui-disabled': { opacity: 0.5, color: '#f1d48a' },
               }}
@@ -1094,9 +1089,9 @@ function AppHeader({
                   display: 'grid',
                   placeItems: 'center',
                   borderRadius: '11px',
-                  color: '#edc873',
-                  border: 'var(--morius-border-width) solid rgba(205,166,89,0.5)',
-                  backgroundColor: 'rgba(205,166,89,0.14)',
+                  color: '#f5d894',
+                  border: 'none',
+                  background: 'linear-gradient(150deg, rgba(214,176,99,0.46), rgba(168,132,66,0.34))',
                 }}
               >
                 {headerShopAction.iconMarkup ? <ThemedSvgIcon markup={headerShopAction.iconMarkup} size={18} /> : null}
@@ -1843,23 +1838,20 @@ function AppHeader({
                       px: 1.8,
                       py: 0,
                       gap: 1,
-                      border: isActive
-                        ? 'var(--morius-border-width) solid rgba(255,255,255,0.14)'
-                        : 'var(--morius-border-width) solid transparent',
+                      border: 'none !important',
                       borderRadius: '12px !important',
-                      backgroundColor: isActive ? 'rgba(255,255,255,0.055) !important' : 'transparent !important',
+                      backgroundColor: isActive ? 'rgba(255,255,255,0.1) !important' : 'transparent !important',
                       color: `${navItemColor} !important`,
                       textTransform: 'none',
                       fontSize: '1rem',
                       fontWeight: 750,
                       lineHeight: 1,
                       '&:hover': {
-                        backgroundColor: isActive ? 'rgba(255,255,255,0.075) !important' : 'rgba(255,255,255,0.035) !important',
-                        borderColor: isActive ? 'rgba(255,255,255,0.18)' : 'transparent',
+                        backgroundColor: isActive ? 'rgba(255,255,255,0.14) !important' : 'rgba(255,255,255,0.06) !important',
                         color: 'var(--morius-title-text) !important',
                       },
                       '&:active': {
-                        backgroundColor: isActive ? 'rgba(255,255,255,0.055) !important' : 'transparent !important',
+                        backgroundColor: isActive ? 'rgba(255,255,255,0.1) !important' : 'transparent !important',
                       },
                     }}
                   >

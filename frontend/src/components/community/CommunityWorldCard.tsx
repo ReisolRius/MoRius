@@ -7,6 +7,7 @@ import ProgressiveAvatar from '../media/ProgressiveAvatar'
 import { useVisibilityTrigger } from '../../hooks/useVisibilityTrigger'
 import { resolveApiResourceUrl } from '../../services/httpClient'
 import type { StoryCommunityWorldSummary } from '../../types/story'
+import { GAME_COVER_ASPECT_CSS } from '../../constants/gameCover'
 import { buildWorldFallbackArtwork } from '../../utils/worldBackground'
 
 type CommunityWorldCardProps = {
@@ -27,7 +28,7 @@ const TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const TITLE_LINE_HEIGHT = 1.2
 const TITLE_LINE_COUNT = 1
 const DESCRIPTION_LINE_HEIGHT = 1.45
-const DESCRIPTION_LINE_COUNT = 3
+const DESCRIPTION_LINE_COUNT = 2
 const COVER_IMAGE_LOAD_TIMEOUT_MS = 8000
 
 function resolveAuthorInitials(authorName: string): string {
@@ -191,8 +192,10 @@ function CommunityWorldCard({
         sx={{
           position: 'relative',
           width: '100%',
-          aspectRatio: '1.82 / 1',
-          minHeight: { xs: 156, md: 168 },
+          // No minHeight: it would win over aspectRatio on narrow cards and silently crop
+          // tighter than the ratio the cropper framed. Width is already constrained by the
+          // grid, so the ratio alone gives the height.
+          aspectRatio: GAME_COVER_ASPECT_CSS,
           flexShrink: 0,
           overflow: 'hidden',
         }}
@@ -263,8 +266,10 @@ function CommunityWorldCard({
           sx={{
             position: 'absolute',
             inset: 0,
+            // Only as dark as the genre chips need. The scrim used to start at a third of
+            // the way down and reach 0.78, which flattened the artwork underneath it.
             background:
-              'linear-gradient(180deg, rgba(5,7,10,0.04) 34%, rgba(5,7,10,0.78) 100%)',
+              'linear-gradient(180deg, rgba(5,7,10,0) 52%, rgba(5,7,10,0.62) 100%)',
           }}
         />
 
@@ -321,8 +326,8 @@ function CommunityWorldCard({
                   minHeight: 24,
                   px: 1.05,
                   borderRadius: '999px',
-                  border: 'var(--morius-border-width) solid rgba(255,255,255,0.24)',
-                  backgroundColor: 'rgba(7,8,11,0.72)',
+                  border: 'none',
+                  backgroundColor: 'rgba(7,8,11,0.62)',
                   backdropFilter: 'blur(9px)',
                   color: 'rgba(244,241,236,0.94)',
                   fontSize: { xs: '0.58rem', md: '0.62rem' },
@@ -344,9 +349,9 @@ function CommunityWorldCard({
       <Box
         sx={{
           width: '100%',
-          px: { xs: '16px', md: '20px' },
-          pt: { xs: '16px', md: '20px' },
-          pb: { xs: '16px', md: '20px' },
+          px: { xs: '14px', md: '16px' },
+          pt: { xs: '12px', md: '13px' },
+          pb: { xs: '12px', md: '13px' },
           display: 'flex',
           flexDirection: 'column',
           flex: 1,
@@ -358,7 +363,7 @@ function CommunityWorldCard({
           sx={{
             color: TEXT_PRIMARY,
             fontFamily: '"Spectral", serif',
-            fontSize: { xs: '17px', md: '18.5px' },
+            fontSize: { xs: '16px', md: '17px' },
             lineHeight: TITLE_LINE_HEIGHT,
             fontWeight: 700,
             minHeight: `${TITLE_LINE_HEIGHT * TITLE_LINE_COUNT}em`,
@@ -376,9 +381,9 @@ function CommunityWorldCard({
 
         <Typography
           sx={{
-            mt: '8px',
+            mt: '5px',
             color: TEXT_SECONDARY,
-            fontSize: { xs: '15px', md: '16px' },
+            fontSize: { xs: '13.5px', md: '14px' },
             lineHeight: DESCRIPTION_LINE_HEIGHT,
             minHeight: `${DESCRIPTION_LINE_HEIGHT * DESCRIPTION_LINE_COUNT}em`,
             maxHeight: `${DESCRIPTION_LINE_HEIGHT * DESCRIPTION_LINE_COUNT}em`,
@@ -398,8 +403,8 @@ function CommunityWorldCard({
           alignItems="center"
           justifyContent="space-between"
           sx={{
-            mt: '16px',
-            pt: '13px',
+            mt: '10px',
+            pt: '9px',
             borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)',
             minWidth: 0,
           }}
@@ -431,7 +436,7 @@ function CommunityWorldCard({
               frameImageUrl={world.author_avatar_frame_image_url}
               sx={{
                 flexShrink: 0,
-                border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.26)',
+                border: 'none',
                 background: 'radial-gradient(circle at 30% 20%, rgba(255,255,255,0.16), rgba(255,255,255,0.04) 42%, rgba(0,0,0,0.4) 100%)',
               }}
             />

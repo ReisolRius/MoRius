@@ -63,6 +63,7 @@ from app.services.story_canonical_pipeline import (
 )
 from app.services.story_memory import resolve_story_current_location_label
 from app.services.provider_resilience import is_retryable_provider_error
+from app.services.story_token_budget import estimate_story_tokens
 from app.services.story_service_budget import (
     StoryServiceHttpRequestBudget,
     use_story_service_http_request_budget,
@@ -617,13 +618,7 @@ def _restore_latest_undone_assistant_response_if_orphaned(
 
 
 def _estimate_story_tokens(value: str) -> int:
-    normalized = _normalize_story_message_content(value)
-    if not normalized:
-        return 0
-    matches = STORY_TOKEN_ESTIMATE_PATTERN.findall(normalized.lower().replace("ё", "е"))
-    if matches:
-        return len(matches)
-    return max(1, math.ceil(len(normalized) / 4))
+    return estimate_story_tokens(_normalize_story_message_content(value))
 
 
 def _normalize_story_model_id(value: str | None) -> str:

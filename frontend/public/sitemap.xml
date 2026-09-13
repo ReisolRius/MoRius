@@ -1,23 +1,44 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Only routes that render something useful to a signed-out visitor belong here. Everything behind
+  authentication (/home, /dashboard, /games, /shop, /profile, /worlds) is excluded on purpose:
+  a crawler reaching those gets the login wall, which is a thin-content signal.
+-->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://morius-ai.ru/</loc>
+    <lastmod>2026-09-13</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://morius-ai.ru/wiki</loc>
+    <lastmod>2026-09-13</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://morius-ai.ru/privacy-policy</loc>
+    <loc>https://morius-ai.ru/publication-rules</loc>
+    <lastmod>2026-09-13</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://morius-ai.ru/subscription-terms</loc>
+    <lastmod>2026-09-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://morius-ai.ru/privacy-policy</loc>
+    <lastmod>2026-09-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
   </url>
   <url>
     <loc>https://morius-ai.ru/terms-of-service</loc>
+    <lastmod>2026-09-13</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
+    <priority>0.3</priority>
   </url>
 </urlset>
