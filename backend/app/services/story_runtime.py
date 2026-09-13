@@ -3743,6 +3743,25 @@ def _generate_story_response_locked(
     if visual_novel_enabled:
         visual_novel_instruction_card = build_story_novel_instruction_card()
         effective_instruction_cards = [*effective_instruction_cards, visual_novel_instruction_card]
+    # Scene blocking, for every mode that tracks characters. D&D carries its own inside the
+    # rules card, so it is excluded here rather than told twice.
+    if not dnd_enabled and bool(getattr(game, "character_state_enabled", False)):
+        try:
+            from app.services.story_character_state_fields import (
+                build_story_scene_layout_instruction_card,
+            )
+
+            scene_layout_card = build_story_scene_layout_instruction_card(
+                game,
+                location_label=str(getattr(game, "current_location_label", "") or ""),
+            )
+            if scene_layout_card is not None:
+                effective_instruction_cards = [*effective_instruction_cards, scene_layout_card]
+        except Exception:
+            logger.exception(
+                "Failed to build the scene layout card; continuing without it: game_id=%s", game.id
+            )
+
     dnd_state: dict[str, Any] | None = None
     dnd_pending_roll: dict[str, Any] | None = None
     if dnd_enabled:

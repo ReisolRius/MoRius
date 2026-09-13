@@ -261,7 +261,10 @@ def build_game_state_analysis_messages(
                 "only for cards where ai_edit_enabled is true. Do not update unmatched characters. clothing.value "
                 "is the complete current top-to-bottom clothing state; inventory.value is the complete current "
                 "comma-separated item list, not a change log; health.value is either normal or the concrete current "
-                "condition. Never invent inventory changes."
+                "condition. Never invent inventory changes. position.value is where the character physically stands "
+                "in the current scene in a few words (behind the counter, by the window, in the doorway, at the "
+                "table opposite); fill it for every character present in the scene and update it whenever they "
+                "move. Leave position unchanged for characters who are not in the scene."
             )
         )
         response_shape["auto_state"] = {
@@ -271,6 +274,7 @@ def build_game_state_analysis_messages(
                     "clothing": {"value": "complete current clothing", "source": "explicit|inferred|mixed|unchanged", "should_update": True},
                     "inventory": {"value": "item one, item two", "source": "explicit|unchanged", "should_update": True},
                     "health": {"value": "normal or concrete condition", "source": "explicit|inferred|default|unchanged", "should_update": True},
+                    "position": {"value": "where they stand in the scene", "source": "explicit|inferred|unchanged", "should_update": True},
                 }
             ]
         }

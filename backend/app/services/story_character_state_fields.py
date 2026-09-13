@@ -35,6 +35,65 @@ def _iter_story_tracked_world_cards(db: Session, game_id: int) -> list[StoryWorl
     ]
 
 
+STORY_SCENE_LAYOUT_CARD_TITLE = "Расстановка в сцене"
+STORY_SCENE_LAYOUT_MAX_CHARACTERS = 8
+
+
+def build_story_scene_layout_instruction_card(
+    game: StoryGame,
+    *,
+    location_label: str = "",
+) -> dict[str, str] | None:
+    """Who is standing where, handed to the narrator as one short card.
+
+    The tracked-character payload has always known each character's place in the room; nothing
+    ever showed it to the narrator, so between two paragraphs a bodyguard posted behind his
+    mistress's chair could reappear in the doorway. This is the delivery: a few lines, only for
+    characters actually in the scene, only when their blocking belongs to the place the party
+    is in now.
+
+    Returns None when there is nothing to say, so an ordinary two-hander costs no tokens.
+    """
+    from app.services.story_games import deserialize_story_character_state_cards_payload
+
+    try:
+        cards = deserialize_story_character_state_cards_payload(
+            str(getattr(game, "character_state_payload", "") or "")
+        )
+    except Exception:
+        return None
+
+    normalized_location = " ".join(str(location_label or "").split()).strip().casefold()
+    lines: list[str] = []
+    for card in cards:
+        if not bool(card.get("is_active", True)):
+            continue
+        position = " ".join(str(card.get("position") or "").split()).strip()
+        name = " ".join(str(card.get("name") or "").split()).strip()
+        if not position or not name:
+            continue
+        # Blocking belongs to a place. If the party has moved on, last scene's staging is not
+        # information -- it is a trap that puts people in a room they already left.
+        card_location = " ".join(str(card.get("location") or "").split()).strip().casefold()
+        if normalized_location and card_location and card_location != normalized_location:
+            continue
+        lines.append(f"- {name}: {position}")
+        if len(lines) >= STORY_SCENE_LAYOUT_MAX_CHARACTERS:
+            break
+
+    if not lines:
+        return None
+    return {
+        "title": STORY_SCENE_LAYOUT_CARD_TITLE,
+        "content": (
+            "Где сейчас находятся персонажи сцены. Держись этой расстановки: никто не "
+            "перемещается по комнате сам собой. Если кто-то сменил место, покажи это "
+            "движением в тексте, а не молча.\n" + "\n".join(lines)
+        ),
+        "source_kind": "scene_layout",
+    }
+
+
 def _build_story_character_state_card_from_world_card(
     world_card: StoryWorldCard,
     existing_card: dict[str, Any] | None,
@@ -56,6 +115,7 @@ def _build_story_character_state_card_from_world_card(
         "status": normalize_story_character_health_status(getattr(world_card, "health_status", "")),
         "clothing": normalize_story_character_clothing(getattr(world_card, "clothing", "")),
         "location": str(existing_card.get("location") or "").strip(),
+        "position": str(existing_card.get("position") or "").strip(),
         "equipment": normalize_story_character_inventory(getattr(world_card, "inventory", "")),
         "mood": str(existing_card.get("mood") or "").strip(),
         "attitude_to_hero": str(existing_card.get("attitude_to_hero") or "").strip(),

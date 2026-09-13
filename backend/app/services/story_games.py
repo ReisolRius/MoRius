@@ -1155,6 +1155,11 @@ def deserialize_story_character_state_cards_payload(raw_value: str | None) -> li
             "status": sanitize_likely_utf8_mojibake(item.get("status") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
             "clothing": sanitize_likely_utf8_mojibake(item.get("clothing") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
             "location": sanitize_likely_utf8_mojibake(item.get("location") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
+            # Where this character stands *within* the current location, in a few words --
+            # "за спиной госпожи", "в дверях", "у окна". `location` answers which place; this
+            # answers where in the room, which is what the narrator keeps losing between
+            # paragraphs when a bodyguard behind a chair turns up in the doorway.
+            "position": sanitize_likely_utf8_mojibake(item.get("position") or "").replace("\r\n", "\n").strip()[:200].rstrip(),
             "equipment": sanitize_likely_utf8_mojibake(item.get("equipment") or item.get("inventory") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
             "mood": sanitize_likely_utf8_mojibake(item.get("mood") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
             "attitude_to_hero": sanitize_likely_utf8_mojibake(item.get("attitude_to_hero") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),

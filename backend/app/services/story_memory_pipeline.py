@@ -1745,6 +1745,7 @@ def _ensure_story_character_state_cards_include_world_cards(
                 "status": _normalize_story_character_state_status_template(getattr(card, "health_status", "")),
                 "clothing": str(getattr(card, "clothing", "") or "").strip(),
                 "location": location,
+                "position": "",
                 "equipment": str(getattr(card, "inventory", "") or "").strip(),
                 "mood": "",
                 "attitude_to_hero": "",
@@ -1837,8 +1838,18 @@ def _sync_story_character_state_cards(
             inventory = update.get("inventory") if isinstance(update.get("inventory"), dict) else {}
             if inventory.get("should_update") and str(inventory.get("source") or "") != "unchanged":
                 card["equipment"] = _normalize_story_character_inventory_list(inventory.get("value"))
-            if current_location_content and not str(card.get("location") or "").strip():
-                card["location"] = _state_location_from_content(current_location_content)
+            position = update.get("position") if isinstance(update.get("position"), dict) else {}
+            if position.get("should_update") and str(position.get("source") or "") != "unchanged":
+                card["position"] = " ".join(str(position.get("value") or "").split()).strip()[:200]
+            if current_location_content:
+                scene_location = _state_location_from_content(current_location_content)
+                previous_location = str(card.get("location") or "").strip()
+                if not previous_location:
+                    card["location"] = scene_location
+                elif scene_location and previous_location.casefold() != scene_location.casefold():
+                    # The party moved. Last scene's blocking describes a room nobody is in.
+                    card["location"] = scene_location
+                    card["position"] = ""
         logger.info(
             "Story character-state service-model actions processed: game_id=%s assistant_message_id=%s "
             "applied=%s skipped=%s",
