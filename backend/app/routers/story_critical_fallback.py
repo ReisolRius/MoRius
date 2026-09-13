@@ -277,20 +277,19 @@ def _self_heal_story_memory_and_environment_snapshot(
                 )
             ) or changed
             if should_rebalance_memory:
+                # Queued, never awaited: this runs while the player is waiting for the game to
+                # open, and compaction is not needed to render it -- an uncompacted turn is
+                # simply sent to the narrator as-is until its summary exists.
                 try:
-                    story_memory_pipeline._rebalance_story_memory_layers(
-                        db=db,
-                        game=game,
-                        max_model_requests=3,
-                        backfill_existing_compact_layers=False,
-                        prioritize_recent_transitions=True,
-                    )
-                    changed = True
+                    from app.services.story_memory_background import schedule_story_memory_compaction
+
+                    schedule_story_memory_compaction(int(getattr(game, "id", 0) or 0))
                 except Exception:
-                    logger.exception(
-                        "Story fallback snapshot memory rebalance failed: game_id=%s raw_blocks=%s",
+                    logger.warning(
+                        "Story fallback snapshot could not schedule memory compaction: game_id=%s raw_blocks=%s",
                         getattr(game, "id", None),
                         raw_memory_count,
+                        exc_info=True,
                     )
 
         if should_heal_environment:

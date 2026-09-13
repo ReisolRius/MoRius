@@ -1083,8 +1083,6 @@ def _fallback_sync_story_memory_and_environment(
     environment_changed = False
     auto_npc_changed = False
     character_state_changed = False
-    rebalance_changed = False
-    memory_rebalance_failed = False
 
     try:
         memory_changed = story_memory_pipeline._upsert_story_raw_memory_block(
@@ -1202,30 +1200,21 @@ def _fallback_sync_story_memory_and_environment(
                 )
             )
         if should_force_memory_rebalance or memory_changed or key_memory_changed:
+            # Queued rather than awaited, exactly like the primary paths. This runs with the
+            # per-game generation lock still held, so compacting here put a service round trip
+            # in front of the player's next turn. Raw blocks left uncompacted are not a
+            # failure: the turn is complete, and the background pass picks them up.
             try:
-                rebalance_changed = bool(
-                    story_memory_pipeline._rebalance_story_memory_layers(
-                        db=db,
-                        game=game,
-                        max_model_requests=3,
-                        require_model_compaction=True,
-                        backfill_existing_compact_layers=False,
-                        prioritize_recent_transitions=True,
-                    )
-                )
-                if story_memory_pipeline._has_story_stale_raw_memory_blocks(db=db, game=game):
-                    memory_rebalance_failed = True
-                    logger.warning(
-                        "Fallback runtime left stale raw memory after Gemini compression: game_id=%s assistant_message_id=%s",
-                        game.id,
-                        assistant_message.id,
-                    )
+                from app.services.story_memory_background import schedule_story_memory_compaction
+
+                schedule_story_memory_compaction(int(getattr(game, "id", 0) or 0))
             except Exception:
-                memory_rebalance_failed = True
-                logger.exception(
-                    "Fallback runtime failed to rebalance story memory layers: game_id=%s assistant_message_id=%s",
+                logger.warning(
+                    "Fallback runtime could not schedule background memory compaction: "
+                    "game_id=%s assistant_message_id=%s",
                     game.id,
                     assistant_message.id,
+                    exc_info=True,
                 )
         if (
             memory_changed
@@ -1234,7 +1223,6 @@ def _fallback_sync_story_memory_and_environment(
             or auto_npc_changed
             or character_state_changed
             or key_memory_changed
-            or rebalance_changed
         ):
             touch_story_game(game)
             db.commit()
@@ -1243,7 +1231,8 @@ def _fallback_sync_story_memory_and_environment(
                 db.refresh(assistant_message)
             except Exception:
                 pass
-            return not memory_rebalance_failed
+            # Compaction is queued, not awaited, so the turn is complete either way.
+            return True
         return False
     except Exception:
         logger.exception(
