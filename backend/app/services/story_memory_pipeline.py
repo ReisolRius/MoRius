@@ -104,8 +104,36 @@ STORY_MEMORY_NARRATIVE_LAYERS = {
 }
 
 STORY_MEMORY_LAYER_RAW = STORY_MEMORY_LAYER_LATEST_FULL
+
 STORY_MEMORY_LAYER_COMPRESSED = STORY_MEMORY_LAYER_COMPRESSED_SUMMARY
 STORY_MEMORY_LAYER_SUPER = STORY_MEMORY_LAYER_FACTS
+
+# How far along the per-turn compaction pipeline each narrative layer sits. A turn owns
+# exactly ONE narrative block at a time and only ever moves it forward:
+#   latest_full -> (raw_pending on a failed attempt) -> fresh_detailed -> compressed -> facts
+# The rank exists so code can ask "does this turn already have its memory, at any tier?"
+# instead of only recognising the full-text tier -- which is what let a turn accumulate an
+# unlimited number of full-size blocks (one per edit / variant switch / checkpoint).
+STORY_MEMORY_NARRATIVE_LAYER_RANK: dict[str, int] = {
+    LEGACY_STORY_MEMORY_LAYER_RAW: 0,
+    STORY_MEMORY_LAYER_LATEST_FULL: 0,
+    STORY_MEMORY_LAYER_RAW_PENDING: 1,
+    STORY_MEMORY_LAYER_FRESH_DETAILED: 2,
+    LEGACY_STORY_MEMORY_LAYER_COMPRESSED: 3,
+    STORY_MEMORY_LAYER_COMPRESSED_SUMMARY: 3,
+    LEGACY_STORY_MEMORY_LAYER_SUPER: 4,
+    STORY_MEMORY_LAYER_FACTS: 4,
+}
+STORY_MEMORY_NARRATIVE_TERMINAL_RANK = 4
+
+
+def _story_memory_narrative_rank(block: Any) -> int | None:
+    layer = _normalize_story_memory_layer(getattr(block, "layer", ""))
+    if layer in STORY_MEMORY_NARRATIVE_LAYER_RANK:
+        return STORY_MEMORY_NARRATIVE_LAYER_RANK[layer]
+    raw_layer = str(getattr(block, "layer", "") or "").strip().lower()
+    return STORY_MEMORY_NARRATIVE_LAYER_RANK.get(raw_layer)
+
 
 STORY_TURN_POSTPROCESS_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
 STORY_ENVIRONMENT_ANALYSIS_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
@@ -383,6 +411,90 @@ def _purge_story_orphaned_memory_blocks(db: Session, game_id: int) -> int:
     return len(orphan_ids)
 
 
+def _dedupe_story_turn_narrative_memory_blocks(db: Session, game: StoryGame) -> int:
+    """Collapse a turn's duplicate narrative memory back to the single block it should own.
+
+    A turn is supposed to own exactly one narrative block, moved forward one tier at a time.
+    Until the guard in ``_upsert_story_raw_memory_block`` existed, any code path that asked
+    for a turn's full-text block while that turn had already been compacted simply created a
+    second one -- and the next compaction pass promoted the copy to its own permanent
+    ``fresh_detailed``/``compressed`` block. Repeated over a long game that is the "context
+    memory grows out of nowhere and stays stuck to one turn" report: the duplicates are
+    invisible in the transcript yet charged against the context budget on every later turn.
+
+    This heals games that already accumulated them. It is deliberately conservative:
+
+    * ``facts``/``super`` blocks are **never** deleted. Older builds merged several turns
+      into one terminal block and attributed it to the newest source turn, so two of them on
+      one id can be two genuinely different summaries.
+    * The newest turns are kept whole on purpose (the player can still edit them), so for
+      those the full-text copy is the survivor rather than the compacted one.
+    """
+    blocks_by_assistant_id: dict[int, list[StoryMemoryBlock]] = {}
+    for block in _list_story_memory_blocks(db, game.id):
+        if _story_memory_narrative_rank(block) is None:
+            continue
+        assistant_id = int(getattr(block, "assistant_message_id", 0) or 0)
+        if assistant_id <= 0:
+            continue
+        blocks_by_assistant_id.setdefault(assistant_id, []).append(block)
+
+    keep_whole_ids = set(
+        _list_story_latest_assistant_message_ids(
+            db,
+            game.id,
+            limit=max(int(STORY_MEMORY_RAW_KEEP_LATEST_ASSISTANT_FULL_TURNS or 1), 1),
+        )
+    )
+
+    removed = 0
+    for assistant_id, blocks in blocks_by_assistant_id.items():
+        if len(blocks) <= 1:
+            continue
+        terminal = [
+            block
+            for block in blocks
+            if _story_memory_narrative_rank(block) == STORY_MEMORY_NARRATIVE_TERMINAL_RANK
+        ]
+        others = [
+            block
+            for block in blocks
+            if _story_memory_narrative_rank(block) != STORY_MEMORY_NARRATIVE_TERMINAL_RANK
+        ]
+        if not others:
+            continue
+
+        if assistant_id in keep_whole_ids:
+            # Deliberately kept whole: the least compacted copy is the canonical one.
+            survivor = min(
+                others,
+                key=lambda item: (_story_memory_narrative_rank(item) or 0, -int(getattr(item, "id", 0) or 0)),
+            )
+        elif terminal:
+            # Already summarised at the terminal tier; every remaining copy is a duplicate.
+            survivor = None
+        else:
+            survivor = max(
+                others,
+                key=lambda item: (_story_memory_narrative_rank(item) or 0, int(getattr(item, "id", 0) or 0)),
+            )
+
+        for block in others:
+            if block is survivor:
+                continue
+            db.delete(block)
+            removed += 1
+
+    if removed:
+        db.flush()
+        logger.info(
+            "Collapsed duplicate story turn memory blocks: game_id=%s removed=%s",
+            game.id,
+            removed,
+        )
+    return removed
+
+
 def _list_story_latest_assistant_message_ids(db: Session, game_id: int, limit: int = 1) -> list[int]:
     return [
         int(value)
@@ -556,12 +668,25 @@ def _upsert_story_raw_memory_block(
         if existing_turn_blocks is not None
         else _list_story_memory_blocks(db, game.id)
     )
-    existing_blocks = [
+    turn_narrative_blocks = [
         block
         for block in candidate_blocks
         if int(getattr(block, "assistant_message_id", 0) or 0) == assistant_id
-        and _normalize_story_memory_layer(getattr(block, "layer", "")) in {STORY_MEMORY_LAYER_LATEST_FULL, LEGACY_STORY_MEMORY_LAYER_RAW}
+        and _story_memory_narrative_rank(block) is not None
     ]
+    existing_blocks = [
+        block
+        for block in turn_narrative_blocks
+        if _normalize_story_memory_layer(getattr(block, "layer", "")) in {STORY_MEMORY_LAYER_LATEST_FULL, LEGACY_STORY_MEMORY_LAYER_RAW}
+    ]
+    if not existing_blocks and turn_narrative_blocks:
+        # This turn already carries its memory, at a later tier of the same pipeline. Writing
+        # a second, full-size block here is exactly how one turn used to grow without bound:
+        # every edit, reroll-variant switch and post-cancel checkpoint that named an already
+        # compacted turn bolted another full copy of it onto the context, and the next
+        # compaction pass then turned that copy into a *second* permanent narrative block.
+        # There is nothing to refresh and nothing to add -- leave the compacted memory alone.
+        return False
     title = f"Последний полный ход #{assistant_id}" if assistant_id else "Последний полный ход"
     token_count = max(_estimate_story_tokens(content), 1)
     changed = False
@@ -3056,6 +3181,10 @@ def _sync_story_raw_memory_blocks_for_recent_turns(
             latest_assistant_text=assistant_text,
             existing_turn_blocks=turn_blocks,
         ) or changed
+
+    # Heal whatever earlier builds already duplicated. Pure row bookkeeping -- no service
+    # model call, no network -- so it is safe on every turn.
+    changed = bool(_dedupe_story_turn_narrative_memory_blocks(db=db, game=game)) or changed
     return changed
 
 

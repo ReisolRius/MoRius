@@ -86,12 +86,29 @@ const STORY_GENERATION_INTERRUPTED_MESSAGE =
   'Генерация прервалась. Зависший запрос остановлен, можно повторить ход или продолжить сцену.'
 const STORY_ROUTERAI_TEMPORARY_ERROR_MESSAGE =
   'RouterAI сейчас возвращает ошибку провайдера. Ход не был сгенерирован; повторите попытку позже.'
-const STORY_GENERATION_BUSY_RETRY_DELAYS_MS = [800, 1600, 2600, 4200, 7000] as const
+// Last resort only. Every busy conflict is now retried silently for about a minute, which is
+// far longer than the backend can hold a game (a finished turn releases it in seconds, and
+// off-turn work steps aside for the player). If this ever reaches a player, the game is
+// genuinely stuck rather than "still syncing", and saying so is more useful than the old
+// wording, which described a wait that no longer exists.
+const STORY_OPERATION_BUSY_FINAL_MESSAGE =
+  'Эта история сейчас занята другой операцией и не освободилась. Ход не начат и солы не списаны — обновите страницу и повторите.'
+// The server side of this is bounded now: a finished turn holds its game for at most ~26s,
+// and off-turn work yields the moment a player queues behind it, so a busy conflict here is
+// a narrow race rather than a wait for a whole post-process chain. These ladders are the
+// last line of defence -- they cover roughly a minute, which outlasts any hold the backend
+// can still produce, so the player never sees the conflict at all.
+const STORY_GENERATION_BUSY_RETRY_DELAYS_MS = [800, 1600, 2600, 4200, 7000, 10000, 14000, 20000] as const
+// Separate, deliberately short ladder for restarting a whole stream attempt. The ladder above
+// already covers ~60s inside one attempt, so this only exists for the case where the server
+// accepted the request and then reported the game busy over SSE. Keeping it short stops the
+// two ladders from multiplying into minutes of silent waiting.
+const STORY_GENERATION_BUSY_STREAM_RESTART_DELAYS_MS = [900, 2500] as const
 // Every story mutation shares the same per-game operation lock, so any of them can come
 // back with "the turn is still syncing" while the tail of a slow turn finishes. The 409 is
 // raised before the request touches anything, so retrying it can never apply an action
 // twice -- and waiting it out quietly is what the player actually wants.
-const STORY_BUSY_RETRY_DELAYS_MS = [600, 1200, 2200, 3600, 6000] as const
+const STORY_BUSY_RETRY_DELAYS_MS = [600, 1200, 2200, 3600, 6000, 9000, 13000, 18000] as const
 const STORY_GENERATION_TRANSPORT_ERROR_MARKERS = [
   'network error',
   'failed to fetch',
@@ -216,6 +233,17 @@ function isStoryContentPolicyErrorMessage(value: string): boolean {
   return STORY_CONTENT_POLICY_ERROR_MARKERS.some((marker) => normalized.includes(marker))
 }
 
+// The generate endpoint answers 200 and reports a busy game as an SSE `error` event rather
+// than an HTTP 409, so the status-code retry ladder above never saw it and the raw
+// "Ход еще синхронизируется" text went straight to a toast. This marks that case so the
+// wrapper can wait and try again, exactly like the 409 path does.
+class StoryOperationBusyStreamError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StoryOperationBusyStreamError'
+  }
+}
+
 function isStoryOperationBusyMessage(detail: string): boolean {
   const normalizedDetail = detail.replace(/\s+/g, ' ').trim().toLocaleLowerCase().replace(/ё/g, 'е')
   if (!normalizedDetail) {
@@ -232,6 +260,9 @@ function normalizeStoryProviderErrorMessage(detail: string): string {
   const normalizedDetail = detail.replace(/\s+/g, ' ').trim()
   if (!normalizedDetail) {
     return 'Story generation failed'
+  }
+  if (isStoryOperationBusyMessage(normalizedDetail)) {
+    return STORY_OPERATION_BUSY_FINAL_MESSAGE
   }
   const loweredTransportDetail = normalizedDetail.toLocaleLowerCase()
   if (STORY_GENERATION_TRANSPORT_ERROR_MARKERS.some((marker) => loweredTransportDetail.includes(marker))) {
@@ -2446,7 +2477,7 @@ async function recoverStoryGenerationBestEffort(payload: { token: string; gameId
   await repairStoryGenerationBestEffort(payload)
 }
 
-export async function generateStoryResponseStream(options: StoryGenerationStreamOptions): Promise<void> {
+async function runStoryGenerationStreamAttempt(options: StoryGenerationStreamOptions): Promise<void> {
   const targetUrl = buildApiUrl(`/api/story/games/${options.gameId}/generate`)
   const requestPayload: Record<string, unknown> = {
     prompt: options.prompt,
@@ -2546,14 +2577,16 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
 
     const parsedError = await parseApiError(response)
     const isBusyConflict = response.status === 409 && isStoryOperationBusyMessage(parsedError.message)
-    const shouldCancelStuckGeneration = response.status === 504 || isBusyConflict
+    // Deliberately NOT cancelling on a busy conflict. The generation we are queued behind may
+    // already have been charged for, and cancelling it to jump the queue is exactly how a
+    // paid turn used to be thrown away -- the player lost the sols and got this error. A
+    // gateway timeout is different: there is nothing left to protect, so that one still
+    // clears whatever is stuck.
+    const shouldCancelStuckGeneration = response.status === 504
     if (
       isBusyConflict &&
       attempt < STORY_GENERATION_BUSY_RETRY_DELAYS_MS.length
     ) {
-      if (shouldCancelStuckGeneration) {
-        await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
-      }
       await delay(STORY_GENERATION_BUSY_RETRY_DELAYS_MS[attempt])
       continue
     }
@@ -2711,7 +2744,12 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       } catch {
         // Use fallback detail for malformed error payloads.
       }
-      streamError = new Error(normalizeStoryProviderErrorMessage(detail))
+      if (isStoryOperationBusyMessage(detail) && !streamStartReceived && !streamContentReceived) {
+        // Nothing has reached the caller yet, so retrying this is safe and invisible.
+        streamError = new StoryOperationBusyStreamError(detail)
+      } else {
+        streamError = new Error(normalizeStoryProviderErrorMessage(detail))
+      }
       streamTerminalEventReceived = true
     }
   }
@@ -2760,10 +2798,37 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
 
   if (streamError) {
-    if (!streamCompletedSuccessfully && shouldRecoverInterruptedGeneration()) {
+    // A busy game is not a stuck generation -- it is somebody else's turn still finishing.
+    // "Recovering" it would cancel that turn, which may already have been paid for.
+    if (
+      !streamCompletedSuccessfully &&
+      shouldRecoverInterruptedGeneration() &&
+      !(streamError instanceof StoryOperationBusyStreamError)
+    ) {
       await recoverStoryGenerationBestEffort({ token: options.token, gameId: options.gameId })
     }
     throw streamError
+  }
+}
+
+export async function generateStoryResponseStream(options: StoryGenerationStreamOptions): Promise<void> {
+  for (let attempt = 0; attempt <= STORY_GENERATION_BUSY_STREAM_RESTART_DELAYS_MS.length; attempt += 1) {
+    try {
+      await runStoryGenerationStreamAttempt(options)
+      return
+    } catch (error) {
+      // Only a busy game restarts the attempt, and only when nothing has reached the caller
+      // yet -- so no message, no charge and no duplicated turn can come of it.
+      if (
+        error instanceof StoryOperationBusyStreamError &&
+        attempt < STORY_GENERATION_BUSY_STREAM_RESTART_DELAYS_MS.length &&
+        !options.signal?.aborted
+      ) {
+        await delay(STORY_GENERATION_BUSY_STREAM_RESTART_DELAYS_MS[attempt])
+        continue
+      }
+      throw error
+    }
   }
 }
 

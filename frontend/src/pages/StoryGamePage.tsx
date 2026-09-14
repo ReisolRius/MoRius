@@ -975,6 +975,8 @@ const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, numbe
 const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [6, 7, 8, 12, 16]
 const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [8, 10, 13, 23, 36]
 const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [20, 30, 48, 85, 85]
+// Aion 3.0 Mini. Mirror of STORY_TURN_COST_AION3_MINI_TIERS in backend/app/services/story_games.py.
+const STORY_TURN_COST_AION3_MINI_TIERS: readonly [number, number, number, number, number] = [5, 7, 12, 20, 37]
 const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 17, 24]
 const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [6, 7, 9, 13, 21]
 const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [17, 22, 30, 47, 51]
@@ -1012,6 +1014,7 @@ const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, n
 const STORY_REASONING_MINIMUM_MODEL_IDS = new Set<StoryNarratorModelId>([
   'aion-labs/aion-2.0',
   'aion-labs/aion-3.0',
+  'aion-labs/aion-3.0-mini',
   'deepseek/deepseek-r1-0528',
   'google/gemini-3.1-flash-lite',
   'google/gemini-2.5-pro',
@@ -1021,6 +1024,7 @@ const STORY_REASONING_MINIMUM_MODEL_IDS = new Set<StoryNarratorModelId>([
 const STORY_REASONING_FIXED_MODEL_IDS = new Set<StoryNarratorModelId>([
   'aion-labs/aion-2.0',
   'aion-labs/aion-3.0',
+  'aion-labs/aion-3.0-mini',
   'deepseek/deepseek-r1-0528',
 ])
 const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
@@ -1299,6 +1303,12 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 50,
     storyTopR: 0.92,
   },
+  'aion-labs/aion-3.0-mini': {
+    storyTemperature: 0.8,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.92,
+  },
   // Высокая температура компенсирует сухость лёгкой модели; repetition не отправляется.
   'google/gemini-3.1-flash-lite': {
     storyTemperature: 1,
@@ -1520,6 +1530,19 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Интеллект', value: 5 },
       { label: 'Скорость', value: 3 },
       { label: 'Глубина', value: 5 },
+    ],
+  },
+  {
+    id: 'aion-labs/aion-3.0-mini',
+    title: 'Aion 3.0 Mini',
+    description:
+      'Младший Aion 3.0 на базе DeepSeek: та же выверенная логика и связность, но заметно дешевле за ход. Рассуждение у этой модели встроено и всегда включено — оно уже учтено в цене хода.',
+    portraitSrc: narratorVelesPortrait,
+    portraitAlt: 'Aion 3.0 Mini',
+    stats: [
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 4 },
     ],
   },
   {
@@ -1862,6 +1885,7 @@ const STORY_NARRATOR_HIGHLIGHTS: Partial<Record<StoryNarratorModelId, StoryNarra
   'google/gemini-3.1-pro-preview': { label: 'Флагман', tone: 'flagship' },
   // Заточены под RP — лучшие в среднем бюджете.
   'aion-labs/aion-3.0': { label: 'Топ РП', tone: 'rp' },
+  'aion-labs/aion-3.0-mini': { label: 'Цена/качество', tone: 'budget' },
   'aion-labs/aion-2.0': { label: 'Топ РП', tone: 'rp' },
   // Лучшие из бюджетных.
   'deepseek/deepseek-v3.2': { label: 'Топ бюджет', tone: 'budget' },
@@ -6334,6 +6358,9 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   }
   if (modelId === 'aion-labs/aion-3.0') {
     return STORY_TURN_COST_AION3_TIERS
+  }
+  if (modelId === 'aion-labs/aion-3.0-mini') {
+    return STORY_TURN_COST_AION3_MINI_TIERS
   }
   if (modelId === 'z-ai/glm-5') {
     return STORY_TURN_COST_GLM5_TIERS
@@ -15981,15 +16008,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [])
 
   const loadDndState = useCallback(
-    async (gameId: number, { withCatalog = false }: { withCatalog?: boolean } = {}) => {
-      setIsDndLoading(true)
-      setDndError('')
+    async (
+      gameId: number,
+      { withCatalog = false, silent = false }: { withCatalog?: boolean; silent?: boolean } = {},
+    ) => {
+      // `silent` is for the off-turn catch-up refresh: the sheet updates in place without
+      // flashing a spinner or an error banner over a game the player is reading.
+      if (!silent) {
+        setIsDndLoading(true)
+        setDndError('')
+      }
       try {
         const response = await fetchStoryDndState({ token: authToken, gameId, includeCatalog: withCatalog })
         applyDndState(response.state, response.catalog)
         // A check the player already paid for survives a reload: reopen the dice dialog with
-        // the same action parked behind it instead of silently eating both.
-        if (response.state.pending_check) {
+        // the same action parked behind it instead of silently eating both. Not on a silent
+        // catch-up refresh though -- that one runs while the player is reading a finished
+        // turn, and a dice dialog appearing by itself there would be its own bug.
+        if (response.state.pending_check && !silent) {
           dndHeldPromptRef.current = response.state.pending_check.prompt
           setDndPendingCheck(response.state.pending_check)
           setDndPendingRoll(null)
@@ -15997,13 +16033,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setDndDiceDialogOpen(true)
         }
       } catch (error) {
-        setDndError(error instanceof Error ? error.message : 'Не удалось загрузить лист персонажа')
+        if (!silent) {
+          setDndError(error instanceof Error ? error.message : 'Не удалось загрузить лист персонажа')
+        }
       } finally {
-        setIsDndLoading(false)
+        if (!silent) {
+          setIsDndLoading(false)
+        }
       }
     },
     [applyDndState, authToken],
   )
+
+  // Read through refs from the turn pipeline: the off-turn catch-up refresh must not drag the
+  // whole D&D wiring into runStoryGeneration's dependency list.
+  const isDndModeRef = useRef(false)
+  const refreshDndStateRef = useRef<((gameId: number) => Promise<void>) | null>(null)
+  useEffect(() => {
+    isDndModeRef.current = isDndMode
+  }, [isDndMode])
+  useEffect(() => {
+    refreshDndStateRef.current = (gameId: number) => loadDndState(gameId, { silent: true })
+  }, [loadDndState])
 
   useEffect(() => {
     if (!isDndMode || !activeGameId) {
@@ -18751,6 +18802,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       let generationFailed = false
       let generationCancelledByUser = false
       let postprocessPending = false
+      let postprocessDeferred = false
       let startedAssistantMessageId: number | null = null
       let completedAssistantMessageId: number | null = null
       const completedPayloadRef: { current: StoryStreamDonePayload | null } = { current: null }
@@ -18948,6 +19000,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               )
             }
             postprocessPending = Boolean(payload.postprocess_pending)
+            postprocessDeferred = Boolean(payload.postprocess_deferred)
             if (payload.token_limit_warning) {
               setErrorMessage(payload.token_limit_warning)
             }
@@ -19096,6 +19149,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           completedAssistantMessageId !== null &&
           !postprocessPending
         const shouldPollPostprocessInBackground = !generationCancelledByUser && postprocessPending
+        // The turn's character / graph / D&D modules now run off-turn so they cannot make the
+        // player wait. They normally land within a few seconds, so this is a short, light
+        // catch-up refresh rather than the minute-long retry loop a *failed* module gets.
+        const shouldSyncDeferredPostprocess =
+          !generationCancelledByUser && postprocessDeferred && !postprocessPending
         const canContinueDeferredTurnSync = () =>
           activeGameIdRef.current === options.gameId && generationRequestRef.current === null
 
@@ -19169,6 +19227,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 })
                 if (refreshed) {
                   break
+                }
+              }
+            }
+
+            if (shouldSyncDeferredPostprocess) {
+              for (const delayMs of [2500, 5000, 10000]) {
+                await new Promise<void>((resolve) => {
+                  window.setTimeout(resolve, delayMs)
+                })
+                if (!canContinueDeferredTurnSync()) {
+                  break
+                }
+                try {
+                  await loadGameById(options.gameId, { silent: true, suppressErrors: true })
+                  if (isDndModeRef.current) {
+                    // The sheet is not part of the game snapshot, so it needs its own refresh
+                    // once the off-turn upkeep has applied hit points, XP, the clock and the
+                    // NPC roster.
+                    await refreshDndStateRef.current?.(options.gameId)
+                  }
+                } catch {
+                  // Catch-up only; the next attempt (or the player's next turn) picks it up.
                 }
               }
             }

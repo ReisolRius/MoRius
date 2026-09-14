@@ -29,6 +29,7 @@ from app.services.story_game_operation_lock import (
     StoryGameOperationBusyError,
     acquire_story_game_operation_lock,
 )
+from app.services.story_runtime import STORY_OPERATION_LOCK_WAIT_SECONDS
 from app.services.story_messages import parse_story_message_variant_history, story_message_to_out
 from app.services.story_novel import (
     is_story_visual_novel_enabled,
@@ -40,7 +41,9 @@ from app.services.story_text import normalize_story_text
 router = APIRouter()
 logger = logging.getLogger(__name__)
 STORY_MESSAGE_BUSY_DETAIL = STORY_GAME_OPERATION_BUSY_DETAIL
-_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 15.0
+# Sized against the longest a finished turn can hold this game's lock (~26s). See
+# STORY_OPERATION_LOCK_WAIT_SECONDS in story_runtime for the reasoning.
+_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = STORY_OPERATION_LOCK_WAIT_SECONDS
 _STORY_INLINE_EDIT_RAW_KEEP_LATEST_ASSISTANT_TURNS = 1
 _STORY_INLINE_EDIT_REPLACEABLE_MEMORY_LAYERS = {
     STORY_MEMORY_LAYER_LATEST_FULL,

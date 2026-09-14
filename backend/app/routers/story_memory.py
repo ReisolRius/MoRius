@@ -22,6 +22,11 @@ from app.services.story_game_operation_lock import (
     StoryGameOperationBusyError,
     acquire_story_game_operation_lock,
 )
+from app.services.story_runtime import (
+    STORY_OPERATION_LOCK_WAIT_SECONDS,
+    STORY_TURN_SERVICE_DEADLINE_SECONDS,
+)
+from app.services.story_service_budget import use_story_turn_service_deadline
 from app.services.story_graph import delete_story_graph_card_references
 from app.services.story_memory import (
     STORY_MEMORY_LAYER_KEY,
@@ -38,7 +43,9 @@ logger = logging.getLogger(__name__)
 
 _MEMORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9A-Za-zА-Яа-яЁё]+|[^\s]", re.IGNORECASE)
 
-_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 15.0
+# Sized against the longest a finished turn can hold this game's lock (~26s). See
+# STORY_OPERATION_LOCK_WAIT_SECONDS in story_runtime for the reasoning.
+_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = STORY_OPERATION_LOCK_WAIT_SECONDS
 
 
 def _acquire_story_operation_lease_or_409(*, game_id: int, operation: str):
@@ -177,14 +184,18 @@ def optimize_story_memory(
             optimize_memory_fn = getattr(story_memory_pipeline, "_optimize_story_memory_state", None)
             if not callable(optimize_memory_fn):
                 raise RuntimeError("Story memory optimization helper is unavailable")
-            optimize_memory_fn(
-                db=db,
-                game=game,
-                starting_assistant_message_id=starting_assistant_message_id,
-                max_assistant_messages=int(payload.max_assistant_messages or 48),
-                max_model_requests=1,
-                require_model_compaction=False,
-            )
+            # Explicitly asked for by the player, so it does run inline -- but under the same
+            # wall-clock ceiling as a turn's own service work, so the lock hold stays inside
+            # what every other operation is prepared to wait for.
+            with use_story_turn_service_deadline(STORY_TURN_SERVICE_DEADLINE_SECONDS):
+                optimize_memory_fn(
+                    db=db,
+                    game=game,
+                    starting_assistant_message_id=starting_assistant_message_id,
+                    max_assistant_messages=int(payload.max_assistant_messages or 48),
+                    max_model_requests=1,
+                    require_model_compaction=False,
+                )
             db.commit()
         except Exception as exc:
             detail = str(exc).strip() or "Failed to optimize story memory"

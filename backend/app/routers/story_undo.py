@@ -14,6 +14,7 @@ from app.services.story_game_operation_lock import (
     acquire_story_game_operation_lock,
 )
 from app.services.story_generation_cancel import cancel_story_generation
+from app.services.story_runtime import STORY_OPERATION_LOCK_WAIT_SECONDS
 from app.services.story_queries import get_user_story_game_or_404
 from app.services.story_undo import (
     redo_story_assistant_step,
@@ -24,9 +25,11 @@ from app.services.story_undo import (
 
 router = APIRouter()
 # Three seconds was shorter than the tail of a perfectly normal turn, so undo raced the
-# turn it was trying to undo and told the player the turn was "still syncing".
-_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 12.0
-_STORY_OPERATION_LOCK_CANCEL_WAIT_SECONDS = 20.0
+# turn it was trying to undo and told the player the turn was "still syncing". A finished
+# turn now holds this game for at most ~26s (STORY_TURN_SERVICE_DEADLINE_SECONDS plus row
+# work), so waiting well past that means undo simply never collides with one.
+_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = STORY_OPERATION_LOCK_WAIT_SECONDS
+_STORY_OPERATION_LOCK_CANCEL_WAIT_SECONDS = 25.0
 
 
 def _acquire_story_operation_lease_or_409(*, game_id: int, operation: str):

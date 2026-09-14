@@ -98,6 +98,18 @@ def _run_story_memory_compaction(game_id: int) -> None:
             )
             db.rollback()
 
+        # Collapse turns that earlier builds gave more than one narrative memory block. Those
+        # duplicates are invisible in the transcript but charged against the player's context
+        # budget on every later turn, so healing them is part of keeping the game honest.
+        try:
+            story_memory_pipeline._dedupe_story_turn_narrative_memory_blocks(db=db, game=game)
+            db.commit()
+        except Exception:
+            logger.warning(
+                "Background duplicate-memory collapse failed: game_id=%s", game_id, exc_info=True
+            )
+            db.rollback()
+
         # require_model_compaction stays False on purpose: a failure here has no caller to
         # report to, and raising would only lose the blocks that did compact successfully.
         # Failed blocks are left marked pending and retried by a later run.

@@ -27,6 +27,10 @@ class StoryGameOperationBusyError(RuntimeError):
     pass
 
 
+STORY_LOCK_PRIORITY_INTERACTIVE = "interactive"
+STORY_LOCK_PRIORITY_BACKGROUND = "background"
+
+
 @dataclass
 class _StoryGameLockEntry:
     lock: Lock
@@ -35,6 +39,10 @@ class _StoryGameLockEntry:
     # sitting on the lock instead of just saying the game is busy.
     holder_operation: str = ""
     holder_since: float = 0.0
+    # How many player-facing operations are queued behind the current holder. Background work
+    # polls this and hands the lock back the moment somebody is actually waiting on it, which
+    # is what keeps off-turn catch-up from ever turning into "the turn is still syncing".
+    interactive_waiters: int = 0
 
     def describe_holder(self) -> str:
         operation = self.holder_operation or "unknown"
@@ -199,11 +207,28 @@ def _acquire_postgresql_story_game_lock(
     return connection
 
 
+def story_game_operation_preempt_requested(game_id: int) -> bool:
+    """True when a player-facing operation is queued behind whoever holds this game's lock.
+
+    Background catch-up work (post-turn modules, compaction) polls this between steps and
+    releases early. Off-turn work is by definition not urgent; a player who just pressed
+    something is. Without this the background job and the player would simply race for the
+    lock, and whoever lost would see the "the turn is still syncing" toast.
+    """
+    normalized_game_id = int(game_id or 0)
+    if normalized_game_id <= 0:
+        return False
+    with _LOCK_REGISTRY_GUARD:
+        entry = _LOCK_REGISTRY.get(normalized_game_id)
+        return bool(entry is not None and entry.interactive_waiters > 0)
+
+
 def acquire_story_game_operation_lock(
     game_id: int,
     *,
     operation: str,
     wait_timeout_seconds: float | None = None,
+    priority: str = STORY_LOCK_PRIORITY_INTERACTIVE,
 ) -> StoryGameOperationLease:
     normalized_game_id = int(game_id or 0)
     normalized_operation = str(operation or "").strip() or "unknown"
@@ -222,11 +247,21 @@ def acquire_story_game_operation_lock(
             _LOCK_REGISTRY[normalized_game_id] = entry
         entry.ref_count += 1
 
+    is_interactive = str(priority or STORY_LOCK_PRIORITY_INTERACTIVE) != STORY_LOCK_PRIORITY_BACKGROUND
+    if is_interactive:
+        with _LOCK_REGISTRY_GUARD:
+            entry.interactive_waiters += 1
+
     wait_started_at = time.monotonic()
-    if wait_timeout_seconds is None:
-        acquired = entry.lock.acquire()
-    else:
-        acquired = entry.lock.acquire(timeout=max(float(wait_timeout_seconds), 0.0))
+    try:
+        if wait_timeout_seconds is None:
+            acquired = entry.lock.acquire()
+        else:
+            acquired = entry.lock.acquire(timeout=max(float(wait_timeout_seconds), 0.0))
+    finally:
+        if is_interactive:
+            with _LOCK_REGISTRY_GUARD:
+                entry.interactive_waiters = max(entry.interactive_waiters - 1, 0)
     if not acquired:
         logger.warning(
             "Story game operation lock wait timed out: game_id=%s operation=%s waited_for=%.3fs holder=%s",

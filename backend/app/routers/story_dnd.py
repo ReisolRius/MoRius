@@ -121,6 +121,7 @@ from app.services.story_game_operation_lock import (
     StoryGameOperationBusyError,
     acquire_story_game_operation_lock,
 )
+from app.services.story_runtime import STORY_OPERATION_LOCK_WAIT_SECONDS
 from app.services.story_queries import (
     get_user_story_game_or_404,
     list_story_world_cards,
@@ -131,7 +132,9 @@ from app.services.story_queries import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 15.0
+# Sized against the longest a finished turn can hold this game's lock (~26s). See
+# STORY_OPERATION_LOCK_WAIT_SECONDS in story_runtime for the reasoning.
+_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = STORY_OPERATION_LOCK_WAIT_SECONDS
 
 # One service-model HTTP request each, priced on the same basis as the existing per-turn
 # service modules (see STORY_ENVIRONMENT_TIME_TURN_SURCHARGE_TOKENS in story_runtime): one

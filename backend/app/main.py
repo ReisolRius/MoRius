@@ -1267,6 +1267,7 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "mistralai/mistral-nemo": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-3.0": STORY_SERVICE_TEXT_MODEL,
+    "aion-labs/aion-3.0-mini": STORY_SERVICE_TEXT_MODEL,
     "anthropic/claude-sonnet-4.6": STORY_SERVICE_TEXT_MODEL,
     "google/gemini-2.5-pro": STORY_SERVICE_TEXT_MODEL,
     "google/gemini-3.1-pro-preview": STORY_SERVICE_TEXT_MODEL,
@@ -1306,6 +1307,7 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "mistralai/mistral-nemo": STORY_POLZA_PROVIDER_AZURE,
     "aion-labs/aion-2.0": STORY_POLZA_PROVIDER_AION_LABS,
     "aion-labs/aion-3.0": STORY_POLZA_PROVIDER_AION_LABS,
+    "aion-labs/aion-3.0-mini": STORY_POLZA_PROVIDER_AION_LABS,
     "google/gemini-3.1-flash-lite": STORY_POLZA_PROVIDER_ROUTERAI,
     "moonshotai/kimi-k2.6": STORY_POLZA_PROVIDER_ROUTERAI,
     "moonshotai/kimi-k3": STORY_POLZA_PROVIDER_ROUTERAI,
@@ -1326,6 +1328,7 @@ STORY_PAID_MODEL_HINTS = {
     "mistralai/mistral-nemo",
     "aion-labs/aion-2.0",
     "aion-labs/aion-3.0",
+    "aion-labs/aion-3.0-mini",
     "google/gemini-3.1-flash-lite",
     "anthropic/claude-sonnet-4.6",
     "google/gemini-2.5-pro",
@@ -1594,6 +1597,11 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
     "aion-labs/aion-3.0": (
         "Твоя сила — логика и связность: строй продуманные сцены, где причины и следствия выверены.",
         "Глубину создавай через поведение, подтекст и последовательность характеров, а не через длинные объяснения.",
+    ),
+    "aion-labs/aion-3.0-mini": (
+        "Твоя сила — логика и связность: строй продуманные сцены, где причины и следствия выверены.",
+        "Глубину создавай через поведение, подтекст и последовательность характеров, а не через длинные объяснения.",
+        "Ты компактная модель: не растекайся. Лучше короче и плотнее, чем длиннее и водянистее.",
     ),
     "openai/gpt-5.6-luna-pro": (
         "Ты думаешь быстро и точно, но в сцену отдаёшь только живую прозу — без разборов, планов и служебных пометок.",
@@ -10031,10 +10039,17 @@ def _seed_story_opening_scene_memory_block(
         )
         return False
     try:
-        _rebalance_story_memory_layers(db=db, game=game)
+        # Compaction here used to run inline, with up to three service-model round trips, on
+        # the very first turn of a game -- while this game's operation lock was held. Anything
+        # the player did in those seconds came back as "Ход еще синхронизируется" on turn 0 of
+        # a brand-new story. Nothing needs the opening block compacted before the first turn
+        # is answered: an uncompacted block is simply sent to the narrator as-is.
+        from app.services.story_memory_background import schedule_story_memory_compaction
+
+        schedule_story_memory_compaction(game.id)
     except Exception as exc:
         logger.warning(
-            "Opening scene memory rebalance failed: game_id=%s assistant_message_id=%s error=%s",
+            "Opening scene memory compaction could not be scheduled: game_id=%s assistant_message_id=%s error=%s",
             game.id,
             assistant_message.id,
             exc,

@@ -35,6 +35,7 @@ export type StoryNarratorModelId =
   | 'mistralai/mistral-nemo'
   | 'aion-labs/aion-2.0'
   | 'aion-labs/aion-3.0'
+  | 'aion-labs/aion-3.0-mini'
   | 'google/gemini-3.1-flash-lite'
   | 'anthropic/claude-sonnet-4.6'
   | 'google/gemini-2.5-pro'
@@ -794,6 +795,9 @@ export type StoryStreamDonePayload = {
   dnd?: DndState
   ambient?: StoryAmbientProfile
   postprocess_pending?: boolean
+  // The turn finished and was paid for; its character / graph / D&D modules are
+  // running off-turn and their results land a few seconds later.
+  postprocess_deferred?: boolean
   cancelled?: boolean
   token_limit_finish_reason?: string | null
   token_limit_repair_attempted?: boolean

@@ -135,12 +135,24 @@ STORY_SQLITE_BUSY_DETAIL = STORY_GAME_OPERATION_BUSY_DETAIL
 STORY_POSTPROCESS_STATUS_COMMITTED = "storyteller_succeeded_committed"
 STORY_POSTPROCESS_STATUS_FAILED_RETRYABLE = "storyteller_succeeded_postprocessing_failed_retryable"
 STORY_POSTPROCESS_STATUS_PENDING = "storyteller_succeeded_postprocessing_pending"
-# Whole-turn ceiling on post-narrator service work (world/character modules, baseline
-# memory sync). Memory compaction is not counted here -- it runs off-turn entirely.
-STORY_TURN_SERVICE_DEADLINE_SECONDS = 45.0
-STORY_GENERATE_LOCK_WAIT_SECONDS = 15.0
-STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 20.0
+# Wall-clock ceiling on the ONLY service work a turn still does while holding this game's
+# lock: Call A «Мир» (место / время / погода / важное событие / ambient). Everything else --
+# Call B «Персонажи», the graph, the D&D upkeep, memory compaction -- was moved off-turn to
+# story_turn_postprocess_background, so this is one bounded request rather than a chain of
+# them. It is deliberately smaller than every lock wait below: the longest a finished turn can
+# hold this game must stay comfortably under the shortest time anyone is willing to wait for
+# it, because the gap between those two numbers is exactly where
+# "Ход еще синхронизируется" used to live.
+STORY_TURN_SERVICE_DEADLINE_SECONDS = 25.0
+# Waits, sized against the ceiling above with a wide margin. A finished turn cannot hold the
+# lock for more than ~26s, so a 40s wait never expires on one; what remains beyond that is a
+# narrator still streaming, and the cancel below is what clears that case.
+STORY_GENERATE_LOCK_WAIT_SECONDS = 40.0
+STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 25.0
 STORY_GENERATE_LOCK_POLL_SECONDS = 0.75
+# Shared by every player-facing endpoint that has to touch a game (undo, redo, reroll, message
+# edit, variant switch, memory edit, D&D). Same reasoning as above.
+STORY_OPERATION_LOCK_WAIT_SECONDS = 40.0
 STORY_PROVIDER_HEARTBEAT_SECONDS = 8.0
 STORY_STREAM_RELAY_HEARTBEAT_SECONDS = 1.0
 STORY_VISUAL_NOVEL_MATERIALIZATION_ERROR_DETAIL = (
@@ -165,12 +177,8 @@ STORY_CHARACTER_AUTOMATION_TURN_SURCHARGE_TOKENS = 1
 # on the same basis as the modules above -- one sol per bounded service request.
 STORY_DND_TURN_SURCHARGE_TOKENS = 1
 STORY_DND_MAX_SERVICE_REQUESTS = 1
-# The D&D upkeep gets its own wall-clock allowance instead of the tail end of the shared
-# STORY_TURN_SERVICE_DEADLINE_SECONDS. It runs after memory and the graph, so on a busy turn
-# the shared budget is already spent by the time it starts -- and unlike a memory summary,
-# which can catch up next turn, this module *is* the mode: without it no quest, note, hit
-# point or fight ever reaches the sheet. Still bounded, because the per-game operation lease
-# is held throughout and a turn that never finishes syncing is its own bug.
+# Kept for compatibility with anything that still imports it. The D&D upkeep itself now runs
+# in story_turn_postprocess_background under that module's own allowance, off the turn's lock.
 STORY_DND_SERVICE_DEADLINE_SECONDS = 60.0
 STORY_STREAM_RETRY_DELAYS_SECONDS = (1.0, 2.5, 5.0, 8.0)
 STORY_CONTINUE_MODEL_PROMPT = (
@@ -1250,6 +1258,52 @@ def _checkpoint_story_raw_turn_memory(
         return False
 
 
+def _schedule_deferred_story_turn_postprocess(
+    *,
+    game_id: int,
+    assistant_message_id: int,
+    character_state_enabled: bool,
+    auto_npc_cards_enabled: bool,
+    graph_enabled: bool,
+    dnd_enabled: bool,
+    dnd_consumed_roll: dict[str, Any] | None,
+    turn_index: int,
+    precharged_graph_cost_tokens: int,
+    owner_user_id: int,
+) -> bool:
+    """Hand the rest of this turn's post-process to the off-turn worker.
+
+    Returns True when something was actually queued, which is also what tells the client to
+    keep refreshing the game for a little while so the late results reach the screen.
+    """
+    if not (character_state_enabled or auto_npc_cards_enabled or graph_enabled or dnd_enabled):
+        return False
+    try:
+        from app.services.story_turn_postprocess_background import schedule_story_turn_postprocess
+
+        return bool(
+            schedule_story_turn_postprocess(
+                game_id=game_id,
+                assistant_message_id=assistant_message_id,
+                dnd_enabled=dnd_enabled,
+                dnd_consumed_roll=dnd_consumed_roll,
+                turn_index=turn_index,
+                precharged_graph_cost_tokens=precharged_graph_cost_tokens,
+                owner_user_id=owner_user_id,
+            )
+        )
+    except Exception:
+        # A turn that is already finished and paid for must never fail over scheduling its own
+        # catch-up: the modules are retried on a later turn anyway.
+        logger.warning(
+            "Could not schedule deferred story turn post-process: game_id=%s assistant_message_id=%s",
+            game_id,
+            assistant_message_id,
+            exc_info=True,
+        )
+        return False
+
+
 def _best_effort_sync_story_turn_memory_and_environment(
     *,
     deps: StoryRuntimeDeps,
@@ -1649,6 +1703,7 @@ def _stream_story_response(
     is_subscription_turn: bool = False,
     subscription_daily_turn_limit: int = 0,
     subscription_period_start: str = "",
+    release_turn_lock: Callable[[], None] | None = None,
 ):
     if is_subscription_turn:
         # The subscription covers the ordinary narrator turn. Optional reasoning is an explicit
@@ -1699,6 +1754,23 @@ def _stream_story_response(
     stream_error: str | None = None
     assistant_message_finalized = False
     raw_memory_checkpointed = False
+    # Set the moment the player has actually been charged for this turn (or had a subscription
+    # turn consumed). From then on the turn belongs to them and a cancellation can only ever
+    # mean "skip the rest of the bookkeeping" -- never "throw the paid turn away".
+    turn_committed = False
+    cancel_after_commit = False
+
+    turn_lock_released = False
+
+    def _release_turn_lock_once() -> None:
+        nonlocal turn_lock_released
+        if turn_lock_released or release_turn_lock is None:
+            return
+        turn_lock_released = True
+        try:
+            release_turn_lock()
+        except Exception:
+            logger.exception("Failed to release story turn lock early: game_id=%s", game.id)
 
     def _list_story_memory_blocks_for_client() -> list[Any]:
         blocks = list(deps.list_story_memory_blocks(db, game.id))
@@ -1711,14 +1783,32 @@ def _stream_story_response(
         ]
 
     def _stop_requested(stage: str, *, rollback: bool = False) -> bool:
+        nonlocal cancel_after_commit
         if not is_story_generation_cancelled(int(game.id), story_generation_id):
             return False
         logger.info(
-            "Story generation cancellation acknowledged: game_id=%s assistant_message_id=%s stage=%s",
+            "Story generation cancellation acknowledged: game_id=%s assistant_message_id=%s stage=%s committed=%s",
             game.id,
             getattr(assistant_message, "id", None),
             stage,
+            turn_committed,
         )
+        if turn_committed:
+            # The player has paid and the text is already on their screen. Abandoning the turn
+            # here is what silently ate balances: anything that wanted this game's lock --
+            # the next turn, a reroll, an undo -- cancelled the in-flight generation to get
+            # in, and the turn it interrupted had already been charged. Nothing is rolled
+            # back; the remaining optional modules are skipped and the turn still lands.
+            if not cancel_after_commit:
+                logger.info(
+                    "Story generation cancelled after commit; keeping the paid turn: "
+                    "game_id=%s assistant_message_id=%s stage=%s",
+                    game.id,
+                    getattr(assistant_message, "id", None),
+                    stage,
+                )
+            cancel_after_commit = True
+            return False
         if rollback:
             try:
                 db.rollback()
@@ -2268,6 +2358,7 @@ def _stream_story_response(
             if turn_cost_tokens <= 0:
                 commit_with_retry(db)
                 db.refresh(user)
+                turn_committed = True
         except Exception as exc:
             logger.exception(
                 "Failed to consume subscription turn: game_id=%s user_id=%s",
@@ -2292,6 +2383,7 @@ def _stream_story_response(
                 return
             commit_with_retry(db)
             db.refresh(user)
+            turn_committed = True
         except Exception as exc:
             logger.exception(
                 "Failed to charge successful story turn: game_id=%s user_id=%s tokens=%s",
@@ -2302,6 +2394,10 @@ def _stream_story_response(
             db.rollback()
             yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
             return
+
+    # A turn that costs nothing is committed the moment its text is final: the player is
+    # looking at it, so it is theirs on exactly the same terms as a paid one.
+    turn_committed = True
 
     if _stop_requested("after_billing"):
         return
@@ -2342,8 +2438,8 @@ def _stream_story_response(
             )
 
     unified_postprocess_payload: dict[str, Any] | None = None
-    # Общий потолок ≤5 применяется к служебной пост-обработке и baseline. Граф создаёт свой
-    # отдельный бюджет ниже, поэтому исчерпанный бюджет остальных модулей не блокирует ноды.
+    # Общий потолок применяется к служебной пост-обработке и baseline. Граф и остальные
+    # отложенные модули считаются отдельно, уже вне хода.
     turn_service_hard_budget = StoryServiceHttpRequestBudget(
         max_requests=STORY_TURN_MAX_SERVICE_REQUESTS
     )
@@ -2367,11 +2463,18 @@ def _stream_story_response(
     graph_request_budget = StoryServiceHttpRequestBudget(
         max_requests=STORY_GRAPH_MAX_SERVICE_REQUESTS
     )
-    if not aborted and response_has_content:
+    if not aborted and response_has_content and not cancel_after_commit:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "postprocess"})
         if _stop_requested("postprocess"):
             return
         try:
+            # ONLY the world half (Call A «Мир»: место, время, погода, важное событие,
+            # ambient) runs here, while the player is still looking at the turn that just
+            # landed -- those modules change what the next prompt says about the scene, so
+            # they are worth one bounded wait. Call B «Персонажи», the graph and the D&D
+            # upkeep are deferred to story_turn_postprocess_background: none of them changes
+            # anything the player can see this instant, and keeping them on the turn's lock
+            # is what used to turn a normal turn into "Ход еще синхронизируется".
             with turn_service_deadline_scope(), use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(service_request_budget):
                 unified_postprocess_payload = deps.resolve_story_turn_postprocess_payload(
                     db=db,
@@ -2383,13 +2486,16 @@ def _stream_story_response(
                     raw_memory_enabled=False,
                     location_enabled=True,
                     environment_enabled=_resolve_story_environment_runtime_flags(game)[0],
-                    character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
+                    character_state_enabled=False,
                     important_event_enabled=True,
                     ambient_enabled=ambient_enabled,
-                    auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
+                    auto_npc_cards_enabled=False,
                 )
-            if _stop_requested("postprocess_resolved", rollback=True):
-                return
+            # Probed for its side effect only: by this point the turn is committed, so a
+            # cancellation can no longer abandon it -- it just marks the remaining optional
+            # modules to be skipped. Rolling back here would throw away the world pass the
+            # player already paid for.
+            _stop_requested("postprocess_resolved")
         except Exception:
             logger.exception(
                 "Failed to resolve unified story post-process payload: game_id=%s assistant_message_id=%s",
@@ -2470,6 +2576,9 @@ def _stream_story_response(
 
         try:
             with turn_service_deadline_scope(), use_story_turn_hard_budget(turn_service_hard_budget), use_story_service_http_request_budget(service_request_budget):
+                # allow_model_postprocess_request=False keeps this a pure apply: every
+                # provider call this turn is allowed to make has already been made above, so
+                # the lock is held here only for row writes measured in milliseconds.
                 postprocess_result = deps.upsert_story_plot_memory_card(
                     db=db,
                     game=game,
@@ -2478,7 +2587,7 @@ def _stream_story_response(
                     latest_assistant_text_override=assistant_text_for_memory,
                     resolved_postprocess_payload_override=unified_postprocess_payload,
                     memory_optimization_enabled=memory_optimization_enabled,
-                    allow_model_postprocess_request=True,
+                    allow_model_postprocess_request=False,
                 )
                 if _stop_requested("memory_sync_resolved", rollback=True):
                     return
@@ -2546,174 +2655,31 @@ def _stream_story_response(
             postprocess_failed_modules.append("memory_sync")
             postprocess_status = STORY_POSTPROCESS_STATUS_FAILED_RETRYABLE
 
+        # --- Deferred from here on -------------------------------------------------------
+        # The knowledge graph and the D&D upkeep are each a service-model round trip, and
+        # neither changes anything the player is looking at right now: a graph edge is read on
+        # a later turn, and the D&D sheet is refreshed by the client. Running them here is
+        # what used to hold this game's lock for another minute or two after the turn was
+        # already finished and paid for -- so the next thing the player did queued behind
+        # them, timed out, and came back as "Ход еще синхронизируется" (and, because the
+        # waiter cancelled the generation to get in, cost them the turn they had paid for).
+        # They now run in story_turn_postprocess_background, which yields to the player.
         graph_enabled = bool(getattr(game, "auto_graph_nodes_enabled", False)) or bool(
             getattr(game, "auto_graph_edges_enabled", False)
         )
-        if graph_enabled:
-            yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "graph_sync"})
-            if _stop_requested("graph_sync"):
-                return
-            try:
-                from app.services.story_graph import analyze_story_graph_after_turn
+        deferred_postprocess_scheduled = False
 
-                with use_story_service_http_request_budget(graph_request_budget):
-                    graph_analysis_result = analyze_story_graph_after_turn(
-                        db=db,
-                        game=game,
-                        latest_user_prompt=prompt,
-                        latest_assistant_text=assistant_text_for_postprocess,
-                        assistant_message_id=int(assistant_message.id),
-                        apply_high_confidence=True,
-                        confidence_threshold=getattr(game, "graph_auto_apply_confidence", None),
-                        confirm_low_confidence=getattr(game, "graph_confirm_low_confidence", None),
-                        allow_model_request=True,
-                        allow_node_actions=bool(getattr(game, "auto_graph_nodes_enabled", False)),
-                        allow_edge_actions=bool(getattr(game, "auto_graph_edges_enabled", False)),
-                    )
-                if _stop_requested("graph_sync_resolved", rollback=True):
-                    return
-                commit_with_retry(db)
-            except Exception as exc:
-                logger.exception(
-                    "Story graph post-process failed independently: game_id=%s assistant_message_id=%s",
-                    game.id,
-                    assistant_message.id,
-                )
-                db.rollback()
-                graph_analysis_result = {
-                    "applied_cards": 0,
-                    "applied_nodes": 0,
-                    "applied_edges": 0,
-                    "updated_edges": 0,
-                    "suggestions_created": 0,
-                    "skipped": ["graph analysis failed"],
-                    "error": str(exc).strip()[:500],
-                }
-                try:
-                    from app.models import StoryGraphEvent
-
-                    db.add(
-                        StoryGraphEvent(
-                            game_id=int(game.id),
-                            assistant_message_id=int(assistant_message.id),
-                            event_type="analysis_failed",
-                            message="Gemini graph analysis failed",
-                            payload=json.dumps(
-                                {"error": str(exc).strip()[:1_000]},
-                                ensure_ascii=False,
-                            ),
-                        )
-                    )
-                    commit_with_retry(db)
-                except Exception:
-                    logger.exception(
-                        "Failed to persist story graph error event: game_id=%s assistant_message_id=%s",
-                        game.id,
-                        assistant_message.id,
-                    )
-                    db.rollback()
-
-        if dnd_enabled:
-            yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "dnd_sync"})
-            if _stop_requested("dnd_sync"):
-                return
-            try:
-                from app.services.story_dnd_apply import (
-                    apply_dnd_turn_upkeep,
-                    sync_dnd_npcs_from_world_cards,
-                )
-                from app.services.story_dnd_service import (
-                    describe_upkeep_for_log,
-                    resolve_dnd_turn_upkeep,
-                )
-
-                current_dnd_state = sync_dnd_npcs_from_world_cards(
-                    get_game_dnd_state(game),
-                    deps.list_story_world_cards(db, game.id),
-                )
-                upkeep_payload: dict[str, Any] | None = None
-                # Deliberately outside the shared turn budget on both axes -- time and request
-                # count. STORY_TURN_MAX_SERVICE_REQUESTS is 5 and the memory pipeline alone may
-                # spend all five, which would refuse this call outright on a busy turn. The
-                # single request below is capped locally and billed by
-                # STORY_DND_TURN_SURCHARGE_TOKENS either way, so nothing is unbounded or free;
-                # putting it back under the shared budget just makes the sheet stop updating.
-                with use_story_turn_service_deadline(
-                    STORY_DND_SERVICE_DEADLINE_SECONDS
-                ), use_story_service_http_request_budget(
-                    StoryServiceHttpRequestBudget(max_requests=STORY_DND_MAX_SERVICE_REQUESTS)
-                ):
-                    upkeep_payload = resolve_dnd_turn_upkeep(
-                        state=current_dnd_state,
-                        player_action=prompt,
-                        narrator_text=assistant_text_for_postprocess,
-                        roll_summary=describe_roll_for_prompt(dnd_consumed_roll),
-                        location_label=str(getattr(game, "current_location_label", "") or ""),
-                        existing_npc_cards=[
-                            {
-                                "id": int(getattr(card, "id", 0) or 0),
-                                "name": str(getattr(card, "title", "") or ""),
-                            }
-                            for card in deps.list_story_world_cards(db, game.id)
-                            if str(getattr(card, "kind", "") or "").strip().lower() == "npc"
-                        ],
-                        game_id=int(game.id),
-                    )
-                if _stop_requested("dnd_sync_resolved", rollback=True):
-                    return
-                next_dnd_state, dnd_changes = apply_dnd_turn_upkeep(
-                    current_dnd_state,
-                    upkeep_payload or {},
-                    turn_index=int(turn_index or 0),
-                    location_label=str(getattr(game, "current_location_label", "") or ""),
-                )
-                next_dnd_state["turn_count"] = max(int(current_dnd_state.get("turn_count") or 0), 0) + 1
-                if isinstance(next_dnd_state.get("last_roll"), dict) and dnd_consumed_roll is not None:
-                    next_dnd_state["last_roll"]["consumed"] = True
-                dnd_state_for_client = set_game_dnd_state(game, next_dnd_state)
-                # Stamp the turn with the sheet it produced, so undo can put it back.
-                assistant_message.dnd_state_snapshot = str(getattr(game, "dnd_state_payload", "") or "")
-                deps.touch_story_game(game)
-                commit_with_retry(db)
-                logger.info(
-                    "Story D&D upkeep applied: game_id=%s assistant_message_id=%s %s changes=%s",
-                    game.id,
-                    assistant_message.id,
-                    describe_upkeep_for_log(upkeep_payload or {}),
-                    "; ".join(dnd_changes[:12]) or "none",
-                )
-            except Exception:
-                # The sheet falling behind by one turn is survivable; losing the turn is not.
-                logger.exception(
-                    "Story D&D upkeep failed: game_id=%s assistant_message_id=%s",
-                    game.id,
-                    assistant_message.id,
-                )
-                db.rollback()
-                try:
-                    bumped_state = get_game_dnd_state(game)
-                    bumped_state["turn_count"] = max(int(bumped_state.get("turn_count") or 0), 0) + 1
-                    if isinstance(bumped_state.get("last_roll"), dict) and dnd_consumed_roll is not None:
-                        bumped_state["last_roll"]["consumed"] = True
-                    dnd_state_for_client = set_game_dnd_state(game, bumped_state)
-                    commit_with_retry(db)
-                except Exception:
-                    logger.exception("Failed to advance D&D turn counter: game_id=%s", game.id)
-                    db.rollback()
-
-        actual_graph_cost_tokens = 0
-        if graph_enabled and int(graph_request_budget.used_requests or 0) > 0:
-            actual_graph_cost_tokens = max(
-                1,
-                min(int(graph_request_budget.used_requests or 0), STORY_GRAPH_MAX_SERVICE_REQUESTS),
-            )
-        if graph_enabled and isinstance(graph_analysis_result, dict):
-            graph_analysis_result["gemini_request_count"] = actual_graph_cost_tokens
-            graph_analysis_result["cost_tokens"] = 0 if is_subscription_turn else actual_graph_cost_tokens
         prepaid_graph_cost_tokens = max(
             0,
             min(int(precharged_graph_cost_tokens or 0), STORY_GRAPH_MAX_SERVICE_REQUESTS),
         )
+        # The graph is pre-charged at its worst case and refunded down to what it actually
+        # spent. Now that the analysis itself runs off-turn, so does that refund: the deferred
+        # job knows the real request count and gives the difference back a few seconds later.
+        # Deliberately NOT refunded-then-recharged here -- a player who spent the sols in the
+        # meantime would get the analysis for free.
+        graph_refund_deferred = bool(graph_enabled and prepaid_graph_cost_tokens > 0 and not is_subscription_turn)
+        actual_graph_cost_tokens = prepaid_graph_cost_tokens if graph_refund_deferred else 0
         actual_turn_cost_tokens = (
             0
             if is_subscription_turn
@@ -2736,13 +2702,11 @@ def _stream_story_response(
                 db.rollback()
 
         logger.info(
-            "Story service request usage: game_id=%s assistant_message_id=%s memory_gemini_requests=%s/%s graph_gemini_requests=%s/%s",
+            "Story inline service request usage: game_id=%s assistant_message_id=%s world_requests=%s/%s graph=deferred",
             game.id,
             assistant_message.id,
             service_request_budget.used_requests,
             service_request_budget.max_requests,
-            graph_request_budget.used_requests,
-            graph_request_budget.max_requests,
         )
 
         memory_blocks_after_postprocess = deps.list_story_memory_blocks(db, game.id)
@@ -2784,6 +2748,25 @@ def _stream_story_response(
         if _stop_requested("done_payload"):
             return
 
+        # A turn the player deliberately stopped gets no further module work of any kind --
+        # its text and memory are already durable, which is all the story needs from it.
+        deferred_postprocess_scheduled = False if cancel_after_commit else _schedule_deferred_story_turn_postprocess(
+            game_id=int(game.id),
+            assistant_message_id=int(assistant_message.id),
+            character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
+            auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
+            graph_enabled=graph_enabled,
+            dnd_enabled=dnd_enabled,
+            dnd_consumed_roll=dnd_consumed_roll,
+            turn_index=int(turn_index or 0),
+            precharged_graph_cost_tokens=prepaid_graph_cost_tokens if graph_refund_deferred else 0,
+            owner_user_id=int(getattr(user, "id", 0) or 0),
+        )
+        # Deliberately NOT folded into postprocess_pending: that flag means "a module failed
+        # and will be retried", and it makes the client poll hard for a full minute. Deferred
+        # work is the normal path now, so it gets its own flag and a short, light refresh --
+        # see the deferred-turn sync in StoryGamePage.
+
         _purge_discarded_assistant_steps_after_success()
         _finalize_story_message_variant_log()
         ai_memory_blocks_payload = _safe_dump_stream_items(
@@ -2821,6 +2804,7 @@ def _stream_story_response(
             ),
             "plot_card_created": plot_card_created,
             "postprocess_pending": postprocess_pending,
+            "postprocess_deferred": deferred_postprocess_scheduled,
             "postprocess_failed": postprocess_failed,
             "postprocess_status": postprocess_status,
             "postprocess_failed_modules": postprocess_failed_modules,
@@ -2883,6 +2867,13 @@ def _stream_story_response(
             done_payload["game"] = game_payload
         if isinstance(ambient_payload, dict):
             done_payload["ambient"] = ambient_payload
+
+        # Every row this turn writes is now committed. Hand the game's lock back before the
+        # payload goes out, so the very next thing the player does -- the next turn, a reroll,
+        # an undo, an edit -- finds the game free instead of queueing behind bookkeeping that
+        # no longer runs here anyway. Releasing twice is a no-op; the generate worker's own
+        # finally stays the safety net.
+        _release_turn_lock_once()
         try:
             yield _sse_event("done", done_payload)
         except Exception as exc:
@@ -2969,6 +2960,9 @@ def _stream_story_response(
                 )
                 db.rollback()
         done_payload["game"] = game_payload
+
+    # Same contract as the post-process branch above: release once everything is durable.
+    _release_turn_lock_once()
     try:
         yield _sse_event("done", done_payload)
     except Exception as exc:
@@ -2984,6 +2978,7 @@ def _generate_story_response_locked(
     authorization: str | None,
     db: Session,
     as_stream: bool = False,
+    release_turn_lock: Callable[[], None] | None = None,
 ) -> StreamingResponse | Any:
     deps.validate_provider_config()
     user = deps.get_current_user(db, authorization)
@@ -3939,6 +3934,7 @@ def _generate_story_response_locked(
         subscription_period_start=(
             str(subscription_entitlement["period_start"]) if subscription_entitlement else ""
         ),
+        release_turn_lock=release_turn_lock,
     )
 
     def _safe_stream():
@@ -4039,6 +4035,11 @@ def generate_story_response(
                 if stop_event.is_set():
                     raise StoryGenerationCancelled("Story generation stream was closed before preparation")
 
+                # The turn's own lease. _stream_story_response hands it back the moment the
+                # narrator's text is final, paid for and the world/time/weather pass is
+                # applied -- everything after that is off-turn catch-up that the player must
+                # never be made to queue behind. Releasing twice is a no-op, so the worker's
+                # own finally below stays the safety net.
                 stream = _generate_story_response_locked(
                     deps=deps,
                     game_id=game_id,
@@ -4046,6 +4047,7 @@ def generate_story_response(
                     authorization=authorization,
                     db=worker_db,
                     as_stream=True,
+                    release_turn_lock=(operation_lease.release if operation_lease is not None else None),
                 )
                 stream_iterator = iter(stream)
                 for chunk in stream_iterator:
