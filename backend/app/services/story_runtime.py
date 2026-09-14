@@ -2748,25 +2748,6 @@ def _stream_story_response(
         if _stop_requested("done_payload"):
             return
 
-        # A turn the player deliberately stopped gets no further module work of any kind --
-        # its text and memory are already durable, which is all the story needs from it.
-        deferred_postprocess_scheduled = False if cancel_after_commit else _schedule_deferred_story_turn_postprocess(
-            game_id=int(game.id),
-            assistant_message_id=int(assistant_message.id),
-            character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
-            auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
-            graph_enabled=graph_enabled,
-            dnd_enabled=dnd_enabled,
-            dnd_consumed_roll=dnd_consumed_roll,
-            turn_index=int(turn_index or 0),
-            precharged_graph_cost_tokens=prepaid_graph_cost_tokens if graph_refund_deferred else 0,
-            owner_user_id=int(getattr(user, "id", 0) or 0),
-        )
-        # Deliberately NOT folded into postprocess_pending: that flag means "a module failed
-        # and will be retried", and it makes the client poll hard for a full minute. Deferred
-        # work is the normal path now, so it gets its own flag and a short, light refresh --
-        # see the deferred-turn sync in StoryGamePage.
-
         _purge_discarded_assistant_steps_after_success()
         _finalize_story_message_variant_log()
         ai_memory_blocks_payload = _safe_dump_stream_items(
@@ -2867,6 +2848,28 @@ def _stream_story_response(
             done_payload["game"] = game_payload
         if isinstance(ambient_payload, dict):
             done_payload["ambient"] = ambient_payload
+
+        # A turn the player deliberately stopped gets no further module work of any kind --
+        # its text and memory are already durable, which is all the story needs from it.
+        deferred_postprocess_scheduled = False if cancel_after_commit else _schedule_deferred_story_turn_postprocess(
+            game_id=int(game.id),
+            assistant_message_id=int(assistant_message.id),
+            character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
+            auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
+            graph_enabled=graph_enabled,
+            dnd_enabled=dnd_enabled,
+            dnd_consumed_roll=dnd_consumed_roll,
+            turn_index=int(turn_index or 0),
+            precharged_graph_cost_tokens=prepaid_graph_cost_tokens if graph_refund_deferred else 0,
+            owner_user_id=int(getattr(user, "id", 0) or 0),
+        )
+        # Deliberately NOT folded into postprocess_pending: that flag means "a module failed
+        # and will be retried", and it makes the client poll hard for a full minute. Deferred
+        # work is the normal path now, so it gets its own flag and a short, light refresh --
+        # see the deferred-turn sync in StoryGamePage. Scheduling happens here, after the
+        # reroll purge and the variant log are committed, so the worker cannot read the turn
+        # mid-rewrite -- which means the payload's copy of the flag has to be set now too.
+        done_payload["postprocess_deferred"] = deferred_postprocess_scheduled
 
         # Every row this turn writes is now committed. Hand the game's lock back before the
         # payload goes out, so the very next thing the player does -- the next turn, a reroll,
