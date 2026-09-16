@@ -14,7 +14,7 @@ function LegalDocumentPage({ title, content, onNavigate }: LegalDocumentPageProp
       sx={{
         minHeight: '100svh',
         background:
-          'radial-gradient(circle at 68% 10%, rgba(130, 162, 192, 0.16) 0%, rgba(130, 162, 192, 0.04) 34%, transparent 55%), linear-gradient(180deg, #080c14 0%, #05070d 48%, #04060b 100%)',
+          'radial-gradient(120% 85% at 18% -6%, #0d0e0f 0%, #070708 45%, #010102 75%, #000000 100%)',
         color: 'var(--morius-text-primary)',
         py: { xs: 4, md: 5 },
       }}
@@ -25,7 +25,7 @@ function LegalDocumentPage({ title, content, onNavigate }: LegalDocumentPageProp
             <Box
               component="img"
               src={brandLogo}
-              alt="Morius"
+              alt="Moru"
               sx={{ width: { xs: 112, md: 136 }, opacity: 0.96, filter: 'brightness(0) invert(1)' }}
             />
             <Button

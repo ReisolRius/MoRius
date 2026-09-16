@@ -1,6 +1,6 @@
-# MoRius Android App
+# Moru Android App
 
-React Native приложение для Android, которое открывает мобильную версию MoRius через `WebView`.
+React Native приложение для Android, которое открывает мобильную версию Moru через `WebView`.
 
 ## Что открывается
 

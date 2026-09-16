@@ -1219,6 +1219,10 @@ def delete_story_character(
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
     character = get_story_character_for_user_or_404(db, user.id, character_id)
+    # Same hole as worlds had: the published copy outlived the delete and stayed in the catalogue.
+    publication_copy = _get_story_character_publication_copy(db, source_character_id=int(character.id))
+    if publication_copy is not None and int(publication_copy.id) != int(character.id):
+        _delete_story_character_with_relations(db, character_id=int(publication_copy.id))
     _delete_story_character_with_relations(db, character_id=character.id)
     db.commit()
     return MessageResponse(message="Character deleted")

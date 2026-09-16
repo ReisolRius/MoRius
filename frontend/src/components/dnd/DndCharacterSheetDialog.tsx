@@ -384,7 +384,7 @@ export default function DndCharacterSheetDialog({
               minHeight: 40,
               borderRadius: '12px',
               color: '#11070A !important',
-              background: 'linear-gradient(135deg, color-mix(in srgb, var(--morius-accent) 92%, #fff 8%), var(--morius-accent)) !important',
+              background: 'var(--morius-accent) !important',
               '&.Mui-disabled': {
                 color: 'color-mix(in srgb, var(--morius-title-text) 52%, transparent) !important',
                 background: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #000 12%) !important',

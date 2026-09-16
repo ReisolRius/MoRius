@@ -214,7 +214,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         )
 
         self.assertLess(
-            prompt.index("ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORIUS"),
+            prompt.index("ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORU"),
             prompt.index("ПРАВИЛА И КАРТОЧКИ ИГРОКА:"),
         )
         self.assertIn("Этот протокол важнее карточек", prompt)

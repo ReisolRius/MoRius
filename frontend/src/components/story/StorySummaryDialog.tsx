@@ -57,10 +57,10 @@ const accentButtonSx = {
   fontWeight: 900,
   fontSize: '0.96rem',
   color: '#11070A !important',
-  background: 'linear-gradient(135deg, color-mix(in srgb, var(--morius-accent) 92%, #fff 8%), var(--morius-accent)) !important',
+  background: 'var(--morius-accent) !important',
   boxShadow: '0 16px 34px -18px color-mix(in srgb, var(--morius-accent) 80%, transparent) !important',
   '&:hover': {
-    background: 'linear-gradient(135deg, var(--morius-accent), color-mix(in srgb, var(--morius-accent) 80%, #000 20%)) !important',
+    background: 'color-mix(in srgb, var(--morius-accent) 86%, #000 14%) !important',
   },
   '&.Mui-disabled': {
     opacity: 0.55,
@@ -215,7 +215,7 @@ export default function StorySummaryDialog({
     try {
       const pages = await buildStorySummaryBook({
         title: summary.title || gameTitle || 'Моя история',
-        subtitle: 'Создано в MoRius',
+        subtitle: 'Создано в Moru',
         segments: summary.segments ?? [],
       })
       if (!isMountedRef.current) {
@@ -509,7 +509,7 @@ export default function StorySummaryDialog({
                   height: '100%',
                   borderRadius: 999,
                   width: `${Math.round((Math.min(job.completed_images, job.total_images) / job.total_images) * 100)}%`,
-                  background: 'linear-gradient(90deg, color-mix(in srgb, var(--morius-accent) 70%, #fff 30%), var(--morius-accent))',
+                  background: 'var(--morius-accent)',
                   transition: 'width 360ms ease',
                 }}
               />

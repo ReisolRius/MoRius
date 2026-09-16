@@ -508,7 +508,7 @@ function EnvironmentModuleCard({
               cursor: 'grab',
               touchAction: 'none',
               backgroundImage: isDragging
-                ? 'repeating-linear-gradient(90deg, color-mix(in srgb, var(--morius-accent) 76%, #fff 24%) 0 2px, transparent 2px 8px)'
+                ? 'repeating-linear-gradient(90deg, var(--morius-accent) 0 2px, transparent 2px 8px)'
                 : 'repeating-linear-gradient(90deg, rgba(255,255,255,0.14) 0 2px, transparent 2px 8px)',
               backgroundSize: '8px 100%',
               backgroundPosition: 'center',
@@ -1079,10 +1079,10 @@ const STORY_APPEARANCE_UI_STYLE_OPTIONS: Array<{
   {
     id: 'default',
     label: 'Стандарт',
-    description: 'Наш привычный MoRius',
+    description: 'Наш привычный Moru',
     accent: 'var(--morius-accent)',
-    previewBackground: 'linear-gradient(135deg, #20232D 0%, #0A0400 100%)',
-    previewSwatches: ['#20232D', '#6D70E8', '#E3C07F'],
+    previewBackground: 'linear-gradient(135deg, #0D0E0F 0%, #000000 100%)',
+    previewSwatches: ['#0D0E0F', '#F8AE2C', '#DEAB27'],
   },
   {
     id: 'cyberpunk',
@@ -1488,7 +1488,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'deepseek/deepseek-r1-0528',
     title: 'DeepSeek R1',
     description:
-      'Рассуждающая DeepSeek-модель для сложных сцен, причинности и глубокого ведения персонажей. Использует общие базовые промпты рассказчика и формат MoRius. Контекст ограничен 64000 токенов.',
+      'Рассуждающая DeepSeek-модель для сложных сцен, причинности и глубокого ведения персонажей. Использует общие базовые промпты рассказчика и формат Moru. Контекст ограничен 64000 токенов.',
     portraitSrc: narratorVelesPortrait,
     portraitAlt: 'DeepSeek R1',
     stats: [
@@ -3627,7 +3627,11 @@ function AssistantDialogueBlockLayout({
   bubbleColor,
   children,
 }: AssistantDialogueBlockLayoutProps) {
-  const bubbleBg = `color-mix(in srgb, ${bubbleColor} 16%, transparent)`
+  // A 16% wash of the speaker's own colour turned muddy as soon as a character had a warm hue
+  // (an amber speaker painted the bubble brown). The fill is a neutral cool-tinted white now -
+  // the same one cards use - and identity is carried entirely by the coloured left bar and the
+  // speaker's name, which stay legible whatever colour the character has.
+  const bubbleBg = 'rgba(199,231,255,0.055)'
   const speakerNameNode = (
     <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
       <Typography
@@ -7193,7 +7197,7 @@ function formatContextChars(value: number): string {
 
 // Weighted sub-token units for `value`. Must stay identical to story_token_units() in
 // backend/app/services/story_token_budget.py, which carries the full rationale: the old
-// one-token-per-word rule ran 1.48x light against o200k_base on 9 449 real MoRius documents,
+// one-token-per-word rule ran 1.48x light against o200k_base on 9 449 real Moru documents,
 // because BPE tokenizers split a Cyrillic word into 2-3 sub-word pieces. Weights are
 // integers over a fixed denominator so JS and Python cannot drift through float rounding.
 // Units are additive over whitespace splits, which is what lets the trimmer accumulate them
@@ -21066,7 +21070,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <Box
                 component="img"
                 src={brandLogo}
-                alt="MoRius"
+                alt="Moru"
                 sx={{
                   width: 68,
                   height: 'auto',
@@ -21329,11 +21333,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   fontWeight: 900,
                   color: '#11070A',
                   background:
-                    'linear-gradient(135deg, color-mix(in srgb, var(--morius-accent) 92%, #fff 8%), var(--morius-accent))',
+                    'var(--morius-accent)',
                   boxShadow: '0 16px 34px -18px color-mix(in srgb, var(--morius-accent) 82%, transparent)',
                   '&:hover': {
                     background:
-                      'linear-gradient(135deg, var(--morius-accent), color-mix(in srgb, var(--morius-accent) 80%, #000 20%))',
+                      'color-mix(in srgb, var(--morius-accent) 86%, #000 14%)',
                   },
                   '&.Mui-disabled': {
                     color: 'color-mix(in srgb, var(--morius-title-text) 60%, transparent)',
@@ -24975,7 +24979,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               display: 'grid',
                               placeItems: 'center',
                               color: 'var(--morius-title-text)',
-                              background: 'linear-gradient(135deg, color-mix(in srgb, var(--morius-accent) 60%, #fff 18%) 0%, var(--morius-accent) 100%)',
+                              background: 'var(--morius-accent)',
                               flexShrink: 0,
                             }}
                           >
@@ -30651,7 +30655,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         />
                         <path
                           d="M20.3 3.7 10.17 13.93"
-                          stroke="var(--accent, #4c8dff)"
+                          stroke="var(--accent, #f8ae2c)"
                           strokeWidth="1.6"
                           strokeLinecap="round"
                         />

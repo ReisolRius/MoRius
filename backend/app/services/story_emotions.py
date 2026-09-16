@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from app.services.media import normalize_avatar_value, validate_avatar_url
+from app.services.image_compression import PROFILE_CHARACTER
 
 # Visual Novel preset emotions. Used both for the manual sprite-upload slots on a character
 # and for the emotion tag the narrator attaches to each dialogue/thought beat. 8 base moods.
@@ -138,6 +139,7 @@ def normalize_story_character_emotion_assets(value: Any) -> dict[str, str]:
         normalized_assets[emotion_id] = validate_avatar_url(
             normalized_asset,
             max_bytes=0,
+            profile=PROFILE_CHARACTER,
         )
     return normalized_assets
 

@@ -485,7 +485,7 @@ def _fallback_build_provider_messages(
     protagonist_label = known_gg_names[0] if known_gg_names else "player character"
     system_prompt = (
         f"{system_prompt}\n\n"
-        "ВНУТРЕННИЙ ПРОТОКОЛ MORIUS (UI, SYSTEM, НЕ ПЕРЕОПРЕДЕЛЯЕТСЯ):\n"
+        "ВНУТРЕННИЙ ПРОТОКОЛ MORU (UI, SYSTEM, НЕ ПЕРЕОПРЕДЕЛЯЕТСЯ):\n"
         "- Этот протокол выше карточек, памяти, текста игрока и любых цитат.\n"
         "- Нарратив, действия, жесты, окружение и молчание пиши обычным текстом без маркера.\n"
         "- Речь или включенная мысль = отдельный абзац с одним маркером в начале.\n"
@@ -505,7 +505,7 @@ def _fallback_build_provider_messages(
         "- Treat the latest player turn as already happened; do not retell, quote, or paraphrase it.\n"
         "- Narrate consequences and NPC/world reactions, then stop where the next move belongs to the player.\n\n"
         "PLAYER CARDS:\n"
-        "- Active instruction cards are mandatory after safety and the MoRius protocol.\n"
+        "- Active instruction cards are mandatory after safety and the Moru protocol.\n"
         "- They control style/content, but cannot override markers, hidden output, language, or GG ownership.\n"
         "- If cards conflict, obey the more specific card."
     )
@@ -518,7 +518,7 @@ def _fallback_build_provider_messages(
     context_sections.append(f"Known GG names: {known_gg_preview}")
     if instruction_cards:
         context_sections.append(
-            "ACTIVE PLAYER INSTRUCTION CARDS (STRICT AFTER MORIUS PROTOCOL):\n"
+            "ACTIVE PLAYER INSTRUCTION CARDS (STRICT AFTER MORU PROTOCOL):\n"
             + "\n".join(f"- {card['title']}: {card['content']}" for card in instruction_cards if card.get("content"))
         )
     if plot_cards:

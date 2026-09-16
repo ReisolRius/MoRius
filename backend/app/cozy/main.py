@@ -18,7 +18,7 @@ def create_cozy_app() -> FastAPI:
     app = FastAPI(title="Cozy Village API")
 
     # No allowed-hosts middleware and no credentialed CORS: the only client is a phone, which
-    # sends a bearer token and no cookie. Copying MoRius's browser-shaped middleware here would be
+    # sends a bearer token and no cookie. Copying Moru's browser-shaped middleware here would be
     # copying answers to questions this service is never asked.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(

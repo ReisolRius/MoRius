@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.cozy.settings import settings
 from app.services.auth_verification import send_email_message
 
-# The mailer itself is MoRius's and stays MoRius's: it already knows about Resend, about SMTP and
+# The mailer itself is Moru's and stays Moru's: it already knows about Resend, about SMTP and
 # about which of the two is configured, and a second copy of that decision would be a second thing
 # to fix the day the provider changes. What is ours is what the letter says.
 #

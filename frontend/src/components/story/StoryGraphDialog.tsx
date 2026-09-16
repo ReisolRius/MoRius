@@ -149,7 +149,7 @@ const GRAPH_LOAD_TIMEOUT_MS = 20_000
 const VIEWPORT_ANIMATION_MS = 420
 const COMPACT_QUERY = '(max-width: 1023.95px)'
 
-// MoRius theme tokens — keeps the graph consistent with the rest of the app.
+// Moru theme tokens — keeps the graph consistent with the rest of the app.
 const T = {
   appBg: 'var(--morius-app-bg)',
   panel: 'var(--morius-card-bg)',

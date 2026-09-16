@@ -569,7 +569,7 @@ function NpcStatsDialog({
               // BaseDialog flattens `background-color` on every button it contains so plain
               // dialog actions read as text. A gradient paints `background-image` instead,
               // which that rule does not touch -- the same trick the other dialogs use.
-              backgroundImage: 'linear-gradient(135deg, color-mix(in srgb, var(--morius-accent) 92%, #fff 8%), var(--morius-accent)) !important',
+              backgroundImage: 'var(--morius-accent) !important',
             }}
           >
             Сохранить

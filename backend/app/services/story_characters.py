@@ -19,6 +19,7 @@ from app.services.media import (
 )
 from app.services.story_emotions import deserialize_story_character_emotion_assets
 from app.services.text_encoding import sanitize_likely_utf8_mojibake
+from app.services.image_compression import PROFILE_CHARACTER
 try:
     from app.services.story_publication_moderation import coerce_story_publication_status
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
@@ -200,7 +201,7 @@ def normalize_story_character_avatar_url(raw_value: str | None, *, db: Session |
         normalized = normalize_avatar_value(resolve_media_storage_value(db, normalized))
         if normalized is None:
             return None
-    return validate_avatar_url(normalized, max_bytes=settings.character_avatar_max_bytes)
+    return validate_avatar_url(normalized, max_bytes=settings.character_avatar_max_bytes, profile=PROFILE_CHARACTER)
 
 
 def normalize_story_character_avatar_original_url(raw_value: str | None, *, db: Session | None = None) -> str | None:
@@ -211,7 +212,7 @@ def normalize_story_character_avatar_original_url(raw_value: str | None, *, db: 
         normalized = normalize_avatar_value(resolve_media_storage_value(db, normalized))
         if normalized is None:
             return None
-    return validate_avatar_url(normalized, max_bytes=settings.character_avatar_max_bytes)
+    return validate_avatar_url(normalized, max_bytes=settings.character_avatar_max_bytes, profile=PROFILE_CHARACTER)
 
 
 def normalize_story_avatar_scale(raw_value: float | int | str | None) -> float:

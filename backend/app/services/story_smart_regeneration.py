@@ -42,12 +42,12 @@ SMART_REGENERATION_PREVIOUS_RESPONSE_MAX_CHARS = 1_800
 
 SMART_REGENERATION_OPTION_INSTRUCTIONS: dict[str, tuple[str, ...]] = {
     "preserve_format": (
-        "Hard invariant: every spoken line or visible thought is a separate paragraph that starts with exactly one valid MoRius marker: [[NPC:Name]], [[GG:Name]], [[NPC_THOUGHT:Name]], or [[GG_THOUGHT:Name]].",
-        "Never rewrite MoRius dialogue/thought markers as plain Name:, quotes-only text, markdown, or an unmarked paragraph.",
+        "Hard invariant: every spoken line or visible thought is a separate paragraph that starts with exactly one valid Moru marker: [[NPC:Name]], [[GG:Name]], [[NPC_THOUGHT:Name]], or [[GG_THOUGHT:Name]].",
+        "Never rewrite Moru dialogue/thought markers as plain Name:, quotes-only text, markdown, or an unmarked paragraph.",
         "СОХРАНИТЬ ФОРМАТ РЕПЛИК:",
         "Сохрани output contract ответа без изменений.",
         "Не меняй структуру блоков, speaker_id, character_id, имена персонажей, JSON-ключи, теги, delimiters и служебные маркеры.",
-        "Особенно сохраняй MoRius-маркеры речи/мыслей: [[NPC:Name]], [[GG:Name]], [[NPC_THOUGHT:Name]], [[GG_THOUGHT:Name]]; обычный нарратив остается без маркера.",
+        "Особенно сохраняй Moru-маркеры речи/мыслей: [[NPC:Name]], [[GG:Name]], [[NPC_THOUGHT:Name]], [[GG_THOUGHT:Name]]; обычный нарратив остается без маркера.",
         "Меняй только видимый художественный текст там, где это нужно.",
         "Ответ должен по-прежнему корректно парситься фронтом на блоки реплик, имена и аватарки.",
         "Если добавляется больше диалога, оформляй новые реплики тем же валидным способом, что и существующие speaker blocks проекта.",

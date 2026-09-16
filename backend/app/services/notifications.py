@@ -115,12 +115,12 @@ def _build_public_action_url(action_url: str | None) -> str | None:
 def _build_notification_email_subject(notification: UserNotification) -> str:
     title = _sanitize_notification_text(notification.title) or "Новое уведомление"
     compact_title = title[:96].rstrip()
-    return f"MoRius: {compact_title}"
+    return f"Moru: {compact_title}"
 
 
 def _build_notification_email_text(notification: UserNotification) -> str:
     lines = [
-        _sanitize_notification_text(notification.title) or "Новое уведомление в MoRius",
+        _sanitize_notification_text(notification.title) or "Новое уведомление в Moru",
         "",
         _sanitize_notification_text(notification.body) or "У вас появилось новое уведомление.",
     ]
@@ -131,14 +131,14 @@ def _build_notification_email_text(notification: UserNotification) -> str:
         [
             "",
             "Это письмо отправлено автоматически, потому что у вас включены уведомления на почту.",
-            "Если письма больше не нужны, выключите их в настройках профиля MoRius.",
+            "Если письма больше не нужны, выключите их в настройках профиля Moru.",
         ]
     )
     return "\n".join(lines)
 
 
 def _build_notification_email_html(notification: UserNotification) -> str:
-    title = escape(_sanitize_notification_text(notification.title) or "Новое уведомление в MoRius")
+    title = escape(_sanitize_notification_text(notification.title) or "Новое уведомление в Moru")
     body = escape(_sanitize_notification_text(notification.body) or "У вас появилось новое уведомление.").replace("\n", "<br />")
     action_url = _build_public_action_url(notification.action_url)
     action_markup = ""
@@ -147,7 +147,7 @@ def _build_notification_email_html(notification: UserNotification) -> str:
         action_markup = (
             f'<a href="{safe_url}" '
             'style="display:inline-block;padding:12px 18px;border-radius:12px;background:#d45555;'
-            'color:#f8f8fb;text-decoration:none;font-weight:700;">Открыть в MoRius</a>'
+            'color:#f8f8fb;text-decoration:none;font-weight:700;">Открыть в Moru</a>'
         )
     return (
         "<!doctype html>"
@@ -157,7 +157,7 @@ def _build_notification_email_html(notification: UserNotification) -> str:
         '<div style="max-width:640px;margin:0 auto;border:1px solid #2a3140;border-radius:24px;'
         'background:linear-gradient(180deg,#151920 0%,#10141a 100%);overflow:hidden;">'
         '<div style="padding:22px 24px;border-bottom:1px solid #252c39;">'
-        '<div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#aeb7c7;">MoRius</div>'
+        '<div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#aeb7c7;">Moru</div>'
         f'<div style="margin-top:10px;font-size:26px;line-height:1.25;font-weight:800;color:#f3f5fa;">{title}</div>'
         "</div>"
         '<div style="padding:24px;">'
@@ -166,7 +166,7 @@ def _build_notification_email_html(notification: UserNotification) -> str:
         '<div style="margin-top:24px;padding-top:18px;border-top:1px solid #252c39;'
         'font-size:12px;line-height:1.6;color:#8f99ab;">'
         "Это письмо отправлено автоматически, потому что у вас включены уведомления на почту.<br />"
-        "Вы можете отключить письма в настройках профиля MoRius."
+        "Вы можете отключить письма в настройках профиля Moru."
         "</div>"
         "</div>"
         "</div>"

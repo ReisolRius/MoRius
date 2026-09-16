@@ -145,7 +145,7 @@ export default function DndEnvironmentDialog({
               fontWeight: 950,
               color: '#11070A !important',
               background:
-                'linear-gradient(135deg, color-mix(in srgb, var(--morius-accent) 92%, #fff 8%), var(--morius-accent)) !important',
+                'var(--morius-accent) !important',
             }}
           >
             {saving ? 'Сохраняем…' : 'Сохранить'}

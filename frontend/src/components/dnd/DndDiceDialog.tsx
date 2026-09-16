@@ -305,7 +305,7 @@ export default function DndDiceDialog({
               fontSize: '0.95rem',
               fontWeight: 950,
               color: '#11070A !important',
-              background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 88%, #fff 12%), ${accent}) !important`,
+              background: `${accent} !important`,
             }}
           >
             Продолжить ход
@@ -335,7 +335,7 @@ export default function DndDiceDialog({
                 fontWeight: 950,
                 color: '#11070A !important',
                 background:
-                  'linear-gradient(135deg, color-mix(in srgb, var(--morius-accent) 92%, #fff 8%), var(--morius-accent)) !important',
+                  'var(--morius-accent) !important',
                 '&.Mui-disabled': {
                   color: 'color-mix(in srgb, var(--morius-title-text) 52%, transparent) !important',
                   background: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #000 12%) !important',

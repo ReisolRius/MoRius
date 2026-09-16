@@ -1189,7 +1189,7 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
             </Box>
 
             <Box sx={{ mt: 1.1, width: 7, borderRadius: '999px', backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 54%, transparent)', overflow: 'hidden', alignSelf: 'center', flex: 1, minHeight: 88 }}>
-              <Box sx={{ width: '100%', height: `${chapterProgress}%`, borderRadius: '999px', background: 'linear-gradient(180deg, var(--morius-accent) 0%, color-mix(in srgb, var(--morius-button-active) 82%, var(--morius-accent)) 100%)', boxShadow: 'none', transition: 'height 260ms cubic-bezier(0.22, 1, 0.36, 1)' }} />
+              <Box sx={{ width: '100%', height: `${chapterProgress}%`, borderRadius: '999px', background: 'var(--morius-accent)', boxShadow: 'none', transition: 'height 260ms cubic-bezier(0.22, 1, 0.36, 1)' }} />
             </Box>
           </Box>
 

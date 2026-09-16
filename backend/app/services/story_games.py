@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import (
+    StorySummaryJob,
     StoryCharacterStateSnapshot,
     StoryCommunityWorldComment,
     StoryCommunityWorldFavorite,
@@ -85,6 +86,7 @@ from app.services.story_world_cards import (
 )
 from app.services.text_encoding import repair_likely_utf8_mojibake_deep, sanitize_likely_utf8_mojibake
 from app.services.story_novel import STORY_GAME_MODE_RPG, normalize_story_game_mode
+from app.services.image_compression import PROFILE_COVER
 try:
     from app.services.story_publication_moderation import coerce_story_publication_status
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
@@ -1251,7 +1253,7 @@ def normalize_story_cover_image_url(raw_value: str | None, *, db: Session | None
         normalized = normalize_avatar_value(resolve_media_storage_value(db, normalized))
         if normalized is None:
             return None
-    return validate_avatar_url(normalized, max_bytes=STORY_COVER_MAX_BYTES)
+    return validate_avatar_url(normalized, max_bytes=STORY_COVER_MAX_BYTES, profile=PROFILE_COVER)
 
 
 def story_game_rating_average(game: StoryGame) -> float:
@@ -1444,6 +1446,7 @@ def count_story_completed_turns(messages: list[StoryMessage]) -> int:
 
 
 def delete_story_game_with_relations(db: Session, *, game_id: int) -> StoryGame | None:
+    db.execute(sa_delete(StorySummaryJob).where(StorySummaryJob.game_id == game_id))
     db.execute(sa_delete(StoryGraphEvent).where(StoryGraphEvent.game_id == game_id))
     db.execute(sa_delete(StoryGraphSuggestion).where(StoryGraphSuggestion.game_id == game_id))
     db.execute(sa_delete(StoryGraphEdge).where(StoryGraphEdge.game_id == game_id))

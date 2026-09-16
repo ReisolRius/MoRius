@@ -327,7 +327,7 @@ function OfflineState(props: {
   return (
     <SafeAreaView style={styles.fallback}>
       <Image source={require('./assets/icon.png')} style={styles.fallbackIcon} resizeMode="contain" />
-      <Text style={styles.fallbackTitle}>MoRius</Text>
+      <Text style={styles.fallbackTitle}>Moru</Text>
       <Text style={styles.fallbackText}>{props.description}</Text>
       <Pressable onPress={props.onReload} style={({ pressed }) => [styles.reloadButton, pressed && styles.reloadButtonPressed]}>
         <Text style={styles.reloadButtonText}>Обновить</Text>
@@ -441,7 +441,7 @@ function AppShell() {
       isGoogleSignInInProgressRef.current = false
     } catch (error) {
       completeNativeGoogleSignIn()
-      Alert.alert('MoRius', getNativeGoogleSignInErrorMessage(error))
+      Alert.alert('Moru', getNativeGoogleSignInErrorMessage(error))
     }
   }, [completeNativeGoogleSignIn])
 
@@ -456,19 +456,19 @@ function AppShell() {
         redirectToEntry(payload.href)
       }
     } catch {
-      // Ignore messages that are not emitted by the MoRius route bridge.
+      // Ignore messages that are not emitted by the Moru route bridge.
     }
   }, [handleNativeGoogleSignIn, redirectToEntry])
 
   const handleError = useCallback((event: WebViewError) => {
     const detail = event.nativeEvent.description?.trim()
-    setLoadError(detail || 'Не удалось открыть приложение. Проверьте интернет и сервер MoRius.')
+    setLoadError(detail || 'Не удалось открыть приложение. Проверьте интернет и сервер Moru.')
   }, [])
 
   const handleHttpError = useCallback((event: WebViewError) => {
     const statusCode = event.nativeEvent.statusCode ?? 0
     if (statusCode >= 500) {
-      setLoadError(`Сервер MoRius временно недоступен. Код ответа: ${statusCode}.`)
+      setLoadError(`Сервер Moru временно недоступен. Код ответа: ${statusCode}.`)
     }
   }, [])
 

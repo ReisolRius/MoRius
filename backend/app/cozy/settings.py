@@ -7,8 +7,8 @@ from app.config import settings as morius_settings
 
 # The game's own audience. It is written into every token this package issues and checked on every
 # token it accepts, which is what keeps the two products apart while they share one secret: without
-# it a MoRius session token would decode perfectly here and be read as player #5 of Cozy Village
-# because it says user #5 of MoRius.
+# it a Moru session token would decode perfectly here and be read as player #5 of Cozy Village
+# because it says user #5 of Moru.
 TOKEN_AUDIENCE = "cozy-village"
 
 
@@ -27,9 +27,9 @@ def _to_int(raw_value: str | None, fallback: int, *, minimum: int = 0) -> int:
 
 
 def _default_database_url() -> str:
-    """The game's database, on whatever server MoRius is already using.
+    """The game's database, on whatever server Moru is already using.
 
-    Derived from MoRius's own URL rather than written out again: the two live on the same Postgres
+    Derived from Moru's own URL rather than written out again: the two live on the same Postgres
     container, and a hand-written copy of the host, the user and the password is three things that
     stop being true the day one of them is rotated. Only the database name differs - which is the
     whole point, and the reason accounts cannot collide even by accident.
@@ -42,7 +42,7 @@ def _default_database_url() -> str:
     database_name = os.getenv("COZY_DATABASE_NAME", "cozyvillage").strip() or "cozyvillage"
 
     if source.lower().startswith("sqlite"):
-        # Local development. Beside the MoRius file, not inside it.
+        # Local development. Beside the Moru file, not inside it.
         return f"sqlite:///{os.path.join(os.getcwd(), 'data', database_name + '.db')}"
 
     head, _, _ = source.rpartition("/")
@@ -89,7 +89,7 @@ class CozySettings:
     def google_client_ids(self) -> tuple[str, ...]:
         """Every client whose tokens are accepted.
 
-        MoRius keeps several here - a site accumulates them, and a token minted by any of them
+        Moru keeps several here - a site accumulates them, and a token minted by any of them
         belongs to the same people. Verification has to take the whole list.
         """
         return tuple(item.strip() for item in self.google_client_id.split(",") if item.strip())
@@ -121,7 +121,7 @@ settings = CozySettings(
     email_code_ttl_minutes=_to_int(os.getenv("COZY_EMAIL_CODE_TTL_MINUTES"), 15, minimum=1),
     email_code_max_attempts=_to_int(os.getenv("COZY_EMAIL_CODE_MAX_ATTEMPTS"), 5, minimum=1),
     email_resend_cooldown_seconds=_to_int(os.getenv("COZY_EMAIL_RESEND_COOLDOWN_SECONDS"), 60),
-    # The game has no website, so it borrows MoRius's Google client by default: the consent screen
+    # The game has no website, so it borrows Moru's Google client by default: the consent screen
     # is the same company either way, and one client id is one thing to keep registered.
     #
     # `or` rather than a getenv default, because compose sets these to an empty string rather than

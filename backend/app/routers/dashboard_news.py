@@ -9,6 +9,7 @@ from app.models import DashboardNewsCard, StoryCharacter, StoryGame, User
 from app.schemas import DashboardNewsCardOut, DashboardNewsCardUpdateRequest, DashboardNewsReorderRequest, DashboardStatsOut
 from app.services.auth_identity import ADMIN_PANEL_ALLOWED_ROLES, ROLE_ADMINISTRATOR, get_current_user
 from app.services.media import resolve_media_storage_value, validate_avatar_url
+from app.services.image_compression import PROFILE_COVER
 
 router = APIRouter()
 
@@ -67,7 +68,7 @@ def _normalize_dashboard_news_image_url(value: str | None, *, db: Session | None
     normalized = str(normalized or "").strip()
     if not normalized:
         return None
-    return validate_avatar_url(normalized, max_bytes=2_500_000)
+    return validate_avatar_url(normalized, max_bytes=2_500_000, profile=PROFILE_COVER)
 
 
 def _require_dashboard_news_editor(user) -> None:

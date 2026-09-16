@@ -318,7 +318,7 @@ class Settings:
 
 
 settings = Settings(
-    app_name=os.getenv("APP_NAME", "MoRius API"),
+    app_name=os.getenv("APP_NAME", "Moru API"),
     app_mode=DEFAULT_APP_MODE,
     debug=_to_bool(os.getenv("DEBUG"), default=True),
     db_bootstrap_on_startup=_to_bool(
@@ -388,7 +388,7 @@ settings = Settings(
     smtp_user=os.getenv("SMTP_USER", "").strip(),
     smtp_password=os.getenv("SMTP_PASSWORD", ""),
     smtp_from_email=os.getenv("SMTP_FROM_EMAIL", "no-reply@morius.local").strip(),
-    smtp_from_name=os.getenv("SMTP_FROM_NAME", "MoRius").strip(),
+    smtp_from_name=os.getenv("SMTP_FROM_NAME", "Moru").strip(),
     smtp_use_tls=_to_bool(os.getenv("SMTP_USE_TLS"), default=True),
     smtp_use_ssl=_to_bool(os.getenv("SMTP_USE_SSL"), default=False),
     avatar_max_bytes=int(os.getenv("AVATAR_MAX_BYTES", str(2 * 1024 * 1024))),
@@ -466,7 +466,7 @@ settings = Settings(
     polza_image_model=_env_alias("ROUTERAI_IMAGE_MODEL", "POLZA_IMAGE_MODEL", POLZA_DEFAULT_IMAGE_MODEL).strip(),
     polza_image_size=_env_alias("ROUTERAI_IMAGE_SIZE", "POLZA_IMAGE_SIZE", "1024x1024").strip(),
     polza_site_url=_env_alias("ROUTERAI_SITE_URL", "POLZA_SITE_URL", "").strip(),
-    polza_app_name=_env_alias("ROUTERAI_APP_NAME", "POLZA_APP_NAME", "MoRius").strip(),
+    polza_app_name=_env_alias("ROUTERAI_APP_NAME", "POLZA_APP_NAME", "Moru").strip(),
     proxyapi_key=_env("PROXYAPI_KEY", "").strip(),
     proxyapi_base_routerai=_env("PROXYAPI_BASE_ROUTERAI", PROXYAPI_ROUTERAI_BASE_URL).strip().rstrip("/"),
     aitunnel_api_key=_env("AITUNNEL_API_KEY", "").strip(),

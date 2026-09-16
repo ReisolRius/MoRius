@@ -15,7 +15,7 @@ def _utcnow() -> datetime:
 class CozyPlayer(CozyBase):
     """One account in the game.
 
-    Not a MoRius user, and the table name says so. The same person may hold both; they are two
+    Not a Moru user, and the table name says so. The same person may hold both; they are two
     accounts on purpose, and the only thing they will ever share is an address in the email column
     of two different databases.
     """

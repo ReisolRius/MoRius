@@ -507,7 +507,7 @@ function AppHeader({
       : []),
     {
       key: 'wiki',
-      label: 'Мориус Вики',
+      label: 'Мору Вики',
       onClick: handleOpenWiki,
       icon: <SidebarGlyphIcon markup={sidebarBookIconMarkup} />,
     },
@@ -695,7 +695,7 @@ function AppHeader({
               whiteSpace: 'nowrap',
             }}
           >
-            MoRius
+            Moru
           </Typography>
         ) : null}
       </Stack>
@@ -839,9 +839,10 @@ function AppHeader({
 
   return (
     <AppHeaderSlotsContext.Provider value={headerSlots}>
+      {/* Above the branch: the desktop layout needs the page backdrop just as much as mobile. */}
+      <AppBackdropGlow />
       {isMobileBottomNav ? (
         <>
-          <AppBackdropGlow />
           <Box
             component="header"
             sx={{

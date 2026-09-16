@@ -1072,7 +1072,7 @@ function SettingsDialog({
                 <Button onClick={requestDialogClose} sx={{ minHeight: 38, px: 1.8, borderRadius: '11px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'rgba(255,255,255,0.05)', '&:hover': { backgroundColor: 'rgba(255,255,255,0.09)' } }}>
                   Отмена
                 </Button>
-                <Button onClick={() => void handleSaveProfile()} disabled={isSavingProfile} sx={{ minHeight: 38, px: 2.1, borderRadius: '11px', textTransform: 'none', color: '#fff', border: 'none', background: 'linear-gradient(135deg, var(--morius-accent), color-mix(in srgb, var(--morius-accent) 72%, #14161d))', '&:hover': { filter: 'brightness(1.08)' } }}>
+                <Button onClick={() => void handleSaveProfile()} disabled={isSavingProfile} sx={{ minHeight: 38, px: 2.1, borderRadius: '11px', textTransform: 'none', color: '#fff', border: 'none', background: 'var(--morius-accent)', '&:hover': { filter: 'brightness(1.08)' } }}>
                   {isSavingProfile ? 'Сохраняем...' : 'Сохранить'}
                 </Button>
               </Stack>

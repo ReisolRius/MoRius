@@ -79,7 +79,7 @@ function MaintenancePage({ settings }: MaintenancePageProps) {
         <Box
           component="img"
           src={brandLogo}
-          alt="MoRius"
+          alt="Moru"
           sx={{
             width: { xs: 112, sm: 132 },
             height: 'auto',

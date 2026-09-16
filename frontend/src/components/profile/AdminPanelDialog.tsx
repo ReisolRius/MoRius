@@ -94,7 +94,7 @@ const MAINTENANCE_MESSAGE_MAX_LENGTH = 2000
 const MAINTENANCE_ETA_MAX_LENGTH = 120
 const DEFAULT_MAINTENANCE_TITLE = 'Извините, идут технические работы'
 const DEFAULT_MAINTENANCE_MESSAGE =
-  'Мы обновляем MoRius и проверяем важные системы. Скоро сайт снова будет доступен, а ваши миры, истории и прогресс останутся на месте.'
+  'Мы обновляем Moru и проверяем важные системы. Скоро сайт снова будет доступен, а ваши миры, истории и прогресс останутся на месте.'
 const DEFAULT_MAINTENANCE_ETA = 'Ориентировочно скоро вернемся'
 
 type AdminPanelTab = 'users' | 'reports' | 'moderation' | 'bug_reports' | 'maintenance'

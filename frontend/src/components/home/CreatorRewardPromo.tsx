@@ -135,7 +135,7 @@ export function CreatorRewardPromoDialog({ open, onClose }: CreatorRewardPromoDi
   const steps: PromoStep[] = [
     {
       icon: <ArticleIcon />,
-      title: 'Расскажите о MoRius',
+      title: 'Расскажите о Moru',
       description: 'Напишите статью про наш сайт или снимите короткое видео — TikTok, YouTube Shorts или VK Клипы.',
     },
     {
@@ -165,7 +165,7 @@ export function CreatorRewardPromoDialog({ open, onClose }: CreatorRewardPromoDi
       header={
         <Stack spacing={0.55} sx={{ pr: 4 }}>
           <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.2rem', fontWeight: 900 }}>
-            До 2000 солов за пост о MoRius
+            До 2000 солов за пост о Moru
           </Typography>
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', lineHeight: 1.45 }}>
             Акция для игроков: расскажите о нас — и получите награду.
@@ -320,7 +320,7 @@ export function CreatorRewardPromoBanner() {
         <Box sx={{ minWidth: 0, flexGrow: 1 }}>
           <Stack direction="row" spacing={0.8} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 0.35 }}>
             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: { xs: '1.02rem', md: '1.1rem' }, fontWeight: 900, lineHeight: 1.2 }}>
-              От 400 до 2000 солов за статью или видео о MoRius
+              От 400 до 2000 солов за статью или видео о Moru
             </Typography>
             <Box
               sx={{

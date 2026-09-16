@@ -2675,7 +2675,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       minHeight: 48,
                       px: 2.4,
                       borderRadius: '12px',
-                      background: 'linear-gradient(135deg, var(--morius-accent), color-mix(in srgb, var(--morius-accent) 72%, #a782ff))',
+                      background: 'var(--morius-accent)',
                       color: '#fff',
                       textTransform: 'none',
                       fontWeight: 850,
@@ -2735,7 +2735,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   overflow: 'hidden',
                   borderRadius: { xs: '18px', md: '24px' },
                   border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                  background: dashboardHeroCoverUrl ? 'var(--morius-card-bg)' : 'radial-gradient(circle at 82% 18%, rgba(109,112,232,0.32), transparent 34%), linear-gradient(155deg, #343944, #252933)',
+                  background: dashboardHeroCoverUrl ? 'var(--morius-card-bg)' : 'radial-gradient(circle at 82% 18%, rgba(248,174,44,0.22), transparent 34%), linear-gradient(155deg, #272c30, #1b1f22)',
                   textAlign: 'left',
                   boxShadow: '0 30px 80px rgba(8, 10, 18, 0.38)',
                   transition: 'transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease',
@@ -2948,7 +2948,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         position: 'absolute',
                         inset: 0,
                         background:
-                          'radial-gradient(circle at 18% 20%, rgba(88, 146, 233, 0.16), transparent 30%), linear-gradient(180deg, rgba(12, 16, 23, 0.94) 0%, rgba(9, 13, 19, 0.98) 100%)',
+                          'radial-gradient(circle at 18% 20%, rgba(199, 231, 255, 0.1), transparent 30%), linear-gradient(180deg, rgba(13, 14, 15, 0.94) 0%, rgba(1, 1, 2, 0.98) 100%)',
                       }}
                     />
                     {/* Current image — stays visible until next finishes loading */}
@@ -3005,7 +3005,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       }}
                     >
                       <Stack spacing={1.1} sx={{ maxWidth: 500 }}>
-                        <Typography sx={{ color: 'var(--accent, #4c8dff)', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase' }}>
+                        <Typography sx={{ color: 'var(--accent, #f8ae2c)', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase' }}>
                           Новость
                         </Typography>
                         <Typography sx={{ color: 'var(--morius-title-text)', fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '2.1rem', md: '46px' }, fontWeight: 700, lineHeight: 1.02, maxWidth: 620 }}>
@@ -3045,8 +3045,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                             px: 1.25,
                             py: 0.75,
                             borderRadius: '999px',
-                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--accent, #4c8dff) 32%, rgba(255,255,255,0.1))',
-                            backgroundColor: 'color-mix(in srgb, var(--accent, #4c8dff) 16%, rgba(20,15,11,0.55))',
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--accent, #f8ae2c) 32%, rgba(255,255,255,0.1))',
+                            backgroundColor: 'color-mix(in srgb, var(--accent, #f8ae2c) 16%, rgba(20,15,11,0.55))',
                             color: 'var(--morius-title-text)',
                             fontSize: '0.84rem',
                             fontWeight: 800,
@@ -3172,11 +3172,11 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                               border: 'none',
                               borderBottom: 'var(--morius-border-width) solid var(--morius-divider-color)',
                               background: isSelected
-                                ? 'color-mix(in srgb, var(--accent, #4c8dff) 11%, transparent)'
+                                ? 'color-mix(in srgb, var(--accent, #f8ae2c) 11%, transparent)'
                                 : 'transparent',
                               transition: 'background 200ms ease',
                               '&:hover': {
-                                background: isSelected ? 'color-mix(in srgb, var(--accent, #4c8dff) 11%, transparent)' : 'rgba(255,255,255,0.04)',
+                                background: isSelected ? 'color-mix(in srgb, var(--accent, #f8ae2c) 11%, transparent)' : 'rgba(255,255,255,0.04)',
                               },
                               '&:hover .morius-news-reorder': { opacity: 1, pointerEvents: 'auto' },
                             }}
@@ -3282,7 +3282,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                                       opacity: enabled ? 1 : 0.4,
                                       transition: 'background-color 150ms ease',
                                       '&:hover': enabled && !isReorderingDashboardNews
-                                        ? { backgroundColor: 'color-mix(in srgb, var(--accent, #4c8dff) 30%, var(--morius-card-bg))' }
+                                        ? { backgroundColor: 'color-mix(in srgb, var(--accent, #f8ae2c) 30%, var(--morius-card-bg))' }
                                         : undefined,
                                     }}
                                   >
@@ -3344,7 +3344,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 touchAction: 'pan-y',
                 outline: 'none',
                 '&:focus-visible': {
-                  boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent, #4c8dff) 48%, transparent)',
+                  boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent, #f8ae2c) 48%, transparent)',
                 },
                 '&::before': {
                   content: '""',
@@ -3453,8 +3453,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                           px: 1,
                           py: 0.55,
                           borderRadius: '999px',
-                          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--accent, #4c8dff) 34%, rgba(255,255,255,0.12))',
-                          backgroundColor: 'color-mix(in srgb, var(--accent, #4c8dff) 18%, rgba(9,9,9,0.42))',
+                          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--accent, #f8ae2c) 34%, rgba(255,255,255,0.12))',
+                          backgroundColor: 'color-mix(in srgb, var(--accent, #f8ae2c) 18%, rgba(9,9,9,0.42))',
                           color: '#fff',
                           fontSize: '0.78rem',
                           fontWeight: 900,
@@ -3804,7 +3804,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'flex-end' }} sx={{ mb: 1.6 }}>
               <Box>
                 <Typography id="dashboard-news-title" component="h2" sx={{ color: 'var(--morius-title-text)', fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '1.55rem', md: '2rem' }, fontWeight: 700 }}>
-                  Новости MoRius
+                  Новости Moru
                 </Typography>
                 <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem' }}>Обновления платформы и новые возможности для авторов.</Typography>
               </Box>
@@ -4373,7 +4373,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     border: 'var(--morius-border-width) solid rgba(255,255,255,0.12)',
                     backgroundColor: 'rgba(9,9,9,0.48)',
                     backdropFilter: 'blur(8px)',
-                    color: dashboardNewsDialogItem.category.toLowerCase().includes('обнов') ? 'var(--morius-gold)' : 'var(--accent, #4c8dff)',
+                    color: dashboardNewsDialogItem.category.toLowerCase().includes('обнов') ? 'var(--morius-gold)' : 'var(--accent, #f8ae2c)',
                     fontSize: '0.78rem',
                     fontWeight: 900,
                     textTransform: 'uppercase',

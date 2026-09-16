@@ -301,7 +301,7 @@ class CozyBackendTests(unittest.TestCase):
         self.assertTrue(answer.error)
 
     def test_a_list_of_client_ids_still_makes_one_consent_url(self) -> None:
-        """MoRius keeps several client ids in one variable; a consent URL may carry exactly one.
+        """Moru keeps several client ids in one variable; a consent URL may carry exactly one.
 
         Handing Google the whole comma-separated string produces a link it refuses, and the game
         inherits that variable by default - so this is the shape the real deployment has, not a
@@ -354,7 +354,7 @@ class CozyBackendTests(unittest.TestCase):
         """No shop id anywhere - not the game's, not the site's - and the shop says so.
 
         Stated with the credentials removed rather than by trusting the environment, because the
-        game now falls back to MoRius's till: on any machine where the site can take money, so can
+        game now falls back to Moru's till: on any machine where the site can take money, so can
         the game, and a test that asserted otherwise would be asserting that the fallback is
         broken.
         """

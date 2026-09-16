@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from app.config import settings
+from app.services.image_compression import ImageProfile, PROFILE_DEFAULT, compress_media_data_url
 
 ALLOWED_AVATAR_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 MEDIA_TOKEN_VERSION = "v1"
@@ -427,7 +428,12 @@ def decode_media_data_url(data_url: str | None) -> tuple[str, bytes] | None:
     return mime_type, raw_bytes
 
 
-def validate_avatar_url(avatar_url: str, *, max_bytes: int | None = None) -> str:
+def validate_avatar_url(
+    avatar_url: str,
+    *,
+    max_bytes: int | None = None,
+    profile: ImageProfile = PROFILE_DEFAULT,
+) -> str:
     if avatar_url.startswith(MEDIA_URL_PREFIX):
         return avatar_url
 
@@ -472,6 +478,18 @@ def validate_avatar_url(avatar_url: str, *, max_bytes: int | None = None) -> str
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Avatar payload is not valid base64",
         ) from exc
+
+    # Squeeze before measuring: a 6 MB PNG lands as a ~300 KB WebP and passes a 2 MB limit that
+    # would otherwise have rejected it. Compression never raises - on any problem the original
+    # data URL comes back unchanged and the checks below judge that instead.
+    compressed_url = compress_media_data_url(avatar_url, profile)
+    if compressed_url is not avatar_url and compressed_url != avatar_url:
+        avatar_url = compressed_url
+        _, compressed_payload = compressed_url.split(",", maxsplit=1)
+        try:
+            raw_bytes = base64.b64decode(compressed_payload, validate=True)
+        except (ValueError, binascii.Error):  # pragma: no cover - we produced this payload
+            pass
 
     if max_bytes is None:
         max_allowed_bytes: int | None = max(1, settings.avatar_max_bytes)

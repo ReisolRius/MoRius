@@ -326,7 +326,7 @@ def _build_receipt_payload(
 
     item_description = _normalize_receipt_item_description(
         description_override
-        or f"MoRius оплата покупки солов: {plan['title']} ({plan['price_rub']} руб)"
+        or f"Moru оплата покупки солов: {plan['title']} ({plan['price_rub']} руб)"
     )
     item_payload: dict[str, Any] = {
         "description": item_description,
@@ -426,7 +426,7 @@ def create_payment_in_provider(
         calculate_checkout_amount_rub(int(plan["price_rub"]), cover_commission=cover_commission),
         ".2f",
     )
-    description = f"MoRius оплата покупки солов: {plan['title']} ({amount_value} руб)"
+    description = f"Moru оплата покупки солов: {plan['title']} ({amount_value} руб)"
     payment_payload = {
         "amount": {
             "value": amount_value,
@@ -466,7 +466,7 @@ def fetch_payment_from_provider(payment_id: str) -> dict[str, Any]:
 
 
 def _subscription_description(plan: dict[str, Any], amount_value: str) -> str:
-    return f"MoRius подписка: {plan['title']} ({amount_value} руб)"
+    return f"Moru подписка: {plan['title']} ({amount_value} руб)"
 
 
 def create_subscription_payment_in_provider(

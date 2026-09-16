@@ -349,7 +349,7 @@ class DashboardNewsCard(Base):
 
 
 class WikiArticle(Base):
-    """A public MoRius Wiki article. Only administrators can create/edit; everyone can read."""
+    """A public Moru Wiki article. Only administrators can create/edit; everyone can read."""
 
     __tablename__ = "wiki_articles"
 

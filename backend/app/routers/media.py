@@ -143,7 +143,7 @@ def _fetch_remote_media_payload(raw_value: str | None) -> tuple[str, bytes] | No
             timeout=REMOTE_MEDIA_TIMEOUT_SECONDS,
             stream=True,
             allow_redirects=True,
-            headers={"User-Agent": "MoRius Media Proxy/1.0"},
+            headers={"User-Agent": "Moru Media Proxy/1.0"},
         )
     except requests.RequestException:
         return None

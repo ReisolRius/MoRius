@@ -121,12 +121,12 @@ def _send_email_via_resend(
 
 
 def _build_verification_email_subject() -> str:
-    return "MoRius: код подтверждения email"
+    return "Moru: код подтверждения email"
 
 
 def _build_verification_email_text(*, verification_code: str, ttl_minutes: int) -> str:
     return (
-        "Код подтверждения для регистрации в MoRius:\n"
+        "Код подтверждения для регистрации в Moru:\n"
         f"{verification_code}\n\n"
         f"Код действует {ttl_minutes} минут.\n"
         "Если вы не запрашивали код, просто проигнорируйте это письмо."
@@ -134,12 +134,12 @@ def _build_verification_email_text(*, verification_code: str, ttl_minutes: int) 
 
 
 def _build_password_reset_email_subject() -> str:
-    return "MoRius: код восстановления пароля"
+    return "Moru: код восстановления пароля"
 
 
 def _build_password_reset_email_text(*, verification_code: str, ttl_minutes: int) -> str:
     return (
-        "Код восстановления пароля для аккаунта MoRius:\n"
+        "Код восстановления пароля для аккаунта Moru:\n"
         f"{verification_code}\n\n"
         f"Код действует {ttl_minutes} минут.\n"
         "Если вы не запрашивали восстановление пароля, просто проигнорируйте это письмо."

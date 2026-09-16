@@ -17,6 +17,7 @@ from app.schemas import (
 )
 from app.services.auth_identity import ROLE_ADMINISTRATOR, get_current_user
 from app.services.media import resolve_media_display_url, validate_avatar_url
+from app.services.image_compression import PROFILE_COVER
 
 router = APIRouter()
 
@@ -125,7 +126,7 @@ def _apply_article_save(db: Session, article: WikiArticle, payload: WikiArticleS
         entry = payload_by_key.get(key)
         final_id: int | None = None
         if entry is not None and entry.data_url and str(entry.data_url).strip():
-            validated = validate_avatar_url(str(entry.data_url).strip(), max_bytes=WIKI_IMAGE_MAX_BYTES)
+            validated = validate_avatar_url(str(entry.data_url).strip(), max_bytes=WIKI_IMAGE_MAX_BYTES, profile=PROFILE_COVER)
             new_image = WikiArticleImage(article_id=article.id, image_url=validated, position=position)
             db.add(new_image)
             db.flush()

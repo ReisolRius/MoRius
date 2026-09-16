@@ -54,9 +54,9 @@ const AUTH_PASSWORD_MAX_LENGTH = 128
 const AUTH_CODE_LENGTH = 6
 const RESEND_COOLDOWN_SECONDS = 60
 const RESEND_COOLDOWN_REGEX = /please wait\s+(\d+)\s+seconds?/i
-const LOGIN_BUTTON_COLOR = '#4c8dff'
-const LOGIN_BUTTON_HOVER = 'color-mix(in srgb, #4c8dff 88%, #000 12%)'
-const REGISTER_LINK_COLOR = '#4c8dff'
+const LOGIN_BUTTON_COLOR = '#f8ae2c'
+const LOGIN_BUTTON_HOVER = 'color-mix(in srgb, #f8ae2c 88%, #000 12%)'
+const REGISTER_LINK_COLOR = '#f8ae2c'
 const PAGE_BACKGROUND = '#090909'
 const INPUT_BACKGROUND = '#111114'
 const INPUT_TEXT = '#f3f1ec'
@@ -797,7 +797,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           <Box
             component="img"
             src={brandLogo}
-            alt="MoRius"
+            alt="Moru"
             sx={{ width: '100%', display: 'block', filter: 'brightness(0) invert(1)' }}
           />
         </Box>
@@ -1008,7 +1008,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                   minHeight: 57,
                   borderRadius: '10px',
                   border: 'none',
-                  background: 'linear-gradient(135deg, #4c8dff 0%, color-mix(in srgb, #4c8dff 78%, #ffffff 22%) 100%) !important',
+                  background: '#f8ae2c !important',
                   color: '#ffffff !important',
                   fontFamily: '"Manrope", sans-serif',
                   fontSize: '1.05rem',
@@ -1020,7 +1020,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                   },
                   '&:disabled': {
                     opacity: 0.66,
-                    background: 'linear-gradient(135deg, #4c8dff 0%, color-mix(in srgb, #4c8dff 78%, #ffffff 22%) 100%) !important',
+                    background: '#f8ae2c !important',
                     color: '#ffffff !important',
                   },
                 }}

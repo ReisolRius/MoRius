@@ -2633,3 +2633,12 @@ class StoryDndCombatAdvanceRequest(BaseModel):
 class StoryDndDeathSaveOut(BaseModel):
     state: dict[str, Any]
     roll: dict[str, Any]
+
+
+class LandingShowcaseOut(BaseModel):
+    """Anonymous public counters + avatar pictures for the presentation page."""
+
+    players: int
+    worlds: int
+    characters: int
+    avatars: list[str] = Field(default_factory=list)

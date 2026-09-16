@@ -34,7 +34,7 @@ class StoryTokenBudgetTests(unittest.TestCase):
     def test_token_counter_is_sub_word_not_word_or_character_length(self) -> None:
         # A Cyrillic word is worth more than one token and less than its character count:
         # real BPE tokenizers split Russian into 2-3 sub-word pieces. Counting one token per
-        # word (the old behaviour) ran 1.48x light against o200k_base on real MoRius content.
+        # word (the old behaviour) ran 1.48x light against o200k_base on real Moru content.
         counter = TokenCounter(safety_margin=1.0)
         phrase = "очень длинное слово"
 

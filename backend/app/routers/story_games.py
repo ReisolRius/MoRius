@@ -817,7 +817,7 @@ def _generate_story_quick_start_payload(
                 "The scene must be vivid, specific, and unique, not generic filler. "
                 "It must read like the very first assistant turn already written into the story before the player's first move. "
                 "End at a strong playable moment that invites the next player action. "
-                "Use the MoRius format in opening_scene: narration stays plain text, while every spoken line or included thought "
+                "Use the Moru format in opening_scene: narration stays plain text, while every spoken line or included thought "
                 "is a separate paragraph beginning with exactly one of [[NPC:Name]], [[GG:Name]], "
                 "[[NPC_THOUGHT:Name]], or [[GG_THOUGHT:Name]]. "
                 "For a known character use the exact available card name. Before a new NPC's first line, invent a natural stable "
@@ -840,7 +840,7 @@ def _generate_story_quick_start_payload(
                 "3. Пусть в ней будет конкретное место, заметная деталь обстановки и повод для немедленного действия.\n"
                 "4. Это должен быть первый ход мастера до действия игрока, поэтому не пиши реплики или действия игрока.\n"
                 "5. Финал сцены должен подталкивать к следующему выбору или действию героя.\n"
-                "6. Любую речь или показанную мысль оформи отдельным абзацем с MoRius-маркером в начале: [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]] или [[GG_THOUGHT:Имя]]. Описание и действия оставь обычным текстом.\n"
+                "6. Любую речь или показанную мысль оформи отдельным абзацем с Moru-маркером в начале: [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]] или [[GG_THOUGHT:Имя]]. Описание и действия оставь обычным текстом.\n"
                 "7. Для известного персонажа используй точное доступное имя. Новому NPC до первой реплики придумай естественное устойчивое имя; если личность пока скрыта, используй конкретную устойчивую роль не длиннее 4 слов. Не используй общие подписи НПС, NPC, Голос, Незнакомец и Персонаж.\n"
                 "8. Каждая реплика NPC, включая возглас, шёпот, реплику из толпы и речь за кадром, обязана начинаться с [[NPC:...]].\n"
                 "9. Return JSON only. No reasoning."
@@ -4490,6 +4490,9 @@ def delete_story_game(
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
+    # Unpublishing removed the public copy, but deleting never did - so a deleted world kept
+    # living in the community and resurfaced in listings long after its owner binned it.
+    _delete_story_game_publication_copies_for_source(db, source_game=game)
     _delete_story_game_with_relations(db, game_id=game.id)
     db.commit()
     return MessageResponse(message="Game deleted")

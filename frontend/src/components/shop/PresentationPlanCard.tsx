@@ -208,7 +208,7 @@ export default function PresentationPlanCard({
             mt: 2.2,
             borderRadius: '8px',
             color: '#edf6ff',
-            background: `linear-gradient(180deg, color-mix(in srgb, ${accent} 30%, #08121b), color-mix(in srgb, ${accent} 16%, #03080d))`,
+            background: `linear-gradient(180deg, color-mix(in srgb, ${accent} 30%, #0d0e0f), color-mix(in srgb, ${accent} 16%, #000000))`,
             border: `1px solid color-mix(in srgb, ${accent} 32%, transparent)`,
             boxShadow: 'none',
             fontSize: '0.72rem',
@@ -220,7 +220,7 @@ export default function PresentationPlanCard({
               borderColor: 'rgba(255,255,255,0.08)',
             },
             '&:hover': {
-              background: `linear-gradient(180deg, color-mix(in srgb, ${accent} 40%, #08121b), color-mix(in srgb, ${accent} 22%, #03080d))`,
+              background: `linear-gradient(180deg, color-mix(in srgb, ${accent} 40%, #0d0e0f), color-mix(in srgb, ${accent} 22%, #000000))`,
               boxShadow: `0 8px 24px color-mix(in srgb, ${accent} 14%, transparent)`,
             },
           }}

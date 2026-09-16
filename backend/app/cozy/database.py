@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class CozyBase(DeclarativeBase):
     """Its own metadata, deliberately.
 
-    Sharing MoRius's Base would put the game's tables into MoRius's `create_all` and MoRius's into
+    Sharing Moru's Base would put the game's tables into Moru's `create_all` and Moru's into
     the game's - which is how "two separate databases" quietly becomes "both databases hold both
     schemas, and one of them is empty".
     """

@@ -33,7 +33,7 @@ def _normalize_local_sqlite_url(database_url: str) -> str:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Migrate the MoRius database from SQLite to PostgreSQL.",
+        description="Migrate the Moru database from SQLite to PostgreSQL.",
     )
     parser.add_argument(
         "--source-sqlite-url",

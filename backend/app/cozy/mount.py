@@ -8,20 +8,20 @@ logger = logging.getLogger(__name__)
 
 
 def mount_cozy(app: FastAPI) -> bool:
-    """Hangs the game's endpoints on an existing MoRius app.
+    """Hangs the game's endpoints on an existing Moru app.
 
     The game has its own container, and that is still the right way to run it. This exists because
     "the right way" and "what is actually serving /api/ on the box" are two different questions,
     and only one of them can be answered from a repository: a deployment may be running the
     monolith, or the gateway, or an edge whose config predates the game - and in every one of those
-    cases a player taps Register and a MoRius process answers 404.
+    cases a player taps Register and a Moru process answers 404.
 
     Mounting costs nothing to be wrong about. The routers hold their own engine, their own tables
     and their own tokens, so a second process serving them is a second reader of one database, not
     a second copy of anything.
 
     Every failure in here is swallowed and logged. The game arriving badly must never be a reason
-    MoRius does not come up - that is the whole contract of being a guest in someone else's
+    Moru does not come up - that is the whole contract of being a guest in someone else's
     process.
     """
     try:

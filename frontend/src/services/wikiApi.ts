@@ -1,6 +1,6 @@
 import { requestJson, requestNoContent } from './httpClient'
 
-const WIKI_NETWORK_ERROR = 'Не удалось связаться с сервером Мориус Вики.'
+const WIKI_NETWORK_ERROR = 'Не удалось связаться с сервером Мору Вики.'
 
 export type WikiArticleListItem = {
   id: number

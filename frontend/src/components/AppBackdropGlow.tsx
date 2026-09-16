@@ -1,9 +1,10 @@
 import { Box } from '@mui/material'
 
 /**
- * The soft accent light that sits behind every redesigned page. It lives on the viewport
- * (fixed) so long pages don't drag it away, and below the shell's content via the
- * `isolation: isolate` the shell gets in index.css.
+ * The page backdrop behind every redesigned screen: AI Dungeon's off-black radial, anchored
+ * off the top-left corner so the page is never flatly black. It lives on the viewport (fixed)
+ * so long pages don't drag it away, and below the shell's content via the `isolation: isolate`
+ * the shell gets in index.css.
  */
 function AppBackdropGlow() {
   return (
@@ -15,7 +16,7 @@ function AppBackdropGlow() {
         zIndex: -1,
         pointerEvents: 'none',
         background:
-          'radial-gradient(1100px 620px at 78% -8%, color-mix(in oklab, var(--morius-accent) 16%, transparent), transparent 70%), radial-gradient(900px 520px at 6% 4%, rgba(120, 180, 200, 0.055), transparent 68%)',
+          'radial-gradient(120% 85% at 18% -6%, #0d0e0f 0%, #070708 45%, #010102 75%, #000000 100%)',
       }}
     />
   )

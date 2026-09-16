@@ -3990,7 +3990,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       aspectRatio: '16 / 9',
                       minHeight: 156,
                       background:
-                        'radial-gradient(circle at 72% 24%, rgba(80, 112, 160, 0.22), transparent 42%), linear-gradient(145deg, rgba(24, 31, 43, 0.96), rgba(9, 12, 18, 0.98))',
+                        'radial-gradient(circle at 72% 24%, rgba(199, 231, 255, 0.12), transparent 42%), linear-gradient(145deg, rgba(39, 44, 48, 0.96), rgba(7, 7, 8, 0.98))',
                     }}
                     fallback={(
                       <Stack spacing={0.6} alignItems="center" sx={{ color: 'var(--morius-text-secondary)' }}>
@@ -4153,7 +4153,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
         <Stack spacing={0.9}>
           {visibleNotifications.map((notification) => {
-            const actorLabel = notification.actor_display_name?.trim() || 'MoRius'
+            const actorLabel = notification.actor_display_name?.trim() || 'Moru'
             const isDeleting = notificationDeletingId === notification.id
             return (
               <Box
@@ -7107,7 +7107,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             </Typography>
           ) : (
             notifications.slice(0, 3).map((notification) => {
-              const actorLabel = notification.actor_display_name?.trim() || 'MoRius'
+              const actorLabel = notification.actor_display_name?.trim() || 'Moru'
               return (
                 <Box
                   key={`notification-popover-${notification.id}`}
@@ -8023,7 +8023,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   borderRadius: '11px',
                   border: 'var(--morius-border-width) solid var(--morius-card-border)',
                   background:
-                    'radial-gradient(circle at 70% 20%, rgba(85, 119, 172, 0.24), transparent 40%), linear-gradient(145deg, rgba(23, 30, 42, 0.98), rgba(8, 11, 17, 0.98))',
+                    'radial-gradient(circle at 70% 20%, rgba(199, 231, 255, 0.12), transparent 40%), linear-gradient(145deg, rgba(39, 44, 48, 0.98), rgba(7, 7, 8, 0.98))',
                 }}
                 fallback={(
                   <Stack spacing={0.75} alignItems="center" sx={{ px: 2, color: 'var(--morius-text-secondary)', textAlign: 'center' }}>

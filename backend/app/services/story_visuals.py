@@ -1455,7 +1455,7 @@ def _try_fetch_story_character_avatar_data_url(image_url: str | None) -> str | N
 
     request_headers = {
         "Accept": "image/*,*/*;q=0.8",
-        "User-Agent": "MoRius/1.0",
+        "User-Agent": "Moru/1.0",
     }
     lowered_url = normalized_url.lower()
     if ("polza.ai" in lowered_url or "polza.ai" in lowered_url) and settings.polza_api_key:

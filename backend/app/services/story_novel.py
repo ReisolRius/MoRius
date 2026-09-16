@@ -556,7 +556,7 @@ _VN_CANONICAL_SPEAKER_LINE = re.compile(
     re.IGNORECASE,
 )
 # Visual Novel-only emotion cue.  It lives in the body, not inside the universal marker, so
-# ``[[NPC:Exact title]]`` remains byte-for-byte compatible with the shared MoRius protocol.
+# ``[[NPC:Exact title]]`` remains byte-for-byte compatible with the shared Moru protocol.
 # Unknown parenthesized prose is deliberately left untouched.
 _VN_CANONICAL_EMOTION_PREFIX = re.compile(
     r"^\s*\((?P<emotion>[^)\n]{1,40})\)\s*:?[ \t]*(?P<text>.+)$",
@@ -653,7 +653,7 @@ def _split_story_novel_logical_paragraphs(raw_text: str) -> list[str]:
 def build_story_novel_instruction_card() -> dict[str, str]:
     """The extra narrator instruction injected only for admin Visual Novel games.
 
-    It reinforces the universal MoRius speaker markers so the parser can split the answer into
+    It reinforces the universal Moru speaker markers so the parser can split the answer into
     beats without introducing a competing Visual Novel-only dialogue syntax.
     """
     emotion_labels = ", ".join(

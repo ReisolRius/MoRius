@@ -38,7 +38,7 @@ def generate_state() -> str:
 def issue_token(player: CozyPlayer) -> str:
     """A long-lived session for a phone.
 
-    Half a year rather than MoRius's hours: this is a game that is opened for two minutes at a
+    Half a year rather than Moru's hours: this is a game that is opened for two minutes at a
     time and whose whole promise is that the village is still there. Being asked to type a password
     again because a token expired overnight is the shape of losing a save, whether or not anything
     was lost.
@@ -65,8 +65,8 @@ def current_player(
     if not payload:
         raise _unauthorized("Invalid or expired token")
 
-    # The check that keeps the two products from being one. A MoRius token decodes here - same
-    # secret, same algorithm - and without this line it would name a Cozy player by a MoRius id.
+    # The check that keeps the two products from being one. A Moru token decodes here - same
+    # secret, same algorithm - and without this line it would name a Cozy player by a Moru id.
     if str(payload.get("app", "")) != TOKEN_AUDIENCE:
         raise _unauthorized("Token was not issued for this game")
 

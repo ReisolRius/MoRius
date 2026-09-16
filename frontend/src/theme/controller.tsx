@@ -176,7 +176,7 @@ export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
       root.setAttribute('data-morius-surface', surface)
       document
         .querySelector('meta[name="theme-color"]')
-        ?.setAttribute('content', surface === 'legacy' ? '#0b0b0d' : activeTheme.colors.appBase)
+        ?.setAttribute('content', surface === 'legacy' ? '#090909' : activeTheme.colors.appBase)
     } catch {
       // Ignore in case of SSR or other restrictions
     }

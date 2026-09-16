@@ -39,7 +39,7 @@ const DEFAULT_INFO_LINKS: FooterLink[] = [
   { label: 'Пользовательское соглашение', path: '/terms-of-service' },
 ]
 
-/** Telegram circle icon retained from the current MoRius footer artwork. */
+/** Telegram circle icon retained from the current Moru footer artwork. */
 function TelegramIcon() {
   return (
     <svg width="30" height="30" viewBox="0 0 50 52" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -49,7 +49,7 @@ function TelegramIcon() {
   )
 }
 
-/** VK rounded-rect icon retained from the current MoRius footer artwork. */
+/** VK rounded-rect icon retained from the current Moru footer artwork. */
 function VkIcon() {
   return (
     <svg width="30" height="30" viewBox="80 0 50 52" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -146,7 +146,7 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
   }
   const legalLinks = infoLinks.length > 0 ? infoLinks : DEFAULT_INFO_LINKS
   const helpLinks: FooterLink[] = [
-    { label: 'Мориус Вики', path: '/wiki' },
+    { label: 'Мору Вики', path: '/wiki' },
     { label: 'Поддержка', href: TELEGRAM_URL, external: true },
     { label: 'Реферальная программа', path: '/profile#referral-program' },
     ...legalLinks.filter((link) => link.path !== '/wiki'),
@@ -201,7 +201,7 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
                 lineHeight: 1,
               }}
             >
-              MoRius
+              Moru
             </Typography>
           </Stack>
           <Typography
@@ -270,7 +270,7 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
           sx={{ py: { xs: 2.5, md: 2.6 } }}
         >
           <Typography sx={{ color: 'var(--morius-quiet-text)', fontSize: { xs: '0.75rem', md: '0.81rem' }, whiteSpace: 'nowrap' }}>
-            © 2026 MoRius
+            © 2026 Moru
           </Typography>
           <Typography
             sx={{

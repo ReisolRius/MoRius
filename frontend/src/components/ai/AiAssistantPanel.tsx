@@ -82,7 +82,7 @@ const dislikeIconMarkup = `<svg viewBox="0 0 24 24" fill="none"><path d="M17 13.
 const AI_ASSISTANT_HISTORY_LIMIT = 10
 const AI_ASSISTANT_STORAGE_PREFIX = 'morius:ai-assistant:chat'
 const AI_ASSISTANT_INTRO_MESSAGE =
-  'Привет! Я помогу собрать мир, создать или поправить карточки, настроить правила и быстро объяснить, где что находится в MORIUS.'
+  'Привет! Я помогу собрать мир, создать или поправить карточки, настроить правила и быстро объяснить, где что находится в MORU.'
 
 function createLocalId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
@@ -962,7 +962,7 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
                   AI-помощник
                 </Typography>
                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>
-                  Инструменты MORIUS
+                  Инструменты MORU
                 </Typography>
               </Box>
             </Stack>

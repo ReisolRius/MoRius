@@ -110,6 +110,7 @@ from app.services.auth_identity import (
     sync_user_access_state,
 )
 from app.services.media import normalize_avatar_value, normalize_media_scale, validate_avatar_url
+from app.services.image_compression import PROFILE_AVATAR
 from app.services.payments import sync_user_pending_purchases, sync_user_pending_subscriptions
 from app.services.profile_showcase import normalize_profile_showcase, serialize_profile_showcase
 
@@ -2021,7 +2022,7 @@ def update_avatar(
 ) -> UserOut:
     user = get_current_user(db, authorization)
     avatar_value = normalize_avatar_value(payload.avatar_url)
-    user.avatar_url = validate_avatar_url(avatar_value) if avatar_value else None
+    user.avatar_url = validate_avatar_url(avatar_value, profile=PROFILE_AVATAR) if avatar_value else None
     if payload.avatar_scale is not None:
         user.avatar_scale = normalize_media_scale(
             payload.avatar_scale,

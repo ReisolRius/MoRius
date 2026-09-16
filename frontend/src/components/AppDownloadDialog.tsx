@@ -153,7 +153,7 @@ export default function AppDownloadDialog({ open, onClose }: AppDownloadDialogPr
             Скачать приложение
           </Typography>
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem', lineHeight: 1.45 }}>
-            Сейчас доступна только Android-версия MoRius.
+            Сейчас доступна только Android-версия Moru.
           </Typography>
         </Stack>
       }

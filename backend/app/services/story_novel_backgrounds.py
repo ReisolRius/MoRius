@@ -24,6 +24,7 @@ from app.services.story_world_cards import (
     STORY_WORLD_CARD_KIND_WORLD_PROFILE,
 )
 from app.services.text_encoding import sanitize_likely_utf8_mojibake
+from app.services.image_compression import PROFILE_SCENE
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,7 @@ def _set_story_place_image(db: Session, place: Any, raw_image_url: str | None) -
         place.image_url = None
         place.image_data_url = None
         return
-    validated = validate_avatar_url(storage_value, max_bytes=_STORY_PLACE_IMAGE_MAX_BYTES)
+    validated = validate_avatar_url(storage_value, max_bytes=_STORY_PLACE_IMAGE_MAX_BYTES, profile=PROFILE_SCENE)
     if validated.startswith("data:"):
         place.image_url = None
         place.image_data_url = validated

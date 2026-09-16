@@ -34,9 +34,9 @@ type WikiPageProps = {
   onNavigate: (path: string, options?: { replace?: boolean }) => void
 }
 
-const PAGE_TITLE = 'MoRius Wiki — Мориус Вики, F.A.Q. и гайды по MoRius'
+const PAGE_TITLE = 'Moru Wiki — Мору Вики, F.A.Q. и гайды по Moru'
 const PAGE_DESCRIPTION =
-  'Мориус Вики (MoRius Wiki) — база знаний и F.A.Q. по платформе MoRius: гайды, ответы на частые вопросы и помощь по текстовым ИИ-приключениям.'
+  'Мору Вики (Moru Wiki) — база знаний и F.A.Q. по платформе Moru: гайды, ответы на частые вопросы и помощь по текстовым ИИ-приключениям.'
 const CANONICAL_URL = 'https://morius-ai.ru/wiki'
 
 function IconSearch() {
@@ -143,7 +143,7 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
 
   useEffect(() => {
     const openArticle = openId !== null ? details[openId] : null
-    document.title = openArticle ? `${openArticle.title} — MoRius Wiki` : PAGE_TITLE
+    document.title = openArticle ? `${openArticle.title} — Moru Wiki` : PAGE_TITLE
   }, [openId, details])
 
   // --- Search debounce --------------------------------------------------
@@ -347,7 +347,7 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
         display: 'flex',
         flexDirection: 'column',
         background:
-          'radial-gradient(circle at 68% 8%, rgba(130, 162, 192, 0.18) 0%, rgba(130, 162, 192, 0.05) 34%, transparent 56%), linear-gradient(180deg, #080c14 0%, #05070d 48%, #04060b 100%)',
+          'radial-gradient(120% 85% at 18% -6%, #0d0e0f 0%, #070708 45%, #010102 75%, #000000 100%)',
         color: 'var(--morius-text-primary)',
       }}
     >
@@ -365,7 +365,7 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
                 <Box
                   component="img"
                   src={brandLogo}
-                  alt="MoRius"
+                  alt="Moru"
                   sx={{ width: { xs: 108, md: 132 }, opacity: 0.96, filter: 'brightness(0) invert(1)' }}
                 />
               </Box>
@@ -399,10 +399,10 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
                   color: 'var(--morius-title-text)',
                 }}
               >
-                Мориус Вики
+                Мору Вики
               </Typography>
               <Typography sx={{ mt: 1, color: 'var(--morius-text-secondary)', fontSize: { xs: '0.96rem', md: '1.06rem' }, maxWidth: 640 }}>
-                База знаний и F.A.Q. по MoRius: гайды, ответы на частые вопросы и подсказки для игроков и креаторов.
+                База знаний и F.A.Q. по Moru: гайды, ответы на частые вопросы и подсказки для игроков и креаторов.
               </Typography>
             </Box>
 
@@ -682,7 +682,7 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
 
       <Footer
         infoLinks={[
-          { label: 'Мориус Вики', path: '/wiki' },
+          { label: 'Мору Вики', path: '/wiki' },
           { label: 'Политика конфиденциальности', path: '/privacy-policy' },
           { label: 'Пользовательское соглашение', path: '/terms-of-service' },
           { label: 'Правила публикаций', path: '/publication-rules' },

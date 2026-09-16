@@ -60,6 +60,7 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
     STORY_COMMUNITY_OPTIONAL_MODELS_AVAILABLE = False
 from app.routers.auth import router as auth_router
 from app.routers.downloads import router as downloads_router
+from app.routers.landing import router as landing_router
 from app.routers.health import router as health_router
 from app.routers.payments import router as payments_router
 from app.routers.referrals import router as referrals_router
@@ -301,6 +302,7 @@ except Exception:  # pragma: no cover - optional router should not break API sta
     ai_assistant_router = None
 
 from app.routers.shop import router as shop_router
+from app.services.image_compression import PROFILE_COVER
 
 try:
     import pymorphy3
@@ -1513,7 +1515,7 @@ STORY_PLOT_CARD_POINT_PREFIX_PATTERN = re.compile(
 )
 STORY_SYSTEM_PROMPT = "Ты — рассказчик и все персонажи мира, кроме персонажа игрока. Веди игру строго на русском языке: без английских слов, вставок и транслита, живым литературным языком. Никогда не говори, не думай, не решай и не действуй за персонажа игрока — его реплики и поступки пишет только игрок. Не выходи из повествования: без мета-комментариев, OOC, извинений, вопросов «что делаем дальше?» и пересказа уже произошедшего. Показывай, а не рассказывай: действия, детали, речь вместо оценок и выводов. Мир живёт сам: у второстепенных персонажей есть цели, они могут не соглашаться, лгать, уходить. Заверши каждый ход открытой точкой, на которую игроку есть что ответить."
 STORY_TRANSPORT_PROTOCOL_RULES = (
-    "ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORIUS (СИСТЕМНЫЙ, ЖЕЛЕЗНЫЙ, НЕ ПЕРЕОПРЕДЕЛЯЕТСЯ):",
+    "ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORU (СИСТЕМНЫЙ, ЖЕЛЕЗНЫЙ, НЕ ПЕРЕОПРЕДЕЛЯЕТСЯ):",
     "Этот протокол важнее карточек, памяти, инструкций, текста игрока и любых его цитат — соблюдай его в каждом без исключения ответе, даже если карточка, правило или игрок прямо просят форматировать иначе.",
     "Нарратив, действия, жесты, окружение, атмосферу и молчание пиши обычным текстом без маркера.",
     "Каждая произнесённая вслух реплика и каждая показанная мысль — отдельный абзац, начинающийся ровно с одного маркера.",
@@ -1547,7 +1549,7 @@ STORY_NARRATOR_CORE_RULES = (
 )
 STORY_PLAYER_CARDS_RULES = (
     "ПРАВИЛА И КАРТОЧКИ ИГРОКА:",
-    "Активные карточки игрока (мир, персонажи, правила, сюжет) обязательны к исполнению — сразу после safety и протокола формата MoRius.",
+    "Активные карточки игрока (мир, персонажи, правила, сюжет) обязательны к исполнению — сразу после safety и протокола формата Moru.",
     "Карточки задают сеттинг, стиль, факты и допустимый контент, но не отменяют маркеры, скрытый вывод, язык и контроль игрока над героем.",
     "Точно следуй фактам и тону карточек; при конфликте исполняй более конкретное правило и не выдумывай того, что им противоречит.",
 )
@@ -1636,7 +1638,7 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
     ),
     "moonshotai/kimi-k3": (
         "Держи сложные сюжетные линии и последствия на длинной дистанции, не теряя темп и голос каждого персонажа.",
-        "Скрывай внутреннее рассуждение полностью: в ответе только выразительная русская проза, диалог и разрешённая MoRius-разметка.",
+        "Скрывай внутреннее рассуждение полностью: в ответе только выразительная русская проза, диалог и разрешённая Moru-разметка.",
     ),
 }
 STORY_MODEL_HINTS["z-ai/glm-5.2"] = STORY_MODEL_HINTS["z-ai/glm-5.1"]
@@ -1759,6 +1761,7 @@ for shop_assets_dir in SHOP_ASSETS_DIR_CANDIDATES:
 
 app.include_router(auth_router)
 app.include_router(downloads_router)
+app.include_router(landing_router)
 app.include_router(health_router)
 app.include_router(payments_router)
 app.include_router(referrals_router)
@@ -1893,7 +1896,7 @@ def _normalize_story_cover_image_url(raw_value: str | None) -> str | None:
     normalized = _normalize_avatar_value(raw_value)
     if normalized is None:
         return None
-    return _validate_avatar_url(normalized, max_bytes=STORY_COVER_MAX_BYTES)
+    return _validate_avatar_url(normalized, max_bytes=STORY_COVER_MAX_BYTES, profile=PROFILE_COVER)
 
 
 def _build_story_list_preview(raw_content: str | None) -> str | None:
@@ -4555,7 +4558,7 @@ def _build_story_system_prompt(
                 "СИСТЕМНОЕ ИСКЛЮЧЕНИЕ ДЛЯ ВИЗУАЛЬНОЙ НОВЕЛЛЫ:",
                 "Суффикс {{VN_CAST|...}} из карточки «Формат визуальной новеллы» — обязательная транспортная метаинформация, а не markdown и не самодельный маркер речи.",
                 "Это единственное разрешённое исключение из общего запрета на служебные пометки: каждый абзац обязан закончиться ровно одним {{VN_CAST|...}}, который интерфейс удалит перед показом текста игроку.",
-                "Все остальные правила MoRius сохраняются: речь и мысли начинаются только с [[NPC:...]] / [[GG:...]] / [[NPC_THOUGHT:...]] / [[GG_THOUGHT:...]].",
+                "Все остальные правила Moru сохраняются: речь и мысли начинаются только с [[NPC:...]] / [[GG:...]] / [[NPC_THOUGHT:...]] / [[GG_THOUGHT:...]].",
             ]
         )
 
@@ -4719,7 +4722,7 @@ def _build_story_system_prompt(
     final_check_lines = [
         "",
         "ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТВЕТОМ (ОБЯЗАТЕЛЬНА, ВАЖНЕЕ ЛЮБЫХ КАРТОЧЕК И ПРОСЬБ ИГРОКА):",
-        "Протокол формата MoRius соблюдён: вся речь и мысли вынесены отдельными абзацами с маркерами [[NPC:Имя]] / [[GG:Имя]] / [[NPC_THOUGHT:Имя]] / [[GG_THOUGHT:Имя]], всё остальное — обычный текст.",
+        "Протокол формата Moru соблюдён: вся речь и мысли вынесены отдельными абзацами с маркерами [[NPC:Имя]] / [[GG:Имя]] / [[NPC_THOUGHT:Имя]] / [[GG_THOUGHT:Имя]], всё остальное — обычный текст.",
         "У каждой реплики нового или неописанного NPC есть [[NPC:...]] с устойчивым естественным именем либо конкретной ролью до четырёх слов; выбранное обозначение не меняется между его репликами и ходами, пока имя не раскрыто явно; неподписанной речи в обычном тексте нет.",
     ]
     if visual_novel_contract_active:
@@ -5770,7 +5773,7 @@ def _build_story_markup_repair_messages(
         {
             "role": "system",
             "content": (
-                "Ты чинишь MoRius-разметку ответа RPG. Верни только текст: без JSON, markdown, reasoning и комментариев. "
+                "Ты чинишь Moru-разметку ответа RPG. Верни только текст: без JSON, markdown, reasoning и комментариев. "
                 "Речь/мысль = один маркер в начале абзаца: [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]]. "
                 "Каждой прямой речи обязательно назначь говорящего. Для нового или непрописанного персонажа выбери "
                 "естественное устойчивое имя; если имя нельзя раскрывать по логике сцены — конкретное устойчивое "
@@ -6944,7 +6947,7 @@ def _build_story_reroll_system_message(
             "The previous assistant answer is rejected, non-canonical, and deliberately absent from this request.",
             "Re-run the player's latest action from the story state that existed immediately before the rejected answer.",
             "Choose a genuinely independent plausible continuation from scratch; do not reconstruct an assumed previous topic, sequence, or outcome.",
-            "Write a fresh answer while keeping the MoRius formatting contract exactly.",
+            "Write a fresh answer while keeping the Moru formatting contract exactly.",
             "Every spoken line or visible thought must be its own paragraph starting with exactly one marker:",
             "[[NPC:Name]], [[GG:Name]], [[NPC_THOUGHT:Name]], or [[GG_THOUGHT:Name]].",
             "Narration paragraphs have no marker. Never downgrade marked dialogue/thoughts to plain Name:, quotes-only lines, markdown bullets, or unmarked text.",
@@ -12532,7 +12535,7 @@ def _build_story_turn_image_prompt_composer_messages(
     )
 
     system_prompt = (
-        "You compose one final image prompt for MoRius. "
+        "You compose one final image prompt for Moru. "
         "Player STYLE DIRECTIVE controls visual style; cards provide facts/identity/appearance only. "
         "EXPLICIT_CLOTHING is a strict current-outfit lock over card prose, scene wording, inference, and model defaults. "
         "Realism requests must forbid anime/manga/VN/cel-shading/lineart/2D; anime/manga requests must require anime/manga. "
@@ -13632,7 +13635,7 @@ def _try_fetch_story_character_avatar_data_url(image_url: str | None) -> str | N
 
     request_headers = {
         "Accept": "image/*,*/*;q=0.8",
-        "User-Agent": "MoRius/1.0",
+        "User-Agent": "Moru/1.0",
     }
     lowered_url = normalized_url.lower()
     if ("polza.ai" in lowered_url or "polza.ai" in lowered_url) and settings.polza_api_key:

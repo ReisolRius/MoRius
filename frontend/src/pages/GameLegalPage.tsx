@@ -26,7 +26,7 @@ function GameLegalPage({ title, content, other, onNavigate }: GameLegalPageProps
       sx={{
         minHeight: '100svh',
         background:
-          'radial-gradient(circle at 68% 10%, rgba(130, 162, 192, 0.16) 0%, rgba(130, 162, 192, 0.04) 34%, transparent 55%), linear-gradient(180deg, #080c14 0%, #05070d 48%, #04060b 100%)',
+          'radial-gradient(120% 85% at 18% -6%, #0d0e0f 0%, #070708 45%, #010102 75%, #000000 100%)',
         color: 'var(--morius-text-primary)',
         py: { xs: 3, md: 5 },
       }}

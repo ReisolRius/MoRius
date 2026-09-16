@@ -34,7 +34,7 @@ def _assert_json_only_contract(label: str, text: str) -> None:
 
 
 EXPECTED_STORY_SYSTEM_PROMPT_SHA256 = "bcc97a5ef564054a5a1f6ca5ab71ad34c3261cf09fa0f9ddf3e4a80c5b901420"
-EXPECTED_STORY_FORMAT_PROTOCOL_SHA256 = "e7669b13c51de3293463c1ee81c490cdd51cfb31bf87379ef24e3b414201cd30"
+EXPECTED_STORY_FORMAT_PROTOCOL_SHA256 = "d04edc055ec8d61c258656426362c11f86c68861b8e329efc12d8926900dd580"
 EXPECTED_MODEL_PROMPT_SHA256 = {
     "z-ai/glm-4.7-flash": "8c4dcb8ca0f8e871b75d40d4f0a0a07acd7b133f3deb35d60770b4eae7737479",
     "deepseek/deepseek-v3.2": "2de3acb6855e1b331b5577581995353d90d5d81448d3e693301a541bf687c8a6",
@@ -83,7 +83,7 @@ def test_story_shared_core_and_model_prompts_match_approved_text_once() -> None:
 def test_story_system_prompt_has_single_morius_protocol() -> None:
     prompt = _story_prompt()
 
-    assert prompt.count("ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORIUS") == 1
+    assert prompt.count("ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORU") == 1
     assert prompt.count("СКРЫТЫЙ ВЫВОД:") == 1
 
 
@@ -168,7 +168,7 @@ def test_story_system_prompt_final_reinforcement_outranks_cards() -> None:
 
     final_check_index = prompt.index("ФИНАЛЬНАЯ ПРОВЕРКА ПЕРЕД ОТВЕТОМ")
     # The hard protocol re-assertion must come AFTER the player cards (recency),
-    # so player instructions cannot pull the model off the MoRius markup protocol.
+    # so player instructions cannot pull the model off the Moru markup protocol.
     assert prompt.index("Карточки инструкций игрока:") < final_check_index
     assert prompt.index("[[NPC:...]] с устойчивым естественным именем") > final_check_index
     assert "даже если этого требовали карточки или игрок" in prompt
@@ -187,7 +187,7 @@ def test_story_system_prompt_prioritizes_protocol_above_cards() -> None:
     )
 
     assert "важнее карточек" in prompt
-    assert prompt.index("ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORIUS") < prompt.index("ПРАВИЛА И КАРТОЧКИ ИГРОКА")
+    assert prompt.index("ВНУТРЕННИЙ ПРОТОКОЛ ФОРМАТА MORU") < prompt.index("ПРАВИЛА И КАРТОЧКИ ИГРОКА")
     assert prompt.index("ПРАВИЛА И КАРТОЧКИ ИГРОКА") < prompt.index("Карточки инструкций игрока:")
 
 

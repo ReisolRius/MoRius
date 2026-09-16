@@ -194,7 +194,9 @@ def _normalize_schema_statement_for_dialect(statement: str) -> str:
 def _execute_schema_statement(connection, statement: str) -> None:
     rendered_statement = _normalize_schema_statement_for_dialect(statement)
     try:
-        connection.execute(text(rendered_statement))
+        # Driver-level, not text(): these are literal DDL with no binds, and text() would read a
+        # colon inside a default - '{"entity_id":null}' - as a bind parameter named "null".
+        connection.exec_driver_sql(rendered_statement)
     except Exception as exc:  # pragma: no cover - depends on database driver wording
         if _is_duplicate_schema_error(exc):
             return

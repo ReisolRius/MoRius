@@ -1,8 +1,8 @@
-# Cozy Village — бэкенд игры внутри MoRius
+# Cozy Village — бэкенд игры внутри Moru
 
 Игра — **гость** в этом бэкенде, а не его часть. Отдельный пакет (`app/cozy/`), отдельный
-контейнер, отдельная база и отдельные токены. Ни одна строчка не пишет в таблицы MoRius, ни одна
-строчка MoRius не читает таблицы игры.
+контейнер, отдельная база и отдельные токены. Ни одна строчка не пишет в таблицы Moru, ни одна
+строчка Moru не читает таблицы игры.
 
 Переиспользуется только то, что не про личность: почтовик (`app/services/auth_verification.py`),
 хеширование паролей и кодек JWT (`app/security.py`). Второй экземпляр каждого был бы вторым
@@ -12,11 +12,11 @@
 
 | Файл | Зачем |
 |---|---|
-| `app/cozy/settings.py` | Настройки игры из env. Имя базы выводится из `DATABASE_URL` MoRius |
+| `app/cozy/settings.py` | Настройки игры из env. Имя базы выводится из `DATABASE_URL` Moru |
 | `app/cozy/database.py` | Свой engine и `CozyBase`; создаёт базу `cozyvillage`, если её нет |
 | `app/cozy/models.py` | `cozy_players`, `cozy_email_codes`, `cozy_saves`, `cozy_google_logins`, `cozy_purchases` |
 | `app/cozy/security.py` | Токены с клеймом `app: cozy-village` и проверка на входе |
-| `app/cozy/mail.py` | Тексты писем — про Cozy Village, отправка через почтовик MoRius |
+| `app/cozy/mail.py` | Тексты писем — про Cozy Village, отправка через почтовик Moru |
 | `app/cozy/routers/auth.py` | Регистрация с кодом, вход, сброс пароля, Google |
 | `app/cozy/routers/save.py` | Облачное сохранение: `GET` / `PUT` |
 | `app/cozy/routers/payments.py` | ЮKassa: статус, создание платежа, вебхук, выдача покупок |
@@ -45,7 +45,7 @@ curl -s http://127.0.0.1/api/cozy/health
 `CREATE DATABASE cozyvillage`, если её нет, затем `create_all`. Init-скрипт образа не подошёл бы —
 он выполняется только на пустом data-каталоге, а этот сервер давно не пустой.
 
-**MoRius не трогается.** Пересобирается только контейнер `cozy` и пересоздаётся `edge` (ему нужен
+**Moru не трогается.** Пересобирается только контейнер `cozy` и пересоздаётся `edge` (ему нужен
 новый конфиг nginx). `edge` зависит от `cozy` как `service_started`, а не `service_healthy` — сайт
 не должен ждать игру и тем более не должен из-за неё не подняться.
 
@@ -60,7 +60,7 @@ curl -s http://127.0.0.1/api/cozy/health
 | `COZY_ACCESS_TOKEN_TTL_DAYS` | `180` | Срок сессии. Телефонная игра: полгода, не часы |
 | `COZY_EMAIL_CODE_TTL_MINUTES` | `15` | Сколько живёт код из письма |
 | `COZY_EMAIL_RESEND_COOLDOWN_SECONDS` | `60` | Пауза между письмами на один адрес |
-| `COZY_GOOGLE_CLIENT_ID` | `GOOGLE_CLIENT_ID` | Можно взять клиент MoRius — компания та же |
+| `COZY_GOOGLE_CLIENT_ID` | `GOOGLE_CLIENT_ID` | Можно взять клиент Moru — компания та же |
 | `COZY_GOOGLE_CLIENT_SECRET` | пусто | **Нужен**: игра меняет `code` на токен на сервере |
 | `COZY_GOOGLE_REDIRECT_URI` | `https://morius-ai.ru/api/cozy/auth/google/callback` | Должен быть в консоли Google |
 | `COZY_YOOKASSA_SHOP_ID` | пусто | Пока пусто — магазин честно пишет «оплата не подключена» |
@@ -68,7 +68,7 @@ curl -s http://127.0.0.1/api/cozy/health
 | `COZY_YOOKASSA_RETURN_URL` | `.../api/cozy/payments/done` | Куда ЮKassa вернёт браузер |
 | `COZY_YOOKASSA_WEBHOOK_TOKEN` | пусто | Если задан, вебхук требует заголовок `X-Cozy-Webhook-Token` |
 
-Почта берётся из тех же `RESEND_*` / `SMTP_*`, что и у MoRius: отправитель один, а игру называет
+Почта берётся из тех же `RESEND_*` / `SMTP_*`, что и у Moru: отправитель один, а игру называет
 первая строка письма.
 
 ## Google
@@ -80,7 +80,7 @@ curl -s http://127.0.0.1/api/cozy/health
 Нативный SDK потребовал бы отпечаток подписи APK, зарегистрированный в консоли, — то есть вход,
 который работает в одной сборке и молча ломается в следующей, собранной на другой машине.
 
-**Почему нельзя просто взять то, что на сайте.** У MoRius вход через Google сделан библиотекой
+**Почему нельзя просто взять то, что на сайте.** У Moru вход через Google сделан библиотекой
 Google Identity Services — она живёт в браузере, показывает окно выбора аккаунта и отдаёт готовый
 `id_token`; сервер его только проверяет. Серверная половина здесь и переиспользована один в один
 (`_verify_google_id_token` + поиск игрока по `sub`). Чего в телефоне нет — самой библиотеки:
@@ -91,7 +91,7 @@ Google Identity Services — она живёт в браузере, показы
 Поэтому игра идёт в системный браузер за `code`, а сервер меняет его на токен. Обмен `code` →
 токен Google разрешает только с client secret — отсюда единственная новая настройка.
 
-Что нужно в Google Cloud Console (тот же проект, что у MoRius):
+Что нужно в Google Cloud Console (тот же проект, что у Moru):
 
 1. **Credentials → OAuth 2.0 Client IDs → веб-клиент** (тот, чей id уже в `GOOGLE_CLIENT_ID`).
 2. **Authorized redirect URIs** → добавить `https://morius-ai.ru/api/cozy/auth/google/callback`.
@@ -159,6 +159,6 @@ python -m unittest tests.test_cozy_backend -v
 ```
 
 Четырнадцать штук, без сети и без почтового сервера. Главный из них —
-`test_a_morius_token_cannot_open_a_cozy_account`: секрет у продуктов один, поэтому токен MoRius
-здесь декодируется идеально, и клейм `app` — единственное, что мешает пользователю MoRius №5
+`test_a_morius_token_cannot_open_a_cozy_account`: секрет у продуктов один, поэтому токен Moru
+здесь декодируется идеально, и клейм `app` — единственное, что мешает пользователю Moru №5
 оказаться игроком Cozy Village №5.

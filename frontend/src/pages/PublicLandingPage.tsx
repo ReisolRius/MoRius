@@ -1,627 +1,360 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { Box, Stack, Typography, type SxProps, type Theme } from '@mui/material'
+import { brandLogo, icons } from '../assets'
 import {
-  Box,
-  Button,
-  Container,
-  Stack,
-  Typography,
-  type SxProps,
-  type Theme,
-} from '@mui/material'
-import { brandLogo } from '../assets'
-import slideTemplatesPreview from '../assets/images/advantages/slide-templates.png'
-import advantageAvatarsPreview from '../assets/images/advantages/avatars-preview.png'
-import advantageStorytellersPreview from '../assets/images/advantages/storytellers-preview.png'
-import advantageImagesPreview from '../assets/images/advantages/images-preview.png'
-import advantageCommunityPreview from '../assets/images/advantages/community-preview.png'
-import advantageMemoryPreview from '../assets/images/advantages/memory-preview.png'
-import heroSkyImg from '../assets/images/presentation/hero-sky.jpg'
-import heroWandererImg from '../assets/images/presentation/hero-wanderer.png'
-import heroCliffImg from '../assets/images/presentation/hero-cliff.png'
-import aboutCavernImg from '../assets/images/presentation/about-cavern.png'
-import underwaterCavernImg from '../assets/images/presentation/underwater-cavern.png'
-import dragonDepthsImg from '../assets/images/presentation/dragon-depths.png'
-import ctaCavernImg from '../assets/images/presentation/cta-cavern.jpg'
-import planCompassIcon from '../assets/images/presentation/plan-compass.png'
-import planMagnifierIcon from '../assets/images/presentation/plan-magnifier.png'
-import planCrownIcon from '../assets/images/presentation/plan-crown.png'
-import planFeatherIcon from '../assets/images/presentation/plan-feather.png'
-import planFlameIcon from '../assets/images/presentation/plan-flame.png'
-import planConstellationIcon from '../assets/images/presentation/plan-constellation.png'
-import footerSocialIcons from '../assets/icons/footer-social-icons.svg'
-import PresentationPlanCard from '../components/shop/PresentationPlanCard'
-import { listPublicCommunityWorlds } from '../services/storyApi'
-import { resolveApiResourceUrl } from '../services/httpClient'
-import type { StoryCommunityWorldSummary } from '../types/story'
-import { buildWorldFallbackArtwork } from '../utils/worldBackground'
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ArrowUpRightIcon,
+  BoltIcon,
+  CloseIcon,
+  DiceIcon,
+  HourglassIcon,
+  LayersIcon,
+  MenuIcon,
+  MinusIcon,
+  PeopleIcon,
+  PlusIcon,
+  QuillIcon,
+  RhombusIcon,
+  SlidersIcon,
+  SparkIcon,
+  StairsIcon,
+  TelegramIcon,
+  UnlockIcon,
+} from '../components/landing/LandingIcons'
+import Footer from '../components/Footer'
+import { fetchLandingShowcase, type LandingShowcase } from '../services/landingApi'
 
-const ACCENT = '#66a8ff'
-const TEXT_HEADING = '#f5f4f1'
-const TEXT_BODY = '#a8b0bb'
-const TEXT_MUTED = '#727f8f'
-const PAGE_BG = '#02050a'
-const PREVIOUS_SLIDE_ARIA_LABEL = 'Предыдущий слайд'
-const NEXT_SLIDE_ARIA_LABEL = 'Следующий слайд'
-const FEATURED_PUBLIC_WORLDS = [
-  { title: 'Нарушение условий содержания SCP', query: 'Нарушение условий содержания SCP' },
-  { title: 'Операция "Скрежет когтей"', query: 'Скрежет когтей' },
-  { title: 'Aincrad: Real Pain.', query: 'Aincrad' },
-  { title: "Baldur's Gate III: Возвышение Абсолют", query: 'Возвышение Абсолют' },
-  { title: 'Жизнь в монастыре (Англия)', query: 'Жизнь в монастыре' },
-] as const
+const TELEGRAM_URL = 'https://t.me/+t2ueY4x_KvE4ZWEy'
+const HERO_IMAGE = '/landing/hero.webp'
+const GUIDE_IMAGE = '/landing/guide.webp'
 
-const normalizeFeaturedWorldTitle = (value: string) =>
-  value
-    .normalize('NFKC')
-    .toLocaleLowerCase('ru-RU')
-    .replace(/ё/g, 'е')
-    .replace(/[«»„“”"'’]/g, '')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim()
+/**
+ * The presentation page follows the approved mockup layout exactly, repainted in the AI
+ * Dungeon palette the rest of the product now uses: a black page, the cool `core` neutrals for
+ * surfaces, and one flat amber accent. The mockup's beige `--paper` became the black page, and
+ * its dark-teal sections became near-black with the same radial shape they had.
+ */
+const L = {
+  page: '#000000',
+  pageArt: 'radial-gradient(120% 85% at 18% -6%, #0d0e0f 0%, #070708 45%, #010102 75%, #000000 100%)',
+  /** Sections the mockup painted dark teal. Kept a touch above the page so the torn edge reads. */
+  deep: '#0d0e0f',
+  deepArt: 'radial-gradient(ellipse at 50% 100%, #1e2226 0%, transparent 70%), #0d0e0f',
+  surface: 'rgba(199,231,255,0.055)',
+  surfaceSolid: '#1b1f22',
+  elevated: '#272c30',
+  border: 'rgba(199,231,255,0.13)',
+  borderStrong: 'rgba(219,241,255,0.22)',
+  accent: '#f8ae2c',
+  accentSoft: 'rgba(248,174,44,0.12)',
+  accentBorder: 'rgba(248,174,44,0.38)',
+  title: '#f9f7f4',
+  text: '#c5cbd2',
+  muted: '#828a92',
+  quiet: '#666d75',
+  serif: 'var(--morius-font-heading, Georgia, "Times New Roman", serif)',
+  ui: 'var(--morius-font-ui, "Manrope", "Segoe UI", sans-serif)',
+} as const
 
-const primaryButtonSx: SxProps<Theme> = {
-  minWidth: { xs: 148, md: 176 },
-  height: { xs: 42, md: 46 },
-  px: 3.5,
-  borderRadius: '999px',
-  background: 'linear-gradient(180deg, #75b4ff 0%, #4c8dff 100%)',
-  color: '#fff',
-  fontFamily: '"Manrope", sans-serif',
-  fontSize: { xs: '0.82rem', md: '0.9rem' },
-  fontWeight: 800,
-  textTransform: 'none',
-  boxShadow: '0 8px 26px rgba(53, 127, 255, 0.24)',
-  transition: 'transform 180ms ease, filter 180ms ease, box-shadow 180ms ease',
-  '&:hover': {
-    background: 'linear-gradient(180deg, #86beff 0%, #5595ff 100%)',
-    transform: 'translateY(-2px)',
-    filter: 'brightness(1.05)',
-    boxShadow: '0 12px 32px rgba(53, 127, 255, 0.3)',
-  },
+const WRAP: SxProps<Theme> = {
+  width: 'min(1160px, calc(100% - 80px))',
+  mx: 'auto',
+  '@media (max-width: 1000px)': { width: 'calc(100% - 48px)' },
+  '@media (max-width: 720px)': { width: 'calc(100% - 36px)' },
 }
 
-const sectionTitleSx: SxProps<Theme> = {
-  color: TEXT_HEADING,
-  fontFamily: '"Spectral", "Times New Roman", serif',
-  fontSize: { xs: '1.75rem', sm: '2.15rem', md: '2.55rem' },
-  fontWeight: 700,
+const H2: SxProps<Theme> = {
+  fontFamily: L.serif,
+  fontWeight: 400,
+  color: L.title,
+  fontSize: 'clamp(34px, 4vw, 55px)',
   lineHeight: 1.12,
-  letterSpacing: '0.02em',
-  textAlign: 'center',
-  textTransform: 'uppercase',
-  textShadow: '0 4px 24px rgba(168, 211, 255, 0.16)',
+  letterSpacing: '-1.5px',
+  '@media (max-width: 720px)': { fontSize: '37px' },
 }
 
-type RevealOnViewProps = {
-  children: ReactNode
-  delay?: number
-  y?: number
-  threshold?: number
-  sx?: SxProps<Theme>
+const H3: SxProps<Theme> = {
+  fontFamily: L.serif,
+  fontWeight: 400,
+  color: L.title,
+  fontSize: '27px',
+  lineHeight: 1.2,
 }
 
-function RevealOnView({ children, delay = 0, y = 24, threshold = 0.16, sx }: RevealOnViewProps) {
-  const nodeRef = useRef<HTMLDivElement | null>(null)
-  const [isVisible, setIsVisible] = useState(false)
+const BODY: SxProps<Theme> = { fontFamily: L.ui, fontSize: 15, lineHeight: 1.75, color: L.muted }
 
-  useEffect(() => {
-    const node = nodeRef.current
-    if (!node) return
-    if (typeof IntersectionObserver === 'undefined') {
-      const timerId = globalThis.setTimeout(() => setIsVisible(true), 0)
-      return () => globalThis.clearTimeout(timerId)
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true)
-          observer.disconnect()
-        }
-      },
-      { threshold },
-    )
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [threshold])
+// ---------------------------------------------------------------------------- small pieces
 
+function Eyebrow({ children, tone = 'muted' }: { children: ReactNode; tone?: 'muted' | 'accent' }) {
   return (
     <Box
-      ref={nodeRef}
-      sx={[
-        {
-          opacity: isVisible ? 1 : 0,
-          transform: isVisible ? 'translateY(0)' : `translateY(${y}px)`,
-          transition: `opacity 760ms cubic-bezier(0.22, 1, 0.36, 1) ${delay}ms, transform 760ms cubic-bezier(0.22, 1, 0.36, 1) ${delay}ms`,
-        },
-        ...(Array.isArray(sx) ? sx : [sx]),
-      ]}
+      sx={{
+        fontFamily: L.ui,
+        fontSize: 12,
+        letterSpacing: '2.4px',
+        textTransform: 'uppercase',
+        fontWeight: 700,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '14px',
+        mb: '23px',
+        color: tone === 'accent' ? L.accent : L.muted,
+        '&:before': { content: '""', height: '1px', width: '36px', background: 'currentColor', opacity: 0.7 },
+        '@media (max-width: 720px)': { fontSize: 11, letterSpacing: '1.8px', mb: '19px' },
+      }}
     >
       {children}
     </Box>
   )
 }
 
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
-
-function usePresentationParallax(
-  heroRef: RefObject<HTMLElement | null>,
-  aboutRef: RefObject<HTMLElement | null>,
-) {
-  useEffect(() => {
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    let frameId = 0
-    let pointerX = 0
-    let pointerY = 0
-
-    const setPixels = (node: HTMLElement, name: string, value: number) => {
-      node.style.setProperty(name, `${value.toFixed(2)}px`)
-    }
-
-    const update = () => {
-      frameId = 0
-      const viewportHeight = window.innerHeight || 1
-      const hero = heroRef.current
-      const about = aboutRef.current
-
-      if (hero) {
-        const rect = hero.getBoundingClientRect()
-        const scrollDepth = reducedMotion ? 0 : clamp(-rect.top, 0, rect.height + viewportHeight)
-        setPixels(hero, '--hero-bg-x', reducedMotion ? 0 : pointerX * -10)
-        setPixels(hero, '--hero-bg-y', scrollDepth * 0.1 + (reducedMotion ? 0 : pointerY * -5))
-        setPixels(hero, '--hero-copy-y', scrollDepth * 0.075)
-        setPixels(hero, '--hero-person-x', reducedMotion ? 0 : pointerX * 22)
-        setPixels(hero, '--hero-person-y', scrollDepth * 0.32 + (reducedMotion ? 0 : pointerY * 12))
-        setPixels(hero, '--hero-cliff-x', reducedMotion ? 0 : pointerX * 22)
-        setPixels(hero, '--hero-cliff-y', scrollDepth * 0.32 + (reducedMotion ? 0 : pointerY * 12))
-      }
-
-      if (about) {
-        const rect = about.getBoundingClientRect()
-        const centerDelta = reducedMotion
-          ? 0
-          : clamp(viewportHeight / 2 - (rect.top + rect.height / 2), -viewportHeight, viewportHeight)
-        setPixels(about, '--about-bg-x', reducedMotion ? 0 : pointerX * -8)
-        setPixels(about, '--about-bg-y', centerDelta * 0.12 + (reducedMotion ? 0 : pointerY * -6))
-        setPixels(about, '--about-glow-x', reducedMotion ? 0 : pointerX * 18)
-        setPixels(about, '--about-glow-y', centerDelta * 0.2 + (reducedMotion ? 0 : pointerY * 10))
-        setPixels(about, '--about-copy-y', centerDelta * 0.035)
-      }
-    }
-
-    const requestUpdate = () => {
-      if (!frameId) frameId = window.requestAnimationFrame(update)
-    }
-
-    const handlePointerMove = (event: PointerEvent) => {
-      if (reducedMotion || event.pointerType === 'touch') return
-      pointerX = (event.clientX / Math.max(window.innerWidth, 1) - 0.5) * 2
-      pointerY = (event.clientY / Math.max(window.innerHeight, 1) - 0.5) * 2
-      requestUpdate()
-    }
-
-    const handlePointerLeave = () => {
-      pointerX = 0
-      pointerY = 0
-      requestUpdate()
-    }
-
-    update()
-    window.addEventListener('scroll', requestUpdate, { passive: true })
-    window.addEventListener('resize', requestUpdate)
-    window.addEventListener('pointermove', handlePointerMove, { passive: true })
-    document.documentElement.addEventListener('pointerleave', handlePointerLeave)
-
-    return () => {
-      if (frameId) window.cancelAnimationFrame(frameId)
-      window.removeEventListener('scroll', requestUpdate)
-      window.removeEventListener('resize', requestUpdate)
-      window.removeEventListener('pointermove', handlePointerMove)
-      document.documentElement.removeEventListener('pointerleave', handlePointerLeave)
-    }
-  }, [aboutRef, heroRef])
+type ActionProps = {
+  children: ReactNode
+  onClick?: () => void
+  href?: string
+  variant?: 'solid' | 'ghost'
+  icon?: ReactNode
+  sx?: SxProps<Theme>
+  ariaLabel?: string
 }
 
-type AdvantageSlide = {
-  id: string
-  number: string
-  title: string
-  description: string
-  preview: string
-}
-
-const advantageSlides: AdvantageSlide[] = [
-  {
-    id: 'templates',
-    number: '01',
-    title: 'Шаблоны карточек',
-    description:
-      'Устали каждый раз заново прописывать персонажей и инструкции? Оставьте это в прошлом. Создавайте свои карточки персонажей и инструкций и используйте их в любой игре в два клика.',
-    preview: slideTemplatesPreview,
-  },
-  {
-    id: 'avatars',
-    number: '02',
-    title: 'Аватарки персонажей',
-    description:
-      'Читать историю интереснее, когда у героев есть лица. Диалоги устроены так, чтобы вы сразу видели аватар и имя собеседника.',
-    preview: advantageAvatarsPreview,
-  },
-  {
-    id: 'storytellers',
-    number: '03',
-    title: 'Рассказчики',
-    description:
-      'Мы подбираем и тестируем лучшие модели на роль мастера игры — для живых диалогов, сильных сцен и долгих приключений.',
-    preview: advantageStorytellersPreview,
-  },
-  {
-    id: 'images',
-    number: '04',
-    title: 'Генерация картинок',
-    description:
-      'Визуализируйте сцены и переключайтесь между разными художниками: от экономичных до самых выразительных моделей.',
-    preview: advantageImagesPreview,
-  },
-  {
-    id: 'community',
-    number: '05',
-    title: 'Сообщество',
-    description:
-      'Делитесь персонажами, мирами и инструкциями, добавляйте карточки других игроков и собирайте свою библиотеку идей.',
-    preview: advantageCommunityPreview,
-  },
-  {
-    id: 'memory',
-    number: '06',
-    title: 'Оптимизация памяти',
-    description:
-      'Механизм оптимизации памяти помогает сохранять важные события истории: тратьте меньше, помните больше.',
-    preview: advantageMemoryPreview,
-  },
-]
-
-const gameSteps = [
-  { number: '01', title: 'Создай героя' },
-  { number: '02', title: 'Сделай ход' },
-  { number: '03', title: 'Сюжет движется' },
-]
-
-type TariffPlan = {
-  id: string
-  title: string
-  price: string
-  coins: string
-  details: string[]
-  icon: string
-  accent: string
-}
-
-const tariffPlans: TariffPlan[] = [
-  {
-    id: 'pathfinder',
-    title: 'Путник',
-    price: '399 ₽',
-    coins: '400',
-    icon: planCompassIcon,
-    accent: '#6daeff',
-    details: [
-      'Для старта, тестовых миров и коротких кампаний.',
-      'Работает с лимитом контекста до 64k.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-  },
-  {
-    id: 'seeker',
-    title: 'Искатель',
-    price: '1 190 ₽',
-    coins: '1 290',
-    icon: planMagnifierIcon,
-    accent: '#54e4df',
-    details: [
-      'Оптимален для регулярной игры и длинных сцен.',
-      'Лучший баланс между ценой и запасом валюты.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-  },
-  {
-    id: 'archon',
-    title: 'Архонт',
-    price: '2 990 ₽',
-    coins: '3 350',
-    icon: planCrownIcon,
-    accent: '#f4b83f',
-    details: [
-      'Для больших кампаний и тяжёлых сцен с запасом.',
-      'Удобен при частом использовании дорогих моделей.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-  },
-  {
-    id: 'chronicler',
-    title: 'Летописец',
-    price: '5 990 ₽',
-    coins: '7 000',
-    icon: planFeatherIcon,
-    accent: '#bd78ff',
-    details: [
-      'Максимальный запас для долгих хроник и сложных миров.',
-      'Идеален для дорогих моделей и активных кампаний.',
-      'Один баланс на текст, изображения и эффекты.',
-    ],
-  },
-]
-
-type SubscriptionPlan = {
-  id: string
-  title: string
-  price: string
-  details: string[]
-  icon?: string
-  accent: string
-}
-
-const subscriptionPlans: SubscriptionPlan[] = [
-  {
-    id: 'spark',
-    title: 'Искра',
-    price: '299 ₽',
-    accent: '#47e4ec',
-    details: [
-      '2 модели: DeepSeek V4 Flash и Gemini 2.5 Flash Lite.',
-      'До 40 ходов в день без списания солов.',
-      'Память сцены до 8K токенов.',
-    ],
-  },
-  {
-    id: 'flame',
-    title: 'Пламя',
-    price: '599 ₽',
-    icon: planFlameIcon,
-    accent: '#ff4351',
-    details: [
-      '3 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite и GLM 4.5 Air.',
-      'До 60 ходов в день без списания солов.',
-      'Память сцены до 20K токенов.',
-    ],
-  },
-  {
-    id: 'constellation',
-    title: 'Созвездие',
-    price: '1 190 ₽',
-    icon: planConstellationIcon,
-    accent: '#f3c63c',
-    details: [
-      '4 модели: добавляется Gemini 3 Flash Preview.',
-      'До 90 ходов в день без списания солов.',
-      'Память сцены до 32K токенов.',
-    ],
-  },
-]
-
-type LandingWorldCardData = {
-  id: string
-  numericId: number
-  title: string
-  description: string
-  author: string
-  coverUrl: string | null
-  coverPosition: string
-  launches: number
-  rating: number
-}
-
-function LandingWorldCard({ world, onClick }: { world: LandingWorldCardData; onClick: () => void }) {
+/** The mockup's `.btn`. Solid is the flat amber accent — never a gradient. */
+function Action({ children, onClick, href, variant = 'solid', icon, sx, ariaLabel }: ActionProps) {
+  const solid = variant === 'solid'
   return (
     <Box
-      component="button"
-      type="button"
+      component={href ? 'a' : 'button'}
+      href={href}
       onClick={onClick}
+      type={href ? undefined : 'button'}
+      aria-label={ariaLabel}
       sx={{
-        width: { xs: 238, sm: 270, md: 292 },
-        height: { xs: 338, md: 388 },
-        flex: '0 0 auto',
-        p: 0,
-        overflow: 'hidden',
-        borderRadius: '10px',
-        border: '1px solid rgba(141, 202, 255, 0.18)',
-        background: '#07111a',
-        color: TEXT_HEADING,
-        textAlign: 'left',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '26px',
+        px: '25px',
+        py: '14px',
+        minHeight: 51,
+        border: `1px solid ${solid ? L.accent : L.border}`,
+        background: solid ? L.accent : 'transparent',
+        color: solid ? '#161009' : L.title,
+        fontFamily: L.ui,
+        fontSize: 14,
+        fontWeight: 700,
+        textDecoration: 'none',
         cursor: 'pointer',
-        boxShadow: '0 28px 70px rgba(0,0,0,0.62)',
-        transition: 'transform 220ms ease, border-color 220ms ease, filter 220ms ease',
+        transition: 'background 180ms ease, border-color 180ms ease, transform 180ms ease',
         '&:hover': {
-          transform: 'translateY(-8px)',
-          borderColor: 'rgba(117, 188, 255, 0.55)',
-          filter: 'brightness(1.08)',
+          background: solid ? '#ffb83c' : 'transparent',
+          borderColor: solid ? '#ffb83c' : L.accent,
+          transform: 'translateY(-2px)',
         },
-        '&:focus-visible': { outline: `2px solid ${ACCENT}`, outlineOffset: 4 },
+        '&:focus-visible': { outline: `3px solid ${L.accent}`, outlineOffset: 5 },
+        '@media (max-width: 720px)': { px: '18px', py: '13px', fontSize: 13, gap: '15px' },
+        ...sx,
       }}
     >
-      <Box sx={{ position: 'relative', height: { xs: 176, md: 205 }, overflow: 'hidden' }}>
-        {world.coverUrl ? (
-          <Box
-            component="img"
-            src={world.coverUrl}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            sx={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: world.coverPosition }}
-          />
-        ) : (
-          <Box sx={{ position: 'absolute', inset: 0, ...buildWorldFallbackArtwork(world.numericId) }} />
-        )}
-        <Box
-          aria-hidden
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            background: 'linear-gradient(180deg, transparent 30%, rgba(4,9,14,0.25) 58%, #07111a 100%)',
-          }}
-        />
-      </Box>
-      <Stack sx={{ px: 2, pb: 2, mt: -1.2, position: 'relative', height: { xs: 162, md: 183 } }}>
-        <Typography
-          component="h3"
-          sx={{ color: TEXT_HEADING, fontFamily: '"Spectral", serif', fontWeight: 700, fontSize: '1.18rem' }}
-        >
-          {world.title}
-        </Typography>
-        <Typography
-          sx={{
-            mt: 0.7,
-            color: TEXT_BODY,
-            fontSize: '0.76rem',
-            lineHeight: 1.52,
-            display: '-webkit-box',
-            WebkitLineClamp: 3,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }}
-        >
-          {world.description}
-        </Typography>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 'auto' }}>
-          <Typography sx={{ color: TEXT_MUTED, fontSize: '0.7rem' }}>{world.author}</Typography>
-          <Typography sx={{ color: '#e6edf5', fontSize: '0.7rem', fontWeight: 800 }}>
-            {world.launches} &nbsp;★ {world.rating.toFixed(1)}
-          </Typography>
-        </Stack>
-      </Stack>
+      <span>{children}</span>
+      {icon ?? <ArrowUpRightIcon size={18} />}
     </Box>
   )
 }
 
-const footerInfoLinks = [
-  { label: 'Политика конфиденциальности', path: '/privacy-policy' },
-  { label: 'Пользовательское соглашение', path: '/terms-of-service' },
-  { label: 'Условия подписки', path: '/subscription-terms' },
-]
-
-function PresentationFooter({ onNavigate }: { onNavigate: (path: string) => void }) {
+/**
+ * The ragged edge the mockup used between its paper and dark sections. Here it cuts the page
+ * black into the slightly lighter section above/below it, so the tear still reads.
+ */
+function TornEdge({ place }: { place: 'top' | 'bottom' }) {
+  const bottom =
+    'polygon(0 45%,2% 57%,3% 35%,5% 65%,7% 46%,9% 64%,12% 30%,14% 55%,17% 42%,19% 68%,22% 37%,25% 58%,28% 40%,30% 61%,34% 33%,38% 62%,41% 48%,44% 64%,47% 33%,51% 56%,54% 43%,57% 65%,60% 37%,64% 61%,67% 39%,70% 66%,73% 50%,76% 30%,79% 57%,82% 38%,85% 64%,88% 41%,91% 61%,94% 40%,97% 64%,100% 42%,100% 100%,0 100%)'
+  const top =
+    'polygon(0 0,100% 0,100% 40%,95% 65%,90% 30%,84% 70%,78% 40%,72% 65%,65% 25%,58% 75%,50% 40%,44% 60%,37% 25%,31% 75%,23% 40%,17% 70%,10% 30%,4% 65%,0 35%)'
   return (
-    <Box component="footer" sx={{ color: '#aaa6a2', backgroundColor: '#020407' }}>
+    <Box
+      aria-hidden
+      sx={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        height: place === 'bottom' ? 37 : 24,
+        [place]: '-1px',
+        background: L.page,
+        clipPath: place === 'bottom' ? bottom : top,
+        zIndex: 1,
+        pointerEvents: 'none',
+      }}
+    />
+  )
+}
+
+function Section({
+  children,
+  id,
+  sx,
+  component = 'section',
+}: {
+  children: ReactNode
+  id?: string
+  sx?: SxProps<Theme>
+  component?: 'section' | 'div'
+}) {
+  return (
+    <Box
+      component={component}
+      id={id}
+      sx={{ py: '99px', position: 'relative', '@media (max-width: 1000px)': { py: '75px' }, '@media (max-width: 720px)': { py: '65px' }, ...sx }}
+    >
+      {children}
+    </Box>
+  )
+}
+
+// ---------------------------------------------------------------------------- page content
+
+const FORMATS = [
+  {
+    num: '01',
+    Icon: QuillIcon,
+    title: 'Storytelling',
+    text: 'Свободные текстовые истории и приключения без жёстких рамок. Только ты, твои решения и то, что случится дальше.',
+    tag: 'Свобода воображения',
+    featured: false,
+  },
+  {
+    num: '02',
+    Icon: DiceIcon,
+    title: 'D&D / RPG',
+    text: 'AI-мастер, твой персонаж, живой мир и правила. От первого броска кубика до собственной большой кампании.',
+    tag: 'Приключение по твоим правилам',
+    featured: true,
+  },
+  {
+    num: '03',
+    Icon: RhombusIcon,
+    title: 'Визуальная новелла',
+    text: 'Персонажи, эмоции и атмосферные фоны. История раскрывается сцена за сценой — с тобой в главной роли.',
+    tag: 'Почувствуй каждую сцену',
+    featured: false,
+  },
+] as const
+
+const TIERS = [
+  {
+    label: '01 / ЛЁГКИЙ СТАРТ',
+    title: 'Бюджетные',
+    text: 'Для знакомства с миром и повседневных приключений. Больше игры при небольшом бюджете.',
+  },
+  {
+    label: '02 / ЗОЛОТАЯ СЕРЕДИНА',
+    title: 'Сбалансированные',
+    text: 'Для развёрнутых сцен и долгих историй. Баланс стоимости и выразительности повествования.',
+  },
+  {
+    label: '03 / ОСОБЫЙ МОМЕНТ',
+    title: 'Премиальные',
+    text: 'Для сложных сюжетов, ярких диалогов и сцен, которым хочется уделить больше внимания.',
+  },
+] as const
+
+/** The six tiers a turn's memory actually passes through in `story_memory_pipeline`. */
+const MEMORY_STAGES = [
+  { num: '01', title: 'Полный ход', text: 'Свежая сцена хранится целиком — ничего не теряется, пока она ещё нужна дословно.' },
+  { num: '02', title: 'Очередь', text: 'Ход встаёт в очередь на обработку, чтобы игра не ждала и ты продолжал писать.' },
+  { num: '03', title: 'Детальный пересказ', text: 'Сцена превращается в подробный пересказ: реплики, решения и последствия остаются.' },
+  { num: '04', title: 'Сжатая выжимка', text: 'Детали ужимаются до сути эпизода, когда история уходит дальше по сюжету.' },
+  { num: '05', title: 'Факты', text: 'Из эпизода остаются факты о мире и персонажах — то, что нужно помнить всегда.' },
+  { num: '06', title: 'Важное в ядре', text: 'Ключевые события поднимаются в постоянную память и не выпадают даже через сотни ходов.' },
+] as const
+
+const EXPERIENCE = [
+  { title: 'У каждой реплики — голос', text: 'Аватарки и оформление чата помогают узнавать персонажей и следить за диалогом.' },
+  { title: 'У каждой сцены — ритм', text: 'Реплики и повествование разделены, чтобы история легко читалась и увлекала дальше.' },
+  { title: 'У каждого мира — атмосфера', text: 'Визуальная подача и фоны превращают текст в пространство для воображения.' },
+] as const
+
+const FAQ_ITEMS = [
+  {
+    q: 'Что такое AI-roleplay?',
+    a: 'Это ролевая история, которую ты создаёшь вместе с искусственным интеллектом. Ты принимаешь решения за своего героя, а ИИ ведёт повествование, играет других персонажей и отвечает на твои действия.',
+  },
+  {
+    q: 'Чем Moru отличается от обычного AI-чата?',
+    a: 'Moru объединяет три формата игры, настройки миров и персонажей, шестиступенчатую память событий и визуальное оформление сцен. Это пространство для продолжительных историй, а не только отдельных диалогов.',
+  },
+  {
+    q: 'Мне нужен опыт в D&D, чтобы начать?',
+    a: 'Нет. Можно начать со свободного storytelling и минимума настроек. Режим D&D / RPG — один из вариантов, а не обязательное условие.',
+  },
+  { q: 'Какие форматы игры есть?', a: 'Свободный storytelling, D&D / RPG с AI-мастером и визуальные новеллы с персонажами, эмоциями и фонами.' },
+  {
+    q: 'Как работает память истории?',
+    a: 'Каждый ход проходит шесть ступеней: полный текст, очередь, детальный пересказ, сжатая выжимка, факты и важное в постоянной памяти. Так длинная кампания помнит свои события, не разрастаясь в бесконечный контекст.',
+  },
+  {
+    q: 'Есть ли ограничения на содержание истории?',
+    a: 'Собственных фильтров поверх модели мы не добавляем. Рамки истории определяет только та AI-модель, которую ты выбрал, и закон — всё остальное остаётся на стороне твоего замысла.',
+  },
+  {
+    q: 'Сколько стоит игра?',
+    a: 'Ход — от 1 сола. Стоимость зависит от выбранной AI-модели. Есть бюджетные, сбалансированные и премиальные модели, а также подписки и пакеты солов.',
+  },
+] as const
+
+function SolMark({ size = 30 }: { size?: number }) {
+  return <Box component="img" src={icons.coin} alt="" aria-hidden sx={{ width: size, height: size, display: 'block' }} />
+}
+
+function FaqItem({ q, a, defaultOpen }: { q: string; a: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(Boolean(defaultOpen))
+  return (
+    <Box component="details" open={open} sx={{ borderBottom: `1px solid ${L.border}` }}>
       <Box
+        component="summary"
+        onClick={(event: MouseEvent) => {
+          event.preventDefault()
+          setOpen((value) => !value)
+        }}
         sx={{
-          minHeight: { xs: 210, md: 180 },
-          maxWidth: 1500,
-          mx: 'auto',
-          px: { xs: 3, md: 7 },
-          py: { xs: 4, md: 5 },
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', md: '160px 1fr 130px' },
-          alignItems: 'center',
-          justifyItems: { xs: 'center', md: 'stretch' },
-          gap: { xs: 3, md: 4 },
+          listStyle: 'none',
+          cursor: 'pointer',
+          py: '22px',
+          pr: '35px',
+          position: 'relative',
+          fontFamily: L.ui,
+          fontSize: 16,
+          color: L.title,
+          '&::-webkit-details-marker': { display: 'none' },
+          '&:focus-visible': { outline: `3px solid ${L.accent}`, outlineOffset: 5 },
         }}
       >
-        <Box
-          component="button"
-          type="button"
-          aria-label="На главную"
-          onClick={() => onNavigate('/')}
-          sx={{ p: 0, border: 0, background: 'none', cursor: 'pointer', justifySelf: { md: 'start' } }}
-        >
-          <Box
-            component="img"
-            src={brandLogo}
-            alt="MoRius"
-            sx={{ display: 'block', width: 66, height: 'auto', filter: 'brightness(0) invert(1)' }}
-          />
-        </Box>
-
-        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="center" spacing={{ xs: 1.5, sm: 5 }}>
-          {footerInfoLinks.slice(0, 2).map((link) => (
-            <Box
-              key={link.path}
-              component="button"
-              type="button"
-              onClick={() => onNavigate(link.path)}
-              sx={{
-                p: 0,
-                border: 0,
-                background: 'none',
-                color: '#aaa6a2',
-                fontFamily: '"Manrope", sans-serif',
-                fontSize: '0.84rem',
-                cursor: 'pointer',
-                '&:hover': { color: '#f0eeeb' },
-              }}
-            >
-              {link.label}
-            </Box>
-          ))}
-        </Stack>
-
-        <Box sx={{ position: 'relative', width: 100, height: 40, justifySelf: { md: 'end' } }}>
-          <Box component="img" src={footerSocialIcons} alt="" sx={{ width: 100, height: 40, display: 'block' }} />
-          <Box component="a" href="https://t.me/+t2ueY4x_KvE4ZWEy" target="_blank" rel="noopener noreferrer" aria-label="Telegram" sx={{ position: 'absolute', inset: '0 54px 0 0' }} />
-          <Box component="a" href="https://vk.com/moriusai" target="_blank" rel="noopener noreferrer" aria-label="ВКонтакте" sx={{ position: 'absolute', inset: '0 0 0 58px' }} />
+        {q}
+        <Box aria-hidden sx={{ position: 'absolute', right: 0, top: 22, color: L.accent }}>
+          {open ? <MinusIcon size={20} /> : <PlusIcon size={20} />}
         </Box>
       </Box>
-
-      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.09)', px: 2, py: 2.2 }}>
-        <Typography sx={{ color: '#7d7a77', fontSize: { xs: '0.6rem', md: '0.68rem' }, textAlign: 'center' }}>
-          Бондарук Александр Георгиевич | ИНН: 772702320496 | ОГРНИП: 325774600487692 | Почта: alexunderstood8@gmail.com &nbsp;&nbsp;&nbsp; © 2026
-        </Typography>
-      </Box>
+      <Typography sx={{ ...BODY, pr: '30px', pb: '22px' }}>{a}</Typography>
     </Box>
   )
 }
 
-type PublicLandingPageProps = {
+export type PublicLandingPageProps = {
   isAuthenticated: boolean
   pendingReferralCode?: string | null
   onNavigate: (path: string) => void
   onGoHome: () => void
 }
 
-export default function PublicLandingPage({
-  isAuthenticated,
-  pendingReferralCode,
-  onNavigate,
-  onGoHome,
-}: PublicLandingPageProps) {
-  const heroRef = useRef<HTMLElement | null>(null)
-  const aboutRef = useRef<HTMLElement | null>(null)
+export default function PublicLandingPage({ isAuthenticated, pendingReferralCode, onNavigate, onGoHome }: PublicLandingPageProps) {
   const openedReferralCodeRef = useRef<string | null>(null)
-  const [currentSlide, setCurrentSlide] = useState(0)
-  const [publicWorlds, setPublicWorlds] = useState<StoryCommunityWorldSummary[]>([])
-  const [worldsLoading, setWorldsLoading] = useState(true)
-  const [worldsLoadFailed, setWorldsLoadFailed] = useState(false)
-
-  usePresentationParallax(heroRef, aboutRef)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [showcase, setShowcase] = useState<LandingShowcase>({ players: 0, worlds: 0, characters: 0, avatars: [] })
 
   useEffect(() => {
-    let active = true
-    void Promise.all(
-      FEATURED_PUBLIC_WORLDS.map((featuredWorld) =>
-        listPublicCommunityWorlds({ limit: 20, sort: 'updated_desc', query: featuredWorld.query }),
-      ),
-    )
-      .then((worldGroups) => {
-        if (!active) return
-        const selectedWorlds = FEATURED_PUBLIC_WORLDS.flatMap((featuredWorld, index) => {
-          const expectedTitle = normalizeFeaturedWorldTitle(featuredWorld.title)
-          const match = worldGroups[index]?.find(
-            (world) => normalizeFeaturedWorldTitle(world.title) === expectedTitle,
-          )
-          return match ? [match] : []
-        }).filter((world, index, worlds) => worlds.findIndex((candidate) => candidate.id === world.id) === index)
-        setPublicWorlds(selectedWorlds)
-        setWorldsLoadFailed(false)
-      })
-      .catch(() => {
-        if (!active) return
-        setPublicWorlds([])
-        setWorldsLoadFailed(true)
-      })
-      .finally(() => {
-        if (active) setWorldsLoading(false)
-      })
-    return () => {
-      active = false
-    }
+    const controller = new AbortController()
+    void fetchLandingShowcase(controller.signal).then(setShowcase)
+    return () => controller.abort()
   }, [])
 
   useEffect(() => {
@@ -639,873 +372,948 @@ export default function PublicLandingPage({
     onNavigate(`/auth?mode=${mode}`)
   }
 
-  const worldDeck = useMemo<LandingWorldCardData[]>(() => {
-    return publicWorlds.slice(0, 5).map((world) => ({
-      id: String(world.id),
-      numericId: world.id,
-      title: world.title,
-      description: world.description || 'Автор пока не добавил описание мира.',
-      author: world.author_name,
-      coverUrl: resolveApiResourceUrl(world.cover_image_url) || null,
-      coverPosition: `${world.cover_position_x ?? 50}% ${world.cover_position_y ?? 50}%`,
-      launches: world.community_launches,
-      rating: world.community_rating_avg,
-    }))
-  }, [publicWorlds])
+  /** Rounded down to the nearest hundred so the claim on the page is never ahead of reality. */
+  const playersLabel = useMemo(() => {
+    const players = showcase.players
+    if (players < 50) return '50+'
+    if (players < 1000) return `${Math.floor(players / 50) * 50}+`
+    return `${Math.floor(players / 500) * 500}+`
+  }, [showcase.players])
 
-  const activeAdvantage = advantageSlides[currentSlide]
+  const worldsLabel = useMemo(() => (showcase.worlds >= 100 ? `${Math.floor(showcase.worlds / 100) * 100}+` : `${showcase.worlds}`), [showcase.worlds])
+
+  const navLinks = [
+    { href: '#formats', label: 'Форматы' },
+    { href: '#modes', label: 'Как начать' },
+    { href: '#memory', label: 'Память' },
+    { href: '#pricing', label: 'Стоимость' },
+    { href: '#faq', label: 'FAQ' },
+  ]
+
+  const brandNode = (
+    <Box
+      component="a"
+      href="#top"
+      aria-label="Moru — на главную"
+      sx={{ display: 'flex', alignItems: 'center', gap: '12px', textDecoration: 'none', color: L.title }}
+    >
+      <Box component="img" src={brandLogo} alt="" aria-hidden sx={{ height: 34, width: 'auto', display: 'block' }} />
+      <Box component="span" sx={{ fontFamily: L.serif, fontSize: 32, letterSpacing: '1px', '@media (max-width: 720px)': { fontSize: 28 } }}>
+        Moru
+      </Box>
+    </Box>
+  )
 
   return (
     <Box
-      className="morius-app-shell"
+      className="moru-landing"
       sx={{
-        backgroundColor: PAGE_BG,
-        color: TEXT_BODY,
-        overflowX: 'hidden',
-        '@keyframes morius-presentation-float': {
-          '0%, 100%': { transform: 'translate3d(0, 0, 0)' },
-          '50%': { transform: 'translate3d(0, -7px, 0)' },
-        },
-        '@media (prefers-reduced-motion: reduce)': {
-          '& *, & *::before, & *::after': {
-            scrollBehavior: 'auto !important',
-            animationDuration: '0.01ms !important',
-            animationIterationCount: '1 !important',
-            transitionDuration: '0.01ms !important',
-          },
-        },
+        background: L.page,
+        color: L.text,
+        fontFamily: L.ui,
+        fontSize: 16,
+        lineHeight: 1.65,
+        scrollBehavior: 'smooth',
+        '& a': { color: 'inherit', textDecoration: 'none' },
       }}
     >
-      <Box sx={{ position: 'relative', overflow: 'hidden', backgroundColor: '#030914' }}>
-        <Box
-          ref={heroRef}
-          component="section"
-          sx={{
-            position: 'relative',
-            zIndex: 2,
-            minHeight: { xs: '820px', sm: 680 },
-            height: { sm: 'clamp(680px, 100svh, 1000px)' },
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'center',
-            px: 2,
-            pt: { xs: '11vh', sm: '9vh', md: '8vh' },
-            isolation: 'isolate',
-          }}
-        >
+      {/* ------------------------------------------------------------------ hero */}
+      <Box
+        component="section"
+        id="top"
+        sx={{
+          position: 'relative',
+          minHeight: 850,
+          height: 'min(920px, 100vh)',
+          color: L.title,
+          background: L.deep,
+          isolation: 'isolate',
+          overflow: 'hidden',
+          '&:before': {
+            content: '""',
+            position: 'absolute',
+            inset: 0,
+            zIndex: -2,
+            background: `linear-gradient(90deg, rgba(0,0,0,.92), rgba(0,0,0,.5) 43%, rgba(0,0,0,.12) 72%), linear-gradient(0deg, #000000 1%, transparent 35%), url('${HERO_IMAGE}') center 30%/cover`,
+          },
+          '@media (max-width: 1000px)': { minHeight: 810 },
+          '@media (max-width: 720px)': {
+            height: 'auto',
+            minHeight: 1000,
+            pb: '250px',
+            '&:before': {
+              background: `linear-gradient(0deg, #000000 1%, transparent 29%), linear-gradient(180deg, #000000 5%, rgba(0,0,0,.8) 31%, transparent 64%), url('${HERO_IMAGE}') 70% bottom/auto 740px no-repeat`,
+            },
+          },
+        }}
+      >
+        <TornEdge place="bottom" />
+        <Box sx={WRAP}>
           <Box
-            component="img"
-            src={heroSkyImg}
-            alt=""
-            fetchPriority="high"
-            decoding="async"
+            component="header"
             sx={{
-              position: 'absolute',
-              inset: '-7%',
-              zIndex: -3,
-              width: '114%',
-              height: '114%',
-              objectFit: 'cover',
-              objectPosition: { xs: '50% 50%', md: '50% 56%' },
-              transform: 'translate3d(var(--hero-bg-x, 0px), var(--hero-bg-y, 0px), 0) scale(1.08)',
-              willChange: 'transform',
-            }}
-          />
-          <Box
-            aria-hidden
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: -2,
-              background:
-                'radial-gradient(circle at 50% 56%, rgba(139,202,255,0.12), transparent 25%), linear-gradient(180deg, rgba(1,5,12,0.04) 0%, rgba(1,5,12,0.1) 58%, rgba(2,7,13,0.78) 100%)',
-            }}
-          />
-          <Box
-            component="img"
-            src={heroWandererImg}
-            alt=""
-            decoding="async"
-            sx={{
-              position: 'absolute',
-              zIndex: 5,
-              left: '50%',
-              bottom: { xs: '23.5%', sm: '17.5%', md: '16%' },
-              width: { xs: 310, sm: 420, md: 'clamp(470px, 28vw, 540px)' },
-              height: 'auto',
-              transform:
-                'translate3d(calc(-50% + var(--hero-person-x, 0px)), var(--hero-person-y, 0px), 0)',
-              filter: 'drop-shadow(0 24px 34px rgba(0,0,0,0.72))',
-              willChange: 'transform',
-              '@media (min-width: 1500px) and (max-height: 850px)': {
-                width: 385,
-                bottom: '16%',
-              },
-            }}
-          />
-          <Box
-            component="img"
-            src={heroCliffImg}
-            alt=""
-            decoding="async"
-            sx={{
-              position: 'absolute',
-              zIndex: 4,
-              left: '50%',
-              top: { xs: '22%', sm: '28%', md: '30%' },
-              width: { xs: '190%', sm: '136%', md: '100%' },
-              maxWidth: 'none',
-              height: '102%',
-              objectFit: 'fill',
-              transform:
-                'translate3d(calc(-50% + var(--hero-cliff-x, 0px)), var(--hero-cliff-y, 0px), 0)',
-              filter: 'drop-shadow(0 -20px 40px rgba(0,0,0,0.36))',
-              willChange: 'transform',
-              pointerEvents: 'none',
-              '@media (min-width: 1500px) and (max-height: 850px)': {
-                top: '30%',
-              },
-            }}
-          />
-
-          <Stack
-            alignItems="center"
-            textAlign="center"
-            sx={{
-              position: 'relative',
-              zIndex: 6,
-              width: '100%',
-              maxWidth: 850,
-              transform: 'translate3d(0, var(--hero-copy-y, 0px), 0)',
-              willChange: 'transform',
+              height: 99,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '25px',
+              borderBottom: `1px solid ${L.border}`,
+              '@media (max-width: 720px)': { height: 78 },
             }}
           >
+            {brandNode}
             <Box
-              component="img"
-              src={brandLogo}
-              alt="MoRius"
+              component="nav"
+              aria-label="Основная навигация"
               sx={{
-                width: { xs: 82, sm: 98, md: 112 },
-                height: 'auto',
-                filter: 'brightness(0) invert(1) drop-shadow(0 8px 22px rgba(255,255,255,0.2))',
-                animation: 'morius-presentation-float 5.5s ease-in-out infinite',
-                '@media (min-width: 1500px) and (max-height: 850px)': {
-                  width: 96,
+                display: 'flex',
+                gap: '29px',
+                fontSize: 14,
+                color: L.text,
+                '& a:hover': { color: L.accent },
+                '@media (max-width: 1000px)': { gap: '18px' },
+                '@media (max-width: 720px)': { display: 'none' },
+              }}
+            >
+              {navLinks.map((link) => (
+                <a key={link.href} href={link.href}>
+                  {link.label}
+                </a>
+              ))}
+            </Box>
+            {/* The mockup left this one transparent and the label disappeared — it is accent-filled now. */}
+            <Action onClick={() => openAuthPage('register')} sx={{ px: '19px', py: '9px', minHeight: 42, gap: '14px', '@media (max-width: 720px)': { display: 'none' } }}>
+              {isAuthenticated ? 'Продолжить' : 'Начать игру'}
+            </Action>
+            <Box
+              component="button"
+              type="button"
+              aria-label={menuOpen ? 'Закрыть меню' : 'Открыть меню'}
+              aria-expanded={menuOpen}
+              aria-controls="landing-mobile-nav"
+              onClick={() => setMenuOpen((value) => !value)}
+              sx={{
+                display: 'none',
+                background: 'none',
+                border: `1px solid ${L.border}`,
+                color: L.title,
+                p: '7px 12px',
+                cursor: 'pointer',
+                '@media (max-width: 720px)': { display: 'block' },
+              }}
+            >
+              {menuOpen ? <CloseIcon size={20} /> : <MenuIcon size={20} />}
+            </Box>
+          </Box>
+
+          {menuOpen ? (
+            <Box
+              component="nav"
+              id="landing-mobile-nav"
+              aria-label="Мобильная навигация"
+              sx={{
+                display: 'none',
+                '@media (max-width: 720px)': {
+                  display: 'flex',
+                  position: 'absolute',
+                  top: 77,
+                  left: 0,
+                  right: 0,
+                  background: '#0d0e0f',
+                  p: '22px',
+                  flexDirection: 'column',
+                  gap: '17px',
+                  zIndex: 9,
+                  borderBottom: `1px solid ${L.accentBorder}`,
                 },
               }}
-            />
+            >
+              {navLinks.map((link) => (
+                <a key={link.href} href={link.href} onClick={() => setMenuOpen(false)}>
+                  {link.label}
+                </a>
+              ))}
+              <Action onClick={() => openAuthPage('register')}>{isAuthenticated ? 'Продолжить' : 'Начать игру'}</Action>
+            </Box>
+          ) : null}
+
+          <Box
+            sx={{
+              pt: '106px',
+              width: 570,
+              maxWidth: '55%',
+              '@media (max-width: 1000px)': { maxWidth: '59%', pt: '95px' },
+              '@media (max-width: 720px)': { pt: '44px', maxWidth: 'none', width: '100%' },
+            }}
+          >
+            <Eyebrow tone="accent">Платформа для живых AI-историй</Eyebrow>
             <Typography
               component="h1"
               sx={{
-                mt: { xs: 1.3, md: 1.8 },
-                color: TEXT_HEADING,
-                fontFamily: '"Spectral", "Times New Roman", serif',
-                fontSize: { xs: '2.15rem', sm: '3rem', md: '3.8rem' },
-                fontWeight: 700,
-                lineHeight: 1.04,
-                textShadow: '0 5px 28px rgba(0,0,0,0.72), 0 0 24px rgba(118,188,255,0.12)',
-                '@media (min-width: 1500px) and (max-height: 850px)': {
-                  mt: 0.8,
-                  fontSize: '2.35rem',
-                },
+                fontFamily: L.serif,
+                fontWeight: 400,
+                fontSize: 'clamp(48px, 5.7vw, 77px)',
+                lineHeight: 1.06,
+                letterSpacing: '-2.6px',
+                color: L.title,
+                '@media (max-width: 1000px)': { fontSize: 62 },
+                '@media (max-width: 720px)': { fontSize: 'clamp(43px, 10vw, 60px)', letterSpacing: '-1.8px' },
               }}
             >
-              История начинается сейчас
+              Твой мир.
+              <br />
+              Твои правила.
+              <br />
+              <Box component="em" sx={{ color: L.accent, fontStyle: 'normal' }}>
+                ИИ ведёт
+                <br />
+                историю.
+              </Box>
             </Typography>
-            <Typography
-              sx={{
-                mt: 1.1,
-                maxWidth: 650,
-                color: '#c3ccd7',
-                fontSize: { xs: '0.82rem', sm: '0.95rem', md: '1.02rem' },
-                lineHeight: 1.65,
-                textShadow: '0 2px 12px rgba(0,0,0,0.9)',
-                '@media (min-width: 1500px) and (max-height: 850px)': {
-                  mt: 0.6,
-                  maxWidth: 560,
-                  fontSize: '0.82rem',
-                  lineHeight: 1.5,
-                },
-              }}
-            >
-              Текстовое приключение, где ИИ ведёт игру, а ты решаешь, кем стать и как закончится история
+            <Typography sx={{ maxWidth: 455, color: L.text, m: '25px 0 31px', fontSize: 17, fontFamily: L.ui, lineHeight: 1.75, '@media (max-width: 720px)': { fontSize: 15, maxWidth: 390, m: '22px 0' } }}>
+              Свободный storytelling, D&amp;D и визуальные новеллы — в одной платформе для долгих, живых приключений.
             </Typography>
-            <Button
-              variant="contained"
-              onClick={() => openAuthPage('register')}
-              sx={{
-                ...primaryButtonSx,
-                mt: 2.4,
-                '@media (min-width: 1500px) and (max-height: 850px)': {
-                  minWidth: 132,
-                  height: 36,
-                  mt: 1.4,
-                  px: 2.5,
-                  fontSize: '0.74rem',
-                },
-              }}
-            >
-              Начать играть
-            </Button>
-          </Stack>
-        </Box>
-
-        <Box
-          ref={aboutRef}
-          component="section"
-          sx={{
-            position: 'relative',
-            zIndex: 1,
-            minHeight: { xs: 760, md: '100svh' },
-            height: { md: '100svh' },
-            display: 'grid',
-            placeItems: 'center',
-            px: 2,
-            pt: { xs: 18, md: 12 },
-            pb: { xs: 10, md: 12 },
-            isolation: 'isolate',
-          }}
-        >
-          <Box
-            component="img"
-            src={aboutCavernImg}
-            alt=""
-            loading="eager"
-            decoding="async"
-            sx={{
-              position: 'absolute',
-              inset: '-10%',
-              zIndex: -3,
-              width: '120%',
-              height: '120%',
-              objectFit: 'cover',
-              objectPosition: 'center',
-              transform: 'translate3d(var(--about-bg-x, 0px), var(--about-bg-y, 0px), 0) scale(1.06)',
-              willChange: 'transform',
-            }}
-          />
-          <Box
-            aria-hidden
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: -2,
-              background:
-                'linear-gradient(180deg, rgba(1,5,10,0.18) 0%, rgba(2,9,17,0.14) 34%, rgba(2,8,15,0.32) 74%, #03101a 100%)',
-            }}
-          />
-          <Box
-            aria-hidden
-            sx={{
-              position: 'absolute',
-              zIndex: -1,
-              left: '50%',
-              top: '46%',
-              width: { xs: 380, md: 720 },
-              height: { xs: 320, md: 480 },
-              borderRadius: '50%',
-              background: 'radial-gradient(circle, rgba(126,201,255,0.16), rgba(75,144,202,0.05) 44%, transparent 70%)',
-              transform:
-                'translate3d(calc(-50% + var(--about-glow-x, 0px)), calc(-50% + var(--about-glow-y, 0px)), 0)',
-              filter: 'blur(6px)',
-              willChange: 'transform',
-            }}
-          />
-
-          <RevealOnView>
-            <Stack
-              alignItems="center"
-              textAlign="center"
-              sx={{
-                maxWidth: 770,
-                transform: 'translate3d(0, calc(10vh + var(--about-copy-y, 0px)), 0)',
-                willChange: 'transform',
-              }}
-            >
-              <Typography
-                component="h2"
-                sx={{
-                  ...sectionTitleSx,
-                  fontSize: { xs: '2.15rem', sm: '2.75rem', md: '3.25rem' },
-                  textTransform: 'none',
-                }}
-              >
-                О проекте
-              </Typography>
-              <Typography
-                sx={{
-                  mt: { xs: 2, md: 2.4 },
-                  maxWidth: 820,
-                  color: '#c9d2dc',
-                  fontSize: { xs: '0.94rem', sm: '1.04rem', md: '1.18rem' },
-                  lineHeight: 1.85,
-                }}
-              >
-                Morius AI — это текстовая MMORPG с искусственным интеллектом, где сюжет, персонажи и развитие мира
-                формируются в живом взаимодействии с игроком
-              </Typography>
-              <Button variant="contained" onClick={() => openAuthPage('register')} sx={{ ...primaryButtonSx, mt: 3 }}>
-                Начать играть
-              </Button>
-            </Stack>
-          </RevealOnView>
-        </Box>
-      </Box>
-
-      <Box
-        id="how-it-works"
-        component="section"
-        sx={{
-          position: 'relative',
-          minHeight: { xs: 830, md: '100svh' },
-          height: { md: '100svh' },
-          display: 'grid',
-          placeItems: 'center',
-          overflow: 'hidden',
-          px: 2,
-          py: { xs: 10, md: 13 },
-          backgroundColor: '#03101a',
-        }}
-      >
-        <Box
-          component="img"
-          src={underwaterCavernImg}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          sx={{
-            position: 'absolute',
-            inset: '-2% 0 0',
-            width: '100%',
-            height: '102%',
-            objectFit: 'cover',
-            objectPosition: { xs: '52% 26%', md: '50% 24%' },
-            opacity: 0.84,
-          }}
-        />
-        <Box
-          aria-hidden
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            background:
-              'linear-gradient(180deg, #03101a 0%, rgba(3,16,26,0.18) 12%, rgba(2,9,16,0.18) 45%, rgba(2,6,11,0.86) 100%)',
-          }}
-        />
-        <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 1 }}>
-          <RevealOnView>
-            <Stack alignItems="center" textAlign="center">
-              <Typography component="h2" sx={sectionTitleSx}>
-                Как устроена игра
-              </Typography>
-              <Typography sx={{ mt: 1.3, color: '#aebdca', fontSize: { xs: '0.82rem', md: '0.96rem' } }}>
-                Ты выбираешь действия. ИИ ведёт мир: описывает сцены, персонажей и последствия
-              </Typography>
-            </Stack>
-          </RevealOnView>
-
-          <Box
-            sx={{
-              position: 'relative',
-              mt: { xs: 6, md: 7 },
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
-              gap: { xs: 3.2, md: 3 },
-            }}
-          >
-            <Box
-              aria-hidden
-              sx={{
-                display: { xs: 'none', md: 'block' },
-                position: 'absolute',
-                zIndex: 0,
-                top: 23,
-                left: '16.67%',
-                right: '16.67%',
-                height: '1px',
-                backgroundColor: 'rgba(102,168,255,0.72)',
-                boxShadow: '0 0 12px rgba(102,168,255,0.22)',
-              }}
-            />
-            {gameSteps.map((step, index) => (
-              <RevealOnView key={step.number} delay={index * 100}>
-                <Stack alignItems="center" textAlign="center">
-                  <Box
-                    sx={{
-                      position: 'relative',
-                      zIndex: 1,
-                      width: 48,
-                      height: 48,
-                      display: 'grid',
-                      placeItems: 'center',
-                      borderRadius: '50%',
-                      border: '1.5px solid rgba(103,171,255,0.9)',
-                      background: '#06121d',
-                      color: '#8fc4ff',
-                      fontFamily: '"Spectral", serif',
-                      fontSize: '1.08rem',
-                      fontWeight: 700,
-                      boxShadow: '0 0 26px rgba(70,137,255,0.16)',
-                    }}
-                  >
-                    {step.number}
+            <Box sx={{ display: 'flex', gap: '12px', flexWrap: 'wrap', '@media (max-width: 720px)': { gap: '10px' } }}>
+              <Action onClick={() => openAuthPage('register')}>{isAuthenticated ? 'Продолжить историю' : 'Начать игру'}</Action>
+              <Action href="#formats" variant="ghost" icon={<ArrowDownIcon size={18} />}>
+                Как это работает
+              </Action>
+            </Box>
+            <Box sx={{ display: 'flex', gap: '28px', mt: '34px', fontSize: 12, color: L.muted, flexWrap: 'wrap', '@media (max-width: 720px)': { mt: '25px', gap: '24px' } }}>
+              {[
+                { strong: playersLabel, rest: 'игроков' },
+                { strong: `${worldsLabel} миров`, rest: 'создано сообществом' },
+                { strong: 'Любой опыт', rest: 'от первого шага до профи' },
+              ].map((item) => (
+                <Box key={item.strong}>
+                  <Box component="strong" sx={{ display: 'block', color: L.title, fontSize: 17, fontWeight: 400, fontFamily: L.serif }}>
+                    {item.strong}
                   </Box>
-                  <Typography
-                    component="h3"
-                    sx={{
-                      mt: 1.8,
-                      color: TEXT_HEADING,
-                      fontFamily: '"Spectral", serif',
-                      fontSize: { xs: '1.08rem', md: '1.32rem' },
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    {step.title}
-                  </Typography>
-                </Stack>
-              </RevealOnView>
-            ))}
-          </Box>
-
-          <RevealOnView delay={220}>
-            <Typography
-              sx={{
-                maxWidth: 850,
-                mx: 'auto',
-                mt: { xs: 5, md: 4.5 },
-                color: '#9aa8b5',
-                fontSize: { xs: '0.78rem', md: '0.88rem' },
-                lineHeight: 1.75,
-                textAlign: 'center',
-              }}
-            >
-              Выбери готовый образ или собери персонажа под себя: задай внешность, характер, роль и мотивацию и
-              стартовую ситуацию. Это может быть благородный рыцарь, хитрый вор, изгнанный маг, случайный путник или
-              герой, которого ты полностью придумал сам. С этого начинается твоя личная история в мире MoRius.
-            </Typography>
-          </RevealOnView>
-        </Container>
-      </Box>
-
-      <Box id="advantages" component="section" sx={{ position: 'relative', overflow: 'hidden', py: { xs: 10, md: 14 }, background: '#02070d' }}>
-        <Box
-          aria-hidden
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            background:
-              'radial-gradient(ellipse at 50% 0%, rgba(36,91,137,0.18), transparent 52%), linear-gradient(180deg, #02070d 0%, #02050a 100%)',
-          }}
-        />
-        <Container maxWidth="lg" sx={{ position: 'relative' }}>
-          <RevealOnView>
-            <Typography component="h2" sx={{ ...sectionTitleSx, mb: { xs: 6, md: 8 } }}>
-              Преимущества и особенности
-            </Typography>
-          </RevealOnView>
-
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 0.9fr) minmax(420px, 1.1fr)' },
-              alignItems: 'center',
-              gap: { xs: 5, md: 8 },
-              minHeight: { md: 480 },
-            }}
-          >
-            <RevealOnView key={`advantage-copy-${activeAdvantage.id}`}>
-              <Box>
-                <Typography
-                  aria-hidden
-                  sx={{
-                    color: 'transparent',
-                    WebkitTextStroke: `2px ${ACCENT}`,
-                    fontFamily: '"Manrope", sans-serif',
-                    fontSize: { xs: '8rem', md: '12rem' },
-                    fontWeight: 700,
-                    lineHeight: 0.78,
-                    opacity: 0.82,
-                    WebkitMaskImage: 'linear-gradient(180deg, #000 0%, #000 48%, transparent 92%)',
-                    maskImage: 'linear-gradient(180deg, #000 0%, #000 48%, transparent 92%)',
-                  }}
-                >
-                  {activeAdvantage.number}
-                </Typography>
-                <Typography
-                  component="h3"
-                  sx={{ mt: -0.5, color: '#d8e0e8', fontFamily: '"Spectral", serif', fontSize: { xs: '1.35rem', md: '1.7rem' }, textTransform: 'uppercase' }}
-                >
-                  {activeAdvantage.title}
-                </Typography>
-                <Typography sx={{ mt: 1.5, maxWidth: 520, color: TEXT_BODY, fontSize: { xs: '0.84rem', md: '0.94rem' }, lineHeight: 1.72 }}>
-                  {activeAdvantage.description}
-                </Typography>
-              </Box>
-            </RevealOnView>
-
-            <RevealOnView key={`advantage-image-${activeAdvantage.id}`} delay={80}>
-              <Box
-                sx={{
-                  position: 'relative',
-                  display: 'grid',
-                  placeItems: 'center',
-                  minHeight: { xs: 330, md: 460 },
-                  '&::before': {
-                    content: '""',
-                    position: 'absolute',
-                    inset: '8%',
-                    borderRadius: '50%',
-                    background: 'radial-gradient(circle, rgba(58,133,216,0.19), transparent 68%)',
-                    filter: 'blur(18px)',
-                  },
-                }}
-              >
-                <Box
-                  component="img"
-                  src={activeAdvantage.preview}
-                  alt={activeAdvantage.title}
-                  loading="lazy"
-                  decoding="async"
-                  sx={{
-                    position: 'relative',
-                    width: { xs: '94%', md: '100%' },
-                    maxWidth: 570,
-                    maxHeight: 470,
-                    objectFit: 'contain',
-                    transform: 'rotate(4deg)',
-                    filter: 'drop-shadow(0 28px 46px rgba(0,0,0,0.7))',
-                  }}
-                />
-              </Box>
-            </RevealOnView>
-          </Box>
-
-          <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={2.2} sx={{ mt: { xs: 3, md: 1 } }}>
-            <Stack direction="row" spacing={1}>
-              <Box
-                component="button"
-                type="button"
-                onClick={() => setCurrentSlide((index) => Math.max(0, index - 1))}
-                disabled={currentSlide === 0}
-                aria-label={PREVIOUS_SLIDE_ARIA_LABEL}
-                sx={{
-                  width: 48,
-                  height: 38,
-                  p: 0,
-                  border: 0,
-                  background: 'transparent',
-                  color: currentSlide === 0 ? 'rgba(102,168,255,0.28)' : ACCENT,
-                  fontSize: '2.1rem',
-                  lineHeight: 1,
-                  cursor: currentSlide === 0 ? 'default' : 'pointer',
-                  textShadow: currentSlide === 0 ? 'none' : '0 0 16px rgba(102,168,255,0.48)',
-                  transition: 'color 180ms ease, transform 180ms ease',
-                  '&:not(:disabled):hover': { color: '#a5d0ff', transform: 'translateX(-3px)' },
-                  '&:focus-visible': { outline: `2px solid ${ACCENT}`, outlineOffset: 3 },
-                }}
-              >
-                ←
-              </Box>
-              <Box
-                component="button"
-                type="button"
-                onClick={() => setCurrentSlide((index) => Math.min(advantageSlides.length - 1, index + 1))}
-                disabled={currentSlide === advantageSlides.length - 1}
-                aria-label={NEXT_SLIDE_ARIA_LABEL}
-                sx={{
-                  width: 48,
-                  height: 38,
-                  p: 0,
-                  border: 0,
-                  background: 'transparent',
-                  color: currentSlide === advantageSlides.length - 1 ? 'rgba(102,168,255,0.28)' : ACCENT,
-                  fontSize: '2.1rem',
-                  lineHeight: 1,
-                  cursor: currentSlide === advantageSlides.length - 1 ? 'default' : 'pointer',
-                  textShadow: currentSlide === advantageSlides.length - 1 ? 'none' : '0 0 16px rgba(102,168,255,0.48)',
-                  transition: 'color 180ms ease, transform 180ms ease',
-                  '&:not(:disabled):hover': { color: '#a5d0ff', transform: 'translateX(3px)' },
-                  '&:focus-visible': { outline: `2px solid ${ACCENT}`, outlineOffset: 3 },
-                }}
-              >
-                →
-              </Box>
-            </Stack>
-            <Stack direction="row" spacing={0.7}>
-              {advantageSlides.map((slide, index) => (
-                <Box
-                  key={slide.id}
-                  component="button"
-                  type="button"
-                  aria-label={`Слайд ${index + 1}`}
-                  onClick={() => setCurrentSlide(index)}
-                  sx={{
-                    width: index === currentSlide ? 52 : 38,
-                    height: 3,
-                    p: 0,
-                    border: 0,
-                    borderRadius: 2,
-                    cursor: 'pointer',
-                    backgroundColor: index === currentSlide ? ACCENT : 'rgba(196,207,218,0.34)',
-                    transition: 'width 180ms ease, background-color 180ms ease',
-                  }}
-                />
+                  {item.rest}
+                </Box>
               ))}
-            </Stack>
-          </Stack>
-        </Container>
-      </Box>
-
-      <Box id="public-worlds" component="section" sx={{ position: 'relative', overflow: 'hidden', py: { xs: 10, md: 14 }, backgroundColor: '#02050a' }}>
-        <Box
-          component="img"
-          src={dragonDepthsImg}
-          alt=""
-          loading="lazy"
-          sx={{
-            position: 'absolute',
-            left: 0,
-            bottom: '-6%',
-            width: '100%',
-            height: '82%',
-            objectFit: 'cover',
-            objectPosition: 'left center',
-            opacity: 0.62,
-          }}
-        />
-        <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, #02050a 0%, rgba(2,5,10,0.42) 34%, #02050a 100%)' }} />
-        <Container maxWidth="lg" sx={{ position: 'relative' }}>
-          <RevealOnView>
-            <Typography component="h2" sx={{ ...sectionTitleSx, textTransform: 'none' }}>
-              Публичные готовые миры
-            </Typography>
-            <Typography sx={{ mt: 1.4, color: TEXT_BODY, fontSize: { xs: '0.82rem', md: '0.94rem' }, textAlign: 'center' }}>
-              Создавай миры и делись ими, или играй в готовые созданные другими игроками!
-            </Typography>
-          </RevealOnView>
-
-          <Box
-            sx={{
-              mt: { xs: 5, md: 7 },
-              height: { xs: 374, md: 500 },
-              mx: { xs: -2, md: 0 },
-              px: { xs: 2, md: 0 },
-              overflowX: { xs: 'auto', md: 'visible' },
-              overflowY: 'visible',
-              scrollbarWidth: 'none',
-              '&::-webkit-scrollbar': { display: 'none' },
-            }}
-          >
-            <Box
-              sx={{
-                position: 'relative',
-                display: { xs: 'flex', md: 'block' },
-                gap: 2,
-                width: { xs: 'max-content', md: '100%' },
-                height: '100%',
-                perspective: { md: '1300px' },
-              }}
-            >
-              {worldsLoading || worldsLoadFailed || worldDeck.length === 0 ? (
-                <Typography
-                  role="status"
-                  sx={{
-                    position: { md: 'absolute' },
-                    top: { md: '50%' },
-                    left: { md: '50%' },
-                    transform: { md: 'translate(-50%, -50%)' },
-                    width: '100%',
-                    color: TEXT_MUTED,
-                    fontSize: '0.9rem',
-                    textAlign: 'center',
-                  }}
-                >
-                  {worldsLoading
-                    ? 'Загружаем опубликованные миры игроков…'
-                    : worldsLoadFailed
-                      ? 'Не удалось загрузить опубликованные миры.'
-                      : 'Игроки пока не опубликовали ни одного мира.'}
-                </Typography>
-              ) : (
-                worldDeck.map((world, index) => {
-                  const centerOffset = index - (worldDeck.length - 1) / 2
-                  const distance = Math.abs(centerOffset)
-                  const x = centerOffset * 220
-                  const y = distance * 30 - 20
-                  const z = 50 - distance * 70
-                  const rotationY = centerOffset * -4
-                  const rotationZ = centerOffset * 1.1
-                  const scale = 1.06 - distance * 0.11
-                  return (
-                    <Box
-                      key={world.id}
-                      sx={{
-                        position: { xs: 'relative', md: 'absolute' },
-                        zIndex: { md: Math.max(1, 6 - Math.round(distance * 2)) },
-                        top: { md: '50%' },
-                        left: { md: '50%' },
-                        transform: {
-                          xs: 'none',
-                          md: `translate(-50%, -50%) translate3d(${x}px, ${y}px, ${z}px) rotateY(${rotationY}deg) rotateZ(${rotationZ}deg) scale(${scale})`,
-                        },
-                        transformOrigin: 'center',
-                        transition: 'transform 240ms ease',
-                      }}
-                    >
-                      <LandingWorldCard world={world} onClick={() => openAuthPage('register')} />
-                    </Box>
-                  )
-                })
-              )}
             </Box>
           </Box>
-        </Container>
-      </Box>
 
-      <Box id="packages" component="section" sx={{ position: 'relative', overflow: 'hidden', py: { xs: 10, md: 13 }, background: '#02050a' }}>
-        <Box
-          aria-hidden
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            background:
-              'radial-gradient(ellipse at 14% 0%, rgba(31,94,151,0.14), transparent 38%), radial-gradient(ellipse at 85% 70%, rgba(78,40,110,0.08), transparent 38%)',
-          }}
-        />
-        <Container maxWidth="lg" sx={{ position: 'relative' }}>
-          <RevealOnView>
-            <Typography component="h2" sx={{ ...sectionTitleSx, mb: { xs: 5, md: 6 } }}>
-              Пакеты
-            </Typography>
-          </RevealOnView>
           <Box
             sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
-              gap: 2,
-              maxWidth: 1180,
-              mx: 'auto',
+              position: 'absolute',
+              right: 'max(40px, calc((100% - 1160px) / 2))',
+              bottom: 100,
+              width: 360,
+              background: 'rgba(13,14,15,0.85)',
+              border: `1px solid ${L.accentBorder}`,
+              backdropFilter: 'blur(15px)',
+              p: '18px 22px',
+              boxShadow: '0 14px 50px rgba(0,0,0,0.35)',
+              '@media (max-width: 1000px)': { width: 300, right: 24, bottom: 74 },
+              '@media (max-width: 720px)': { bottom: 57, left: 18, right: 18, width: 'auto' },
             }}
           >
-            {tariffPlans.map((plan, index) => (
-              <RevealOnView key={plan.id} delay={index * 80} y={30}>
-                <PresentationPlanCard
-                  title={plan.title}
-                  price={plan.price}
-                  accent={plan.accent}
-                  details={plan.details}
-                  iconSrc={plan.icon}
-                  balance={plan.coins}
-                  buttonLabel="Купить"
-                  onClick={() => openAuthPage('register')}
-                  minHeight={500}
-                />
-              </RevealOnView>
-            ))}
-          </Box>
-        </Container>
-      </Box>
-
-      <Box id="subscriptions" component="section" sx={{ position: 'relative', py: { xs: 10, md: 13 }, background: '#02050a' }}>
-        <Container maxWidth="lg">
-          <RevealOnView>
-            <Typography component="h2" sx={{ ...sectionTitleSx, mb: { xs: 5, md: 6 } }}>
-              Подписки
+            <Box sx={{ fontSize: 11, letterSpacing: '1.5px', color: L.accent, display: 'flex', alignItems: 'center', gap: '9px' }}>
+              <Box sx={{ width: 5, height: 5, background: L.accent, borderRadius: '50%' }} />
+              AI-МАСТЕР · ПРИМЕР СЦЕНЫ
+            </Box>
+            <Typography sx={{ fontFamily: L.serif, fontSize: 15, m: '9px 0', color: L.title, lineHeight: 1.6 }}>
+              «За этой дверью начинается мир, которого ещё не было. Ну что, откроем?»
             </Typography>
-          </RevealOnView>
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' },
-              gap: 2.2,
-              maxWidth: 940,
-              mx: 'auto',
-            }}
-          >
-            {subscriptionPlans.map((plan, index) => (
-              <RevealOnView key={plan.id} delay={index * 90} y={30}>
-                <PresentationPlanCard
-                  title={plan.title}
-                  price={plan.price}
-                  accent={plan.accent}
-                  details={plan.details}
-                  iconSrc={plan.icon}
-                  sparkleIcon={plan.id === 'spark'}
-                  priceCaption="в месяц"
-                  buttonLabel="Купить"
-                  onClick={() => openAuthPage('register')}
-                  minHeight={455}
-                />
-              </RevealOnView>
-            ))}
+            <Box sx={{ fontSize: 12, color: L.muted }}>Твоя история начинается с выбора.</Box>
           </Box>
-        </Container>
+
+          <Box sx={{ position: 'absolute', bottom: 47, fontSize: 11, letterSpacing: '2px', color: L.quiet, display: 'flex', alignItems: 'center', gap: '10px', '@media (max-width: 720px)': { display: 'none' } }}>
+            ЛИСТАЙ, ЧТОБЫ ОТКРЫТЬ БОЛЬШЕ <ArrowDownIcon size={16} />
+          </Box>
+        </Box>
       </Box>
 
-      <Box
-        id="start-playing"
-        component="section"
-        sx={{
-          position: 'relative',
-          minHeight: { xs: 400, md: 470 },
-          display: 'grid',
-          placeItems: 'center',
-          overflow: 'hidden',
-          px: 2,
-          backgroundColor: '#03101a',
-        }}
-      >
-        <Box
-          component="img"
-          src={ctaCavernImg}
-          alt=""
-          loading="eager"
-          decoding="async"
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            objectPosition: { xs: '50% 48%', md: '50% 54%' },
-            clipPath: { xs: 'polygon(0 5%, 100% 0, 100% 95%, 0 100%)', md: 'polygon(0 10%, 100% 0, 100% 90%, 0 100%)' },
-          }}
-        />
-        <Box
-          aria-hidden
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            background:
-              'radial-gradient(circle at 50% 42%, rgba(127,185,231,0.12), transparent 34%), linear-gradient(180deg, rgba(2,6,11,0.38), rgba(3,14,24,0.22), rgba(2,5,10,0.64))',
-            clipPath: { xs: 'polygon(0 5%, 100% 0, 100% 95%, 0 100%)', md: 'polygon(0 10%, 100% 0, 100% 90%, 0 100%)' },
-          }}
-        />
-        <Stack alignItems="center" textAlign="center" sx={{ position: 'relative', zIndex: 1 }}>
-            <Typography
-              component="h2"
+      <Box component="main" sx={{ background: L.pageArt }}>
+        {/* --------------------------------------------------------------- formats */}
+        <Section id="formats">
+          <Box sx={WRAP}>
+            <Box
               sx={{
-                ...sectionTitleSx,
-                fontFamily: '"Manrope", sans-serif',
-                fontSize: { xs: '1.55rem', md: '2rem' },
-                fontWeight: 800,
-                letterSpacing: 0,
-                textShadow: 'none',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'end',
+                gap: '40px',
+                mb: '45px',
+                '@media (max-width: 720px)': { display: 'block', mb: '29px' },
               }}
             >
-              Готов сделать первый ход?
-            </Typography>
-            <Typography sx={{ mt: 1.4, color: '#9eacba', fontSize: { xs: '0.8rem', md: '0.92rem' } }}>
-              Зарегистрируйся и начни играть
-            </Typography>
-            <Button variant="contained" onClick={() => openAuthPage('register')} sx={{ ...primaryButtonSx, mt: 2.7 }}>
-              Начать игру
-            </Button>
-        </Stack>
+              <Box>
+                <Eyebrow>Три способа прожить историю</Eyebrow>
+                <Typography component="h2" sx={H2}>
+                  Одно воображение.
+                  <br />
+                  Целая вселенная возможностей.
+                </Typography>
+              </Box>
+              <Typography sx={{ ...BODY, maxWidth: 320, '@media (max-width: 720px)': { mt: '22px', maxWidth: '100%' } }}>
+                Выбирай, как играть.
+                <br />
+                Moru подстроится под твою историю.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '23px',
+                '@media (max-width: 720px)': { gridTemplateColumns: '1fr', gap: '14px' },
+              }}
+            >
+              {FORMATS.map(({ num, Icon, title, text, tag, featured }) => (
+                <Box
+                  key={title}
+                  component="article"
+                  sx={{
+                    minHeight: 310,
+                    border: `1px solid ${featured ? L.accentBorder : L.border}`,
+                    p: '29px 29px 25px',
+                    position: 'relative',
+                    background: featured ? L.elevated : L.surface,
+                    overflow: 'hidden',
+                    transition: 'transform .25s, border-color .25s',
+                    '&:hover': { transform: 'translateY(-5px)', borderColor: L.accent },
+                    '@media (max-width: 1000px)': { p: '24px 20px' },
+                    '@media (max-width: 720px)': { minHeight: 0, p: '26px' },
+                  }}
+                >
+                  <Box sx={{ position: 'absolute', right: 22, top: 23, fontFamily: L.serif, fontStyle: 'italic', fontSize: 16, color: L.quiet }}>{num}</Box>
+                  <Box sx={{ color: L.accent, mb: '30px' }}>
+                    <Icon size={44} />
+                  </Box>
+                  <Typography component="h3" sx={{ ...H3, mb: '14px', '@media (max-width: 720px)': { fontSize: 25 } }}>
+                    {title}
+                  </Typography>
+                  <Typography sx={{ ...BODY, maxWidth: 280, color: featured ? L.text : L.muted, '@media (max-width: 720px)': { maxWidth: 'none' } }}>{text}</Typography>
+                  <Box sx={{ mt: '27px', fontSize: 11, letterSpacing: '1.7px', textTransform: 'uppercase', color: L.accent, '@media (max-width: 720px)': { mt: '18px' } }}>{tag}</Box>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        </Section>
+
+        {/* --------------------------------------------------------------- modes */}
+        <Box component="section" id="modes" sx={{ pt: '50px', pb: '95px', position: 'relative', '@media (max-width: 720px)': { pt: 0, pb: '65px' } }}>
+          <Box
+            sx={{
+              ...WRAP,
+              display: 'grid',
+              gridTemplateColumns: '.9fr 1.1fr',
+              gap: '75px',
+              alignItems: 'center',
+              '@media (max-width: 1000px)': { gap: '35px' },
+              '@media (max-width: 720px)': { gridTemplateColumns: '1fr', gap: '15px' },
+            }}
+          >
+            <Box
+              sx={{
+                height: 660,
+                position: 'relative',
+                overflow: 'hidden',
+                maskImage: 'linear-gradient(0deg, transparent, black 14%, black 83%, transparent)',
+                WebkitMaskImage: 'linear-gradient(0deg, transparent, black 14%, black 83%, transparent)',
+                '@media (max-width: 1000px)': { height: 580 },
+                '@media (max-width: 720px)': { height: 380, maxWidth: 360, width: '100%', mx: 'auto' },
+                '&:after': { content: '""', position: 'absolute', inset: 0, boxShadow: `inset 0 0 48px 26px ${L.page}`, borderRadius: '48% 48% 0 0' },
+              }}
+            >
+              <Box
+                component="img"
+                src={GUIDE_IMAGE}
+                alt="Механический кот-волшебник Moru с парящими магическими кубиками"
+                loading="lazy"
+                width={640}
+                height={660}
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  objectPosition: '50% 46%',
+                  borderRadius: '48% 48% 10% 10%',
+                  '@media (max-width: 720px)': { objectPosition: '50% 34%' },
+                }}
+              />
+            </Box>
+            <Box>
+              <Eyebrow>Твой проводник в новые миры</Eyebrow>
+              <Typography component="h2" sx={H2}>
+                Начни просто.
+                <br />
+                Настрой глубоко,
+                <br />
+                когда захочешь.
+              </Typography>
+              <Typography sx={{ ...BODY, m: '22px 0 27px' }}>
+                Первая история или сотая кампания?
+                <br />
+                Выбирай удобный способ старта.
+              </Typography>
+              {[
+                {
+                  Icon: BoltIcon,
+                  small: 'Для первого приключения',
+                  title: 'Быстрый старт',
+                  text: 'Минимум настроек — и ты в истории. Все ключевые возможности Moru рядом, когда они понадобятся.',
+                  cta: 'Выбрать быстрый старт',
+                },
+                {
+                  Icon: SlidersIcon,
+                  small: 'Для опытных ролееров',
+                  title: 'Своя игра',
+                  text: 'Управляй мирами, персонажами, памятью, AI-моделями и стилем повествования. Больше контроля над каждой деталью.',
+                  cta: 'Выбрать свою игру',
+                },
+              ].map(({ Icon, small, title, text, cta }) => (
+                <Box
+                  key={title}
+                  component="article"
+                  sx={{
+                    py: '23px',
+                    borderTop: `1px solid ${L.border}`,
+                    display: 'grid',
+                    gridTemplateColumns: '38px 1fr',
+                    gap: '15px',
+                    '@media (max-width: 720px)': { gridTemplateColumns: '30px 1fr', gap: '10px' },
+                  }}
+                >
+                  <Box sx={{ color: L.accent, pt: '4px' }}>
+                    <Icon size={26} />
+                  </Box>
+                  <Box>
+                    <Box sx={{ fontSize: 11, letterSpacing: '1.5px', mb: '7px', textTransform: 'uppercase', color: L.quiet }}>{small}</Box>
+                    <Typography component="h3" sx={{ ...H3, fontSize: 25, mb: '8px' }}>
+                      {title}
+                    </Typography>
+                    <Typography sx={BODY}>{text}</Typography>
+                    <Box
+                      component="button"
+                      type="button"
+                      onClick={() => openAuthPage('register')}
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        mt: '13px',
+                        fontSize: 14,
+                        fontWeight: 700,
+                        fontFamily: L.ui,
+                        color: L.accent,
+                        border: 0,
+                        background: 'none',
+                        p: 0,
+                        cursor: 'pointer',
+                        '&:focus-visible': { outline: `3px solid ${L.accent}`, outlineOffset: 4 },
+                      }}
+                    >
+                      {cta} <ArrowUpRightIcon size={16} />
+                    </Box>
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        </Box>
+
+        {/* ------------------------------------------------- NEW: beginners + veterans */}
+        <Section id="audience" sx={{ pt: 0 }}>
+          <Box sx={WRAP}>
+            <Box sx={{ borderTop: `1px solid ${L.border}`, pt: '50px' }}>
+              <Eyebrow>Для тех, кто только начинает — и для тех, кто давно в деле</Eyebrow>
+              <Typography component="h2" sx={{ ...H2, maxWidth: 780 }}>
+                Первая история и сотая кампания живут здесь одинаково хорошо.
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '23px',
+                  mt: '45px',
+                  '@media (max-width: 720px)': { gridTemplateColumns: '1fr', gap: '14px' },
+                }}
+              >
+                {[
+                  {
+                    Icon: StairsIcon,
+                    tag: 'Новичкам',
+                    title: 'Не нужно ничего знать заранее',
+                    text: 'Не играл в текстовые РП? Просто напиши, что делает твой герой — обычными словами. Мастер сам опишет сцену, отыграет остальных и подскажет, что можно дальше. Никаких правил, которые надо учить перед первым ходом.',
+                    points: ['Готовые миры сообщества — заходи и играй', 'Подсказки по ходу, а не инструкция на 20 страниц', 'Нет «неправильных» действий'],
+                  },
+                  {
+                    Icon: SlidersIcon,
+                    tag: 'Продвинутым',
+                    title: 'Столько контроля, сколько захочешь',
+                    text: 'Карточки мира, персонажей, правил и сюжета. Инструкции рассказчику, выбор AI-модели под сцену, ручное управление памятью, D&D-механики с бросками и характеристиками. Всё это ждёт, когда дорастёшь.',
+                    points: ['Свои промпты и стиль повествования', 'Модель под каждую сцену — от бюджетной до премиальной', 'Ручная правка памяти и хроники мира'],
+                  },
+                ].map(({ Icon, tag, title, text, points }) => (
+                  <Box
+                    key={tag}
+                    component="article"
+                    sx={{
+                      border: `1px solid ${L.border}`,
+                      background: L.surface,
+                      p: '29px',
+                      transition: 'border-color .25s, transform .25s',
+                      '&:hover': { borderColor: L.accent, transform: 'translateY(-5px)' },
+                      '@media (max-width: 720px)': { p: '26px' },
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: '13px', mb: '20px', color: L.accent }}>
+                      <Icon size={30} />
+                      <Box sx={{ fontSize: 11, letterSpacing: '1.7px', textTransform: 'uppercase', fontWeight: 700 }}>{tag}</Box>
+                    </Box>
+                    <Typography component="h3" sx={{ ...H3, fontSize: 25, mb: '13px' }}>
+                      {title}
+                    </Typography>
+                    <Typography sx={BODY}>{text}</Typography>
+                    <Stack component="ul" spacing={0} sx={{ listStyle: 'none', m: '20px 0 0', p: 0 }}>
+                      {points.map((point) => (
+                        <Box component="li" key={point} sx={{ ...BODY, py: '9px', borderTop: `1px solid ${L.border}`, display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                          <Box sx={{ color: L.accent, pt: '5px' }}>
+                            <SparkIcon size={12} />
+                          </Box>
+                          <span>{point}</span>
+                        </Box>
+                      ))}
+                    </Stack>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Box>
+        </Section>
+
+        {/* --------------------------------------------------------------- pricing */}
+        <Box
+          component="section"
+          id="pricing"
+          sx={{
+            position: 'relative',
+            background: L.deepArt,
+            color: L.title,
+            p: '101px 0 115px',
+            '@media (max-width: 720px)': { p: '75px 0 85px' },
+          }}
+        >
+          <TornEdge place="top" />
+          <Box sx={WRAP}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: '50px', mb: '45px', '@media (max-width: 720px)': { display: 'block', mb: '30px' } }}>
+              <Box>
+                <Eyebrow tone="accent">Большие истории. Твой бюджет.</Eyebrow>
+                <Typography component="h2" sx={H2}>
+                  Магия без
+                  <br />
+                  лишних затрат.
+                </Typography>
+                <Typography sx={{ ...BODY, maxWidth: 440, mt: '20px' }}>
+                  Выбирай AI-модель под задачу и комфортную стоимость. Не каждой сцене нужна самая дорогая модель.
+                </Typography>
+              </Box>
+              <Box sx={{ alignSelf: 'center', whiteSpace: 'nowrap', '@media (max-width: 720px)': { mt: '30px' } }}>
+                <Box sx={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '3px', mb: '16px', color: L.muted }}>Стоимость одного хода</Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', fontFamily: L.serif, fontSize: 84, lineHeight: 1, color: L.accent, '@media (max-width: 720px)': { fontSize: 68 } }}>
+                  <Box component="span" sx={{ fontSize: 25 }}>
+                    от
+                  </Box>
+                  1
+                  <SolMark size={44} />
+                  <Box component="span" sx={{ fontSize: 25 }}>
+                    сола
+                  </Box>
+                </Box>
+              </Box>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                border: `1px solid ${L.accentBorder}`,
+                '@media (max-width: 720px)': { gridTemplateColumns: '1fr' },
+              }}
+            >
+              {TIERS.map((tier, index) => (
+                <Box
+                  key={tier.title}
+                  component="article"
+                  sx={{
+                    p: '31px 30px',
+                    borderLeft: index === 0 ? 0 : `1px solid ${L.accentBorder}`,
+                    '@media (max-width: 720px)': { p: '25px', borderLeft: 0, borderTop: index === 0 ? 0 : `1px solid ${L.accentBorder}` },
+                  }}
+                >
+                  <Box sx={{ fontSize: 11, letterSpacing: '2px', color: L.accent }}>{tier.label}</Box>
+                  <Typography component="h3" sx={{ ...H3, fontSize: 25, m: '18px 0 12px' }}>
+                    {tier.title}
+                  </Typography>
+                  <Typography sx={BODY}>{tier.text}</Typography>
+                </Box>
+              ))}
+            </Box>
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '30px',
+                mt: '30px',
+                fontSize: 14,
+                color: L.muted,
+                '@media (max-width: 720px)': { alignItems: 'start', flexDirection: 'column' },
+              }}
+            >
+              <Typography sx={{ fontFamily: L.ui, fontSize: 14, lineHeight: 1.75 }}>
+                <Box component="strong" sx={{ color: L.title, fontWeight: 400 }}>
+                  Подписки и пакеты солов
+                </Box>
+                <br />
+                Выбирай удобный объём игры. Стоимость зависит от модели.
+              </Typography>
+              <Action variant="ghost" onClick={() => onNavigate('/shop')}>
+                О стоимости подробнее
+              </Action>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* --------------------------------------------------------------- memory */}
+        <Section id="memory">
+          <Box sx={WRAP}>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '90px',
+                alignItems: 'center',
+                '@media (max-width: 1000px)': { gap: '35px' },
+                '@media (max-width: 720px)': { gridTemplateColumns: '1fr', gap: '32px' },
+              }}
+            >
+              <Box>
+                <Eyebrow>Не просто следующий ответ</Eyebrow>
+                <Typography component="h2" sx={H2}>
+                  Мир помнит.
+                  <br />
+                  История продолжается.
+                </Typography>
+                <Typography sx={{ ...BODY, m: '24px 0' }}>
+                  Старые обещания, новые союзники, последствия решений. Moru сохраняет связи и события, чтобы длинная история оставалась твоей.
+                </Typography>
+                <Stack component="ul" spacing={0} sx={{ listStyle: 'none', m: '23px 0 0', p: 0 }}>
+                  {['Персонажи со своей историей и состоянием', 'События, которые влияют на продолжение', 'Мир, который развивается вместе с тобой'].map((item) => (
+                    <Box component="li" key={item} sx={{ py: '10px', borderBottom: `1px solid ${L.border}`, fontSize: 15, display: 'flex', gap: '13px', alignItems: 'center', color: L.text }}>
+                      <Box sx={{ color: L.accent }}>
+                        <SparkIcon size={13} />
+                      </Box>
+                      {item}
+                    </Box>
+                  ))}
+                </Stack>
+              </Box>
+              <Box sx={{ background: L.surfaceSolid, color: L.title, boxShadow: '0 20px 50px rgba(0,0,0,0.5)', border: `1px solid ${L.border}` }}>
+                <Box sx={{ p: '16px 22px', borderBottom: `1px solid ${L.border}`, display: 'flex', justifyContent: 'space-between', fontSize: 12, color: L.muted, gap: '12px' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Box sx={{ color: L.accent }}>
+                      <SparkIcon size={12} />
+                    </Box>
+                    Хроники Лунной башни
+                  </Box>
+                  <span>Пример интерфейса</span>
+                </Box>
+                <Box
+                  sx={{
+                    height: 165,
+                    background: `linear-gradient(0deg, ${L.surfaceSolid}, transparent), url('${HERO_IMAGE}') left 42%/180%`,
+                    display: 'flex',
+                    alignItems: 'end',
+                    p: '22px',
+                    color: L.accent,
+                    fontFamily: L.serif,
+                    fontSize: 23,
+                  }}
+                >
+                  Глава II. Старое обещание
+                </Box>
+                <Box sx={{ p: '6px 26px 26px' }}>
+                  <Box sx={{ fontSize: 12, color: L.accent, letterSpacing: '1px', m: '10px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <SparkIcon size={11} /> МАСТЕР ИСТОРИИ
+                  </Box>
+                  <Typography sx={{ fontFamily: L.serif, fontSize: 16, lineHeight: 1.75, color: L.text }}>
+                    Кот узнаёт серебряный ключ в твоей ладони.
+                    <br />
+                    «Ты всё-таки вернулся. Хранитель башни помнит твоё обещание».
+                  </Typography>
+                  <Box sx={{ mt: '20px', background: 'rgba(199,231,255,0.05)', borderLeft: `2px solid ${L.accent}`, p: '13px 17px', fontSize: 14, color: L.text }}>
+                    Я протягиваю ключ и спрашиваю, что изменилось.
+                  </Box>
+                  <Box sx={{ fontSize: 11, color: L.muted, mt: '20px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <Box sx={{ color: L.accent }}>
+                      <SparkIcon size={11} />
+                    </Box>
+                    В памяти мира: ключ · обещание · хранитель
+                  </Box>
+                </Box>
+              </Box>
+            </Box>
+
+            {/* ------------------------------------------- NEW: the six memory stages */}
+            <Box sx={{ borderTop: `1px solid ${L.border}`, pt: '50px', mt: '70px', '@media (max-width: 720px)': { pt: '32px', mt: '38px' } }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'end', gap: '40px', mb: '45px', '@media (max-width: 720px)': { display: 'block', mb: '29px' } }}>
+                <Box>
+                  <Eyebrow tone="accent">Шесть ступеней памяти</Eyebrow>
+                  <Typography component="h2" sx={H2}>
+                    Сотый ход помнит
+                    <br />
+                    первый.
+                  </Typography>
+                </Box>
+                <Typography sx={{ ...BODY, maxWidth: 340, '@media (max-width: 720px)': { mt: '22px', maxWidth: '100%' } }}>
+                  Каждый ход проходит шесть ступеней сжатия. Контекст не разрастается, а история не забывается — это то, что делает долгую кампанию возможной.
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', gap: '18px', mb: '30px', flexWrap: 'wrap' }}>
+                {[
+                  { Icon: LayersIcon, label: 'Шесть ступеней оптимизации' },
+                  { Icon: HourglassIcon, label: 'Заточено под долгие кампании' },
+                ].map(({ Icon, label }) => (
+                  <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: '11px', color: L.accent, border: `1px solid ${L.accentBorder}`, px: '16px', py: '10px', fontSize: 12, letterSpacing: '1.4px', textTransform: 'uppercase', fontWeight: 700 }}>
+                    <Icon size={20} />
+                    {label}
+                  </Box>
+                ))}
+              </Box>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: '23px',
+                  '@media (max-width: 1000px)': { gridTemplateColumns: 'repeat(2, 1fr)' },
+                  '@media (max-width: 720px)': { gridTemplateColumns: '1fr', gap: '14px' },
+                }}
+              >
+                {MEMORY_STAGES.map((stage) => (
+                  <Box
+                    key={stage.num}
+                    component="article"
+                    sx={{
+                      border: `1px solid ${L.border}`,
+                      background: L.surface,
+                      p: '25px 24px',
+                      position: 'relative',
+                      transition: 'border-color .25s, transform .25s',
+                      '&:hover': { borderColor: L.accent, transform: 'translateY(-4px)' },
+                    }}
+                  >
+                    <Box sx={{ fontFamily: L.serif, fontStyle: 'italic', fontSize: 16, color: L.accent, mb: '12px' }}>{stage.num}</Box>
+                    <Typography component="h3" sx={{ ...H3, fontSize: 21, mb: '10px' }}>
+                      {stage.title}
+                    </Typography>
+                    <Typography sx={BODY}>{stage.text}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+
+            <Box
+              sx={{
+                borderTop: `1px solid ${L.border}`,
+                pt: '50px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '40px',
+                mt: '70px',
+                '@media (max-width: 720px)': { gridTemplateColumns: '1fr', gap: '25px', mt: '38px', pt: '32px' },
+              }}
+            >
+              {EXPERIENCE.map((item) => (
+                <Box component="article" key={item.title}>
+                  <Typography component="h3" sx={{ ...H3, fontSize: 22, mb: '13px' }}>
+                    {item.title}
+                  </Typography>
+                  <Typography sx={{ ...BODY, fontSize: 14 }}>{item.text}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        </Section>
+
+        {/* --------------------------------------------- NEW: how far the story can go */}
+        <Section id="freedom" sx={{ pt: 0 }}>
+          <Box sx={WRAP}>
+            <Box
+              sx={{
+                border: `1px solid ${L.accentBorder}`,
+                background: `radial-gradient(ellipse at 12% 0%, ${L.accentSoft}, transparent 46%), ${L.surface}`,
+                p: '55px 50px',
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '60px',
+                alignItems: 'center',
+                '@media (max-width: 1000px)': { gap: '35px', p: '40px 32px' },
+                '@media (max-width: 720px)': { gridTemplateColumns: '1fr', gap: '26px', p: '30px 24px' },
+              }}
+            >
+              <Box>
+                <Box sx={{ color: L.accent, mb: '22px' }}>
+                  <UnlockIcon size={38} />
+                </Box>
+                <Eyebrow tone="accent">Границы задаёшь ты</Eyebrow>
+                <Typography component="h2" sx={{ ...H2, fontSize: 'clamp(30px, 3.2vw, 44px)' }}>
+                  История идёт туда,
+                  <br />
+                  куда ты её ведёшь.
+                </Typography>
+              </Box>
+              <Box>
+                <Typography sx={{ ...BODY, fontSize: 16 }}>
+                  Мы не надстраиваем свои фильтры поверх нейросети. Единственные рамки твоей истории — те, что уже встроены в саму AI-модель, которую ты выбрал для сцены. Разные модели ведут себя по-разному, и выбор всегда остаётся за тобой.
+                </Typography>
+                <Stack component="ul" spacing={0} sx={{ listStyle: 'none', m: '24px 0 0', p: 0 }}>
+                  {[
+                    'Никаких дополнительных ограничений от платформы',
+                    'Тон и жёсткость сцены задают твои инструкции рассказчику',
+                    'Возрастные и правовые нормы, разумеется, остаются в силе',
+                  ].map((point) => (
+                    <Box component="li" key={point} sx={{ ...BODY, py: '10px', borderTop: `1px solid ${L.border}`, display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                      <Box sx={{ color: L.accent, pt: '5px' }}>
+                        <SparkIcon size={12} />
+                      </Box>
+                      <span>{point}</span>
+                    </Box>
+                  ))}
+                </Stack>
+              </Box>
+            </Box>
+          </Box>
+        </Section>
+
+        {/* --------------------------------------------------------------- community */}
+        <Box
+          component="section"
+          id="community"
+          sx={{
+            position: 'relative',
+            background: `linear-gradient(90deg, rgba(0,0,0,.95), rgba(0,0,0,.62)), url('${HERO_IMAGE}') center 42%/cover`,
+            color: L.title,
+            p: '91px 0 101px',
+            '@media (max-width: 720px)': { p: '70px 0 90px', backgroundPosition: '65% center' },
+          }}
+        >
+          <TornEdge place="top" />
+          <Box sx={WRAP}>
+            <Box sx={{ maxWidth: 690 }}>
+              <Eyebrow tone="accent">Истории объединяют</Eyebrow>
+              <Typography component="h2" sx={{ ...H2, fontSize: 'clamp(36px, 4.6vw, 62px)', '@media (max-width: 720px)': { fontSize: 40 } }}>
+                Твой мир — уникальный.
+                <br />
+                Ты в нём не один.
+              </Typography>
+              <Typography sx={{ ...BODY, maxWidth: 490, m: '22px 0 30px', color: L.text }}>
+                Делись мирами, персонажами и опытом. Самые активные игроки собираются в нашем Telegram: там разборы, идеи для кампаний и первые новости обновлений.
+              </Typography>
+              <Box sx={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <Action onClick={() => openAuthPage('register')}>Начать свою историю</Action>
+                <Action href={TELEGRAM_URL} variant="ghost" icon={<TelegramIcon size={20} />}>
+                  Вступить в сообщество
+                </Action>
+              </Box>
+              <Box sx={{ display: 'flex', gap: '45px', mt: '35px', alignItems: 'center', flexWrap: 'wrap', '@media (max-width: 720px)': { gap: '27px' } }}>
+                {showcase.avatars.length > 0 ? (
+                  <Box sx={{ display: 'flex' }} aria-hidden>
+                    {showcase.avatars.slice(0, 6).map((url, index) => (
+                      <Box
+                        key={url}
+                        component="img"
+                        src={url}
+                        alt=""
+                        loading="lazy"
+                        sx={{
+                          height: 43,
+                          width: 43,
+                          borderRadius: '50%',
+                          objectFit: 'cover',
+                          border: `2px solid ${L.deep}`,
+                          ml: index === 0 ? 0 : '-8px',
+                          background: L.elevated,
+                        }}
+                      />
+                    ))}
+                  </Box>
+                ) : null}
+                <Box>
+                  <Box sx={{ fontFamily: L.serif, fontSize: 47, color: L.accent, lineHeight: 1 }}>{playersLabel}</Box>
+                  <Box sx={{ fontSize: 13, color: L.muted, mt: '9px' }}>игроков уже создают свои миры</Box>
+                </Box>
+                <Box>
+                  <Box sx={{ fontFamily: L.serif, fontSize: 47, color: L.accent, lineHeight: 1, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <PeopleIcon size={34} />
+                    {worldsLabel}
+                  </Box>
+                  <Box sx={{ fontSize: 13, color: L.muted, mt: '9px' }}>миров открыто для игры</Box>
+                </Box>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* --------------------------------------------------------------- faq */}
+        <Section id="faq">
+          <Box
+            sx={{
+              ...WRAP,
+              display: 'grid',
+              gridTemplateColumns: '.8fr 1.2fr',
+              gap: '75px',
+              '@media (max-width: 1000px)': { gap: '40px' },
+              '@media (max-width: 720px)': { gridTemplateColumns: '1fr', gap: '17px' },
+            }}
+          >
+            <Box>
+              <Eyebrow>Перед первым шагом</Eyebrow>
+              <Typography component="h2" sx={H2}>
+                Есть вопросы?
+                <br />
+                Разберёмся.
+              </Typography>
+              <Typography sx={{ ...BODY, mt: '20px' }}>
+                Всё, что нужно знать
+                <br />
+                перед новым приключением.
+              </Typography>
+            </Box>
+            <Box>
+              {FAQ_ITEMS.map((item, index) => (
+                <FaqItem key={item.q} q={item.q} a={item.a} defaultOpen={index === 0} />
+              ))}
+            </Box>
+          </Box>
+        </Section>
+
+        {/* --------------------------------------------------------------- last cta */}
+        <Box component="section" sx={{ p: '60px 20px 70px', textAlign: 'center', borderTop: `1px solid ${L.border}`, '@media (max-width: 720px)': { p: '45px 18px 55px' } }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '17px', color: L.accent, mb: '23px', '&:before,&:after': { content: '""', width: 70, height: '1px', background: L.accentBorder } }}>
+            <SparkIcon size={18} />
+          </Box>
+          <Typography component="h2" sx={{ ...H2, fontSize: 44, mb: '25px', '@media (max-width: 720px)': { fontSize: 35 } }}>
+            Следующая история — твоя.
+          </Typography>
+          <Action onClick={() => openAuthPage('register')}>{isAuthenticated ? 'Продолжить историю' : 'Начать игру'}</Action>
+        </Box>
       </Box>
 
-      <PresentationFooter onNavigate={onNavigate} />
+      <Footer onNavigate={onNavigate} />
+
+      <Box sx={{ textAlign: 'center', pb: '28px', background: L.page }}>
+        <Box
+          component="a"
+          href="#top"
+          sx={{ display: 'inline-flex', alignItems: 'center', gap: '9px', fontSize: 13, color: L.muted, '&:hover': { color: L.accent } }}
+        >
+          Вернуться к началу <ArrowUpIcon size={16} />
+        </Box>
+      </Box>
     </Box>
   )
 }

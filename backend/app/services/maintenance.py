@@ -12,7 +12,7 @@ from app.models import AppSetting
 MAINTENANCE_SETTINGS_KEY = "maintenance_page"
 DEFAULT_MAINTENANCE_TITLE = "Извините, идут технические работы"
 DEFAULT_MAINTENANCE_MESSAGE = (
-    "Мы обновляем MoRius и проверяем важные системы. "
+    "Мы обновляем Moru и проверяем важные системы. "
     "Скоро сайт снова будет доступен, а ваши миры, истории и прогресс останутся на месте."
 )
 DEFAULT_MAINTENANCE_ETA_LABEL = "Ориентировочно скоро вернемся"

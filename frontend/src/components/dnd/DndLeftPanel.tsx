@@ -338,7 +338,7 @@ export default function DndLeftPanel({
                     inset: 0,
                     width: `${Math.round(progress.ratio * 100)}%`,
                     borderRadius: '999px',
-                    background: 'linear-gradient(90deg, color-mix(in srgb, var(--morius-accent) 70%, #fff 30%), var(--morius-accent))',
+                    background: 'var(--morius-accent)',
                     transition: 'width 620ms cubic-bezier(0.22, 1, 0.36, 1)',
                   }}
                 />
