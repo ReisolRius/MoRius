@@ -1414,7 +1414,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
     border: 'var(--morius-border-width) solid',
     borderColor: isActive ? 'var(--morius-accent)' : 'var(--morius-card-border)',
     backgroundColor: isActive ? 'var(--morius-accent)' : 'var(--morius-elevated-bg)',
-    color: isActive ? '#ffffff' : 'var(--morius-text-secondary)',
+    color: isActive ? 'var(--morius-accent-contrast)' : 'var(--morius-text-secondary)',
     boxShadow: 'none',
     '&:hover': {
       backgroundColor: isActive ? 'var(--morius-accent)' : 'var(--morius-button-hover)',

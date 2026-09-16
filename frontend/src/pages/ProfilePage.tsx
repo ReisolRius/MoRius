@@ -5936,7 +5936,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                                   fontWeight: 800,
                                   lineHeight: 1,
                                   '&:hover': {
-                                    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 86%, #fff 14%)',
+                                    backgroundColor: 'var(--morius-accent)', filter: 'brightness(1.08)',
                                   },
                                 }}
                               >

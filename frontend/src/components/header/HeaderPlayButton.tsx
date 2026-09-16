@@ -97,7 +97,7 @@ function HeaderPlayButton({ authToken }: HeaderPlayButtonProps) {
           borderRadius: '12px',
           background: 'var(--morius-accent-gradient)',
           boxShadow: 'var(--morius-accent-shadow)',
-          color: '#fff',
+          color: 'var(--morius-accent-contrast)',
           cursor: 'pointer',
           font: 'inherit',
           fontSize: '0.875rem',
@@ -113,7 +113,7 @@ function HeaderPlayButton({ authToken }: HeaderPlayButtonProps) {
           },
         }}
       >
-        <ThemedSvgIcon markup={mobilePlayIconMarkup} size={16} sx={{ color: '#fff' }} />
+        <ThemedSvgIcon markup={mobilePlayIconMarkup} size={16} sx={{ color: 'var(--morius-accent-contrast)' }} />
         <Box component="span" sx={{ display: 'inline-block', lineHeight: 1 }}>Играть</Box>
       </Box>
 

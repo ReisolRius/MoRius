@@ -182,7 +182,7 @@ function ActionPill({ onClick, disabled, children, active, danger, primary, full
 
   if (primary) {
     bg = 'var(--morius-accent)'
-    hoverBg = 'color-mix(in srgb, var(--morius-accent) 90%, #ffffff)'
+    hoverBg = 'var(--morius-accent)'
     borderColor = 'var(--morius-accent)'
     color = '#111111'
   } else if (active) {

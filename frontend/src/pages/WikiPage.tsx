@@ -374,7 +374,7 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
                 sx={{
                   minHeight: 40,
                   px: 1.6,
-                  borderRadius: '10px',
+                  borderRadius: 'var(--morius-button-radius, 12px)',
                   border: 'none',
                   backgroundColor: 'var(--morius-elevated-bg)',
                   color: 'var(--morius-title-text)',
@@ -448,7 +448,7 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
                     fontWeight: 700,
                     borderRadius: '12px',
                     backgroundColor: 'var(--morius-accent)',
-                    '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 86%, #000 14%)' },
+                    '&:hover': { backgroundColor: 'var(--morius-accent)', filter: 'brightness(0.94)' },
                   }}
                 >
                   + Новая статья
@@ -464,7 +464,7 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
                   variant={activeCategory === null ? 'filled' : 'outlined'}
                   sx={{
                     borderColor: 'var(--morius-card-border)',
-                    color: activeCategory === null ? '#fff' : 'var(--morius-text-secondary)',
+                    color: activeCategory === null ? 'var(--morius-accent-contrast)' : 'var(--morius-text-secondary)',
                     backgroundColor: activeCategory === null ? 'var(--morius-accent)' : 'transparent',
                   }}
                 />
@@ -476,7 +476,7 @@ function WikiPage({ user, authToken, onNavigate }: WikiPageProps) {
                     variant={activeCategory === category ? 'filled' : 'outlined'}
                     sx={{
                       borderColor: 'var(--morius-card-border)',
-                      color: activeCategory === category ? '#fff' : 'var(--morius-text-secondary)',
+                      color: activeCategory === category ? 'var(--morius-accent-contrast)' : 'var(--morius-text-secondary)',
                       backgroundColor: activeCategory === category ? 'var(--morius-accent)' : 'transparent',
                     }}
                   />

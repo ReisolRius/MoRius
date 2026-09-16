@@ -2425,7 +2425,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       backgroundColor: canSubmit ? 'var(--morius-accent)' : 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #7d8795)',
                       boxShadow: canSubmit ? 'var(--morius-neutral-shadow)' : 'none',
                       '&:hover': {
-                        backgroundColor: canSubmit ? 'color-mix(in srgb, var(--morius-accent) 86%, #ffffff 14%)' : 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #7d8795)',
+                        backgroundColor: canSubmit ? 'var(--morius-accent)' : 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #7d8795)',
                       },
                       '&:disabled': {
                         color: 'color-mix(in srgb, var(--morius-text-primary) 62%, transparent)',

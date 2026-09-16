@@ -2087,7 +2087,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
               fontWeight: 900,
               color: '#101317',
               backgroundColor: 'var(--morius-accent)',
-              '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 88%, #fff 12%)' },
+              '&:hover': { backgroundColor: 'var(--morius-accent)', filter: 'brightness(1.08)' },
               '&.Mui-disabled': { color: 'var(--morius-text-secondary)', backgroundColor: 'var(--morius-elevated-bg)' },
             }}
           >

@@ -30930,9 +30930,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               borderRadius: '12px',
               border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 56%, rgba(221, 229, 241, 0.18))',
               color: '#FFFFFF',
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 38%, #222426)',
+              backgroundColor: 'var(--morius-accent)',
               '&:hover': {
-                backgroundColor: 'color-mix(in srgb, var(--morius-accent) 48%, #222426)',
+                backgroundColor: 'var(--morius-accent)', filter: 'brightness(1.08)',
               },
             }}
           >

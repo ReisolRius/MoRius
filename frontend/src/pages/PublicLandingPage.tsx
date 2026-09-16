@@ -137,6 +137,7 @@ function Action({ children, onClick, href, variant = 'solid', icon, sx, ariaLabe
         px: '25px',
         py: '14px',
         minHeight: 51,
+        borderRadius: 'var(--morius-button-radius, 12px)',
         border: `1px solid ${solid ? L.accent : L.border}`,
         background: solid ? L.accent : 'transparent',
         color: solid ? '#161009' : L.title,

@@ -467,7 +467,7 @@ export default function WikiEditorDialog({ open, token, initial, onClose, onSave
             fontWeight: 700,
             px: 2.4,
             backgroundColor: 'var(--morius-accent)',
-            '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 86%, #000 14%)' },
+            '&:hover': { backgroundColor: 'var(--morius-accent)', filter: 'brightness(0.94)' },
           }}
         >
           Сохранить

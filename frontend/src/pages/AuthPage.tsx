@@ -287,7 +287,7 @@ function GoogleAuthButton({
       onClick={() => login()}
       sx={{
         minHeight: 52,
-        borderRadius: '10px',
+        borderRadius: 'var(--morius-button-radius, 12px)',
         border: `1px solid ${BORDER_COLOR}`,
         color: INPUT_TEXT,
         backgroundColor: 'transparent',
@@ -328,7 +328,7 @@ function ProviderAuthButton({
       onClick={onClick}
       sx={{
         minHeight: 52,
-        borderRadius: '10px',
+        borderRadius: 'var(--morius-button-radius, 12px)',
         border: `1px solid ${BORDER_COLOR}`,
         color: INPUT_TEXT,
         backgroundColor: 'transparent',

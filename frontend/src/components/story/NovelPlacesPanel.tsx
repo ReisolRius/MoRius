@@ -601,7 +601,7 @@ function NovelPlacesPanel({
                           left: 8,
                           height: 25,
                           color: 'var(--morius-title-text)',
-                          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 72%, rgba(10, 13, 18, 0.88))',
+                          backgroundColor: 'var(--morius-accent)',
                           backdropFilter: 'blur(10px)',
                           fontSize: '0.68rem',
                           fontWeight: 850,

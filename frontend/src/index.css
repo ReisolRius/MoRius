@@ -928,31 +928,12 @@ body::-webkit-scrollbar-thumb:hover,
 }
 
 /* ---------------------------------------------------------------------------
-   One button shape, one accent, nothing see-through.
+   One accent, nothing see-through.
 
-   The presentation page set the look: a square button filled with the flat amber
-   accent. Components across the app had drifted into pill radii, gradient fills and
-   translucent disabled states, so this pins the shape centrally instead of chasing
-   1120 hand-written borderRadius values.
-
-   Scoped to real buttons only - avatars, covers, chips and skeletons keep their own
-   radii, because those are images and placeholders, not controls. A control that must
-   stay circular opts out with .moru-keep-round.
+   Components had drifted into gradient fills, accent-mixed-with-navy tints and
+   translucent disabled states, so the same button looked different on every screen.
+   Shape is left to each component - only colour is pinned here.
    --------------------------------------------------------------------------- */
-button,
-.MuiButton-root,
-.MuiIconButton-root,
-.MuiToggleButton-root,
-.MuiTab-root,
-.MuiFab-root {
-  border-radius: var(--morius-button-radius, 0px) !important;
-}
-
-.moru-keep-round,
-.moru-keep-round.MuiButton-root,
-.moru-keep-round.MuiIconButton-root {
-  border-radius: 50% !important;
-}
 
 /* A disabled control keeps its shape and simply stops looking clickable. Fading the
    accent to 68% over a black page is what produced the muddy brown. */
@@ -967,11 +948,12 @@ button:disabled,
   cursor: not-allowed;
 }
 
-/* The accent is a single flat colour. Hover and press change brightness, never hue. */
+/* The accent is one flat colour with a dark label. Hover and press change brightness,
+   never hue - no second gold, no navy-tinted mix. */
 .MuiButton-containedPrimary:not(.Mui-disabled) {
   background-image: none !important;
   background-color: var(--morius-accent) !important;
-  color: #161009 !important;
+  color: var(--morius-accent-contrast, #161009) !important;
   box-shadow: none !important;
 }
 

@@ -152,12 +152,14 @@ const headerNavButtonSx = (isActive: boolean) => ({
   fontWeight: isActive ? 600 : 500,
   lineHeight: 1,
   whiteSpace: 'nowrap',
-  color: isActive ? '#fff' : 'var(--morius-text-secondary)',
-  background: isActive ? 'color-mix(in oklab, var(--morius-accent) 82%, #14161d)' : 'transparent',
-  boxShadow: isActive ? '0 4px 14px -8px color-mix(in oklab, var(--morius-accent) 90%, transparent)' : 'none',
+  // Flat accent with a dark label. Mixing the accent into navy produced a muddy gold that
+  // matched nothing else on the page.
+  color: isActive ? 'var(--morius-accent-contrast)' : 'var(--morius-text-secondary)',
+  background: isActive ? 'var(--morius-accent)' : 'transparent',
+  boxShadow: 'none',
   transition: 'background-color 160ms ease, color 160ms ease',
   '&:hover': {
-    color: isActive ? '#fff' : 'var(--morius-title-text)',
+    color: isActive ? 'var(--morius-accent-contrast)' : 'var(--morius-title-text)',
     backgroundColor: isActive ? undefined : 'rgba(255,255,255,0.06)',
   },
   '&:focus-visible': {
@@ -165,7 +167,7 @@ const headerNavButtonSx = (isActive: boolean) => ({
     outlineOffset: '2px',
   },
   '& .morius-header-nav-icon': {
-    color: isActive ? '#fff' : 'currentColor',
+    color: isActive ? 'var(--morius-accent-contrast)' : 'currentColor',
     opacity: isActive ? 1 : 0.9,
   },
 })
@@ -808,16 +810,16 @@ function AppHeader({
         display: 'inline-flex',
         gap: '8px',
         border: 'none',
-        background: 'var(--morius-accent-gradient)',
-        boxShadow: 'var(--morius-accent-shadow)',
-        color: '#fff',
+        background: 'var(--morius-accent)',
+        boxShadow: 'none',
+        color: 'var(--morius-accent-contrast)',
         fontSize: '0.875rem',
         fontWeight: 600,
         lineHeight: 1,
         '&:hover': { filter: 'brightness(1.08)' },
       }}
     >
-      <ThemedSvgIcon markup={mobilePlayIconMarkup} size={16} sx={{ color: '#fff' }} />
+      <ThemedSvgIcon markup={mobilePlayIconMarkup} size={16} sx={{ color: 'var(--morius-accent-contrast)' }} />
       Играть
     </Box>
   ) : null
