@@ -20608,7 +20608,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const rightPanelCardSx = {
     borderRadius: '18px',
     border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
-    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 86%, var(--morius-card-bg) 14%)',
+    // Sunk below the card surface so a long list reads as quiet rows against the panel
+    // rather than a stack of lit panels.
+    backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000000 12%)',
     boxShadow: 'none',
   } as const
   const rightPanelActiveCardSx = {
