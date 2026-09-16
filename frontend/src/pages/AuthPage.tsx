@@ -328,16 +328,18 @@ function ProviderAuthButton({
       disabled={disabled}
       onClick={onClick}
       sx={{
-        minHeight: 52,
+        minHeight: 43,
         borderRadius: 'var(--morius-button-radius, 12px)',
         border: `1px solid ${BORDER_COLOR}`,
         color: INPUT_TEXT,
         backgroundColor: 'transparent',
         fontFamily: '"Manrope", sans-serif',
-        fontSize: '1rem',
+        fontSize: '0.78rem',
         fontWeight: 700,
         textTransform: 'none',
-        gap: 1.2,
+        minWidth: 0,
+        px: 0.5,
+        gap: 0.7,
         '&:hover': {
           backgroundColor: '#171a1d',
           borderColor: hoverColor,
@@ -682,7 +684,14 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
     }
   }
 
-  const formTitle = isLoginMode ? 'Рады вас видеть!' : isRegisterMode ? 'Добро пожаловать!' : 'Восстановление пароля'
+  const formTitle = isLoginMode ? 'С возвращением.' : isRegisterMode ? 'Добро пожаловать.' : 'Восстановление пароля'
+  const formKicker = isLoginMode ? 'История продолжается' : isRegisterMode ? 'Первая глава' : 'Вернуться в историю'
+  const formSubtitle = isLoginMode
+    ? 'Твои миры ждут. Продолжим историю?'
+    : isRegisterMode
+      ? 'Создай аккаунт — и дай своей истории жизнь.'
+      : 'Укажи почту своего аккаунта для восстановления пароля.'
+  const showModeTabs = !isResetMode && !isRegisterVerificationStep
   const submitLabel = isLoginMode
     ? 'Войти'
     : isRegisterVerificationStep
@@ -835,46 +844,104 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           }}
         />
         <Box
-          component="button"
-          type="button"
-          onClick={() => onNavigate('/')}
           sx={{
             position: 'absolute',
-            top: { xs: 22, md: 25 },
-            right: { xs: '50%', md: 30 },
-            transform: { xs: 'translateX(50%)', md: 'none' },
-            width: { xs: 86, md: 92 },
-            p: 0,
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
+            top: { xs: 22, md: 28 },
+            left: { xs: 22, md: 34 },
+            right: { xs: 22, md: 34 },
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 2,
+            fontSize: 12,
+            color: MUTED_TEXT,
+            zIndex: 3,
           }}
-          aria-label="На главную"
         >
           <Box
-            component="img"
-            src={brandLogo}
-            alt="Moru"
-            sx={{ width: '100%', display: 'block', filter: 'brightness(0) invert(1)' }}
-          />
-        </Box>
-
-        <Box sx={{ width: '100%', maxWidth: { xs: 'calc(100vw - 32px)', sm: 500 }, minWidth: 0, mx: 'auto' }}>
-          <Typography
-            component="h1"
+            component="button"
+            type="button"
+            onClick={() => onNavigate('/')}
             sx={{
-              mb: { xs: 3.2, md: 3.6 },
-              textAlign: 'center',
-              color: '#ffffff',
-        fontFamily: '"Manrope", sans-serif',
-              fontSize: { xs: '1.68rem', sm: '1.85rem', md: '2rem' },
-              lineHeight: 1.15,
-              fontWeight: 700,
-              letterSpacing: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '9px',
+              border: 'none',
+              background: 'transparent',
+              color: 'inherit',
+              font: 'inherit',
+              cursor: 'pointer',
+              p: 0,
+              '&:hover': { color: INPUT_TEXT },
             }}
           >
-            {formTitle}
-          </Typography>
+            ← <Box component="span">На главную</Box>
+          </Box>
+          <Box sx={{ letterSpacing: '1.5px', fontSize: 10, color: LOGIN_BUTTON_COLOR, display: { xs: 'none', sm: 'block' } }}>
+            ТВОИ ЖИВЫЕ ИСТОРИИ
+          </Box>
+        </Box>
+
+        <Box sx={{ width: '100%', maxWidth: { xs: 'calc(100vw - 32px)', sm: 382 }, minWidth: 0, mx: 'auto' }}>
+          {showModeTabs ? (
+            <Box role="tablist" aria-label="Вход или регистрация" sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: `1px solid ${BORDER_COLOR}`, mb: 4 }}>
+              {([
+                { key: 'register', label: 'Регистрация' },
+                { key: 'login', label: 'Вход' },
+              ] as const).map((tab) => {
+                const selected = mode === tab.key
+                return (
+                  <Box
+                    key={tab.key}
+                    component="button"
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    tabIndex={selected ? 0 : -1}
+                    onClick={() => switchMode(tab.key)}
+                    sx={{
+                      border: 0,
+                      background: 'none',
+                      font: 'inherit',
+                      cursor: 'pointer',
+                      position: 'relative',
+                      p: '13px 6px',
+                      fontSize: 14,
+                      fontFamily: '"Manrope", sans-serif',
+                      color: selected ? INPUT_TEXT : MUTED_TEXT,
+                      fontWeight: selected ? 700 : 400,
+                      '&:after': selected
+                        ? { content: '""', position: 'absolute', height: 2, background: LOGIN_BUTTON_COLOR, bottom: -1, left: 0, right: 0 }
+                        : undefined,
+                    }}
+                  >
+                    {tab.label}
+                  </Box>
+                )
+              })}
+            </Box>
+          ) : null}
+
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: 10, letterSpacing: '2px', textTransform: 'uppercase', fontWeight: 700, color: LOGIN_BUTTON_COLOR, mb: '12px', '&:before': { content: '""', height: '1px', width: 31, background: 'currentColor' } }}>
+              {formKicker}
+            </Box>
+            <Typography
+              component="h1"
+              sx={{
+                fontFamily: 'var(--morius-font-heading, Georgia, serif)',
+                fontWeight: 400,
+                fontSize: { xs: '2rem', md: '2.5rem' },
+                lineHeight: 1.12,
+                letterSpacing: '-1.1px',
+                color: INPUT_TEXT,
+                m: '0 0 11px',
+              }}
+            >
+              {formTitle}
+            </Typography>
+            <Typography sx={{ fontSize: 14, lineHeight: 1.65, color: MUTED_TEXT, m: 0 }}>{formSubtitle}</Typography>
+          </Box>
 
           <Box component="form" onSubmit={handleSubmit}>
             <Stack spacing={2.25}>
@@ -1087,9 +1154,18 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
 
               {shouldShowExternalAuth ? (
                 <Stack spacing={2.3} sx={{ pt: { xs: 1.8, md: 2.8 } }}>
-                  <Typography sx={{ textAlign: 'center', color: '#f0f0f0', fontSize: '1rem', fontWeight: 400 }}>
-                    Или войдите через
-                  </Typography>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '13px',
+                      fontSize: 11,
+                      color: MUTED_TEXT,
+                      '&:before, &:after': { content: '""', height: '1px', flex: 1, background: BORDER_COLOR },
+                    }}
+                  >
+                    или продолжить через
+                  </Box>
                   {shouldShowGoogle && hasGoogleClientId ? (
                     <GoogleAuthButton
                       disabled={isSubmitting || isExternalAuthSubmitting}
@@ -1109,26 +1185,26 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                       Google вход отключен. Проверьте VITE_GOOGLE_CLIENT_ID во frontend/.env и GOOGLE_CLIENT_ID в backend/.env.
                     </Alert>
                   ) : null}
-                  <Stack spacing={1}>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '9px' }}>
                     <ProviderAuthButton
                       provider="yandex"
-                      label="Войти через Яндекс"
+                      label="Яндекс"
                       disabled={isSubmitting || isExternalAuthSubmitting}
                       onClick={() => void handleYandexAuth()}
                     />
                     <ProviderAuthButton
                       provider="vk"
-                      label="Войти через VK"
+                      label="VK"
                       disabled={isSubmitting || isExternalAuthSubmitting}
                       onClick={() => void handleVKIDAuth('vk')}
                     />
                     <ProviderAuthButton
                       provider="mail"
-                      label="Войти через Mail"
+                      label="Mail"
                       disabled={isSubmitting || isExternalAuthSubmitting}
                       onClick={() => void handleVKIDAuth('mail')}
                     />
-                  </Stack>
+                  </Box>
                   {isExternalAuthSubmitting ? (
                     <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
                       <CircularProgress size={16} />
@@ -1166,6 +1242,30 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
               </Typography>
             </Stack>
           </Box>
+        </Box>
+
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: { xs: 16, md: 22 },
+            left: 0,
+            right: 0,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: 10,
+            lineHeight: 1.5,
+            color: MUTED_TEXT,
+            px: 2,
+            textAlign: 'center',
+          }}
+        >
+          <Box component="svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden sx={{ width: 12, height: 12, flexShrink: 0 }}>
+            <rect x="5" y="8" width="10" height="9" rx="1" />
+            <path d="M7 8V5a3 3 0 0 1 6 0v3" />
+          </Box>
+          Соединение защищено · Moru не передаёт твои данные третьим лицам
         </Box>
       </Box>
     </Box>
