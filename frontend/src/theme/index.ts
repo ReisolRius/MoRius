@@ -1,7 +1,14 @@
 export { createMoriusMuiTheme, moriusMuiTheme } from './muiTheme'
-export { createMoriusCssVariables, moriusCssVariables, moriusThemeTokens, type MoriusThemeColors } from './tokens'
+export {
+  createMoriusCssVariables,
+  moriusCssVariables,
+  moriusThemeTokens,
+  type MoriusThemeColors,
+  type MoriusThemeSurface,
+} from './tokens'
 export {
   MORIUS_DEFAULT_THEME_ID,
+  MORIUS_LEGACY_THEME_ID,
   MORIUS_THEME_STORAGE_KEY,
   getMoriusThemeById,
   moriusThemePlaceholders,

@@ -362,7 +362,7 @@ function CommunityWorldCard({
         <Typography
           sx={{
             color: TEXT_PRIMARY,
-            fontFamily: '"Spectral", serif',
+            fontFamily: 'var(--morius-font-heading)',
             fontSize: { xs: '16px', md: '17px' },
             lineHeight: TITLE_LINE_HEIGHT,
             fontWeight: 700,

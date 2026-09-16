@@ -1,4 +1,5 @@
-import type { AuthResponse, AuthUser } from '../types/auth'
+import type { AuthResponse, AuthUser, ProfileShowcaseItem, ProfileShowcaseKind } from '../types/auth'
+export type { ProfileShowcaseItem, ProfileShowcaseKind } from '../types/auth'
 import { normalizeProfileBannerId } from '../constants/profileBanners'
 import { normalizeAvatarFrameId } from '../constants/avatarFrames'
 import type {
@@ -154,6 +155,43 @@ export type ProfileGalleryImage = {
   updated_at: string
 }
 
+export const DEFAULT_PROFILE_SHOWCASE: readonly ProfileShowcaseItem[] = [
+  { kind: 'banner', entity_id: null },
+  { kind: 'avatar_frame', entity_id: null },
+  { kind: 'badge', entity_id: null },
+]
+
+export function normalizeProfileShowcase(value: unknown): ProfileShowcaseItem[] {
+  if (!Array.isArray(value)) {
+    return DEFAULT_PROFILE_SHOWCASE.map((item) => ({ ...item }))
+  }
+  const allowedKinds = new Set<ProfileShowcaseKind>(['banner', 'avatar_frame', 'badge', 'game', 'character'])
+  const seenKinds = new Set<ProfileShowcaseKind>()
+  const normalizedItems: ProfileShowcaseItem[] = []
+  for (const rawItem of value) {
+    if (!rawItem || typeof rawItem !== 'object') {
+      continue
+    }
+    const item = rawItem as Partial<ProfileShowcaseItem>
+    const kind = typeof item.kind === 'string' ? item.kind as ProfileShowcaseKind : null
+    if (!kind || !allowedKinds.has(kind) || seenKinds.has(kind)) {
+      continue
+    }
+    const requiresEntity = kind === 'game' || kind === 'character'
+    const entityId = typeof item.entity_id === 'number' && Number.isFinite(item.entity_id)
+      ? Math.trunc(item.entity_id)
+      : null
+    if (requiresEntity && (!entityId || entityId <= 0)) {
+      continue
+    }
+    normalizedItems.push({ kind, entity_id: requiresEntity ? entityId : null })
+    seenKinds.add(kind)
+  }
+  return normalizedItems.length > 0
+    ? normalizedItems
+    : DEFAULT_PROFILE_SHOWCASE.map((item) => ({ ...item }))
+}
+
 export type ProfileUserView = {
   id: number
   display_name: string
@@ -162,6 +200,7 @@ export type ProfileUserView = {
   profile_banner_image_url?: string | null
   avatar_frame_id: string
   avatar_frame_image_url?: string | null
+  profile_showcase: ProfileShowcaseItem[]
   avatar_url: string | null
   avatar_scale: number
   role: string
@@ -246,6 +285,12 @@ export type DashboardNewsCard = {
   description: string
   image_url: string | null
   date_label: string
+}
+
+export type DashboardStats = {
+  published_games_count: number
+  published_characters_count: number
+  players_count: number
 }
 
 export type OnboardingGuideStatus = 'pending' | 'completed' | 'skipped'
@@ -736,6 +781,7 @@ function normalizeProfileUserView(value: ProfileView['user'] | null | undefined)
       profile_banner_image_url: null,
       avatar_frame_id: normalizeAvatarFrameId(null),
       avatar_frame_image_url: null,
+      profile_showcase: normalizeProfileShowcase(null),
       avatar_url: null,
       avatar_scale: 1,
       role: 'user',
@@ -751,6 +797,7 @@ function normalizeProfileUserView(value: ProfileView['user'] | null | undefined)
     profile_banner_image_url: typeof value.profile_banner_image_url === 'string' ? value.profile_banner_image_url : null,
     avatar_frame_id: normalizeAvatarFrameId(value.avatar_frame_id),
     avatar_frame_image_url: typeof value.avatar_frame_image_url === 'string' ? value.avatar_frame_image_url : null,
+    profile_showcase: normalizeProfileShowcase(value.profile_showcase),
     avatar_url: typeof value.avatar_url === 'string' ? value.avatar_url : null,
     avatar_scale:
       typeof value.avatar_scale === 'number' && Number.isFinite(value.avatar_scale)
@@ -1157,6 +1204,7 @@ export async function updateCurrentUserProfile(payload: {
   profile_description?: string
   profile_banner_id?: string
   avatar_frame_id?: string
+  profile_showcase?: ProfileShowcaseItem[]
   notifications_enabled?: boolean
   notify_comment_reply?: boolean
   notify_world_comment?: boolean
@@ -1167,7 +1215,7 @@ export async function updateCurrentUserProfile(payload: {
   ai_assistant_visible?: boolean
   email_notifications_enabled?: boolean
 }): Promise<AuthUser> {
-  const requestBody: Record<string, string | boolean | null> = {}
+  const requestBody: Record<string, unknown> = {}
   if (typeof payload.display_name === 'string') {
     requestBody.display_name = payload.display_name
   }
@@ -1179,6 +1227,9 @@ export async function updateCurrentUserProfile(payload: {
   }
   if (typeof payload.avatar_frame_id === 'string') {
     requestBody.avatar_frame_id = normalizeAvatarFrameId(payload.avatar_frame_id)
+  }
+  if (Array.isArray(payload.profile_showcase)) {
+    requestBody.profile_showcase = normalizeProfileShowcase(payload.profile_showcase)
   }
   if (typeof payload.notifications_enabled === 'boolean') {
     requestBody.notifications_enabled = payload.notifications_enabled
@@ -1534,6 +1585,20 @@ export async function unfollowUserProfile(payload: {
 export async function listDashboardNews(payload: { token: string }): Promise<DashboardNewsCard[]> {
   return requestJson<DashboardNewsCard[]>(
     '/api/auth/dashboard-news',
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function getDashboardStats(payload: { token: string }): Promise<DashboardStats> {
+  return requestJson<DashboardStats>(
+    '/api/auth/dashboard-stats',
     {
       method: 'GET',
       cache: 'no-store',

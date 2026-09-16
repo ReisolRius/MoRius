@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import EmailVerification, PasswordResetVerification, User
+from app.models import EmailVerification, PasswordResetVerification, StoryCharacter, StoryGame, User
 from app.schemas import (
     AuthResponse,
     AuthMethodPasswordRequest,
@@ -111,6 +111,7 @@ from app.services.auth_identity import (
 )
 from app.services.media import normalize_avatar_value, normalize_media_scale, validate_avatar_url
 from app.services.payments import sync_user_pending_purchases, sync_user_pending_subscriptions
+from app.services.profile_showcase import normalize_profile_showcase, serialize_profile_showcase
 
 try:
     from app.services.daily_rewards import DAILY_REWARD_AMOUNTS, build_daily_reward_status, claim_daily_reward
@@ -2063,6 +2064,21 @@ def update_profile(
             user_id=int(user.id),
             value=payload.avatar_frame_id,
         )
+    if "profile_showcase" in payload.model_fields_set:
+        normalized_showcase = normalize_profile_showcase(
+            [item.model_dump() for item in (payload.profile_showcase or [])]
+        )
+        for showcase_item in normalized_showcase:
+            entity_id = showcase_item.get("entity_id")
+            if showcase_item["kind"] == "game" and db.scalar(
+                select(StoryGame.id).where(StoryGame.id == entity_id, StoryGame.user_id == user.id)
+            ) is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Showcase game was not found")
+            if showcase_item["kind"] == "character" and db.scalar(
+                select(StoryCharacter.id).where(StoryCharacter.id == entity_id, StoryCharacter.user_id == user.id)
+            ) is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Showcase character was not found")
+        user.profile_showcase = serialize_profile_showcase(normalized_showcase)
     if "notifications_enabled" in payload.model_fields_set:
         user.notifications_enabled = bool(payload.notifications_enabled)
     if "notify_comment_reply" in payload.model_fields_set:

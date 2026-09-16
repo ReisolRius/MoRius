@@ -1058,9 +1058,13 @@ const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1
 const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_NANO_BANANO_ID
 const STORY_APPEARANCE_DEFAULT_BACKGROUND_MODE: StoryAppearanceBackgroundMode = 'custom'
 const STORY_APPEARANCE_DEFAULT_GRADIENT_ENABLED = true
-const STORY_APPEARANCE_DEFAULT_GRADIENT_FROM = '#050506'
-const STORY_APPEARANCE_DEFAULT_GRADIENT_TO = '#120803'
-const STORY_APPEARANCE_DEFAULT_SOLID_COLOR = '#050506'
+const STORY_APPEARANCE_DEFAULT_GRADIENT_FROM = '#20232D'
+const STORY_APPEARANCE_DEFAULT_GRADIENT_TO = '#0A0400'
+const STORY_APPEARANCE_LEGACY_GRADIENT_FROM = '#21242C'
+const STORY_APPEARANCE_LEGACY_GRADIENT_TO = '#292D36'
+const STORY_APPEARANCE_LEGACY_DARK_GRADIENT_FROM = '#050506'
+const STORY_APPEARANCE_LEGACY_DARK_GRADIENT_TO = '#120803'
+const STORY_APPEARANCE_DEFAULT_SOLID_COLOR = '#21242C'
 const STORY_APPEARANCE_DEFAULT_UI_STYLE: StoryAppearanceUiStyle = 'default'
 const STORY_APPEARANCE_DEFAULT_TEXT_STYLE: StoryAppearanceTextStyle = 'default'
 const STORY_APPEARANCE_HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
@@ -1077,8 +1081,8 @@ const STORY_APPEARANCE_UI_STYLE_OPTIONS: Array<{
     label: 'Стандарт',
     description: 'Наш привычный MoRius',
     accent: 'var(--morius-accent)',
-    previewBackground: 'linear-gradient(135deg, #181c23 0%, #0b0d12 100%)',
-    previewSwatches: ['#0A0F2C', '#2E50C8', '#60A5FA'],
+    previewBackground: 'linear-gradient(135deg, #20232D 0%, #0A0400 100%)',
+    previewSwatches: ['#20232D', '#6D70E8', '#E3C07F'],
   },
   {
     id: 'cyberpunk',
@@ -1110,7 +1114,7 @@ const STORY_APPEARANCE_TEXT_STYLE_OPTIONS: Array<{
   label: string
   cssFontFamily: string
 }> = [
-  { id: 'default', label: 'Стандарт', cssFontFamily: '"Manrope", system-ui, sans-serif' },
+  { id: 'default', label: 'Стандарт', cssFontFamily: 'var(--morius-font-ui)' },
   { id: 'serif', label: 'Засечки', cssFontFamily: 'Georgia, "Times New Roman", "Noto Serif", serif' },
   { id: 'terminal', label: 'Терминал', cssFontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, "Courier New", monospace' },
 ]
@@ -3004,7 +3008,7 @@ function VisualNovelStage({
           ? 'none'
           : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
         background:
-          'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 86%, #050506 14%) 0%, color-mix(in srgb, var(--morius-app-bg) 94%, #000 6%) 100%)',
+          'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 86%, #21242C 14%) 0%, color-mix(in srgb, var(--morius-app-bg) 94%, #000 6%) 100%)',
       }}
     >
       {backgroundUrl ? (
@@ -9483,12 +9487,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setAppearanceBackgroundMode(normalizeStoryAppearanceBackgroundMode(runtimeGame.appearance_background_mode))
     setAppearanceGradientEnabled(Boolean(runtimeGame.appearance_gradient_enabled))
     setAppearanceDialogueView(Boolean(runtimeGame.appearance_dialogue_view))
-    setAppearanceGradientFrom(
-      normalizeStoryAppearanceColor(runtimeGame.appearance_gradient_from, STORY_APPEARANCE_DEFAULT_GRADIENT_FROM),
+    const runtimeGradientFrom = normalizeStoryAppearanceColor(
+      runtimeGame.appearance_gradient_from,
+      STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
     )
-    setAppearanceGradientTo(
-      normalizeStoryAppearanceColor(runtimeGame.appearance_gradient_to, STORY_APPEARANCE_DEFAULT_GRADIENT_TO),
+    const runtimeGradientTo = normalizeStoryAppearanceColor(
+      runtimeGame.appearance_gradient_to,
+      STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
     )
+    const hasLegacyDefaultGradient =
+      (runtimeGradientFrom.toUpperCase() === STORY_APPEARANCE_LEGACY_GRADIENT_FROM &&
+        runtimeGradientTo.toUpperCase() === STORY_APPEARANCE_LEGACY_GRADIENT_TO) ||
+      (runtimeGradientFrom.toUpperCase() === STORY_APPEARANCE_LEGACY_DARK_GRADIENT_FROM &&
+        runtimeGradientTo.toUpperCase() === STORY_APPEARANCE_LEGACY_DARK_GRADIENT_TO)
+    setAppearanceGradientFrom(hasLegacyDefaultGradient ? STORY_APPEARANCE_DEFAULT_GRADIENT_FROM : runtimeGradientFrom)
+    setAppearanceGradientTo(hasLegacyDefaultGradient ? STORY_APPEARANCE_DEFAULT_GRADIENT_TO : runtimeGradientTo)
     setAppearanceSolidColor(
       normalizeStoryAppearanceColor(runtimeGame.appearance_solid_color, STORY_APPEARANCE_DEFAULT_SOLID_COLOR),
     )
@@ -20591,7 +20604,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const rightPanelCardSx = {
     borderRadius: '18px',
     border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
-    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 92%, #050507 8%)',
+    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 86%, var(--morius-card-bg) 14%)',
     boxShadow: 'none',
   } as const
   const rightPanelActiveCardSx = {
@@ -21781,8 +21794,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           zIndex: { xs: 52, md: 47 },
           borderRadius: 0,
           border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 90%, transparent)',
-          backgroundColor: 'transparent !important',
-          backgroundImage: 'none !important',
+          backgroundColor: 'var(--morius-app-base) !important',
+          backgroundImage: 'linear-gradient(180deg, color-mix(in srgb, var(--morius-app-base) 90%, var(--morius-card-bg) 10%) 0%, var(--morius-app-base) 100%) !important',
           transform: {
             xs: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 24px), 0, 0)',
             md: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 24px), 0, 0)',
@@ -21836,8 +21849,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             pb: { xs: 0.75, md: 0.85 },
             mr: { xs: 0, md: `${RIGHT_PANEL_RAIL_WIDTH}px` },
             borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
-            backgroundColor: '#090A0E',
-            backgroundImage: 'linear-gradient(180deg, #11131A 0%, #0D0E13 100%)',
+            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 78%, var(--morius-app-base) 22%)',
+            backgroundImage: 'linear-gradient(180deg, color-mix(in srgb, var(--morius-elevated-bg) 72%, var(--morius-card-bg) 28%) 0%, color-mix(in srgb, var(--morius-card-bg) 82%, var(--morius-app-base) 18%) 100%)',
           }}
         >
           <Box
@@ -21934,7 +21947,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             minHeight: 0,
             '--morius-scrollbar-offset': '0px',
             '--morius-scrollbar-gutter': 'auto',
-            backgroundColor: '#090A0E',
+            backgroundColor: 'color-mix(in srgb, var(--morius-app-base) 90%, var(--morius-card-bg) 10%)',
           }}
         >
           <Box
@@ -22226,7 +22239,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           height: 42,
                           borderRadius: '14px',
                           border: 'var(--morius-border-width) solid rgba(255,255,255,0.075)',
-                          backgroundColor: 'rgba(7, 8, 13, 0.64)',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 84%, var(--morius-card-bg) 16%)',
                           display: 'flex',
                           alignItems: 'center',
                           gap: 0.75,
@@ -22526,7 +22539,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           height: 42,
                           borderRadius: '14px',
                           border: 'var(--morius-border-width) solid rgba(255,255,255,0.075)',
-                          backgroundColor: 'rgba(7, 8, 13, 0.64)',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 84%, var(--morius-card-bg) 16%)',
                           display: 'flex',
                           alignItems: 'center',
                           gap: 0.75,
@@ -23043,7 +23056,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     justifyContent: 'flex-start',
                                     alignItems: 'stretch',
                                     textAlign: 'left',
-                                    '&:hover': { backgroundColor: 'rgba(28, 30, 38, 0.86)' },
+                                    '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-button-hover) 86%, transparent)' },
                                   }}
                                 >
                                   <Stack spacing={0.35} sx={{ minWidth: 0, width: '100%' }}>
@@ -24994,7 +25007,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       sx={{
                         minHeight: 62,
                         borderRadius: '18px',
-                        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 92%, #050507 8%)',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, var(--morius-card-bg) 12%)',
                         '& .MuiSelect-select': { py: 0.9, px: 1, display: 'flex', alignItems: 'center' },
                         '& .MuiOutlinedInput-notchedOutline': { borderColor: 'color-mix(in srgb, var(--morius-card-border) 86%, transparent)' },
                         '& .MuiSelect-icon': { display: 'none' },
@@ -25029,7 +25042,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       minHeight: 42,
                       borderRadius: '14px',
                       border: 'var(--morius-border-width) solid rgba(255,255,255,0.08)',
-                      backgroundColor: 'rgba(7, 8, 13, 0.58)',
+                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 84%, var(--morius-app-base) 16%)',
                       color: 'var(--morius-title-text)',
                       px: 1,
                       outline: 'none',
@@ -25203,7 +25216,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           textTransform: 'none',
                           justifyContent: 'space-between',
                           color: 'var(--morius-title-text)',
-                          '&:hover': { backgroundColor: 'rgba(28, 30, 38, 0.86)' },
+                          '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-button-hover) 86%, transparent)' },
                         }}
                       >
                         <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
@@ -25491,7 +25504,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           textTransform: 'none',
                           justifyContent: 'space-between',
                           color: 'var(--morius-title-text)',
-                          '&:hover': { backgroundColor: 'rgba(28, 30, 38, 0.86)' },
+                          '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-button-hover) 86%, transparent)' },
                         }}
                       >
                         <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
@@ -27523,7 +27536,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                       minHeight: 38,
                                       borderRadius: '10px',
                                       border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 86%, #050506 14%)',
+                                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 86%, #21242C 14%)',
                                       display: 'flex',
                                       alignItems: 'center',
                                       gap: 0.62,
@@ -27652,7 +27665,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                             >
                                               {option.label}
                                             </Typography>
-                                            <Typography sx={{ color: option.accent, fontSize: '0.84rem', fontWeight: 900, fontFamily: '"Manrope", system-ui, sans-serif', lineHeight: 1 }}>
+                                            <Typography sx={{ color: option.accent, fontSize: '0.84rem', fontWeight: 900, fontFamily: 'var(--morius-font-ui)', lineHeight: 1 }}>
                                               Aa
                                             </Typography>
                                           </Stack>
@@ -28292,7 +28305,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           py: 1.1,
           zIndex: 4,
           borderLeft: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
-          backgroundColor: '#090A0E',
+          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, var(--morius-app-base) 18%)',
         }}
       >
         <Stack spacing={0.85} alignItems="center">
@@ -28382,7 +28395,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           px: 0.85,
           py: 0.65,
           borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 80%, transparent)',
-          backgroundColor: 'rgba(9, 10, 14, 0.96)',
+          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, transparent)',
           backdropFilter: 'blur(14px)',
           WebkitBackdropFilter: 'blur(14px)',
           overflowX: 'auto',
@@ -30479,7 +30492,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 color: 'var(--morius-title-text)',
                 fontSize: { xs: '1rem', sm: '1.02rem' },
                 lineHeight: 1.45,
-                fontFamily: '"Manrope", "Segoe UI", sans-serif',
+                fontFamily: 'var(--morius-font-ui)',
                 boxSizing: 'border-box',
                 px: { xs: 2.05, sm: 2.3 },
                 pl: { xs: 7.7, sm: 8.05 },
@@ -30984,7 +30997,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 outline: 'none',
                 fontSize: '0.94rem',
                 lineHeight: 1.43,
-                fontFamily: '"Manrope", "Segoe UI", sans-serif',
+                fontFamily: 'var(--morius-font-ui)',
               }}
             />
             <TextLimitIndicator
@@ -31266,7 +31279,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               fontWeight: 900,
               fontSize: '1.15rem',
               lineHeight: '30px',
-              fontFamily: '"Manrope", "Segoe UI", sans-serif',
+              fontFamily: 'var(--morius-font-ui)',
               color: 'inherit',
             }}
           >
@@ -31837,7 +31850,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 outline: 'none',
                 fontSize: '0.96rem',
                 lineHeight: 1.45,
-                fontFamily: '"Manrope", "Segoe UI", sans-serif',
+                fontFamily: 'var(--morius-font-ui)',
               }}
             />
             <TextLimitIndicator currentLength={instructionContentDraft.length} maxLength={8000} />
@@ -32142,7 +32155,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 outline: 'none',
                 fontSize: '0.96rem',
                 lineHeight: 1.45,
-                fontFamily: '"Manrope", "Segoe UI", sans-serif',
+                fontFamily: 'var(--morius-font-ui)',
               }}
             />
             <TextLimitIndicator currentLength={plotCardContentDraft.length} maxLength={STORY_PLOT_CARD_CONTENT_MAX_LENGTH} />
@@ -32497,7 +32510,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 outline: 'none',
                 fontSize: '0.96rem',
                 lineHeight: 1.45,
-                fontFamily: '"Manrope", "Segoe UI", sans-serif',
+                fontFamily: 'var(--morius-font-ui)',
               }}
             />
             <TextLimitIndicator currentLength={memoryBlockContentDraft.length} maxLength={STORY_MEMORY_BLOCK_CONTENT_MAX_LENGTH} />
@@ -33419,7 +33432,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       outline: 'none',
                       fontSize: '0.92rem',
                       lineHeight: 1.4,
-                      fontFamily: '"Manrope", "Segoe UI", sans-serif',
+                      fontFamily: 'var(--morius-font-ui)',
                     }}
                   />
                   <TextLimitIndicator

@@ -1,9 +1,17 @@
 import { createTheme } from '@mui/material'
-import { moriusThemeTokens, type MoriusThemeColors } from './tokens'
+import { moriusThemeTokens, type MoriusThemeColors, type MoriusThemeSurface } from './tokens'
 
-export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeTokens.colors, mode: 'dark' | 'light' = 'dark') {
+export function createMoriusMuiTheme(
+  colors: MoriusThemeColors = moriusThemeTokens.colors,
+  mode: 'dark' | 'light' = 'dark',
+  surface: MoriusThemeSurface = 'app',
+) {
+  const isLegacySurface = surface === 'legacy'
+  const fonts = isLegacySurface ? moriusThemeTokens.legacyFonts : moriusThemeTokens.fonts
   const inputBorderColor = colors.inputBorder ?? (colors.appBorder === 'transparent' ? 'transparent' : colors.appBorder)
   const inputBorderWidth = inputBorderColor === 'transparent' ? '0px' : `${moriusThemeTokens.borders.width}px`
+  const menuBackground = isLegacySurface ? 'linear-gradient(180deg, #1a1a1e, #141417)' : 'var(--morius-menu-gradient)'
+  const tooltipBackground = isLegacySurface ? colors.appSurface : '#343844'
 
   return createTheme({
     palette: {
@@ -27,19 +35,19 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
       borderRadius: moriusThemeTokens.radii.app,
     },
     typography: {
-      fontFamily: moriusThemeTokens.fonts.primary,
+      fontFamily: fonts.primary,
       h1: {
         fontSize: `${moriusThemeTokens.typography.headingSize}px`,
-        fontFamily: moriusThemeTokens.fonts.heading,
-        fontWeight: 700,
+        fontFamily: fonts.heading,
+        fontWeight: isLegacySurface ? 700 : 600,
         lineHeight: 1.1,
         letterSpacing: 0,
         color: colors.titleText,
       },
       h2: {
         fontSize: `${moriusThemeTokens.typography.subheadingSize}px`,
-        fontFamily: moriusThemeTokens.fonts.heading,
-        fontWeight: 700,
+        fontFamily: fonts.heading,
+        fontWeight: isLegacySurface ? 700 : 600,
         lineHeight: 1.2,
         letterSpacing: 0,
         color: colors.titleText,
@@ -62,7 +70,7 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
         textTransform: 'none',
         fontSize: '15px',
         lineHeight: 1.35,
-        fontWeight: 700,
+        fontWeight: isLegacySurface ? 700 : 600,
         color: colors.accent,
       },
     },
@@ -140,16 +148,39 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
               borderColor: inputBorderColor,
               borderWidth: inputBorderWidth,
             },
+            ...(isLegacySurface
+              ? {}
+              : {
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'rgba(255,255,255,0.18)',
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: `color-mix(in oklab, ${colors.accent} 70%, transparent)`,
+                  },
+                }),
           },
         },
       },
       MuiDialog: {
         styleOverrides: {
           paper: {
-            borderRadius: moriusThemeTokens.radii.app,
-            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
+            borderRadius: isLegacySurface ? moriusThemeTokens.radii.app : 22,
+            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${isLegacySurface ? colors.appBorder : 'rgba(255,255,255,0.1)'}`,
             backgroundColor: 'var(--morius-dialog-bg) !important',
+            ...(isLegacySurface ? {} : { backgroundImage: 'var(--morius-dialog-gradient)' }),
           },
+        },
+      },
+      MuiBackdrop: {
+        styleOverrides: {
+          root: isLegacySurface
+            ? {}
+            : {
+                '&:not(.MuiBackdrop-invisible)': {
+                  backgroundColor: 'var(--morius-backdrop)',
+                  backdropFilter: 'blur(10px)',
+                },
+              },
         },
       },
       MuiDialogTitle: {
@@ -186,16 +217,16 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
       MuiTooltip: {
         styleOverrides: {
           tooltip: {
-            borderRadius: moriusThemeTokens.radii.app,
-            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
-            backgroundColor: colors.appSurface,
+            borderRadius: isLegacySurface ? moriusThemeTokens.radii.app : 11,
+            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${isLegacySurface ? colors.appBorder : 'rgba(255,255,255,0.1)'}`,
+            backgroundColor: tooltipBackground,
             color: colors.textPrimary,
             fontSize: '13px',
             lineHeight: 1.4,
             boxShadow: '0 16px 38px rgba(0, 0, 0, 0.44)',
           },
           arrow: {
-            color: colors.appSurface,
+            color: tooltipBackground,
           },
         },
       },
@@ -203,8 +234,8 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
         styleOverrides: {
           paper: {
             borderRadius: moriusThemeTokens.radii.menu,
-            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
-            background: 'linear-gradient(180deg, #1a1a1e, #141417)',
+            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${isLegacySurface ? colors.appBorder : 'rgba(255,255,255,0.1)'}`,
+            background: menuBackground,
             boxShadow: '0 30px 70px -20px rgba(0,0,0,0.85)',
           },
         },

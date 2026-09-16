@@ -13,8 +13,8 @@ from sqlalchemy.orm import sessionmaker
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.database import Base  # noqa: E402
-from app.models import User  # noqa: E402
-from app.routers.dashboard_news import list_dashboard_news, reorder_dashboard_news  # noqa: E402
+from app.models import StoryCharacter, StoryGame, User  # noqa: E402
+from app.routers.dashboard_news import get_dashboard_stats, list_dashboard_news, reorder_dashboard_news  # noqa: E402
 from app.schemas import DashboardNewsReorderRequest  # noqa: E402
 
 
@@ -79,6 +79,31 @@ class DashboardNewsOrderTests(unittest.TestCase):
                         db=db,
                     )
             self.assertEqual(error.exception.status_code, 403)
+
+    def test_dashboard_stats_count_only_public_games_and_characters(self) -> None:
+        with self.Session() as db:
+            player = User(email="stats-player@example.com", role="user")
+            second_player = User(email="stats-second@example.com", role="user")
+            db.add_all([player, second_player])
+            db.flush()
+            db.add_all(
+                [
+                    StoryGame(user_id=player.id, title="Public game", visibility="public"),
+                    StoryGame(user_id=player.id, title="Private game", visibility="private"),
+                    StoryCharacter(user_id=player.id, name="Public character", description="Public", visibility="public"),
+                    StoryCharacter(user_id=player.id, name="Private character", description="Private", visibility="private"),
+                ]
+            )
+            db.commit()
+
+            response = Response()
+            with patch("app.routers.dashboard_news.get_current_user", return_value=player):
+                stats = get_dashboard_stats(response=response, authorization="Bearer player", db=db)
+
+            self.assertEqual(stats.published_games_count, 1)
+            self.assertEqual(stats.published_characters_count, 1)
+            self.assertEqual(stats.players_count, 2)
+            self.assertEqual(response.headers["cache-control"], "no-store, max-age=0")
 
 
 if __name__ == "__main__":

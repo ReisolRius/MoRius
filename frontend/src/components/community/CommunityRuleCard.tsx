@@ -38,11 +38,10 @@ function CommunityRuleCard({
   authorAvatarFrameId,
   authorAvatarFrameImageUrl,
   gamesCount,
-  ratingAvg,
   onClick,
   disabled = false,
   actionSlot,
-  minHeight = 318,
+  minHeight = 272,
 }: CommunityRuleCardProps) {
   const resolvedAuthorName = authorName.trim() || 'Неизвестный автор'
   const resolvedContent = content.replace(/\s+/g, ' ').trim() || 'Описание правила пока не добавлено.'
@@ -58,189 +57,132 @@ function CommunityRuleCard({
         height: minHeight,
         minHeight,
         maxHeight: minHeight,
-        p: 0,
+        p: { xs: 1.75, md: 2.2 },
         overflow: 'hidden',
+        display: 'grid',
+        gridTemplateRows: 'auto auto minmax(0, 1fr) auto',
+        gap: { xs: 1.15, md: 1.35 },
         alignItems: 'stretch',
-        justifyContent: 'stretch',
-        borderRadius: 'var(--morius-radius)',
-        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, #b89451 12%)',
-        background:
-          'linear-gradient(145deg, color-mix(in srgb, var(--morius-card-bg) 96%, #b89451 4%) 0%, var(--morius-card-bg) 58%, color-mix(in srgb, var(--morius-card-bg) 97%, #000 3%) 100%)',
+        justifyItems: 'stretch',
+        borderRadius: '18px',
+        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+        background: 'var(--morius-card-alt-gradient)',
         color: 'var(--morius-text-primary)',
         textAlign: 'left',
         transition: 'transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
         '&:hover': {
-          transform: disabled ? 'none' : 'translateY(-5px)',
-          borderColor: 'color-mix(in srgb, var(--morius-rating-gold) 46%, var(--morius-card-border))',
+          transform: disabled ? 'none' : 'translateY(-3px)',
+          borderColor: 'color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
           boxShadow: disabled ? 'none' : 'var(--morius-neutral-shadow)',
         },
         '&:focus-visible': {
-          outline: '2px solid rgba(222, 188, 111, 0.68)',
+          outline: '2px solid color-mix(in srgb, var(--morius-accent) 62%, transparent)',
           outlineOffset: '2px',
         },
       }}
     >
-      <Box
-        aria-hidden
-        sx={{
-          position: 'absolute',
-          right: -8,
-          bottom: -34,
-          zIndex: 0,
-          color: 'var(--morius-rating-gold)',
-          fontFamily: '"Spectral", serif',
-          fontSize: { xs: 104, md: 124 },
-          fontWeight: 400,
-          lineHeight: 1,
-          opacity: 0.065,
-          transform: 'rotate(-4deg)',
-          pointerEvents: 'none',
-        }}
-      >
-        §
-      </Box>
-
-      <Box
-        sx={{
-          position: 'relative',
-          zIndex: 1,
-          width: '100%',
-          height: '100%',
-          minHeight: 0,
-          px: { xs: 2, md: 2.5 },
-          py: { xs: 2, md: 2.35 },
-          display: 'grid',
-          gridTemplateRows: '44px minmax(0, 1fr) 42px',
-          rowGap: { xs: 1.7, md: 2 },
-        }}
-      >
-        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.2}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.2} sx={{ minWidth: 0 }}>
+        <Stack direction="row" alignItems="center" spacing={0.9} sx={{ minWidth: 0 }}>
           <Box
             sx={{
-              width: 44,
-              height: 44,
+              width: 28,
+              height: 28,
               display: 'grid',
               placeItems: 'center',
               flexShrink: 0,
-              borderRadius: '13px',
-              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-rating-gold) 46%, transparent)',
-              backgroundColor: 'color-mix(in srgb, var(--morius-rating-gold) 9%, transparent)',
+              borderRadius: '8px',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-rating-gold) 28%, transparent)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-rating-gold) 11%, transparent)',
               color: 'var(--morius-rating-gold)',
-              fontFamily: '"Spectral", serif',
-              fontSize: '1.35rem',
+              fontFamily: 'var(--morius-font-heading)',
+              fontSize: '0.92rem',
               lineHeight: 1,
             }}
           >
             §
           </Box>
-
-          <Stack direction="row" alignItems="center" spacing={0.8} sx={{ minWidth: 0 }}>
-            <Box
-              sx={{
-                minHeight: 30,
-                display: 'inline-flex',
-                alignItems: 'center',
-                px: 1.25,
-                borderRadius: '999px',
-                border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                color: 'var(--morius-text-secondary)',
-                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, transparent)',
-                fontSize: '0.76rem',
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {formatGamesCount(gamesCount)}
-            </Box>
-            {actionSlot ? <Box sx={{ flexShrink: 0 }}>{actionSlot}</Box> : null}
-          </Stack>
+          <Typography
+            sx={{
+              color: 'var(--morius-muted-text)',
+              fontSize: '0.68rem',
+              fontWeight: 750,
+              letterSpacing: '0.11em !important',
+              textTransform: 'uppercase',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Инструкция
+          </Typography>
         </Stack>
+        <Stack direction="row" alignItems="center" spacing={0.7} sx={{ minWidth: 0, flexShrink: 0 }}>
+          <Typography sx={{ color: 'var(--morius-muted-text)', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+            {formatGamesCount(gamesCount)}
+          </Typography>
+          {actionSlot ? <Box sx={{ flexShrink: 0 }}>{actionSlot}</Box> : null}
+        </Stack>
+      </Stack>
 
-        <Box
+      <Typography
+        title={title}
+        sx={{
+          color: 'var(--morius-title-text)',
+          fontFamily: 'var(--morius-font-heading)',
+          fontSize: { xs: '1.02rem', md: '1.08rem' },
+          fontWeight: 700,
+          lineHeight: 1.35,
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+        }}
+      >
+        {title}
+      </Typography>
+
+      <Typography
+        sx={{
+          minHeight: 0,
+          alignSelf: 'stretch',
+          color: 'var(--morius-text-secondary)',
+          pl: 1.4,
+          borderLeft: '2px solid color-mix(in srgb, var(--morius-title-text) 11%, transparent)',
+          fontSize: { xs: '0.8rem', md: '0.82rem' },
+          lineHeight: 1.6,
+          display: '-webkit-box',
+          WebkitLineClamp: 4,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+        }}
+      >
+        {resolvedContent}
+      </Typography>
+
+      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0, pt: 0.2 }}>
+        <ProgressiveAvatar
+          src={authorAvatarUrl ?? null}
+          fallbackLabel={resolvedAuthorName}
+          size={22}
+          frameId={authorAvatarFrameId ?? undefined}
+          frameImageUrl={authorAvatarFrameImageUrl ?? null}
           sx={{
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            rowGap: 1.2,
+            flexShrink: 0,
+            border: 'var(--morius-border-width) solid rgba(215, 224, 236, 0.2)',
+          }}
+        />
+        <Typography
+          title={resolvedAuthorName}
+          sx={{
+            minWidth: 0,
+            color: 'var(--morius-text-secondary)',
+            fontSize: '0.75rem',
             overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
           }}
         >
-          <Typography
-            title={title}
-            sx={{
-              flexShrink: 0,
-              color: 'var(--morius-title-text)',
-              fontFamily: '"Spectral", serif',
-              fontSize: { xs: '1.18rem', md: '1.34rem' },
-              fontWeight: 700,
-              lineHeight: 1.2,
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-            }}
-          >
-            {title}
-          </Typography>
-          <Typography
-            sx={{
-              flex: 1,
-              minHeight: 0,
-              color: 'var(--morius-text-secondary)',
-              fontSize: { xs: '0.9rem', md: '0.96rem' },
-              lineHeight: 1.52,
-              display: '-webkit-box',
-              WebkitLineClamp: 4,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-            }}
-          >
-            {resolvedContent}
-          </Typography>
-        </Box>
-
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          spacing={1.2}
-          sx={{ pt: 1.25, minWidth: 0, borderTop: 'var(--morius-border-width) solid var(--morius-divider-color)' }}
-        >
-          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0, maxWidth: '72%' }}>
-            <ProgressiveAvatar
-              src={authorAvatarUrl ?? null}
-              fallbackLabel={resolvedAuthorName}
-              size={28}
-              frameId={authorAvatarFrameId ?? undefined}
-              frameImageUrl={authorAvatarFrameImageUrl ?? null}
-              sx={{ flexShrink: 0, border: 'var(--morius-border-width) solid rgba(215, 224, 236, 0.24)' }}
-            />
-            <Typography
-              title={resolvedAuthorName}
-              sx={{
-                minWidth: 0,
-                color: 'var(--morius-text-secondary)',
-                fontSize: '0.82rem',
-                fontWeight: 650,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {resolvedAuthorName}
-            </Typography>
-          </Stack>
-
-          <Stack direction="row" alignItems="center" spacing={0.45} sx={{ color: 'var(--morius-rating-gold)', flexShrink: 0 }}>
-            <Typography component="span" sx={{ color: 'inherit', fontSize: '1.05rem', lineHeight: 1 }}>
-              ★
-            </Typography>
-            <Typography component="span" sx={{ color: 'inherit', fontSize: '0.86rem', lineHeight: 1, fontWeight: 800 }}>
-              {Math.max(0, ratingAvg).toFixed(1)}
-            </Typography>
-          </Stack>
-        </Stack>
-      </Box>
+          {resolvedAuthorName}
+        </Typography>
+      </Stack>
     </ButtonBase>
   )
 }

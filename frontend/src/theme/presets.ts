@@ -27,8 +27,12 @@ export type MoriusThemePlaceholder = {
   description: string
 }
 
-const classicDarkColors: MoriusThemeColors = {
+const moriusDuskColors: MoriusThemeColors = {
   ...moriusThemeTokens.colors,
+}
+
+const classicDarkColors: MoriusThemeColors = {
+  ...moriusThemeTokens.legacyColors,
   accent: '#4c8dff',
   buttonHover: 'rgba(255,255,255,0.06)',
   buttonActive: 'color-mix(in srgb, #4c8dff 11%, transparent)',
@@ -38,7 +42,7 @@ const classicDarkColors: MoriusThemeColors = {
 }
 
 const blueSteelColors: MoriusThemeColors = {
-  ...moriusThemeTokens.colors,
+  ...moriusThemeTokens.legacyColors,
   appBackground:
     'radial-gradient(ellipse 64% 30% at 50% -8%, #1C2533 0%, #0F1218 100%), linear-gradient(44deg, #1A2330 0%, #0F1218 100%)',
   appBase: '#0F1218',
@@ -60,7 +64,7 @@ const blueSteelColors: MoriusThemeColors = {
 }
 
 const pastelLightColors: MoriusThemeColors = {
-  ...moriusThemeTokens.colors,
+  ...moriusThemeTokens.legacyColors,
   appBackground:
     'radial-gradient(ellipse 68% 38% at 50% -10%, #E6E2D9 0%, #F0ECE6 100%), linear-gradient(44deg, #E2DCCE 0%, #F0ECE6 100%)',
   appBase: '#F0ECE6',
@@ -82,7 +86,7 @@ const pastelLightColors: MoriusThemeColors = {
 }
 
 const grayColors: MoriusThemeColors = {
-  ...moriusThemeTokens.colors,
+  ...moriusThemeTokens.legacyColors,
   appBackground: '#141414',
   appBase: '#141414',
   appSurface: '#242424',
@@ -103,7 +107,7 @@ const grayColors: MoriusThemeColors = {
 }
 
 const yamiRiusColors: MoriusThemeColors = {
-  ...moriusThemeTokens.colors,
+  ...moriusThemeTokens.legacyColors,
   appBackground: '#181818',
   appBase: '#181818',
   appSurface: '#191919',
@@ -124,7 +128,7 @@ const yamiRiusColors: MoriusThemeColors = {
 }
 
 const riusDungeonColors: MoriusThemeColors = {
-  ...moriusThemeTokens.colors,
+  ...moriusThemeTokens.legacyColors,
   appBackground: '#090909',
   appBase: '#090909',
   appSurface: '#17171c',
@@ -146,6 +150,14 @@ const riusDungeonColors: MoriusThemeColors = {
 }
 
 export const moriusThemePresets: readonly MoriusThemePreset[] = [
+  {
+    id: 'morius-dusk',
+    name: 'MoRius',
+    subtitle: 'Основная тема',
+    description: 'Графитовые поверхности, индиговый акцент и золото солов.',
+    mode: 'dark',
+    colors: moriusDuskColors,
+  },
   {
     id: 'classic-dark',
     name: '\u041a\u043b\u0430\u0441\u0441\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0442\u0451\u043c\u043d\u0430\u044f',
@@ -214,7 +226,9 @@ export const moriusThemePlaceholders: readonly MoriusThemePlaceholder[] = [
   },
 ]
 
-export const MORIUS_DEFAULT_THEME_ID: MoriusThemeId = 'rius-dungeon'
+export const MORIUS_DEFAULT_THEME_ID: MoriusThemeId = 'morius-dusk'
+/** The palette the presentation landing and the auth screen were built on; they keep it. */
+export const MORIUS_LEGACY_THEME_ID: MoriusThemeId = 'rius-dungeon'
 
 export function getMoriusThemeById(themeId: string | null | undefined): MoriusThemePreset {
   const defaultTheme = moriusThemePresets.find((theme) => theme.id === MORIUS_DEFAULT_THEME_ID) ?? moriusThemePresets[0]

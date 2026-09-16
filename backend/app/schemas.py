@@ -6,6 +6,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.services.media import build_media_display_url, normalize_media_scale, resolve_media_display_url
+from app.services.profile_showcase import normalize_profile_showcase
+
+
+class ProfileShowcaseItem(BaseModel):
+    kind: Literal["banner", "avatar_frame", "badge", "game", "character"]
+    entity_id: int | None = Field(default=None, ge=1)
 
 
 class UserSubscriptionOut(BaseModel):
@@ -30,6 +36,7 @@ class UserOut(BaseModel):
     profile_banner_image_url: str | None = None
     avatar_frame_id: str = "none"
     avatar_frame_image_url: str | None = None
+    profile_showcase: list[ProfileShowcaseItem] = Field(default_factory=list)
     avatar_url: str | None
     avatar_scale: float
     auth_provider: str
@@ -91,6 +98,7 @@ class UserOut(BaseModel):
             min_value=1.0,
             max_value=3.0,
         )
+        payload["profile_showcase"] = normalize_profile_showcase(payload.get("profile_showcase"))
         return payload
 
 
@@ -168,6 +176,7 @@ class ProfileUserOut(BaseModel):
     profile_banner_image_url: str | None = None
     avatar_frame_id: str = "none"
     avatar_frame_image_url: str | None = None
+    profile_showcase: list[ProfileShowcaseItem] = Field(default_factory=list)
     avatar_url: str | None
     avatar_scale: float
     role: str = "user"
@@ -364,6 +373,7 @@ class ProfileUpdateRequest(BaseModel):
     profile_description: str | None = Field(default=None, max_length=2_000)
     profile_banner_id: str | None = Field(default=None, max_length=16)
     avatar_frame_id: str | None = Field(default=None, max_length=16)
+    profile_showcase: list[ProfileShowcaseItem] | None = Field(default=None, min_length=1, max_length=5)
     notifications_enabled: bool | None = None
     notify_comment_reply: bool | None = None
     notify_world_comment: bool | None = None
@@ -610,6 +620,12 @@ class DashboardNewsCardOut(BaseModel):
             version=version,
         )
         return payload
+
+
+class DashboardStatsOut(BaseModel):
+    published_games_count: int
+    published_characters_count: int
+    players_count: int
 
 
 class DashboardNewsCardUpdateRequest(BaseModel):
@@ -1988,9 +2004,9 @@ class StoryGameSummaryOut(BaseModel):
     appearance_background_mode: str = "custom"
     appearance_gradient_enabled: bool = True
     appearance_dialogue_view: bool = False
-    appearance_gradient_from: str = "#050506"
-    appearance_gradient_to: str = "#120803"
-    appearance_solid_color: str = "#050506"
+    appearance_gradient_from: str = "#20232D"
+    appearance_gradient_to: str = "#0A0400"
+    appearance_solid_color: str = "#21242C"
     appearance_ui_style: str = "default"
     appearance_text_style: str = "default"
     canonical_state_pipeline_enabled: bool = True

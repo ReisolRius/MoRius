@@ -910,49 +910,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         showAiAssistantAction={user.ai_assistant_visible ?? true}
         hideRightToggle
         onOpenTopUpDialog={handleOpenTopUpDialog}
-        centerSlot={
-          <Box sx={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center' }}>
-            <Box
-              component="input"
-              type="text"
-              value={searchQuery}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value.slice(0, MY_GAMES_SEARCH_QUERY_MAX_LENGTH))}
-              placeholder="Поиск"
-              aria-label="Поиск по библиотеке"
-              sx={{
-                width: '100%',
-                height: '100%',
-                borderRadius: '9999px',
-                border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                backgroundColor: 'var(--morius-card-bg)',
-                color: 'var(--morius-text-primary)',
-                pl: '16px',
-                pr: '44px',
-                outline: 'none',
-                fontSize: '0.9rem',
-                fontFamily: 'inherit',
-                boxSizing: 'border-box',
-                transition: 'border-color 180ms ease',
-                '&::placeholder': { color: 'var(--morius-text-secondary)' },
-                '&:focus': { borderColor: 'color-mix(in srgb, var(--morius-accent) 60%, var(--morius-card-border))' },
-              }}
-            />
-            <Box
-              sx={{
-                position: 'absolute',
-                right: '14px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: 'var(--morius-text-secondary)',
-                display: 'flex',
-                alignItems: 'center',
-                pointerEvents: 'none',
-              }}
-            >
-              <ThemedSvgIcon markup={searchIconRaw} size={18} />
-            </Box>
-          </Box>
-        }
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: 'Поиск по библиотеке',
+          ariaLabel: 'Поиск по библиотеке',
+          maxLength: MY_GAMES_SEARCH_QUERY_MAX_LENGTH,
+        }}
         rightActions={
           <Stack direction="row" spacing={1} alignItems="center">
             {isPhoneLayout ? (

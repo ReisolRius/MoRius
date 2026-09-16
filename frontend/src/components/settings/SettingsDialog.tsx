@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent, type RefObject } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent, type RefObject } from 'react'
 import {
   Alert,
   Box,
@@ -8,40 +8,23 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
-  IconButton,
-  MenuItem,
-  Popover,
-  Select,
   Stack,
   Switch,
   TextField,
   Typography,
   type DialogProps,
-  type SelectChangeEvent,
 } from '@mui/material'
-import eyedropperIconMarkup from '../../assets/icons/eyedropper.svg?raw'
 import editIconMarkup from '../../assets/icons/community-edit.svg?raw'
 import {
-  createCurrentUserCustomTheme,
-  deleteCurrentUserCustomTheme,
   getShopCatalog,
-  getCurrentUserThemeSettings,
   replaceCurrentAuthWithPassword,
   startVKIDOAuth,
   startYandexOAuth,
-  updateCurrentUserCustomTheme,
   updateCurrentUserProfile,
   updateCurrentUserProfilePrivacy,
-  updateCurrentUserThemeSelection,
-  CURRENT_USER_CUSTOM_THEME_LIMIT,
   type CosmeticItem,
-  type CurrentUserThemeSettings,
-  type UserCustomTheme,
 } from '../../services/authApi'
 import type { AuthUser } from '../../types/auth'
-import { getMoriusThemeById, moriusThemePresets, useMoriusThemeController, type MoriusThemePreset } from '../../theme'
-import { buildPresetFromCustomTheme } from '../../theme/customTheme'
 import { getProfileBannerPreset, normalizeProfileBannerId, PROFILE_BANNER_PRESETS } from '../../constants/profileBanners'
 import { resolveProfileBannerImageUrl, withKnownCosmeticImageUrl } from '../../utils/cosmeticImageFallbacks'
 import { AVATAR_FRAME_PRESETS, normalizeAvatarFrameId } from '../../constants/avatarFrames'
@@ -66,40 +49,16 @@ type SettingsDialogProps = {
   onAvatarChange?: (event: ChangeEvent<HTMLInputElement>) => void
 }
 
-type SettingsTabId = 'profile' | 'themes'
-type EditableTheme = {
-  id: string
-  name: string
-  description: string
-  palette: UserCustomTheme['palette']
-  story: UserCustomTheme['story']
-}
-type PaletteFieldKey = keyof EditableTheme['palette']
-type StoryFieldKey = keyof Pick<EditableTheme['story'], 'corrected_text_color' | 'player_text_color' | 'assistant_text_color'>
-type ColorFieldKey = PaletteFieldKey | StoryFieldKey
+type SettingsTabId = 'profile' | 'appearance' | 'privacy' | 'notifications'
 type AccountAuthProvider = 'email' | 'google' | 'yandex' | 'vk' | 'mail'
 
 const PROFILE_DESCRIPTION_MAX = 4000
 const DISPLAY_NAME_MAX = 120
-const THEME_NAME_MAX = 80
-const THEME_DESCRIPTION_MAX = 240
-const COLOR_SWATCHES = ['#FFFFFF', '#000000', '#4D4D4D', '#D0D0D0', '#D9C4A0', '#B9C9DB'] as const
-const trashIconMarkup = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 3.75h6a1.25 1.25 0 0 1 1.25 1.25V6H19a.75.75 0 0 1 0 1.5h-.83l-.64 9.01A2.25 2.25 0 0 1 15.28 18.75H8.72a2.25 2.25 0 0 1-2.25-2.24L5.83 7.5H5a.75.75 0 0 1 0-1.5h2.75V5A1.25 1.25 0 0 1 9 3.75Zm5.75 2.25V5.25h-5.5V6h5.5ZM7.98 7.5l.62 8.9a.75.75 0 0 0 .75.7h6.3a.75.75 0 0 0 .75-.7l.62-8.9H7.98ZM10 9.25a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0V10a.75.75 0 0 1 .75-.75Zm4 0a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0V10a.75.75 0 0 1 .75-.75Z" fill="currentColor"/></svg>`
 const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
   { id: 'profile', label: 'Профиль' },
-]
-const PALETTE_FIELDS: Array<{ key: PaletteFieldKey; label: string }> = [
-  { key: 'title_text', label: 'Заголовок' },
-  { key: 'text_primary', label: 'Основной текст' },
-  { key: 'background', label: 'Back' },
-  { key: 'surface', label: 'Second Back' },
-  { key: 'front', label: 'Front' },
-  { key: 'input', label: 'Input' },
-]
-const STORY_FIELDS: Array<{ key: StoryFieldKey; label: string }> = [
-  { key: 'corrected_text_color', label: 'Исправленный текст' },
-  { key: 'player_text_color', label: 'Текст игрока' },
-  { key: 'assistant_text_color', label: 'Текст ИИ' },
+  { id: 'appearance', label: 'Оформление' },
+  { id: 'privacy', label: 'Приватность' },
+  { id: 'notifications', label: 'Уведомления' },
 ]
 const NOTIFICATION_FIELDS = [
   { key: 'notifications_enabled', label: 'Показывать уведомления в профиле' },
@@ -136,62 +95,6 @@ const AUTH_PROVIDER_LABELS: Record<AccountAuthProvider, string> = {
   mail: 'Mail',
 }
 
-function createCustomThemeId() {
-  return `custom-${Date.now().toString(36)}`
-}
-
-function normalizeHexColor(value: string, fallback = '#4c8dff'): string {
-  const normalized = value.trim().toUpperCase()
-  return /^#[0-9A-F]{6}$/.test(normalized) ? normalized : fallback
-}
-
-function isCompleteHexColor(value: string): boolean {
-  return /^#[0-9A-F]{6}$/i.test(value.trim())
-}
-
-function resolveContrastColor(value: string): string {
-  const hex = normalizeHexColor(value)
-  const r = Number.parseInt(hex.slice(1, 3), 16)
-  const g = Number.parseInt(hex.slice(3, 5), 16)
-  const b = Number.parseInt(hex.slice(5, 7), 16)
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? '#111111' : '#F5F7FA'
-}
-
-function buildEditableThemeFromPreset(preset: MoriusThemePreset, id = createCustomThemeId()): EditableTheme {
-  return {
-    id,
-    name: 'Новая тема',
-    description: 'Пользовательская палитра',
-    palette: {
-      title_text: preset.colors.titleText,
-      text_primary: preset.colors.textPrimary,
-      background: preset.colors.appBase,
-      surface: preset.colors.appSurface,
-      front: preset.colors.accent,
-      input: preset.colors.inputBg,
-    },
-    story: {
-      font_family: 'default',
-      font_weight: 'regular',
-      narrative_italic: false,
-      corrected_text_color: preset.story?.correctedTextColor ?? preset.colors.accent,
-      player_text_color: preset.story?.playerTextColor ?? preset.colors.textSecondary,
-      assistant_text_color: preset.story?.assistantTextColor ?? preset.colors.textPrimary,
-    },
-  }
-}
-
-function buildEditableThemeFromCustom(theme: UserCustomTheme): EditableTheme {
-  return { id: theme.id, name: theme.name, description: theme.description, palette: { ...theme.palette }, story: { ...theme.story } }
-}
-
-function buildCustomThemeFromDraft(theme: EditableTheme): UserCustomTheme {
-  return { id: theme.id.trim() || createCustomThemeId(), name: theme.name.trim() || 'Новая тема', description: theme.description.trim(), palette: { ...theme.palette }, story: { ...theme.story } }
-}
-
-function isPaletteField(field: ColorFieldKey): field is PaletteFieldKey {
-  return PALETTE_FIELDS.some((item) => item.key === field)
-}
 
 function SettingsSwitchRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
@@ -229,11 +132,9 @@ function SettingsDialog({
   onChooseAvatar,
   onAvatarChange,
 }: SettingsDialogProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTabId>('profile')
+  const [activeTab, setActiveTab] = useState<SettingsTabId>('appearance')
   const [error, setError] = useState('')
   const [isSavingProfile, setIsSavingProfile] = useState(false)
-  const [isSavingTheme, setIsSavingTheme] = useState(false)
-  const [themeSettings, setThemeSettings] = useState<CurrentUserThemeSettings | null>(null)
   const [displayName, setDisplayName] = useState(user.display_name ?? '')
   const [profileDescription, setProfileDescription] = useState(user.profile_description ?? '')
   const [profileBannerId, setProfileBannerId] = useState(() => normalizeProfileBannerId(user.profile_banner_id))
@@ -260,9 +161,6 @@ function SettingsDialog({
     show_public_characters: user.show_public_characters ?? false,
     show_public_instruction_templates: user.show_public_instruction_templates ?? false,
   })
-  const [themeDraft, setThemeDraft] = useState<EditableTheme>(() => buildEditableThemeFromPreset(getMoriusThemeById('classic-dark')))
-  const [editingThemeId, setEditingThemeId] = useState<string | null>(null)
-  const [themeDeleteTarget, setThemeDeleteTarget] = useState<UserCustomTheme | null>(null)
   const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false)
   const [isPasswordAuthDialogOpen, setIsPasswordAuthDialogOpen] = useState(false)
   const [passwordAuthValue, setPasswordAuthValue] = useState('')
@@ -271,41 +169,8 @@ function SettingsDialog({
   const [isStartingYandexLink, setIsStartingYandexLink] = useState(false)
   const [vkIDLinkProvider, setVKIDLinkProvider] = useState<'vk' | 'mail' | null>(null)
   const [authMethodSuccess, setAuthMethodSuccess] = useState('')
-  const [editingColorField, setEditingColorField] = useState<ColorFieldKey | null>(null)
-  const [colorInputDraft, setColorInputDraft] = useState('')
-  const [colorPickerAnchorEl, setColorPickerAnchorEl] = useState<HTMLElement | null>(null)
-  const colorPickerInputRef = useRef<HTMLInputElement | null>(null)
-  const colorSelectionFrameRef = useRef<number | null>(null)
-  const pendingColorSelectionRef = useRef<{ field: ColorFieldKey; color: string } | null>(null)
-  const { themeId, activeTheme, setTheme, setCustomTheme, setStoryHistoryFontFamily, setStoryHistoryFontWeight, storyHistoryFontFamilyOptions, storyHistoryFontWeightOptions } = useMoriusThemeController()
-  const savedCustomThemes = themeSettings?.custom_themes ?? []
-  const editingSavedCustomTheme = useMemo(
-    () => (editingThemeId ? savedCustomThemes.find((item) => item.id === editingThemeId) ?? null : null),
-    [editingThemeId, savedCustomThemes],
-  )
-  const canCreateMoreCustomThemes = savedCustomThemes.length < CURRENT_USER_CUSTOM_THEME_LIMIT
   const activeAuthProvider = resolveActiveAuthProvider(user.auth_provider || 'email')
   const isAuthMethodBusy = isStartingYandexLink || vkIDLinkProvider !== null || isReplacingAuthMethod
-
-  const applyResolvedTheme = useCallback((settings: CurrentUserThemeSettings | null) => {
-    if (!settings) {
-      return
-    }
-    if (settings.active_theme_kind === 'custom') {
-      const selectedCustomTheme = settings.custom_themes.find((item) => item.id === settings.active_theme_id)
-      if (selectedCustomTheme) {
-        setCustomTheme(buildPresetFromCustomTheme(selectedCustomTheme))
-      } else {
-        setCustomTheme(null)
-        setTheme(getMoriusThemeById('classic-dark').id)
-      }
-    } else {
-      setCustomTheme(null)
-      setTheme(getMoriusThemeById(settings.active_theme_id).id)
-    }
-    setStoryHistoryFontFamily(settings.story.font_family)
-    setStoryHistoryFontWeight(settings.story.font_weight)
-  }, [setCustomTheme, setStoryHistoryFontFamily, setStoryHistoryFontWeight, setTheme])
 
   useEffect(() => {
     if (!open) {
@@ -340,41 +205,6 @@ function SettingsDialog({
       show_public_instruction_templates: user.show_public_instruction_templates ?? false,
     })
   }, [open, user])
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-    let ignore = false
-    void getCurrentUserThemeSettings({ token: authToken })
-      .then((response) => {
-        if (ignore) {
-          return
-        }
-        setThemeSettings(response)
-        applyResolvedTheme(response)
-        if (response.active_theme_kind === 'custom') {
-          const selectedTheme = response.custom_themes.find((item) => item.id === response.active_theme_id)
-          if (selectedTheme) {
-            setEditingThemeId(selectedTheme.id)
-            setThemeDraft(buildEditableThemeFromCustom(selectedTheme))
-            return
-          }
-        }
-        setEditingThemeId(null)
-        setThemeDraft(buildEditableThemeFromPreset(getMoriusThemeById(response.active_theme_id)))
-      })
-      .catch((requestError) => {
-        if (!ignore) {
-          const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить настройки темы'
-          setError(detail)
-        }
-      })
-
-    return () => {
-      ignore = true
-    }
-  }, [applyResolvedTheme, authToken, open])
 
   useEffect(() => {
     if (!open) {
@@ -422,24 +252,9 @@ function SettingsDialog({
     privacy.show_public_instruction_templates !== (user.show_public_instruction_templates ?? false)
   ), [aiAssistantVisible, avatarFrameId, displayName, notifications, privacy, profileBannerId, profileDescription, user])
 
-  const hasThemeDraftUnsavedChanges = useMemo(() => {
-    if (!editingThemeId) {
-      return false
-    }
-    const normalizedDraft = buildCustomThemeFromDraft(themeDraft)
-    const savedTheme = savedCustomThemes.find((item) => item.id === normalizedDraft.id)
-    if (!savedTheme) {
-      return true
-    }
-    return JSON.stringify(normalizedDraft) !== JSON.stringify(savedTheme)
-  }, [editingThemeId, savedCustomThemes, themeDraft])
-
-  const hasUnsavedChanges = hasProfileUnsavedChanges || hasThemeDraftUnsavedChanges
+  const hasUnsavedChanges = hasProfileUnsavedChanges
 
   const closeDialogWithoutPrompt = () => {
-    applyResolvedTheme(themeSettings)
-    handleCloseColorPicker()
-    setThemeDeleteTarget(null)
     setIsCloseConfirmOpen(false)
     setError('')
     onClose()
@@ -460,117 +275,6 @@ function SettingsDialog({
     requestDialogClose()
   }
   const mobileSheet = useMobileDialogSheet({ onClose: requestDialogClose })
-
-  const handleSelectPresetTheme = async (presetId: string) => {
-    if (isSavingTheme) {
-      return
-    }
-    setError('')
-    setIsSavingTheme(true)
-    try {
-      const response = await updateCurrentUserThemeSelection({
-        token: authToken,
-        active_theme_kind: 'preset',
-        active_theme_id: presetId,
-      })
-      setThemeSettings(response)
-      setEditingThemeId(null)
-      setThemeDraft(buildEditableThemeFromPreset(getMoriusThemeById(response.active_theme_id)))
-      applyResolvedTheme(response)
-    } catch (requestError) {
-      const detail = requestError instanceof Error ? requestError.message : 'Не удалось применить тему'
-      setError(detail)
-    } finally {
-      setIsSavingTheme(false)
-    }
-  }
-
-  const handleEditCustomTheme = (theme: UserCustomTheme) => {
-    setActiveTab('themes')
-    setEditingThemeId(theme.id)
-    setThemeDraft(buildEditableThemeFromCustom(theme))
-    setError('')
-  }
-
-  const handleStartNewTheme = () => {
-    if (!canCreateMoreCustomThemes) {
-      setError(`Можно создать не более ${CURRENT_USER_CUSTOM_THEME_LIMIT} пользовательских тем.`)
-      return
-    }
-    const nextId = createCustomThemeId()
-    setActiveTab('themes')
-    setEditingThemeId(nextId)
-    setThemeDraft(buildEditableThemeFromPreset(activeTheme, nextId))
-    setError('')
-  }
-
-  const handleSelectColor = (field: ColorFieldKey, nextColor: string) => {
-    const normalized = normalizeHexColor(nextColor)
-    setThemeDraft((previous) => {
-      if (isPaletteField(field)) {
-        return { ...previous, palette: { ...previous.palette, [field]: normalized } }
-      }
-      return { ...previous, story: { ...previous.story, [field]: normalized } }
-    })
-  }
-
-  const syncColorPickerInputValue = useCallback((nextValue: string) => {
-    if (!colorPickerInputRef.current) {
-      return
-    }
-    if (colorPickerInputRef.current.value.toLowerCase() === nextValue.toLowerCase()) {
-      return
-    }
-    colorPickerInputRef.current.value = nextValue
-  }, [])
-
-  const scheduleColorSelection = useCallback((field: ColorFieldKey, nextColor: string) => {
-    const normalized = normalizeHexColor(nextColor)
-    pendingColorSelectionRef.current = { field, color: normalized }
-    if (typeof window === 'undefined') {
-      pendingColorSelectionRef.current = null
-      startTransition(() => {
-        handleSelectColor(field, normalized)
-      })
-      return
-    }
-    if (colorSelectionFrameRef.current !== null) {
-      return
-    }
-    colorSelectionFrameRef.current = window.requestAnimationFrame(() => {
-      colorSelectionFrameRef.current = null
-      const pendingSelection = pendingColorSelectionRef.current
-      pendingColorSelectionRef.current = null
-      if (!pendingSelection) {
-        return
-      }
-      startTransition(() => {
-        handleSelectColor(pendingSelection.field, pendingSelection.color)
-      })
-    })
-  }, [handleSelectColor])
-
-  const handleOpenColorPicker = (event: ReactMouseEvent<HTMLElement>, field: ColorFieldKey) => {
-    const currentColor = isPaletteField(field) ? themeDraft.palette[field] : themeDraft.story[field]
-    setEditingColorField(field)
-    setColorInputDraft(currentColor)
-    setColorPickerAnchorEl(event.currentTarget)
-  }
-
-  const handleCloseColorPicker = () => {
-    setEditingColorField(null)
-    setColorInputDraft('')
-    setColorPickerAnchorEl(null)
-  }
-
-  useEffect(() => {
-    return () => {
-      if (typeof window === 'undefined' || colorSelectionFrameRef.current === null) {
-        return
-      }
-      window.cancelAnimationFrame(colorSelectionFrameRef.current)
-    }
-  }, [])
 
   const handleStartYandexLink = async () => {
     if (isAuthMethodBusy || activeAuthProvider === 'yandex') {
@@ -693,113 +397,6 @@ function SettingsDialog({
     }
   }
 
-  const handleSaveTheme = async () => {
-    if (isSavingTheme) {
-      return
-    }
-    setError('')
-    const themeExists = savedCustomThemes.some((item) => item.id === themeDraft.id)
-    if (!themeExists && savedCustomThemes.length >= CURRENT_USER_CUSTOM_THEME_LIMIT) {
-      setError(`Можно создать не более ${CURRENT_USER_CUSTOM_THEME_LIMIT} пользовательских тем.`)
-      return
-    }
-    setIsSavingTheme(true)
-    try {
-      const payload = buildCustomThemeFromDraft(themeDraft)
-      const response = themeExists
-        ? await updateCurrentUserCustomTheme({ token: authToken, theme: payload })
-        : await createCurrentUserCustomTheme({ token: authToken, theme: payload })
-      setThemeSettings(response)
-      setEditingThemeId(payload.id)
-      setThemeDraft(buildEditableThemeFromCustom(response.custom_themes.find((item) => item.id === payload.id) ?? payload))
-      applyResolvedTheme(response)
-    } catch (requestError) {
-      const detail = requestError instanceof Error ? requestError.message : 'Не удалось сохранить тему'
-      setError(detail)
-    } finally {
-      setIsSavingTheme(false)
-    }
-  }
-
-  const handleSelectCustomTheme = async (theme: UserCustomTheme) => {
-    if (isSavingTheme) {
-      return
-    }
-    setError('')
-    setIsSavingTheme(true)
-    try {
-      const response = await updateCurrentUserThemeSelection({
-        token: authToken,
-        active_theme_kind: 'custom',
-        active_theme_id: theme.id,
-      })
-      const selectedTheme = response.custom_themes.find((item) => item.id === theme.id) ?? theme
-      setThemeSettings(response)
-      setEditingThemeId(selectedTheme.id)
-      setThemeDraft(buildEditableThemeFromCustom(selectedTheme))
-      applyResolvedTheme(response)
-    } catch (requestError) {
-      const detail = requestError instanceof Error ? requestError.message : 'Не удалось применить тему'
-      setError(detail)
-    } finally {
-      setIsSavingTheme(false)
-    }
-  }
-
-  const handleRequestDeleteTheme = (theme: UserCustomTheme) => {
-    setThemeDeleteTarget(theme)
-    setError('')
-  }
-
-  const handleDeleteTheme = async (themeId: string) => {
-    if (isSavingTheme || !savedCustomThemes.some((item) => item.id === themeId)) {
-      return
-    }
-    setError('')
-    setIsSavingTheme(true)
-    try {
-      const response = await deleteCurrentUserCustomTheme({ token: authToken, theme_id: themeId })
-      const deletedEditingTheme = editingThemeId === themeId
-      setThemeSettings(response)
-      setThemeDeleteTarget(null)
-      if (deletedEditingTheme) {
-        if (response.active_theme_kind === 'custom') {
-          const selectedTheme = response.custom_themes.find((item) => item.id === response.active_theme_id)
-          if (selectedTheme) {
-            setEditingThemeId(selectedTheme.id)
-            setThemeDraft(buildEditableThemeFromCustom(selectedTheme))
-          } else {
-            setEditingThemeId(null)
-            setThemeDraft(buildEditableThemeFromPreset(getMoriusThemeById(response.active_theme_id)))
-          }
-        } else {
-          setEditingThemeId(null)
-          setThemeDraft(buildEditableThemeFromPreset(getMoriusThemeById(response.active_theme_id)))
-        }
-      }
-      applyResolvedTheme(response)
-    } catch (requestError) {
-      const detail = requestError instanceof Error ? requestError.message : 'Не удалось удалить тему'
-      setError(detail)
-    } finally {
-      setIsSavingTheme(false)
-    }
-  }
-
-  const handleResetDraft = () => {
-    if (editingSavedCustomTheme) {
-      setEditingThemeId(editingSavedCustomTheme.id)
-      setThemeDraft(buildEditableThemeFromCustom(editingSavedCustomTheme))
-      return
-    }
-    setEditingThemeId(null)
-    setThemeDraft(buildEditableThemeFromPreset(getMoriusThemeById(themeSettings?.active_theme_id ?? themeId)))
-    applyResolvedTheme(themeSettings)
-  }
-
-  const activeFieldColor = editingColorField ? (isPaletteField(editingColorField) ? themeDraft.palette[editingColorField] : themeDraft.story[editingColorField]) : '#4c8dff'
-  const activeColorInputValue = colorInputDraft || activeFieldColor
-  const pickerColorValue = normalizeHexColor(activeColorInputValue, activeFieldColor).toLowerCase()
   const previewDescription = profileDescription.trim() || 'Краткое описание профиля'
   const selectedProfileBanner = useMemo(() => getProfileBannerPreset(profileBannerId), [profileBannerId])
   const selectedOwnedProfileBanner = useMemo(
@@ -815,10 +412,6 @@ function SettingsDialog({
   const selectedProfileBannerObjectPosition = selectedOwnedProfileBanner ? 'center center' : selectedProfileBanner.objectPosition
   const previewAvatarUser = useMemo(() => ({ ...user, avatar_frame_id: 'none', avatar_frame_image_url: null }), [user])
 
-  useEffect(() => {
-    syncColorPickerInputValue(pickerColorValue)
-  }, [pickerColorValue, syncColorPickerInputValue])
-
   return (
     <Dialog
       open={open}
@@ -829,20 +422,23 @@ function SettingsDialog({
       BackdropProps={{
         sx: {
           ...mobileSheet.backdropSx,
-          backgroundColor: 'rgba(6, 10, 14, 0.9)',
+          backgroundColor: 'rgba(14, 15, 19, 0.76)',
+          backdropFilter: 'blur(10px)',
         },
       }}
       PaperProps={{
         ...mobileSheet.paperTouchHandlers,
         sx: {
-          width: 'min(1600px, calc(100vw - 24px))',
+          width: 'min(860px, calc(100vw - 24px))',
           maxWidth: 'none',
-          height: 'min(920px, calc(100vh - 24px))',
+          height: 'min(760px, calc(100vh - 24px))',
+          maxHeight: '88vh',
           borderRadius: '22px',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 38%, #020304 62%)',
+          background: 'linear-gradient(170deg, color-mix(in srgb, var(--morius-elevated-bg) 88%, #3a4050 12%), var(--morius-card-bg))',
           color: 'var(--morius-text-primary)',
           overflow: 'hidden',
+          boxShadow: '0 40px 90px -40px rgba(0,0,0,0.95)',
           ...mobileSheet.paperSx,
         },
       }}
@@ -853,16 +449,15 @@ function SettingsDialog({
           gridTemplateRows: 'auto minmax(0, 1fr) auto',
           height: '100%',
           minHeight: 0,
-          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 38%, #020304 62%)',
+          background: 'linear-gradient(170deg, color-mix(in srgb, var(--morius-elevated-bg) 86%, #3a4050 14%), var(--morius-card-bg))',
         }}
       >
         <Box
           sx={{
-            px: mobileSheet.isMobileSheet ? 1.3 : 2.2,
-            py: mobileSheet.isMobileSheet ? 1.1 : 1.45,
+            px: mobileSheet.isMobileSheet ? 1.3 : 2.75,
+            py: mobileSheet.isMobileSheet ? 1.1 : 1.8,
             borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)',
-            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 72%, #020304 28%)',
-            boxShadow: '0 10px 24px rgba(0, 0, 0, 0.18)',
+            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, var(--morius-card-bg) 28%)',
             zIndex: 2,
           }}
         >
@@ -871,13 +466,14 @@ function SettingsDialog({
               <Typography
                 sx={{
                   color: 'var(--morius-title-text)',
-                  fontSize: mobileSheet.isMobileSheet ? '1.45rem' : '1.8rem',
-                  fontWeight: 900,
+                  fontFamily: 'var(--morius-font-heading)',
+                  fontSize: mobileSheet.isMobileSheet ? '1.35rem' : '1.45rem',
+                  fontWeight: 650,
                   lineHeight: 1,
                   flexShrink: 0,
                 }}
               >
-                Настройки
+                Оформление профиля
               </Typography>
             </Stack>
             <Button
@@ -907,32 +503,34 @@ function SettingsDialog({
           </Stack>
         </Box>
 
-        <DialogContent sx={{ p: 0, minHeight: 0, overflow: 'hidden', backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 38%, #020304 62%)' }}>
+        <DialogContent sx={{ p: 0, minHeight: 0, overflow: 'hidden', backgroundColor: 'transparent' }}>
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: '1fr',
+            gridTemplateColumns: { xs: '1fr', md: '184px minmax(0, 1fr)' },
+            gridTemplateRows: { xs: 'auto minmax(0, 1fr)', md: 'minmax(0, 1fr)' },
             height: '100%',
             minHeight: 0,
           }}
         >
           <Box
             sx={{
-              display: 'none',
+              display: 'block',
               borderRight: { xs: 'none', md: 'var(--morius-border-width) solid var(--morius-card-border)' },
               borderBottom: mobileSheet.isMobileSheet
                 ? 'var(--morius-border-width) solid var(--morius-card-border)'
                 : { xs: 'var(--morius-border-width) solid var(--morius-card-border)', md: 'none' },
-              backgroundColor: 'var(--morius-card-bg)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 52%, transparent)',
               position: mobileSheet.isMobileSheet ? 'static' : { md: 'sticky' },
               top: 0,
               alignSelf: mobileSheet.isMobileSheet ? 'stretch' : 'start',
-              height: mobileSheet.isMobileSheet ? 'auto' : { md: 'min(920px, calc(100vh - 24px))' },
+              height: mobileSheet.isMobileSheet ? 'auto' : { md: '100%' },
             }}
           >
-            <Stack spacing={1.2} sx={{ p: mobileSheet.isMobileSheet ? 1.4 : 2.2 }}>
+            <Stack spacing={1.2} sx={{ p: mobileSheet.isMobileSheet ? 1.05 : '14px 12px' }}>
               <Typography
                 sx={{
+                  display: 'none',
                   color: 'var(--morius-title-text)',
                   fontSize: mobileSheet.isMobileSheet ? '1.55rem' : '2rem',
                   fontWeight: 900,
@@ -960,19 +558,19 @@ function SettingsDialog({
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
                       sx={{
-                        minHeight: mobileSheet.isMobileSheet ? 48 : 56,
+                        minHeight: mobileSheet.isMobileSheet ? 42 : 38,
                         minWidth: mobileSheet.isMobileSheet ? 'fit-content' : '100%',
                         justifyContent: 'flex-start',
-                        px: 1.8,
-                        borderRadius: '16px',
+                        px: 1.5,
+                        borderRadius: '10px',
                         textTransform: 'none',
-                        fontSize: '1rem',
-                        fontWeight: isActive ? 800 : 700,
-                        color: isActive ? 'var(--morius-accent)' : 'var(--morius-text-primary)',
-                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                        backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : 'transparent',
+                        fontSize: '0.86rem',
+                        fontWeight: isActive ? 750 : 650,
+                        color: isActive ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
+                        border: 'none',
+                        backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-accent) 28%, var(--morius-elevated-bg))' : 'transparent',
                         '&:hover': {
-                          backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))' : 'color-mix(in srgb, var(--morius-button-hover) 45%, transparent)',
+                          backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-accent) 34%, var(--morius-elevated-bg))' : 'color-mix(in srgb, var(--morius-button-hover) 52%, transparent)',
                         },
                       }}
                     >
@@ -990,52 +588,30 @@ function SettingsDialog({
               minWidth: 0,
               minHeight: 0,
               overflowY: 'auto',
-              p: mobileSheet.isMobileSheet ? 1.2 : { xs: 1.35, md: 2.2 },
-              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 34%, #020304 66%)',
+              p: mobileSheet.isMobileSheet ? 1.2 : { xs: 1.35, md: '20px 22px 22px' },
+              backgroundColor: 'transparent',
             }}
           >
             {error ? <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.4, borderRadius: '14px' }}>{error}</Alert> : null}
             {avatarError ? <Alert severity="error" sx={{ mb: 1.4, borderRadius: '14px' }}>{avatarError}</Alert> : null}
 
-            {activeTab === 'profile' ? (
-              <Stack spacing={1.6}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                  <Typography sx={{ color: 'var(--morius-accent)', fontSize: { xs: '2.25rem', md: '2.7rem' }, fontWeight: 900, lineHeight: 1 }}>Профиль</Typography>
-                  <Button
-                    onClick={requestDialogClose}
-                    disableRipple
-                    sx={{
-                      display: 'none',
-                      minWidth: 44,
-                      width: 44,
-                      height: 44,
-                      p: 0,
-                      borderRadius: 0,
-                      color: 'color-mix(in srgb, var(--morius-title-text) 72%, black 28%)',
-                      backgroundColor: 'transparent',
-                      fontSize: '1.85rem',
-                      fontWeight: 700,
-                      lineHeight: 1,
-                      '&:hover': {
-                        backgroundColor: 'transparent',
-                        color: 'var(--morius-title-text)',
-                      },
-                    }}
-                  >
-                    ×
-                  </Button>
-                </Stack>
-                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.96rem', fontWeight: 700 }}>Предпросмотр</Typography>
+            <Stack spacing={1.45}>
+                {activeTab === 'appearance' ? (
+                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', fontWeight: 750, letterSpacing: '0.13em', textTransform: 'uppercase' }}>
+                    Предпросмотр
+                  </Typography>
+                ) : null}
 
                 <Box
                   sx={{
+                    display: activeTab === 'appearance' ? 'block' : 'none',
                     position: 'relative',
                     overflow: 'hidden',
-                    minHeight: { xs: 228, sm: 196 },
-                    borderRadius: '20px',
+                    minHeight: 158,
+                    borderRadius: '16px',
                     border: 'var(--morius-border-width) solid var(--morius-card-border)',
                     backgroundColor: 'var(--morius-card-bg)',
-                    p: { xs: 1.6, md: 2 },
+                    p: 0,
                   }}
                 >
                   <ProgressiveImage
@@ -1047,9 +623,9 @@ function SettingsDialog({
                     fallback={<Box sx={{ position: 'absolute', inset: 0, backgroundColor: 'var(--morius-card-bg)' }} />}
                     containerSx={{
                       position: 'absolute',
-                      inset: 0,
+                      inset: '0 0 auto 0',
                       width: '100%',
-                      height: '100%',
+                      height: 104,
                       backgroundColor: 'var(--morius-card-bg)',
                     }}
                   />
@@ -1057,26 +633,27 @@ function SettingsDialog({
                     aria-hidden
                     sx={{
                       position: 'absolute',
-                      inset: 0,
+                      inset: '0 0 auto 0',
+                      height: 104,
                       zIndex: 1,
                       background:
-                        'linear-gradient(90deg, rgba(5, 8, 12, 0.72) 0%, rgba(5, 8, 12, 0.38) 58%, rgba(5, 8, 12, 0.68) 100%), linear-gradient(0deg, rgba(5, 8, 12, 0.62) 0%, rgba(5, 8, 12, 0.16) 100%)',
+                        'linear-gradient(90deg, rgba(5, 8, 12, 0.12) 0%, rgba(5, 8, 12, 0.03) 58%, rgba(5, 8, 12, 0.14) 100%), linear-gradient(0deg, rgba(5, 8, 12, 0.32) 0%, rgba(5, 8, 12, 0.02) 100%)',
                     }}
                   />
                   <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    spacing={1.2}
-                    alignItems={{ xs: 'flex-start', sm: 'center' }}
-                    sx={{ position: 'relative', zIndex: 2, minHeight: { xs: 176, sm: 144 } }}
+                    direction="row"
+                    spacing={1.4}
+                    alignItems="flex-end"
+                    sx={{ position: 'absolute', zIndex: 2, left: 18, right: 18, bottom: 15, minHeight: 62 }}
                   >
                     <Box
                       sx={{
                         position: 'relative',
-                        width: { xs: 76, sm: 88 },
-                        height: { xs: 76, sm: 88 },
+                        width: 62,
+                        height: 62,
                         flexShrink: 0,
                         borderRadius: '50%',
-                        boxShadow: '0 0 0 4px var(--morius-app-base), 0 16px 32px rgba(0, 0, 0, 0.3)',
+                        boxShadow: '0 0 0 3px color-mix(in srgb, var(--morius-accent) 62%, var(--morius-title-text)), 0 0 0 6px var(--morius-card-bg), 0 12px 24px rgba(0,0,0,0.28)',
                       }}
                     >
                       {onChooseAvatar ? (
@@ -1086,8 +663,8 @@ function SettingsDialog({
                           disableRipple
                           sx={{
                             minWidth: 0,
-                            width: { xs: 76, sm: 88 },
-                            height: { xs: 76, sm: 88 },
+                            width: 62,
+                            height: 62,
                             p: 0,
                             borderRadius: '50%',
                             overflow: 'visible',
@@ -1104,8 +681,8 @@ function SettingsDialog({
                             },
                           }}
                         >
-                          <AvatarFrame frameId={avatarFrameId} frameImageUrl={selectedOwnedAvatarFrame?.image_url ?? null} size={mobileSheet.isMobileSheet ? 76 : 88}>
-                            <UserAvatar user={previewAvatarUser} size={mobileSheet.isMobileSheet ? 76 : 88} withFrame={false} />
+                          <AvatarFrame frameId={avatarFrameId} frameImageUrl={selectedOwnedAvatarFrame?.image_url ?? null} size={62}>
+                            <UserAvatar user={previewAvatarUser} size={62} withFrame={false} />
                           </AvatarFrame>
                           <Box
                             className="morius-settings-avatar-overlay"
@@ -1125,17 +702,16 @@ function SettingsDialog({
                           </Box>
                         </Button>
                       ) : (
-                        <AvatarFrame frameId={avatarFrameId} frameImageUrl={selectedOwnedAvatarFrame?.image_url ?? null} size={mobileSheet.isMobileSheet ? 76 : 88}>
-                          <UserAvatar user={previewAvatarUser} size={mobileSheet.isMobileSheet ? 76 : 88} withFrame={false} />
+                        <AvatarFrame frameId={avatarFrameId} frameImageUrl={selectedOwnedAvatarFrame?.image_url ?? null} size={62}>
+                          <UserAvatar user={previewAvatarUser} size={62} withFrame={false} />
                         </AvatarFrame>
                       )}
                       {avatarInputRef && onAvatarChange ? <Box component="input" ref={avatarInputRef} type="file" accept="image/*" onChange={onAvatarChange} sx={{ display: 'none' }} /> : null}
                     </Box>
 
-                    <Stack spacing={0.22} sx={{ minWidth: 0, flex: 1 }}>
-                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: { xs: '2rem', md: '2.5rem' }, fontWeight: 900, lineHeight: 1 }}>{displayName.trim() || 'Игрок'}</Typography>
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '1rem', lineHeight: 1.2 }}>{user.email}</Typography>
-                      <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '1rem', lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    <Stack spacing={0.18} sx={{ minWidth: 0, flex: 1, pb: 0.15 }}>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.08rem', fontWeight: 800, lineHeight: 1.1 }}>{displayName.trim() || 'Игрок'}</Typography>
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.25, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                         {previewDescription}
                       </Typography>
                     </Stack>
@@ -1143,13 +719,13 @@ function SettingsDialog({
                   </Stack>
                 </Box>
 
-                <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: { xs: 1.1, md: 1.35 } }}>
-                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800, mb: 1 }}>Рамка аватарки</Typography>
+                <Box sx={{ display: activeTab === 'appearance' ? 'block' : 'none' }}>
+                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', fontWeight: 750, letterSpacing: '0.13em', textTransform: 'uppercase', mb: 1 }}>Рамка аватарки</Typography>
                   <Box
                     sx={{
                       display: 'grid',
-                      gap: 0.85,
-                      gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' },
+                      gap: 0.9,
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))',
                     }}
                   >
                     {ownedShopCosmetics.avatar_frames.map((item) => {
@@ -1160,10 +736,10 @@ function SettingsDialog({
                           onClick={() => setAvatarFrameId(item.selection_id)}
                           aria-pressed={isActive}
                           sx={{
-                            minHeight: 118,
-                            borderRadius: '14px',
-                            border: isActive ? '2px solid var(--morius-accent)' : 'var(--morius-border-width) solid var(--morius-card-border)',
-                            backgroundColor: 'var(--morius-elevated-bg)',
+                            minHeight: 94,
+                            borderRadius: '12px',
+                            border: isActive ? '1.5px solid var(--morius-accent)' : 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 76%, transparent)',
                             display: 'grid',
                             placeItems: 'center',
                             p: 1,
@@ -1171,8 +747,8 @@ function SettingsDialog({
                           }}
                         >
                           <Stack spacing={0.7} alignItems="center" sx={{ minWidth: 0 }}>
-                            <AvatarFrame frameId={item.selection_id} frameImageUrl={item.image_url} size={58}>
-                              <UserAvatar user={previewAvatarUser} size={58} withFrame={false} />
+                            <AvatarFrame frameId={item.selection_id} frameImageUrl={item.image_url} size={46}>
+                              <UserAvatar user={previewAvatarUser} size={46} withFrame={false} />
                             </AvatarFrame>
                             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.78rem', fontWeight: 900, lineHeight: 1.1, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {item.title}
@@ -1189,10 +765,10 @@ function SettingsDialog({
                           onClick={() => setAvatarFrameId(preset.id)}
                           aria-pressed={isActive}
                           sx={{
-                            minHeight: 118,
-                            borderRadius: '14px',
-                            border: isActive ? '2px solid var(--morius-accent)' : 'var(--morius-border-width) solid var(--morius-card-border)',
-                            backgroundColor: 'var(--morius-elevated-bg)',
+                            minHeight: 94,
+                            borderRadius: '12px',
+                            border: isActive ? '1.5px solid var(--morius-accent)' : 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 76%, transparent)',
                             display: 'grid',
                             placeItems: 'center',
                             p: 1,
@@ -1200,8 +776,8 @@ function SettingsDialog({
                           }}
                         >
                           <Stack spacing={0.7} alignItems="center" sx={{ minWidth: 0 }}>
-                            <AvatarFrame frameId={preset.id} size={58}>
-                              <UserAvatar user={previewAvatarUser} size={58} withFrame={false} />
+                            <AvatarFrame frameId={preset.id} size={46}>
+                              <UserAvatar user={previewAvatarUser} size={46} withFrame={false} />
                             </AvatarFrame>
                             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.78rem', fontWeight: 900, lineHeight: 1.1, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {preset.label}
@@ -1213,13 +789,13 @@ function SettingsDialog({
                   </Box>
                 </Box>
 
-                <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: { xs: 1.1, md: 1.35 } }}>
-                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800, mb: 1 }}>Фон профиля</Typography>
+                <Box sx={{ display: activeTab === 'appearance' ? 'block' : 'none' }}>
+                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', fontWeight: 750, letterSpacing: '0.13em', textTransform: 'uppercase', mb: 1 }}>Баннер профиля</Typography>
                   <Box
                     sx={{
                       display: 'grid',
-                      gap: 0.85,
-                      gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' },
+                      gap: 0.9,
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))',
                     }}
                   >
                     {ownedShopCosmetics.profile_banners.map((item) => {
@@ -1232,14 +808,19 @@ function SettingsDialog({
                           sx={{
                             position: 'relative',
                             overflow: 'hidden',
-                            aspectRatio: '16 / 9',
+                            minHeight: 94,
                             borderRadius: '12px',
                             border: isActive
-                              ? '2px solid var(--morius-accent)'
+                              ? '1.5px solid var(--morius-accent)'
                               : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
-                            backgroundColor: 'var(--morius-elevated-bg)',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 76%, transparent)',
                             boxShadow: isActive ? '0 0 0 2px color-mix(in srgb, var(--morius-accent) 20%, transparent)' : 'none',
                             transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'stretch',
+                            gap: 0.65,
+                            p: 0.75,
                             '&:hover': {
                               borderColor: 'color-mix(in srgb, var(--morius-accent) 74%, var(--morius-card-border))',
                               transform: 'translateY(-1px)',
@@ -1251,13 +832,12 @@ function SettingsDialog({
                             alt=""
                             objectFit="cover"
                             loaderSize={18}
-                            containerSx={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+                            containerSx={{ position: 'relative', width: '100%', height: 58, borderRadius: '9px', overflow: 'hidden' }}
                           />
                           <Box
                             aria-hidden
                             sx={{
-                              position: 'absolute',
-                              inset: 0,
+                              display: 'none',
                               background: 'linear-gradient(0deg, rgba(3, 5, 8, 0.62) 0%, rgba(3, 5, 8, 0.05) 65%)',
                               zIndex: 1,
                             }}
@@ -1265,15 +845,14 @@ function SettingsDialog({
                           <Typography
                             component="span"
                             sx={{
-                              position: 'absolute',
-                              left: 10,
-                              bottom: 8,
+                              position: 'static',
                               zIndex: 2,
-                              color: '#fff',
-                              fontSize: '0.78rem',
-                              fontWeight: 900,
+                              color: 'var(--morius-text-primary)',
+                              fontSize: '0.72rem',
+                              fontWeight: 650,
                               lineHeight: 1,
-                              maxWidth: 'calc(100% - 20px)',
+                              maxWidth: '100%',
+                              textAlign: 'left',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap',
@@ -1294,14 +873,19 @@ function SettingsDialog({
                           sx={{
                             position: 'relative',
                             overflow: 'hidden',
-                            aspectRatio: '16 / 9',
+                            minHeight: 94,
                             borderRadius: '12px',
                             border: isActive
-                              ? '2px solid var(--morius-accent)'
+                              ? '1.5px solid var(--morius-accent)'
                               : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
-                            backgroundColor: 'var(--morius-elevated-bg)',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 76%, transparent)',
                             boxShadow: isActive ? '0 0 0 2px color-mix(in srgb, var(--morius-accent) 20%, transparent)' : 'none',
                             transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'stretch',
+                            gap: 0.65,
+                            p: 0.75,
                             '&:hover': {
                               borderColor: 'color-mix(in srgb, var(--morius-accent) 74%, var(--morius-card-border))',
                               transform: 'translateY(-1px)',
@@ -1314,13 +898,12 @@ function SettingsDialog({
                             objectFit="cover"
                             objectPosition={preset.objectPosition}
                             loaderSize={18}
-                            containerSx={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+                            containerSx={{ position: 'relative', width: '100%', height: 58, borderRadius: '9px', overflow: 'hidden' }}
                           />
                           <Box
                             aria-hidden
                             sx={{
-                              position: 'absolute',
-                              inset: 0,
+                              display: 'none',
                               background: 'linear-gradient(0deg, rgba(3, 5, 8, 0.62) 0%, rgba(3, 5, 8, 0.05) 65%)',
                               zIndex: 1,
                             }}
@@ -1328,14 +911,17 @@ function SettingsDialog({
                           <Typography
                             component="span"
                             sx={{
-                              position: 'absolute',
-                              left: 10,
-                              bottom: 8,
+                              position: 'static',
                               zIndex: 2,
-                              color: '#fff',
-                              fontSize: '0.78rem',
-                              fontWeight: 900,
+                              color: 'var(--morius-text-primary)',
+                              fontSize: '0.72rem',
+                              fontWeight: 650,
                               lineHeight: 1,
+                              maxWidth: '100%',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              textAlign: 'left',
                             }}
                           >
                             {preset.label}
@@ -1346,13 +932,13 @@ function SettingsDialog({
                   </Box>
                 </Box>
 
-                <Box sx={{ display: 'grid', gap: 1.4, gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 0.92fr) minmax(320px, 0.72fr)' } }}>
-                  <Stack spacing={1.3}>
-                    <TextField label="Описание" multiline minRows={4} maxRows={6} value={profileDescription} onChange={(event) => setProfileDescription(event.target.value.slice(0, PROFILE_DESCRIPTION_MAX))} helperText={`${profileDescription.length}/${PROFILE_DESCRIPTION_MAX}`} sx={{ '& .MuiOutlinedInput-root': { alignItems: 'flex-start', borderRadius: '16px', backgroundColor: 'var(--morius-elevated-bg)' } }} />
-                    <TextField label="Отображаемое имя" value={displayName} onChange={(event) => setDisplayName(event.target.value.slice(0, DISPLAY_NAME_MAX))} helperText={`${displayName.length}/${DISPLAY_NAME_MAX}`} sx={{ '& .MuiOutlinedInput-root': { borderRadius: '14px', backgroundColor: 'var(--morius-elevated-bg)' } }} />
-                    <TextField label="Почта" value={user.email} disabled sx={{ '& .MuiOutlinedInput-root': { borderRadius: '14px', backgroundColor: 'var(--morius-elevated-bg)' } }} />
+                <Box sx={{ display: activeTab === 'appearance' ? 'none' : 'grid', gap: 1.4, gridTemplateColumns: '1fr' }}>
+                  <Stack spacing={1.3} sx={{ display: activeTab === 'profile' || activeTab === 'privacy' || activeTab === 'notifications' ? 'flex' : 'none' }}>
+                    <TextField label="Описание" multiline minRows={4} maxRows={6} value={profileDescription} onChange={(event) => setProfileDescription(event.target.value.slice(0, PROFILE_DESCRIPTION_MAX))} helperText={`${profileDescription.length}/${PROFILE_DESCRIPTION_MAX}`} sx={{ display: activeTab === 'profile' ? 'flex' : 'none', '& .MuiOutlinedInput-root': { alignItems: 'flex-start', borderRadius: '14px', backgroundColor: 'var(--morius-elevated-bg)' } }} />
+                    <TextField label="Отображаемое имя" value={displayName} onChange={(event) => setDisplayName(event.target.value.slice(0, DISPLAY_NAME_MAX))} helperText={`${displayName.length}/${DISPLAY_NAME_MAX}`} sx={{ display: activeTab === 'profile' ? 'flex' : 'none', '& .MuiOutlinedInput-root': { borderRadius: '14px', backgroundColor: 'var(--morius-elevated-bg)' } }} />
+                    <TextField label="Почта" value={user.email} disabled sx={{ display: activeTab === 'profile' ? 'flex' : 'none', '& .MuiOutlinedInput-root': { borderRadius: '14px', backgroundColor: 'var(--morius-elevated-bg)' } }} />
 
-                    <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: 1.35 }}>
+                    <Box sx={{ display: activeTab === 'privacy' ? 'block' : 'none', borderRadius: '16px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 76%, transparent)', p: 1.5 }}>
                       <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800, mb: 1 }}>Приватность</Typography>
                       <Stack spacing={0.9}>
                         {PRIVACY_FIELDS.map((item) => (
@@ -1360,14 +946,14 @@ function SettingsDialog({
                         ))}
                       </Stack>
                     </Box>
-                    <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: 1.35 }}>
+                    <Box sx={{ display: activeTab === 'notifications' ? 'block' : 'none', borderRadius: '16px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 76%, transparent)', p: 1.5 }}>
                       <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800, mb: 1 }}>AI-помощник</Typography>
                       <SettingsSwitchRow label="Показывать AI-помощника" checked={aiAssistantVisible} onChange={setAiAssistantVisible} />
                     </Box>
                   </Stack>
 
-                  <Stack spacing={1.4} sx={{ alignSelf: 'start' }}>
-                    <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: 1.35 }}>
+                  <Stack spacing={1.4} sx={{ display: activeTab === 'profile' || activeTab === 'notifications' ? 'flex' : 'none', alignSelf: 'start' }}>
+                    <Box sx={{ display: activeTab === 'notifications' ? 'block' : 'none', borderRadius: '16px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 76%, transparent)', p: 1.5 }}>
                       <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800, mb: 1 }}>Уведомления</Typography>
                       <Stack spacing={0.9}>
                         {NOTIFICATION_FIELDS.map((item) => (
@@ -1376,7 +962,7 @@ function SettingsDialog({
                       </Stack>
                     </Box>
 
-                    <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: 1.35 }}>
+                    <Box sx={{ display: activeTab === 'profile' ? 'block' : 'none', borderRadius: '16px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 76%, transparent)', p: 1.5 }}>
                       <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800 }}>
                         Перепривязать способ входа
                       </Typography>
@@ -1445,381 +1031,54 @@ function SettingsDialog({
                         </Button>
                       </Stack>
                     </Box>
-                  </Stack>
-                </Box>
-              </Stack>
-            ) : (
-              <Stack spacing={1.6}>
-                <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={1}>
-                  <Typography sx={{ color: 'var(--morius-accent)', fontSize: { xs: '2.2rem', md: '2.7rem' }, fontWeight: 900, lineHeight: 1 }}>Темы</Typography>
-                  <Button
-                    onClick={requestDialogClose}
-                    disableRipple
-                    sx={{
-                      display: 'none',
-                      minWidth: 44,
-                      width: 44,
-                      height: 44,
-                      p: 0,
-                      borderRadius: 0,
-                      color: 'color-mix(in srgb, var(--morius-title-text) 72%, black 28%)',
-                      backgroundColor: 'transparent',
-                      fontSize: '1.85rem',
-                      fontWeight: 700,
-                      lineHeight: 1,
-                      '&:hover': {
-                        backgroundColor: 'transparent',
-                        color: 'var(--morius-title-text)',
-                      },
-                    }}
-                  >
-                    ×
-                  </Button>
-                </Stack>
-
-                <Stack spacing={0.9}>
-                  <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    justifyContent="space-between"
-                    alignItems={{ xs: 'flex-start', sm: 'center' }}
-                    spacing={0.4}
-                  >
-                    <Box>
-                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>Все темы</Typography>
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
-                        Нажмите на тему, чтобы применить ее. Сохранение создаст или обновит вашу тему в аккаунте.
-                      </Typography>
-                    </Box>
-                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem', fontWeight: 700 }}>
-                      Свои темы: {savedCustomThemes.length}/{CURRENT_USER_CUSTOM_THEME_LIMIT}
-                    </Typography>
-                  </Stack>
-                  <Box sx={{ display: 'grid', gap: 0.8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-                    {moriusThemePresets.map((preset) => {
-                      const isActive = themeSettings?.active_theme_kind === 'preset' && themeSettings.active_theme_id === preset.id
-                      return (
-                        <Button
-                          key={preset.id}
-                          onClick={() => void handleSelectPresetTheme(preset.id)}
-                          disabled={isSavingTheme}
-                          sx={{
-                            minHeight: 96,
-                            p: 1.2,
-                            alignItems: 'stretch',
-                            justifyContent: 'flex-start',
-                            borderRadius: '20px',
-                            textTransform: 'none',
-                            border: 'none',
-                            backgroundColor: isActive
-                              ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))'
-                              : 'color-mix(in srgb, var(--morius-card-bg) 72%, var(--morius-elevated-bg) 28%)',
-                            boxShadow: isActive
-                              ? '0 18px 36px rgba(0, 0, 0, 0.28)'
-                              : '0 14px 30px rgba(0, 0, 0, 0.18)',
-                            '&:hover': {
-                              backgroundColor: isActive
-                                ? 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))'
-                                : 'color-mix(in srgb, var(--morius-card-bg) 66%, var(--morius-elevated-bg) 34%)',
-                              boxShadow: isActive
-                                ? '0 20px 38px rgba(0, 0, 0, 0.3)'
-                                : '0 16px 32px rgba(0, 0, 0, 0.2)',
-                            },
-                          }}
-                        >
-                          <Stack spacing={0.7} sx={{ width: '100%', textAlign: 'left' }}>
-                            <Stack direction="row" spacing={0.45}>
-                              {[preset.colors.titleText, preset.colors.textPrimary, preset.colors.appBase, preset.colors.appSurface, preset.colors.accent].map((color, index) => (
-                                <Box key={`${preset.id}-${index}`} sx={{ width: 18, height: 18, borderRadius: '50%', backgroundColor: color, border: 'var(--morius-border-width) solid rgba(255,255,255,0.16)' }} />
-                              ))}
-                            </Stack>
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>{preset.name}</Typography>
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.83rem', lineHeight: 1.35 }}>{preset.description}</Typography>
-                          </Stack>
-                        </Button>
-                      )
-                    })}
-                    {savedCustomThemes.map((theme) => {
-                      const isActive = themeSettings?.active_theme_kind === 'custom' && themeSettings.active_theme_id === theme.id
-                      return (
-                        <Box
-                          key={theme.id}
-                          className="morius-theme-card"
-                          sx={{
-                            position: 'relative',
-                            p: 1.15,
-                            borderRadius: '20px',
-                            border: 'none',
-                            backgroundColor: isActive
-                              ? 'color-mix(in srgb, var(--morius-accent) 11%, var(--morius-card-bg))'
-                              : 'color-mix(in srgb, var(--morius-card-bg) 72%, var(--morius-elevated-bg) 28%)',
-                            boxShadow: isActive
-                              ? '0 18px 36px rgba(0, 0, 0, 0.28)'
-                              : '0 14px 30px rgba(0, 0, 0, 0.18)',
-                          }}
-                        >
-                          <IconButton
-                            aria-label={`Удалить тему ${theme.name}`}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              handleRequestDeleteTheme(theme)
-                            }}
-                            sx={{
-                              position: 'absolute',
-                              top: 8,
-                              right: 8,
-                              width: 30,
-                              height: 30,
-                              borderRadius: '10px',
-                              color: 'var(--morius-title-text)',
-                              backgroundColor: 'color-mix(in srgb, rgba(8, 10, 14, 0.88) 78%, var(--morius-card-bg) 22%)',
-                              opacity: { xs: 1, md: 0 },
-                              transition: 'opacity 160ms ease, transform 160ms ease',
-                              transform: { xs: 'none', md: 'translateY(-2px)' },
-                              '.morius-theme-card:hover &, .morius-theme-card:focus-within &': {
-                                opacity: 1,
-                                transform: 'translateY(0)',
-                              },
-                              '&:hover': {
-                                backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, rgba(8, 10, 14, 0.88))',
-                              },
-                            }}
-                          >
-                            <ThemedSvgIcon markup={trashIconMarkup} size={15} />
-                          </IconButton>
-                          <Stack spacing={0.7} sx={{ height: '100%' }}>
-                            <Stack direction="row" spacing={0.45}>
-                              {[theme.palette.title_text, theme.palette.text_primary, theme.palette.background, theme.palette.surface, theme.palette.front].map((color, index) => (
-                                <Box key={`${theme.id}-custom-${index}`} sx={{ width: 18, height: 18, borderRadius: '50%', backgroundColor: color, border: 'var(--morius-border-width) solid rgba(255,255,255,0.16)' }} />
-                              ))}
-                            </Stack>
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>{theme.name}</Typography>
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.83rem', lineHeight: 1.35, flex: 1 }}>{theme.description || 'Пользовательская палитра'}</Typography>
-                            <Stack direction="row" spacing={0.7}>
-                              <Button
-                                onClick={() => void handleSelectCustomTheme(theme)}
-                                disabled={isSavingTheme}
-                                sx={{ flex: 1, minHeight: 36, borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, var(--morius-card-bg) 22%)' }}
-                              >
-                                Применить
-                              </Button>
-                              <Button onClick={() => handleEditCustomTheme(theme)} sx={{ flex: 1, minHeight: 36, borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, var(--morius-card-bg) 22%)' }}>
-                                Изменить
-                              </Button>
-                            </Stack>
-                          </Stack>
-                        </Box>
-                      )
-                    })}
                     <Button
-                      onClick={handleStartNewTheme}
-                      disabled={isSavingTheme || !canCreateMoreCustomThemes}
+                      onClick={onLogout}
                       sx={{
-                        minHeight: 96,
-                        p: 1.2,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: '20px',
+                        display: activeTab === 'profile' ? 'inline-flex' : 'none',
+                        alignSelf: 'flex-start',
+                        minHeight: 40,
+                        px: 1.7,
+                        borderRadius: '11px',
                         textTransform: 'none',
-                        border: 'none',
-                        backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 72%, var(--morius-elevated-bg) 28%)',
-                        boxShadow: '0 14px 30px rgba(0, 0, 0, 0.18)',
-                        '&:hover': {
-                          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 66%, var(--morius-elevated-bg) 34%)',
-                          boxShadow: '0 16px 32px rgba(0, 0, 0, 0.2)',
-                        },
-                        '&.Mui-disabled': {
-                          color: 'var(--morius-text-secondary)',
-                          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, var(--morius-elevated-bg) 18%)',
-                          boxShadow: 'none',
-                        },
+                        color: 'var(--morius-text-secondary)',
+                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                        backgroundColor: 'rgba(255,255,255,0.035)',
                       }}
                     >
-                      <Stack spacing={0.55} alignItems="center">
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2rem', fontWeight: 400, lineHeight: 1 }}>+</Typography>
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 800 }}>Новая тема</Typography>
-                        {!canCreateMoreCustomThemes ? (
-                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>Лимит достигнут</Typography>
-                        ) : null}
-                      </Stack>
+                      Выйти из аккаунта
                     </Button>
-                  </Box>
-                </Stack>
-
-                <Box sx={{ borderRadius: '22px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: { xs: 1.1, md: 1.45 } }}>
-                  <Box sx={{ display: 'grid', gap: 1.4, gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 0.8fr) minmax(440px, 0.96fr)' } }}>
-                    <Stack spacing={1.15}>
-                      <TextField label="Название темы" value={themeDraft.name} onChange={(event) => setThemeDraft((previous) => ({ ...previous, name: event.target.value.slice(0, THEME_NAME_MAX) }))} helperText={`${themeDraft.name.length}/${THEME_NAME_MAX}`} sx={{ '& .MuiOutlinedInput-root': { borderRadius: '14px', backgroundColor: 'var(--morius-elevated-bg)' } }} />
-                      <TextField label="Описание" value={themeDraft.description} onChange={(event) => setThemeDraft((previous) => ({ ...previous, description: event.target.value.slice(0, THEME_DESCRIPTION_MAX) }))} helperText={`${themeDraft.description.length}/${THEME_DESCRIPTION_MAX}`} sx={{ '& .MuiOutlinedInput-root': { borderRadius: '14px', backgroundColor: 'var(--morius-elevated-bg)' } }} />
-                      <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: themeDraft.palette.surface, color: themeDraft.palette.text_primary, p: 1.35 }}>
-                        <Typography sx={{ color: themeDraft.palette.title_text, fontSize: { xs: '2rem', md: '2.3rem' }, fontWeight: 900 }}>{themeDraft.name.trim() || 'Новая тема'}</Typography>
-                        <Typography sx={{ mt: 0.45, color: themeDraft.story.corrected_text_color, fontSize: '0.95rem', lineHeight: 1.4 }}>Исправленный текст</Typography>
-                        <Typography sx={{ mt: 0.8, color: themeDraft.story.player_text_color, fontSize: '0.95rem', lineHeight: 1.45 }}>Текст написанный игроком</Typography>
-                        <Typography sx={{ mt: 0.8, color: themeDraft.story.assistant_text_color, fontSize: '0.95rem', lineHeight: 1.45 }}>Текст генерируемый нейросетью</Typography>
-                      </Box>
-                      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-                        <FormControl fullWidth>
-                          <Select value={themeDraft.story.font_family} onChange={(event: SelectChangeEvent<typeof themeDraft.story.font_family>) => setThemeDraft((previous) => ({ ...previous, story: { ...previous.story, font_family: event.target.value as EditableTheme['story']['font_family'] } }))} sx={{ borderRadius: '14px', backgroundColor: 'var(--morius-elevated-bg)' }}>
-                            {storyHistoryFontFamilyOptions.map((option) => <MenuItem key={option.id} value={option.id}>{option.title}</MenuItem>)}
-                          </Select>
-                        </FormControl>
-                        <FormControl fullWidth>
-                          <Select value={themeDraft.story.font_weight} onChange={(event: SelectChangeEvent<typeof themeDraft.story.font_weight>) => setThemeDraft((previous) => ({ ...previous, story: { ...previous.story, font_weight: event.target.value as EditableTheme['story']['font_weight'] } }))} sx={{ borderRadius: '14px', backgroundColor: 'var(--morius-elevated-bg)' }}>
-                            {storyHistoryFontWeightOptions.map((option) => <MenuItem key={option.id} value={option.id}>{option.title}</MenuItem>)}
-                          </Select>
-                        </FormControl>
-                      </Stack>
-                    </Stack>
-
-                    <Stack spacing={1.15} sx={{ pl: { lg: 1.1 } }}>
-                      {[...PALETTE_FIELDS, ...STORY_FIELDS].map((field) => {
-                        const currentColor = isPaletteField(field.key) ? themeDraft.palette[field.key] : themeDraft.story[field.key]
-                        const iconColor = resolveContrastColor(currentColor)
-                        return (
-                          <Box key={field.key} sx={{ display: 'grid', gap: 0.8, gridTemplateColumns: { xs: '1fr', md: '176px minmax(0, 1fr)' }, alignItems: { md: 'center' } }}>
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 800, whiteSpace: 'nowrap' }}>{field.label}</Typography>
-                            <Stack direction="row" spacing={0.55} useFlexGap flexWrap={{ xs: 'wrap', lg: 'nowrap' }} justifyContent={{ md: 'flex-start' }}>
-                              {COLOR_SWATCHES.map((color) => {
-                                const isActive = normalizeHexColor(currentColor) === normalizeHexColor(color)
-                                return (
-                                  <Button
-                                    key={`${field.key}-${color}`}
-                                    onClick={() => {
-                                      setColorInputDraft(color)
-                                      syncColorPickerInputValue(normalizeHexColor(color).toLowerCase())
-                                      scheduleColorSelection(field.key, color)
-                                    }}
-                                    sx={{
-                                      minWidth: 0,
-                                      width: 36,
-                                      height: 24,
-                                      p: 0,
-                                      borderRadius: '8px',
-                                      border: 'none',
-                                      backgroundColor: color,
-                                      boxShadow: isActive
-                                        ? '0 0 0 2px color-mix(in srgb, var(--morius-accent) 72%, white 12%), 0 10px 18px rgba(0, 0, 0, 0.18)'
-                                        : '0 8px 16px rgba(0, 0, 0, 0.16)',
-                                    }}
-                                  />
-                                )
-                              })}
-                              <Button
-                                onClick={(event) => handleOpenColorPicker(event, field.key)}
-                                sx={{
-                                  minWidth: 0,
-                                  width: 44,
-                                  height: 24,
-                                  p: 0,
-                                  borderRadius: '8px',
-                                  border: 'none',
-                                  backgroundColor: currentColor,
-                                  color: iconColor,
-                                  boxShadow: '0 10px 18px rgba(0, 0, 0, 0.18)',
-                                }}
-                              >
-                                <ThemedSvgIcon markup={eyedropperIconMarkup} size={14} />
-                              </Button>
-                            </Stack>
-                          </Box>
-                        )
-                      })}
-                    </Stack>
-                  </Box>
+                  </Stack>
                 </Box>
               </Stack>
-            )}
           </Box>
         </Box>
         </DialogContent>
 
         <Box
           sx={{
-            px: mobileSheet.isMobileSheet ? 1.25 : 2.2,
-            pt: mobileSheet.isMobileSheet ? 1 : 1.2,
-            pb: mobileSheet.isMobileSheet ? 'calc(8px + env(safe-area-inset-bottom) + 8px)' : 1.2,
+            px: mobileSheet.isMobileSheet ? 1.25 : 2.75,
+            pt: mobileSheet.isMobileSheet ? 1 : 1.4,
+            pb: mobileSheet.isMobileSheet ? 'calc(8px + env(safe-area-inset-bottom) + 8px)' : 1.4,
             borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 78%, #020304 22%)',
-            boxShadow: '0 -10px 24px rgba(0, 0, 0, 0.18)',
+            backgroundColor: 'rgba(0,0,0,0.14)',
             zIndex: 2,
           }}
         >
-          {activeTab === 'profile' ? (
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="flex-end">
-              <Button onClick={onLogout} fullWidth={mobileSheet.isMobileSheet} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'var(--morius-elevated-bg)', '&:hover': { backgroundColor: 'var(--morius-button-hover)' } }}>
-                Выйти
-              </Button>
-              <Button onClick={() => void handleSaveProfile()} fullWidth={mobileSheet.isMobileSheet} disabled={isSavingProfile} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-card-bg))', '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 30%, var(--morius-card-bg))' } }}>
-                {isSavingProfile ? 'Сохраняем...' : 'Сохранить'}
-              </Button>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between">
+              <Typography sx={{ display: { xs: 'none', sm: 'block' }, color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>
+                Изменения видны всем сразу после сохранения
+              </Typography>
+              <Stack direction="row" spacing={1} justifyContent="flex-end">
+                <Button onClick={requestDialogClose} sx={{ minHeight: 38, px: 1.8, borderRadius: '11px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'rgba(255,255,255,0.05)', '&:hover': { backgroundColor: 'rgba(255,255,255,0.09)' } }}>
+                  Отмена
+                </Button>
+                <Button onClick={() => void handleSaveProfile()} disabled={isSavingProfile} sx={{ minHeight: 38, px: 2.1, borderRadius: '11px', textTransform: 'none', color: '#fff', border: 'none', background: 'linear-gradient(135deg, var(--morius-accent), color-mix(in srgb, var(--morius-accent) 72%, #14161d))', '&:hover': { filter: 'brightness(1.08)' } }}>
+                  {isSavingProfile ? 'Сохраняем...' : 'Сохранить'}
+                </Button>
+              </Stack>
             </Stack>
-          ) : (
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="flex-end">
-              <Button onClick={handleResetDraft} fullWidth={mobileSheet.isMobileSheet} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'var(--morius-elevated-bg)', '&:hover': { backgroundColor: 'var(--morius-button-hover)' } }}>
-                Сбросить
-              </Button>
-              <Button onClick={() => void handleSaveTheme()} fullWidth={mobileSheet.isMobileSheet} disabled={isSavingTheme} sx={{ minHeight: 44, px: 2.2, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-card-bg))', '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 30%, var(--morius-card-bg))' } }}>
-                {isSavingTheme ? 'Сохраняем...' : 'Сохранить'}
-              </Button>
-            </Stack>
-          )}
         </Box>
       </Box>
-
-      <Popover
-        open={Boolean(colorPickerAnchorEl && editingColorField)}
-        anchorEl={colorPickerAnchorEl}
-        onClose={handleCloseColorPicker}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-        PaperProps={{ sx: { mt: 0.75, p: 1.1, borderRadius: '16px', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, var(--morius-elevated-bg) 10%)', boxShadow: '0 18px 40px rgba(0, 0, 0, 0.24)' } }}
-      >
-        <Stack spacing={1} sx={{ minWidth: 180 }}>
-          <Box
-            component="input"
-            key={editingColorField ?? 'theme-color-picker'}
-            ref={colorPickerInputRef}
-            type="color"
-            defaultValue={pickerColorValue}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              if (!editingColorField) {
-                return
-              }
-              const nextValue = event.target.value
-              setColorInputDraft(nextValue)
-              scheduleColorSelection(editingColorField, nextValue)
-            }}
-            sx={{ width: '100%', height: 44, p: 0, border: 'none', borderRadius: '12px', background: 'transparent', cursor: 'pointer' }}
-          />
-          <TextField
-            label="HEX"
-            value={activeColorInputValue}
-            onChange={(event) => {
-              if (!editingColorField) {
-                return
-              }
-              const nextValue = event.target.value.toUpperCase()
-              setColorInputDraft(nextValue)
-              if (!isCompleteHexColor(nextValue)) {
-                return
-              }
-              syncColorPickerInputValue(normalizeHexColor(nextValue, activeFieldColor).toLowerCase())
-              scheduleColorSelection(editingColorField, nextValue)
-            }}
-            onBlur={() => {
-              if (!editingColorField) {
-                return
-              }
-              const committedValue = isCompleteHexColor(activeColorInputValue)
-                ? normalizeHexColor(activeColorInputValue, activeFieldColor)
-                : activeFieldColor
-              setColorInputDraft(committedValue)
-              syncColorPickerInputValue(committedValue.toLowerCase())
-              scheduleColorSelection(editingColorField, committedValue)
-            }}
-            sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px', backgroundColor: 'var(--morius-elevated-bg)' } }}
-          />
-        </Stack>
-      </Popover>
 
       <Dialog
         open={isPasswordAuthDialogOpen}
@@ -1894,53 +1153,6 @@ function SettingsDialog({
             }}
           >
             {isReplacingAuthMethod ? 'Сохраняем...' : 'Включить вход по паролю'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog
-        open={Boolean(themeDeleteTarget)}
-        onClose={() => {
-          if (isSavingTheme) {
-            return
-          }
-          setThemeDeleteTarget(null)
-        }}
-        maxWidth="xs"
-        fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: '18px',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            backgroundColor: 'var(--morius-card-bg)',
-            color: 'var(--morius-text-primary)',
-          },
-        }}
-      >
-        <DialogTitle sx={{ fontWeight: 800 }}>Удалить тему?</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ color: 'var(--morius-text-secondary)', lineHeight: 1.45 }}>
-            {themeDeleteTarget ? `Тема «${themeDeleteTarget.name}» будет удалена из вашего аккаунта. Это действие нельзя отменить.` : ''}
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2 }}>
-          <Button onClick={() => setThemeDeleteTarget(null)} disabled={isSavingTheme} sx={{ color: 'var(--morius-text-secondary)' }}>
-            Отмена
-          </Button>
-          <Button
-            onClick={() => void (themeDeleteTarget ? handleDeleteTheme(themeDeleteTarget.id) : Promise.resolve())}
-            disabled={!themeDeleteTarget || isSavingTheme}
-            sx={{
-              minHeight: 40,
-              px: 1.8,
-              borderRadius: '12px',
-              textTransform: 'none',
-              color: 'var(--morius-title-text)',
-              border: 'none',
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg) 82%)',
-            }}
-          >
-            {isSavingTheme ? 'Удаляем...' : 'Удалить'}
           </Button>
         </DialogActions>
       </Dialog>

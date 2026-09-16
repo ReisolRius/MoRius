@@ -4,6 +4,9 @@ import { getCurrentUserNotificationUnreadCount } from '../services/authApi'
 import type { AuthUser } from '../types/auth'
 import { NOTIFICATIONS_CHANGED_EVENT, type NotificationsChangedDetail } from '../utils/notifications'
 import DailyRewardsButton from './DailyRewardsButton'
+import { useAppHeaderSlots } from './header/appHeaderSlots'
+import HeaderPlayButton from './header/HeaderPlayButton'
+import { HEADER_CONTROL_SIZE } from './header/headerStyles'
 import UserAvatar from './profile/UserAvatar'
 
 type HeaderAccountActionsProps = {
@@ -25,6 +28,12 @@ function HeaderAccountActions({
 }: HeaderAccountActionsProps) {
   const [unreadCount, setUnreadCount] = useState(0)
   const shouldHideAvatar = useMediaQuery(hideAvatarBelowQuery ?? '(max-width:0px)')
+  const headerSlots = useAppHeaderSlots()
+  const registerAccountActions = headerSlots?.registerAccountActions
+  // Inside the redesigned header every control shares one height; standalone uses keep the size they ask for.
+  const resolvedAvatarSize = headerSlots ? HEADER_CONTROL_SIZE : avatarSize
+
+  useEffect(() => registerAccountActions?.(), [registerAccountActions])
 
   const refreshUnreadCount = useCallback(async () => {
     try {
@@ -92,12 +101,15 @@ function HeaderAccountActions({
 
   return (
     <Stack direction="row" spacing={1} alignItems="center">
-      {showDailyRewards ? <DailyRewardsButton authToken={authToken} size={avatarSize} /> : null}
+      {headerSlots?.search}
+      {showDailyRewards ? <DailyRewardsButton authToken={authToken} size={resolvedAvatarSize} /> : null}
+      {headerSlots?.aiAssistant}
+      {headerSlots?.showPlay ? <HeaderPlayButton authToken={authToken} /> : null}
       {shouldHideAvatar ? null : (
         <Box
           sx={{
-            width: avatarSize,
-            height: avatarSize,
+            width: resolvedAvatarSize,
+            height: resolvedAvatarSize,
             position: 'relative',
             flexShrink: 0,
             overflow: 'visible',
@@ -110,8 +122,8 @@ function HeaderAccountActions({
             data-tour-id="header-profile-button"
             sx={{
               minWidth: 0,
-              width: avatarSize,
-              height: avatarSize,
+              width: resolvedAvatarSize,
+              height: resolvedAvatarSize,
               p: 0,
               borderRadius: '50%',
               overflow: 'visible',
@@ -124,18 +136,18 @@ function HeaderAccountActions({
               },
             }}
           >
-            <UserAvatar user={user} size={avatarSize} />
+            <UserAvatar user={user} size={resolvedAvatarSize} />
           </Button>
           {unreadCount > 0 ? (
             <Box
               sx={{
                 position: 'absolute',
-                top: 2,
-                right: 2,
+                top: 1,
+                right: 1,
                 width: 10,
                 height: 10,
                 borderRadius: '50%',
-                border: '2px solid var(--morius-app-bg)',
+                border: '2px solid var(--morius-app-base)',
                 backgroundColor: 'var(--morius-accent)',
                 pointerEvents: 'none',
                 boxShadow: '0 8px 18px rgba(0, 0, 0, 0.22)',

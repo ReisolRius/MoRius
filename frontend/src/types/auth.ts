@@ -1,3 +1,10 @@
+export type ProfileShowcaseKind = 'banner' | 'avatar_frame' | 'badge' | 'game' | 'character'
+
+export type ProfileShowcaseItem = {
+  kind: ProfileShowcaseKind
+  entity_id: number | null
+}
+
 export type AuthUser = {
   id: number
   email: string
@@ -7,6 +14,7 @@ export type AuthUser = {
   profile_banner_image_url?: string | null
   avatar_frame_id: string
   avatar_frame_image_url?: string | null
+  profile_showcase?: ProfileShowcaseItem[]
   avatar_url: string | null
   avatar_scale: number
   auth_provider: string

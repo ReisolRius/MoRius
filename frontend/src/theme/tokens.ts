@@ -1,14 +1,42 @@
+export type MoriusThemeSurface = 'app' | 'legacy'
+
 export const moriusThemeTokens = {
   fonts: {
+    primary: '"Onest", "Segoe UI", sans-serif',
+    heading: '"Literata", Georgia, "Times New Roman", serif',
+  },
+  /** The presentation landing and the auth screen keep the pre-redesign typography. */
+  legacyFonts: {
     primary: '"Manrope", "Segoe UI", sans-serif',
     heading: '"Spectral", "Times New Roman", serif',
   },
   colors: {
+    appBackground: '#151820',
+    appBase: '#151820',
+    appSurface: '#2b2f37',
+    appElevated: '#292d34',
+    inputBg: '#252931',
+    inputBorder: 'rgba(255,255,255,0.1)',
+    appBorder: 'rgba(255,255,255,0.09)',
+    accent: '#6d70e8',
+    titleText: '#edeff5',
+    textPrimary: '#e4e7ef',
+    textSecondary: '#a9b0c0',
+    buttonHover: 'rgba(255,255,255,0.09)',
+    buttonActive: 'color-mix(in srgb, #6d70e8 18%, transparent)',
+    sendButton: '#6d70e8',
+    panelGradient: '#292d36',
+    bootBackground: '#151820',
+    baseText: '#a9b0c0',
+    dialogBg: '#2c3039',
+  },
+  legacyColors: {
     appBackground: '#090909',
     appBase: '#090909',
     appSurface: '#17171c',
     appElevated: '#16161b',
     inputBg: '#111114',
+    inputBorder: 'rgba(255,255,255,0.09)',
     appBorder: 'rgba(255,255,255,0.07)',
     accent: '#4c8dff',
     titleText: '#fbf9f4',
@@ -82,27 +110,83 @@ export type MoriusThemeColors = {
   dialogBg: string
 }
 
-export function createMoriusCssVariables(colors: MoriusThemeColors = moriusThemeTokens.colors) {
+/**
+ * Decorative values that are not derived from a palette: card gradients, glass, the gold of the
+ * currency. The redesigned app and the untouched legacy screens each get their own set.
+ */
+function resolveSurfaceDecor(colors: MoriusThemeColors, surface: MoriusThemeSurface) {
+  if (surface === 'legacy') {
+    return {
+      '--morius-font-ui': moriusThemeTokens.legacyFonts.primary,
+      '--morius-font-heading': moriusThemeTokens.legacyFonts.heading,
+      '--morius-heading-weight': '700',
+      '--morius-menu-border': 'rgba(255,255,255,0.09)',
+      '--morius-card-gradient': 'linear-gradient(180deg, #17171c, #121216)',
+      '--morius-card-alt-gradient': 'linear-gradient(180deg, #16161b, #111114)',
+      '--morius-chip-bg': 'rgba(255,255,255,0.03)',
+      '--morius-chip-border': 'rgba(255,255,255,0.06)',
+      '--morius-divider-color': 'rgba(255,255,255,0.05)',
+      '--morius-hover-border': 'rgba(255,255,255,0.18)',
+      '--morius-muted-text': '#7d7c83',
+      '--morius-quiet-text': '#6e6d74',
+      '--morius-gold': '#cda659',
+      '--morius-rating-gold': '#d8a64a',
+      '--morius-gold-gradient': 'linear-gradient(135deg, #ecd596, #cca251)',
+      '--morius-neutral-shadow': '0 22px 46px -20px rgba(0,0,0,0.75)',
+      '--morius-accent-gradient': `linear-gradient(180deg, color-mix(in srgb, ${colors.accent} 82%, #ffffff 18%), ${colors.accent})`,
+      '--morius-accent-shadow': 'none',
+      '--morius-glass-bg': 'linear-gradient(180deg, rgba(11,11,13,0.94), rgba(11,11,13,0.66))',
+      '--morius-dialog-gradient': 'linear-gradient(180deg, #17171c, #111114)',
+      '--morius-menu-gradient': 'linear-gradient(180deg, #1a1a1e, #141417)',
+      '--morius-backdrop': 'rgba(2, 5, 10, 0.76)',
+      '--morius-inset-bg': 'rgba(255,255,255,0.03)',
+      '--morius-accent-soft': `color-mix(in srgb, ${colors.accent} 11%, transparent)`,
+      '--morius-accent-border': `color-mix(in srgb, ${colors.accent} 32%, transparent)`,
+    } as const
+  }
+  return {
+    '--morius-font-ui': moriusThemeTokens.fonts.primary,
+    '--morius-font-heading': moriusThemeTokens.fonts.heading,
+    '--morius-heading-weight': '600',
+    '--morius-menu-border': 'rgba(255,255,255,0.1)',
+    '--morius-card-gradient': 'linear-gradient(165deg, #2f343d, #282c34)',
+    '--morius-card-alt-gradient': 'linear-gradient(165deg, #2e333c, #282c34)',
+    '--morius-chip-bg': 'rgba(255,255,255,0.04)',
+    '--morius-chip-border': 'rgba(255,255,255,0.08)',
+    '--morius-divider-color': 'rgba(255,255,255,0.07)',
+    '--morius-hover-border': 'rgba(255,255,255,0.18)',
+    '--morius-muted-text': '#8d95a8',
+    '--morius-quiet-text': '#7e869a',
+    '--morius-gold': '#e3c07f',
+    '--morius-rating-gold': '#e3c07f',
+    '--morius-gold-gradient': 'linear-gradient(135deg, #e3c07f, #c9a05e)',
+    '--morius-neutral-shadow': '0 30px 70px -40px rgba(0,0,0,0.9)',
+    '--morius-accent-gradient': `linear-gradient(135deg, ${colors.accent}, color-mix(in oklab, ${colors.accent} 72%, #14161d))`,
+    '--morius-accent-shadow': `0 8px 22px -10px color-mix(in oklab, ${colors.accent} 90%, transparent)`,
+    '--morius-glass-bg': 'rgba(33,36,44,0.78)',
+    '--morius-dialog-gradient': 'linear-gradient(170deg, #333845, #292d36)',
+    '--morius-menu-gradient': 'linear-gradient(170deg, #343945, #2a2e37)',
+    '--morius-backdrop': 'rgba(14, 15, 19, 0.72)',
+    '--morius-inset-bg': 'rgba(255,255,255,0.04)',
+    '--morius-accent-soft': `color-mix(in oklab, ${colors.accent} 12%, rgba(255,255,255,0.03))`,
+    '--morius-accent-border': `color-mix(in oklab, ${colors.accent} 40%, transparent)`,
+  } as const
+}
+
+export function createMoriusCssVariables(
+  colors: MoriusThemeColors = moriusThemeTokens.colors,
+  surface: MoriusThemeSurface = 'app',
+) {
   return {
     '--accent': colors.accent,
     '--morius-app-bg': colors.appBackground,
     '--morius-app-base': colors.appBase,
     '--morius-dialog-bg': colors.dialogBg,
     '--morius-card-bg': colors.appSurface,
-    '--morius-card-gradient': 'linear-gradient(180deg, #17171c, #121216)',
-    '--morius-card-alt-gradient': 'linear-gradient(180deg, #16161b, #111114)',
-    '--morius-chip-bg': 'rgba(255,255,255,0.03)',
-    '--morius-chip-border': 'rgba(255,255,255,0.06)',
-    '--morius-divider-color': 'rgba(255,255,255,0.05)',
-    '--morius-hover-border': 'rgba(255,255,255,0.18)',
-    '--morius-muted-text': '#7d7c83',
-    '--morius-quiet-text': '#6e6d74',
-    '--morius-gold': '#cda659',
-    '--morius-rating-gold': '#d8a64a',
-    '--morius-gold-gradient': 'linear-gradient(135deg, #ecd596, #cca251)',
-    '--morius-neutral-shadow': '0 22px 46px -20px rgba(0,0,0,0.75)',
+    ...resolveSurfaceDecor(colors, surface),
     '--morius-elevated-bg': colors.appElevated,
     '--morius-input-bg': colors.inputBg,
+    '--morius-input-border': colors.inputBorder ?? colors.appBorder,
     '--morius-card-border': colors.appBorder,
     '--morius-accent': colors.accent,
     '--morius-title-text': colors.titleText,

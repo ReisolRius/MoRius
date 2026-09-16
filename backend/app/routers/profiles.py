@@ -40,6 +40,7 @@ from app.schemas import (
 )
 from app.services.auth_identity import get_current_user
 from app.services.media import normalize_media_scale, resolve_media_display_url
+from app.services.profile_showcase import normalize_profile_showcase
 from app.services.cosmetics import (
     COSMETIC_KIND_PROFILE_BANNER,
     resolve_cosmetic_image_url_by_selection_id,
@@ -181,6 +182,7 @@ def _build_profile_user(db: Session, user: User) -> ProfileUserOut:
         ),
         avatar_frame_id=avatar_frame_id,
         avatar_frame_image_url=story_author_avatar_frame_image_url(db, user),
+        profile_showcase=normalize_profile_showcase(getattr(user, "profile_showcase", None)),
         avatar_url=resolve_media_display_url(
             getattr(user, "avatar_url", None),
             kind="user-avatar",

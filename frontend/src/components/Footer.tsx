@@ -90,7 +90,7 @@ function FooterSection({ title, links, onNavigate }: FooterSectionProps) {
             background: 'none',
             color: TEXT_COLOR,
             font: 'inherit',
-            fontFamily: '"Manrope", sans-serif',
+            fontFamily: 'var(--morius-font-ui)',
             fontSize: { xs: '0.83rem', md: '0.94rem' },
             fontWeight: 450,
             lineHeight: 1.35,
@@ -195,7 +195,7 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
             <Typography
               sx={{
                 color: 'var(--morius-title-text)',
-                fontFamily: '"Spectral", "Times New Roman", serif',
+                fontFamily: 'var(--morius-font-heading)',
                 fontSize: { xs: '1.7rem', md: '1.95rem' },
                 fontWeight: 600,
                 lineHeight: 1,
@@ -207,7 +207,7 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
           <Typography
             sx={{
               color: TEXT_COLOR,
-              fontFamily: '"Manrope", sans-serif',
+              fontFamily: 'var(--morius-font-ui)',
               fontSize: { xs: '0.84rem', md: '0.95rem' },
               lineHeight: 1.7,
               maxWidth: 350,

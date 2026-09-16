@@ -19,6 +19,12 @@ class User(Base):
     profile_description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     profile_banner_id: Mapped[str] = mapped_column(String(16), nullable=False, default="none", server_default="none")
     avatar_frame_id: Mapped[str] = mapped_column(String(16), nullable=False, default="none", server_default="none")
+    profile_showcase: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default='[{"kind":"banner","entity_id":null},{"kind":"avatar_frame","entity_id":null},{"kind":"badge","entity_id":null}]',
+        server_default='[{"kind":"banner","entity_id":null},{"kind":"avatar_frame","entity_id":null},{"kind":"badge","entity_id":null}]',
+    )
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     show_subscriptions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
@@ -664,20 +670,20 @@ class StoryGame(Base):
     appearance_gradient_from: Mapped[str] = mapped_column(
         String(16),
         nullable=False,
-        default="#050506",
-        server_default="#050506",
+        default="#20232D",
+        server_default="#20232D",
     )
     appearance_gradient_to: Mapped[str] = mapped_column(
         String(16),
         nullable=False,
-        default="#120803",
-        server_default="#120803",
+        default="#0A0400",
+        server_default="#0A0400",
     )
     appearance_solid_color: Mapped[str] = mapped_column(
         String(16),
         nullable=False,
-        default="#050506",
-        server_default="#050506",
+        default="#21242C",
+        server_default="#21242C",
     )
     appearance_ui_style: Mapped[str] = mapped_column(
         String(32),

@@ -202,7 +202,7 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
         aria-expanded={open ? 'true' : undefined}
         sx={{
           '--morius-daily-rewards-size': `${size}px`,
-          '--morius-daily-rewards-icon-size': `${Math.max(20, Math.round(size * 0.52))}px`,
+          '--morius-daily-rewards-icon-size': `${Math.max(18, Math.round(size * 0.46))}px`,
           '--morius-daily-rewards-color': 'color-mix(in srgb, var(--morius-title-text) 72%, transparent)',
           minWidth: 0,
           width: size,
@@ -212,30 +212,30 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
           maxHeight: size,
           flex: `0 0 ${size}px`,
           aspectRatio: '1 / 1',
-          borderRadius: '99px !important',
+          borderRadius: '12px !important',
           p: 0,
-          color: 'color-mix(in srgb, var(--morius-title-text) 74%, transparent) !important',
-          backgroundColor: 'var(--morius-elevated-bg) !important',
-          border: 'none',
+          color: '#cfd4e0 !important',
+          backgroundColor: 'rgba(255,255,255,0.045) !important',
+          border: '1px solid rgba(255,255,255,0.08)',
           boxShadow: 'none !important',
           opacity: '1 !important',
-          transition: 'background-color 160ms ease, color 160ms ease',
+          transition: 'background-color 160ms ease, color 160ms ease, border-color 160ms ease',
           position: 'relative',
           overflow: 'visible',
           '&:hover': {
             color: 'var(--morius-title-text) !important',
-            backgroundColor: 'var(--morius-button-hover) !important',
+            backgroundColor: 'rgba(255,255,255,0.09) !important',
+            borderColor: 'rgba(255,255,255,0.12)',
             opacity: '1 !important',
-            boxShadow: '0 10px 24px rgba(0,0,0,0.22) !important',
           },
           '&:active': {
-            backgroundColor: 'var(--morius-button-active) !important',
+            backgroundColor: 'rgba(255,255,255,0.06) !important',
           },
         }}
       >
         <ThemedSvgIcon
           markup={dailyDiamondIconMarkup}
-          size={Math.max(20, Math.round(size * 0.52))}
+          size={Math.max(18, Math.round(size * 0.46))}
           sx={{
             color: 'inherit',
             opacity: canClaim ? 1 : 0.96,
@@ -251,7 +251,7 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
               width: 10,
               height: 10,
               borderRadius: '50%',
-              backgroundColor: 'var(--morius-accent)',
+              backgroundColor: 'var(--morius-gold)',
               boxShadow: '0 0 0 2px var(--morius-app-bg)',
               pointerEvents: 'none',
             }}
@@ -272,10 +272,10 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
             width: 348,
             maxWidth: 'calc(100vw - 24px)',
             p: 1.7,
-            borderRadius: '24px',
-            border: 'none',
-            background: 'color-mix(in srgb, var(--morius-card-bg) 96%, black 4%)',
-            boxShadow: 'none',
+            borderRadius: '20px',
+            border: '1px solid rgba(255,255,255,0.1)',
+            background: 'var(--morius-dialog-gradient)',
+            boxShadow: '0 30px 70px -30px rgba(0,0,0,0.9)',
             overflow: 'hidden',
           },
         }}
@@ -283,9 +283,10 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
         <Stack spacing={1.25}>
           <Typography
             sx={{
+              fontFamily: 'var(--morius-font-heading)',
               fontSize: '20px',
-              fontWeight: 900,
-              lineHeight: 1,
+              fontWeight: 600,
+              lineHeight: 1.1,
               textAlign: 'center',
               color: 'var(--morius-title-text)',
             }}

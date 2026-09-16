@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import DashboardNewsCard
-from app.schemas import DashboardNewsCardOut, DashboardNewsCardUpdateRequest, DashboardNewsReorderRequest
+from app.models import DashboardNewsCard, StoryCharacter, StoryGame, User
+from app.schemas import DashboardNewsCardOut, DashboardNewsCardUpdateRequest, DashboardNewsReorderRequest, DashboardStatsOut
 from app.services.auth_identity import ADMIN_PANEL_ALLOWED_ROLES, ROLE_ADMINISTRATOR, get_current_user
 from app.services.media import resolve_media_storage_value, validate_avatar_url
 
@@ -135,6 +135,28 @@ def list_dashboard_news(
     _disable_dashboard_news_cache(response)
     cards = _list_dashboard_news_cards(db)
     return [DashboardNewsCardOut.model_validate(card) for card in cards]
+
+
+@router.get("/api/auth/dashboard-stats", response_model=DashboardStatsOut)
+def get_dashboard_stats(
+    response: Response,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> DashboardStatsOut:
+    _ = get_current_user(db, authorization)
+    _disable_dashboard_news_cache(response)
+    published_games_count = int(
+        db.scalar(select(func.count(StoryGame.id)).where(StoryGame.visibility == "public")) or 0
+    )
+    published_characters_count = int(
+        db.scalar(select(func.count(StoryCharacter.id)).where(StoryCharacter.visibility == "public")) or 0
+    )
+    players_count = int(db.scalar(select(func.count(User.id))) or 0)
+    return DashboardStatsOut(
+        published_games_count=published_games_count,
+        published_characters_count=published_characters_count,
+        players_count=players_count,
+    )
 
 
 @router.patch("/api/auth/dashboard-news/reorder", response_model=list[DashboardNewsCardOut])

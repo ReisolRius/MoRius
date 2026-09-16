@@ -48,6 +48,7 @@ import AdminPanelDialog, { type AdminPanelInitialTarget } from '../components/pr
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
+import ProfileShowcaseDialog from '../components/profile/ProfileShowcaseDialog'
 import WorldCardTemplatesPanel from '../components/profile/WorldCardTemplatesPanel'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import TopUpDialog from '../components/profile/TopUpDialog'
@@ -69,6 +70,7 @@ import {
   markCurrentUserNotificationRead,
   getProfileView,
   getCoinTopUpPlans,
+  normalizeProfileShowcase,
   listProfileContentPage,
   syncCoinTopUpPayment,
   unfollowUserProfile,
@@ -79,6 +81,7 @@ import {
   type CosmeticItem,
   type ProfileFollowState,
   type ProfileGalleryImage,
+  type ProfileShowcaseItem,
   type ProfileContentItem,
   type ProfileContentKind,
   type ProfileConnectionKind,
@@ -810,6 +813,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [referralError, setReferralError] = useState('')
   const [isReferralCopied, setIsReferralCopied] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [profileShowcaseDialogOpen, setProfileShowcaseDialogOpen] = useState(false)
   const [connectionDialogKind, setConnectionDialogKind] = useState<ProfileConnectionKind | null>(null)
   const [profileConnections, setProfileConnections] = useState<ProfileSubscriptionUser[]>([])
   const [isProfileConnectionsLoading, setIsProfileConnectionsLoading] = useState(false)
@@ -845,6 +849,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     profile_banner_image_url: user.profile_banner_image_url ?? null,
     avatar_frame_id: normalizeAvatarFrameId(user.avatar_frame_id),
     avatar_frame_image_url: user.avatar_frame_image_url ?? null,
+    profile_showcase: normalizeProfileShowcase(user.profile_showcase),
     avatar_url: user.avatar_url,
     avatar_scale: user.avatar_scale ?? 1,
     role: user.role,
@@ -859,6 +864,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     profile_banner_image_url: null,
     avatar_frame_id: normalizeAvatarFrameId(null),
     avatar_frame_image_url: null,
+    profile_showcase: normalizeProfileShowcase(null),
     avatar_url: null,
     avatar_scale: 1,
     role: 'user',
@@ -932,6 +938,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const visiblePublicationWorlds = profileView?.published_worlds ?? []
   const visiblePublicationCharacters = profileView?.published_characters ?? []
   const visiblePublicationTemplates = profileView?.published_instruction_templates ?? []
+  const resolvedProfileShowcaseItems: ProfileShowcaseItem[] = normalizeProfileShowcase(resolvedProfileUser.profile_showcase)
+    .filter((item) => (
+      item.kind === 'game'
+        ? visiblePublicationWorlds.some((game) => game.id === item.entity_id)
+        : item.kind === 'character'
+          ? visiblePublicationCharacters.some((character) => character.id === item.entity_id)
+          : true
+    ))
   const visibleUnpublishedWorlds = useMemo(
     () =>
       (profileView?.unpublished_worlds ?? []).map((game) =>
@@ -2583,6 +2597,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             profile_description: nextUser.profile_description ?? '',
             profile_banner_id: normalizeProfileBannerId(nextUser.profile_banner_id),
             profile_banner_image_url: nextUser.profile_banner_image_url ?? null,
+            avatar_frame_id: normalizeAvatarFrameId(nextUser.avatar_frame_id),
+            avatar_frame_image_url: nextUser.avatar_frame_image_url ?? null,
+            profile_showcase: normalizeProfileShowcase(nextUser.profile_showcase),
             avatar_url: nextUser.avatar_url,
             avatar_scale: nextUser.avatar_scale ?? 1,
           },
@@ -5004,50 +5021,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         showAiAssistantAction={user.ai_assistant_visible ?? true}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         hideRightToggle
-        centerSlot={
-          <Box sx={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center' }}>
-            <Box
-              component="input"
-              type="text"
-              value={contentSearchQuery}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setContentSearchQuery(event.target.value.slice(0, PROFILE_CONTENT_SEARCH_MAX))}
-              placeholder="Поиск"
-              aria-label="Поиск по профилю"
-              sx={{
-                width: '100%',
-                height: '100%',
-                borderRadius: '9999px',
-                border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                backgroundColor: 'var(--morius-card-bg)',
-                color: 'var(--morius-text-primary)',
-                pl: '16px',
-                pr: '44px',
-                outline: 'none',
-                fontSize: '0.9rem',
-                fontFamily: 'inherit',
-                boxSizing: 'border-box',
-                transition: 'border-color 180ms ease',
-                '&::placeholder': { color: 'var(--morius-text-secondary)' },
-                '&:focus': { borderColor: 'color-mix(in srgb, var(--morius-accent) 60%, var(--morius-card-border))' },
-              }}
-            />
-            <SvgIcon
-              viewBox="0 0 24 24"
-              sx={{
-                position: 'absolute',
-                right: 14,
-                top: '50%',
-                width: 18,
-                height: 18,
-                transform: 'translateY(-50%)',
-                color: 'var(--morius-text-secondary)',
-                pointerEvents: 'none',
-              }}
-            >
-              <path fill="currentColor" d="M10.8 4a6.8 6.8 0 0 1 5.36 10.98l3.43 3.43-1.18 1.18-3.43-3.43A6.8 6.8 0 1 1 10.8 4Zm0 1.7a5.1 5.1 0 1 0 0 10.2 5.1 5.1 0 0 0 0-10.2Z" />
-            </SvgIcon>
-          </Box>
-        }
+        search={{
+          value: contentSearchQuery,
+          onChange: setContentSearchQuery,
+          placeholder: 'Поиск по профилю',
+          ariaLabel: 'Поиск по профилю',
+          maxLength: PROFILE_CONTENT_SEARCH_MAX,
+        }}
         rightActions={<Box sx={{ display: { xs: 'none', md: 'block' } }}><HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} /></Box>}
       />
 
@@ -6352,6 +6332,106 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   ) : null}
                 </Stack>
               </Stack>
+            </Box>
+          </Box>
+
+          <Box
+            component="section"
+            aria-labelledby="profile-showcase-title"
+            sx={{
+              display: isProfileShellBlocked ? 'none' : 'block',
+              mb: { xs: 1.4, lg: 2.2 },
+              p: { xs: 1.4, sm: 1.7, md: 2 },
+              borderRadius: { xs: '16px', md: '20px' },
+              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+              background: 'var(--morius-card-gradient)',
+              boxShadow: 'var(--morius-neutral-shadow)',
+            }}
+          >
+            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.5} sx={{ mb: 1.5 }}>
+              <Box>
+                <Typography id="profile-showcase-title" component="h2" sx={{ color: 'var(--morius-title-text)', fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '1.35rem', md: '1.62rem' }, fontWeight: 700 }}>
+                  Витрина
+                </Typography>
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
+                  Выбранные предметы оформления и знак профиля.
+                </Typography>
+              </Box>
+              {isOwnProfile ? (
+                <Button
+                  onClick={() => setProfileShowcaseDialogOpen(true)}
+                  sx={{
+                    minHeight: 38,
+                    px: 1.6,
+                    borderRadius: '10px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    color: 'var(--morius-title-text)',
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    textTransform: 'none',
+                    fontWeight: 750,
+                    '&:hover': { borderColor: 'var(--morius-hover-border)', backgroundColor: 'var(--morius-button-hover)' },
+                  }}
+                >
+                  Настроить
+                </Button>
+              ) : null}
+            </Stack>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(auto-fit, minmax(210px, 1fr))' }, gap: 1.1 }}>
+              {resolvedProfileShowcaseItems.map((item) => {
+                if (item.kind === 'banner') {
+                  return (
+                    <Box key={item.kind} sx={{ position: 'relative', minHeight: 142, overflow: 'hidden', borderRadius: '14px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-elevated-bg)' }}>
+                      <ProgressiveImage src={resolvedProfileBannerSrc} alt="" loading="lazy" objectFit="cover" objectPosition={resolvedProfileBannerObjectPosition} fallback={<Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(145deg, #363b47, #252933)' }} />} containerSx={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
+                      <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 16%, rgba(20,22,29,0.92) 100%)' }} />
+                      <Stack spacing={0.2} sx={{ position: 'absolute', zIndex: 1, left: 14, right: 14, bottom: 12 }}>
+                        <Typography sx={{ color: 'rgba(255,255,255,0.62)', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Баннер</Typography>
+                        <Typography sx={{ color: '#fff', fontSize: '0.92rem', fontWeight: 750 }}>{resolvedProfileUser.profile_banner_id && resolvedProfileUser.profile_banner_id !== 'none' ? 'Выбранный баннер' : 'Базовое оформление'}</Typography>
+                      </Stack>
+                    </Box>
+                  )
+                }
+                if (item.kind === 'avatar_frame') {
+                  return (
+                    <Box key={item.kind} sx={{ minHeight: 142, display: 'flex', alignItems: 'center', gap: 1.4, p: 1.6, borderRadius: '14px', border: 'var(--morius-border-width) solid var(--morius-card-border)', background: 'radial-gradient(circle at 20% 16%, color-mix(in srgb, var(--morius-accent) 18%, transparent), transparent 45%), var(--morius-elevated-bg)' }}>
+                      <UserAvatar user={resolvedAvatarUser} frameImageUrl={resolvedProfileUser.avatar_frame_image_url} size={72} />
+                      <Stack spacing={0.3} sx={{ minWidth: 0 }}>
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Рамка</Typography>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 750 }}>{resolvedProfileUser.avatar_frame_id && resolvedProfileUser.avatar_frame_id !== 'none' ? 'Активная рамка' : 'Без рамки'}</Typography>
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{resolvedProfileName}</Typography>
+                      </Stack>
+                    </Box>
+                  )
+                }
+                if (item.kind === 'badge') {
+                  return (
+                    <Box key={item.kind} sx={{ minHeight: 142, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', p: 1.6, borderRadius: '14px', border: 'var(--morius-border-width) solid var(--morius-card-border)', background: 'radial-gradient(circle at 82% 22%, rgba(227,192,127,0.16), transparent 42%), var(--morius-elevated-bg)' }}>
+                      <Box sx={{ width: 42, height: 42, display: 'grid', placeItems: 'center', borderRadius: '12px', border: 'var(--morius-border-width) solid rgba(227,192,127,0.28)', backgroundColor: 'rgba(227,192,127,0.1)' }}><Box component="img" src={icons.communityStarFilled} alt="" sx={{ width: 20, height: 20 }} /></Box>
+                      <Stack spacing={0.2}>
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Значок</Typography>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 750 }}>{resolvedProfileRoleBadge}</Typography>
+                      </Stack>
+                    </Box>
+                  )
+                }
+                const selectedGame = item.kind === 'game'
+                  ? visiblePublicationWorlds.find((game) => game.id === item.entity_id)
+                  : null
+                const selectedCharacter = item.kind === 'character'
+                  ? visiblePublicationCharacters.find((character) => character.id === item.entity_id)
+                  : null
+                const entityImageUrl = resolveApiResourceUrl(selectedGame?.cover_image_url ?? selectedCharacter?.avatar_url)
+                const entityTitle = selectedGame?.title ?? selectedCharacter?.name
+                return (
+                  <Box key={item.kind} sx={{ position: 'relative', minHeight: 142, overflow: 'hidden', borderRadius: '14px', border: 'var(--morius-border-width) solid var(--morius-card-border)', background: 'linear-gradient(145deg, #333845, #242832)' }}>
+                    {entityImageUrl ? <ProgressiveImage src={entityImageUrl} alt="" loading="lazy" objectFit="cover" containerSx={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} /> : null}
+                    <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(16,18,24,0.02), rgba(16,18,24,0.94))' }} />
+                    <Stack spacing={0.2} sx={{ position: 'absolute', zIndex: 1, left: 14, right: 14, bottom: 12 }}>
+                      <Typography sx={{ color: 'rgba(255,255,255,0.62)', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{item.kind === 'game' ? 'Игра' : 'Персонаж'}</Typography>
+                      <Typography noWrap sx={{ color: '#fff', fontSize: '0.92rem', fontWeight: 750 }}>{entityTitle}</Typography>
+                    </Stack>
+                  </Box>
+                )
+              })}
             </Box>
           </Box>
 
@@ -7862,6 +7942,17 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         onRequestLogout={() => setLogoutOpen(true)}
         onUpdateProfileName={handleUpdateProfileName}
         onUserUpdate={handleProfileDialogUserUpdate}
+      />
+
+      <ProfileShowcaseDialog
+        open={profileShowcaseDialogOpen}
+        user={user}
+        authToken={authToken}
+        showcase={resolvedProfileUser.profile_showcase}
+        games={visiblePublicationWorlds}
+        characters={visiblePublicationCharacters}
+        onClose={() => setProfileShowcaseDialogOpen(false)}
+        onSaved={handleProfileDialogUserUpdate}
       />
 
       <CharacterManagerDialog

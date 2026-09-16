@@ -32,7 +32,7 @@ body {
   color: var(--morius-text-secondary);
   font-size: var(--morius-body-size);
   line-height: 1.5;
-  font-family: "Manrope", "Segoe UI", sans-serif;
+  font-family: var(--morius-font-ui, "Manrope", "Segoe UI", sans-serif);
   font-weight: 400;
   letter-spacing: 0;
 }
@@ -101,7 +101,7 @@ button,
 input,
 textarea,
 select {
-  font-family: "Manrope", "Segoe UI", sans-serif;
+  font-family: var(--morius-font-ui, "Manrope", "Segoe UI", sans-serif);
 }
 
 .morius-app-shell {
@@ -110,6 +110,17 @@ select {
   font-size: var(--morius-body-size);
   line-height: 1.5;
   letter-spacing: 0;
+}
+
+/* The redesigned shell paints a soft accent glow behind the page (see AppBackdropGlow). The
+   isolation keeps that z-index:-1 layer above the shell background yet under its content. */
+:root[data-morius-surface='app'] .morius-app-shell {
+  isolation: isolate;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--morius-accent, #6d70e8) 45%, #21242c);
+  color: #fff;
 }
 
 .morius-app-shell .MuiTypography-root,
@@ -147,8 +158,8 @@ select {
   font-size: var(--morius-heading-size);
   line-height: 1.1;
   letter-spacing: 0;
-  font-family: "Spectral", "Times New Roman", serif;
-  font-weight: 700;
+  font-family: var(--morius-font-heading, "Spectral", "Times New Roman", serif);
+  font-weight: var(--morius-heading-weight, 700);
 }
 
 .morius-app-shell h2,
@@ -158,8 +169,8 @@ select {
 .morius-app-shell .MuiDialogTitle-root {
   line-height: 1.2;
   letter-spacing: 0;
-  font-family: "Spectral", "Times New Roman", serif;
-  font-weight: 700;
+  font-family: var(--morius-font-heading, "Spectral", "Times New Roman", serif);
+  font-weight: var(--morius-heading-weight, 700);
 }
 
 .morius-skeleton-card {
@@ -245,8 +256,8 @@ select {
 
 .morius-app-shell .MuiMenu-paper,
 .morius-app-shell .MuiPopover-paper {
-  background: linear-gradient(180deg, #1a1a1e, #141417) !important;
-  border-color: rgba(255,255,255,0.09) !important;
+  background: var(--morius-menu-gradient, linear-gradient(180deg, #1a1a1e, #141417)) !important;
+  border-color: var(--morius-menu-border, rgba(255,255,255,0.09)) !important;
 }
 
 .morius-app-shell .MuiButton-root,
@@ -271,13 +282,13 @@ select {
 .morius-app-shell h3,
 .morius-app-shell .morius-title,
 .morius-app-shell .morius-subtitle {
-  font-family: "Spectral", "Times New Roman", serif !important;
-  font-weight: 700 !important;
+  font-family: var(--morius-font-heading, "Spectral", "Times New Roman", serif) !important;
+  font-weight: var(--morius-heading-weight, 700) !important;
   color: var(--morius-title-text) !important;
 }
 
 .morius-app-shell .MuiDialogTitle-root .MuiTypography-root {
-  font-family: "Spectral", "Times New Roman", serif !important;
+  font-family: var(--morius-font-heading, "Spectral", "Times New Roman", serif) !important;
 }
 
 .morius-app-shell .MuiButton-root {
@@ -366,20 +377,22 @@ select {
   min-height: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
   max-width: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
   max-height: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
-  border-radius: 9999px !important;
-  background: var(--morius-elevated-bg) !important;
-  color: var(--morius-daily-rewards-color, var(--morius-text-secondary)) !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  background: rgba(255,255,255,0.045) !important;
+  color: #cfd4e0 !important;
   overflow: visible !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-daily-rewards-button:hover {
-  background: color-mix(in srgb, var(--morius-elevated-bg) 82%, black 18%) !important;
+  background: rgba(255,255,255,0.09) !important;
+  border-color: rgba(255,255,255,0.12) !important;
   color: var(--morius-title-text) !important;
-  box-shadow: 0 10px 24px rgba(0,0,0,0.22) !important;
+  box-shadow: none !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-daily-rewards-button:active {
-  background: color-mix(in srgb, var(--morius-elevated-bg) 74%, black 26%) !important;
+  background: rgba(255,255,255,0.06) !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-daily-rewards-button svg {
@@ -395,15 +408,16 @@ select {
   max-width: var(--morius-action-size) !important;
   max-height: var(--morius-action-size) !important;
   border-radius: 12px !important;
-  border: none !important;
-  background: rgba(255,255,255,0.07) !important;
-  color: #cfcdd4 !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  background: rgba(255,255,255,0.045) !important;
+  color: #cfd4e0 !important;
   box-shadow: none !important;
   overflow: visible !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-header-ai-button:hover {
-  background: rgba(255,255,255,0.12) !important;
+  background: rgba(255,255,255,0.09) !important;
+  border-color: rgba(255,255,255,0.12) !important;
   color: var(--morius-title-text) !important;
   box-shadow: none !important;
 }
@@ -420,21 +434,23 @@ select {
   max-width: var(--morius-header-play-width, 124px) !important;
   max-height: var(--morius-header-play-height, 44px) !important;
   border-radius: var(--morius-header-play-radius, 12px) !important;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 82%, #ffffff 18%), var(--accent, #4c8dff)) !important;
+  background: var(--morius-accent-gradient, linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 82%, #ffffff 18%), var(--accent, #4c8dff))) !important;
   color: #fff !important;
-  box-shadow: none !important;
+  box-shadow: var(--morius-accent-shadow, none) !important;
   overflow: hidden !important;
   text-transform: none !important;
 }
 
 .morius-app-shell .MuiButtonBase-root.morius-header-play-button:hover {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 88%, #ffffff 12%), color-mix(in srgb, var(--accent, #4c8dff) 92%, #000 8%)) !important;
+  background: var(--morius-accent-gradient, linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 88%, #ffffff 12%), color-mix(in srgb, var(--accent, #4c8dff) 92%, #000 8%))) !important;
+  filter: brightness(1.08);
   color: #fff !important;
-  box-shadow: none !important;
+  box-shadow: var(--morius-accent-shadow, none) !important;
 }
 
 .morius-app-shell .MuiButtonBase-root.morius-header-play-button:active {
   background: color-mix(in srgb, var(--accent, #4c8dff) 88%, #000 12%) !important;
+  filter: none;
   box-shadow: none !important;
 }
 
@@ -544,7 +560,7 @@ body::-webkit-scrollbar-thumb:hover,
   margin-left: 4px;
   transform: translateY(3px);
   border-radius: 2px;
-  background: linear-gradient(180deg, #f3f1ec, var(--accent, #4c8dff));
+  background: linear-gradient(180deg, var(--morius-title-text, #f3f1ec), var(--accent, #4c8dff));
   box-shadow: none;
   animation: morius-caret-blink-glow 0.9s ease-in-out infinite;
 }
@@ -726,10 +742,10 @@ body::-webkit-scrollbar-thumb:hover,
   border-radius: 50%;
   background: conic-gradient(
     from 90deg,
-    rgba(76, 141, 255, 0),
-    rgba(76, 141, 255, 0.1) 130deg,
+    color-mix(in srgb, var(--accent, #4c8dff) 0%, transparent),
+    color-mix(in srgb, var(--accent, #4c8dff) 10%, transparent) 130deg,
     color-mix(in srgb, var(--accent, #4c8dff) 74%, #fff 26%) 300deg,
-    #f3f1ec 360deg
+    var(--morius-title-text, #f3f1ec) 360deg
   );
   z-index: 1;
   animation: morius-orb-spin 1.5s linear infinite;
@@ -739,7 +755,7 @@ body::-webkit-scrollbar-thumb:hover,
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: radial-gradient(circle at 34% 30%, #f3f1ec, var(--accent, #4c8dff) 58%, #243452 100%);
+  background: radial-gradient(circle at 34% 30%, var(--morius-title-text, #f3f1ec), var(--accent, #4c8dff) 58%, color-mix(in srgb, var(--accent, #4c8dff) 34%, #14161d) 100%);
   box-shadow: none;
   z-index: 2;
   animation: morius-orb-breathe 2.8s ease-in-out infinite;
@@ -748,11 +764,11 @@ body::-webkit-scrollbar-thumb:hover,
 .morius-think-shimmer {
   background: linear-gradient(
     90deg,
-    #7a8194 0%,
-    #7a8194 32%,
-    #d6e2ff 50%,
-    #7a8194 68%,
-    #7a8194 100%
+    var(--morius-quiet-text, #7a8194) 0%,
+    var(--morius-quiet-text, #7a8194) 32%,
+    color-mix(in srgb, var(--accent, #4c8dff) 22%, #f1f2ff) 50%,
+    var(--morius-quiet-text, #7a8194) 68%,
+    var(--morius-quiet-text, #7a8194) 100%
   );
   background-size: 220% 100%;
   -webkit-background-clip: text;
@@ -766,7 +782,7 @@ body::-webkit-scrollbar-thumb:hover,
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #8fb4ff;
+  background: color-mix(in srgb, var(--accent, #4c8dff) 62%, #ffffff);
   animation: morius-think-dot 1.4s ease-in-out infinite;
 }
 
@@ -776,10 +792,10 @@ body::-webkit-scrollbar-thumb:hover,
   border-radius: 50%;
   background: conic-gradient(
     from 90deg,
-    rgba(76, 141, 255, 0),
-    rgba(76, 141, 255, 0.12) 130deg,
+    color-mix(in srgb, var(--accent, #4c8dff) 0%, transparent),
+    color-mix(in srgb, var(--accent, #4c8dff) 12%, transparent) 130deg,
     color-mix(in srgb, var(--accent, #4c8dff) 78%, #fff 22%) 300deg,
-    #f3f1ec 360deg
+    var(--morius-title-text, #f3f1ec) 360deg
   );
   z-index: 0;
   animation: morius-orb-spin 1.4s linear infinite;
@@ -789,7 +805,7 @@ body::-webkit-scrollbar-thumb:hover,
   position: absolute;
   inset: 3px;
   border-radius: 50%;
-  background: #11151f;
+  background: color-mix(in srgb, var(--morius-app-base, #11151f) 82%, #000);
   z-index: 1;
   animation: morius-stop-glow 2.4s ease-in-out infinite;
 }
@@ -800,7 +816,7 @@ body::-webkit-scrollbar-thumb:hover,
   width: 13px;
   height: 13px;
   border-radius: 4px;
-  background: linear-gradient(135deg, #f3f1ec, var(--accent, #4c8dff));
+  background: linear-gradient(135deg, var(--morius-title-text, #f3f1ec), var(--accent, #4c8dff));
   box-shadow: none;
 }
 
@@ -810,7 +826,7 @@ body::-webkit-scrollbar-thumb:hover,
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 82%, #fff 18%), var(--accent, #4c8dff));
+  background: var(--morius-accent-gradient, linear-gradient(180deg, color-mix(in srgb, var(--accent, #4c8dff) 82%, #fff 18%), var(--accent, #4c8dff)));
   animation: morius-send-glow 2.8s ease-in-out infinite;
 }
 

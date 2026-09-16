@@ -218,6 +218,11 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN profile_banner_id VARCHAR(16) NOT NULL DEFAULT 'none'")
     if "avatar_frame_id" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN avatar_frame_id VARCHAR(16) NOT NULL DEFAULT 'none'")
+    if "profile_showcase" not in user_columns:
+        alter_statements.append(
+            "ALTER TABLE users ADD COLUMN profile_showcase TEXT NOT NULL DEFAULT "
+            "'[{\"kind\":\"banner\",\"entity_id\":null},{\"kind\":\"avatar_frame\",\"entity_id\":null},{\"kind\":\"badge\",\"entity_id\":null}]'"
+        )
     if "avatar_scale" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0")
     if "show_subscriptions" not in user_columns:
@@ -611,17 +616,17 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
     if "appearance_gradient_from" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN appearance_gradient_from VARCHAR(16) NOT NULL DEFAULT '#050506'"
+            "ADD COLUMN appearance_gradient_from VARCHAR(16) NOT NULL DEFAULT '#20232D'"
         )
     if "appearance_gradient_to" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN appearance_gradient_to VARCHAR(16) NOT NULL DEFAULT '#120803'"
+            "ADD COLUMN appearance_gradient_to VARCHAR(16) NOT NULL DEFAULT '#0A0400'"
         )
     if "appearance_solid_color" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN appearance_solid_color VARCHAR(16) NOT NULL DEFAULT '#050506'"
+            "ADD COLUMN appearance_solid_color VARCHAR(16) NOT NULL DEFAULT '#21242C'"
         )
     if "appearance_ui_style" not in existing_columns:
         alter_statements.append(

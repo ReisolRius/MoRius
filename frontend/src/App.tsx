@@ -1,12 +1,10 @@
-﻿import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+﻿import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   applyReferralCode,
   completeVKIDOAuth,
   completeYandexOAuth,
   getCurrentUser,
-  getCurrentUserThemeSettings,
   getMaintenanceSettings,
-  type CurrentUserThemeSettings,
   type MaintenanceSettings,
 } from './services/authApi'
 import { Alert, Snackbar } from '@mui/material'
@@ -17,8 +15,7 @@ import type { AuthResponse, AuthUser } from './types/auth'
 import FantasyRouteTransition from './components/navigation/FantasyRouteTransition'
 import AiAssistantPanel from './components/ai/AiAssistantPanel'
 import { AI_ASSISTANT_OPEN_EVENT } from './components/ai/aiAssistantEvents'
-import { getMoriusThemeById, useMoriusThemeController } from './theme'
-import { buildPresetFromCustomTheme } from './theme/customTheme'
+import { useMoriusThemeController, type MoriusThemeSurface } from './theme'
 import {
   clearPendingReferralCode,
   extractReferralCodeFromLocation,
@@ -427,7 +424,7 @@ function RouteTransitionFallback() {
 }
 
 function App() {
-  const { setCustomTheme, setStoryHistoryFontFamily, setStoryHistoryFontWeight, setTheme } = useMoriusThemeController()
+  const { setSurface } = useMoriusThemeController()
   const [path, setPath] = useState(() => normalizePath(window.location.pathname))
   useSeoHead(path)
   const [authToken, setAuthToken] = useState<string | null>(initialSession.token)
@@ -443,26 +440,6 @@ function App() {
   const isAuthenticated = Boolean(authToken && authUser)
   const currentUserRole = authUser?.role.trim().toLowerCase() ?? ''
   const canCurrentUserBypassMaintenance = currentUserRole === 'administrator' || currentUserRole === 'moderator'
-
-  const applyResolvedThemeSettings = useCallback((settings: CurrentUserThemeSettings | null) => {
-    if (!settings) {
-      return
-    }
-    if (settings.active_theme_kind === 'custom') {
-      const selectedCustomTheme = settings.custom_themes.find((item) => item.id === settings.active_theme_id)
-      if (selectedCustomTheme) {
-        setCustomTheme(buildPresetFromCustomTheme(selectedCustomTheme))
-      } else {
-        setCustomTheme(null)
-        setTheme(getMoriusThemeById('rius-dungeon').id)
-      }
-    } else {
-      setCustomTheme(null)
-      setTheme(getMoriusThemeById(settings.active_theme_id).id)
-    }
-    setStoryHistoryFontFamily(settings.story.font_family)
-    setStoryHistoryFontWeight(settings.story.font_weight)
-  }, [setCustomTheme, setStoryHistoryFontFamily, setStoryHistoryFontWeight, setTheme])
 
   useEffect(() => {
     const ym = (window as Window & { ym?: (...args: unknown[]) => void }).ym
@@ -857,36 +834,6 @@ function App() {
   }, [authToken, refreshCurrentUser])
 
   useEffect(() => {
-    if (!authToken) {
-      return
-    }
-
-    let active = true
-    void getCurrentUserThemeSettings({ token: authToken })
-      .then((settings) => {
-        if (!active) {
-          return
-        }
-        applyResolvedThemeSettings(settings)
-      })
-      .catch(() => {
-        if (!active) {
-          return
-        }
-        setCustomTheme(null)
-        if (authUser?.active_theme_id && getMoriusThemeById(authUser.active_theme_id).id === authUser.active_theme_id) {
-          setTheme(authUser.active_theme_id)
-          return
-        }
-        setTheme(getMoriusThemeById('rius-dungeon').id)
-      })
-
-    return () => {
-      active = false
-    }
-  }, [applyResolvedThemeSettings, authToken, authUser?.active_theme_id, setCustomTheme, setTheme])
-
-  useEffect(() => {
     if (isHydratingSession || !authToken || !authUser) {
       return
     }
@@ -982,8 +929,12 @@ function App() {
   const routeTransitionFallback = <RouteTransitionFallback />
 
   let pageContent: ReactNode
+  // The presentation landing, the auth screen and the Rius games documents keep the
+  // pre-redesign palette and typography; every other screen renders on the new one.
+  let pageSurface: MoriusThemeSurface = 'app'
 
   if (shouldShowRiusPrivacyPage) {
+    pageSurface = 'legacy'
     pageContent = (
       <Suspense fallback={routeTransitionFallback}>
         <GameLegalPage
@@ -995,6 +946,7 @@ function App() {
       </Suspense>
     )
   } else if (shouldShowRiusTermsPage) {
+    pageSurface = 'legacy'
     pageContent = (
       <Suspense fallback={routeTransitionFallback}>
         <GameLegalPage
@@ -1058,6 +1010,7 @@ function App() {
       </Suspense>
     )
   } else if (shouldShowAuthPage) {
+    pageSurface = 'legacy'
     pageContent = (
       <Suspense fallback={routeTransitionFallback}>
         <AuthPage
@@ -1177,6 +1130,7 @@ function App() {
       </Suspense>
     )
   } else {
+    pageSurface = 'legacy'
     pageContent = (
       <Suspense fallback={routeTransitionFallback}>
         <PublicLandingPage
@@ -1188,6 +1142,10 @@ function App() {
       </Suspense>
     )
   }
+
+  useLayoutEffect(() => {
+    setSurface(pageSurface)
+  }, [pageSurface, setSurface])
 
   return (
     <>

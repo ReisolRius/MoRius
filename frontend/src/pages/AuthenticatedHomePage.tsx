@@ -81,6 +81,7 @@ import {
   createPublicationEncouragement,
   getCoinTopUpPlans,
   getCreatorMonthSlots,
+  getDashboardStats,
   listCreatorCandidates,
   listDashboardNews,
   returnCharacterToModerationAsAdmin,
@@ -97,6 +98,7 @@ import {
   type CreatorMonthList,
   type CreatorMonthSlot,
   type DashboardNewsCard,
+  type DashboardStats,
 } from '../services/authApi'
 import {
   addCommunityCharacter,
@@ -335,7 +337,7 @@ function HomeSliderHeader({
             sx={{ color: 'var(--morius-accent)', flexShrink: 0, opacity: 0.96 }}
           />
           <Stack spacing={0.1} sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontFamily: '"Spectral", serif', fontSize: { xs: '1.45rem', md: '26px' }, fontWeight: 700, color: 'var(--morius-title-text)', lineHeight: 1.1 }}>
+            <Typography sx={{ fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '1.45rem', md: '26px' }, fontWeight: 700, color: 'var(--morius-title-text)', lineHeight: 1.1 }}>
               {title}
             </Typography>
             <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.94rem', lineHeight: 1.4 }}>
@@ -603,6 +605,37 @@ function normalizeCreatorDateInput(value: string | null | undefined): string {
   return value.slice(0, 10)
 }
 
+function formatDashboardStat(value: number): string {
+  const normalizedValue = Math.max(0, Math.trunc(value))
+  if (normalizedValue >= 1000) {
+    return `${Math.floor(normalizedValue / 1000).toLocaleString('ru-RU')} тыс.+`
+  }
+  return normalizedValue.toLocaleString('ru-RU')
+}
+
+function formatDashboardActivity(value: string): string {
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) {
+    return 'Недавно'
+  }
+  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000))
+  if (elapsedMinutes < 1) {
+    return 'Только что'
+  }
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes} мин. назад`
+  }
+  const elapsedHours = Math.floor(elapsedMinutes / 60)
+  if (elapsedHours < 24) {
+    return `${elapsedHours} ч. назад`
+  }
+  const elapsedDays = Math.floor(elapsedHours / 24)
+  if (elapsedDays < 7) {
+    return `${elapsedDays} дн. назад`
+  }
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' }).format(new Date(timestamp))
+}
+
 function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLogout }: AuthenticatedHomePageProps) {
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
@@ -622,6 +655,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
   const [paymentReferralBonusCoins, setPaymentReferralBonusCoins] = useState(0)
   const [dashboardNews, setDashboardNews] = useState<DashboardNewsCard[]>([])
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null)
   const [selectedDashboardNewsId, setSelectedDashboardNewsId] = useState<number | null>(null)
   const [isDashboardNewsLoading, setIsDashboardNewsLoading] = useState(false)
   const [dashboardNewsError, setDashboardNewsError] = useState('')
@@ -970,6 +1004,24 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   useEffect(() => {
     void loadDashboardNewsSnapshot()
   }, [loadDashboardNewsSnapshot])
+
+  useEffect(() => {
+    let isActive = true
+    void getDashboardStats({ token: authToken })
+      .then((stats) => {
+        if (isActive) {
+          setDashboardStats(stats)
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setDashboardStats(null)
+        }
+      })
+    return () => {
+      isActive = false
+    }
+  }, [authToken])
 
   const isDashboardNewsEditor = user.role === 'administrator' || user.role === 'moderator'
   // Reordering the news plaques is an administrator-only capability.
@@ -1906,6 +1958,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const profileName = user.display_name || 'Игрок'
   const communityWorldsPreview = communityWorlds.slice(0, HOME_COMMUNITY_WORLD_LIMIT)
   const dashboardLastPlayedGame = useMemo(() => selectLastPlayedGame(storyGames), [storyGames])
+  const dashboardRecentGames = useMemo(() => sortStoryGamesByActivity(storyGames).slice(0, 3), [storyGames])
   const hasDashboardLastPlayedGame = dashboardLastPlayedGame !== null
   const dashboardHeroCoverUrl =
     hasDashboardLastPlayedGame && dashboardLastPlayedGame.cover_image_url
@@ -2115,7 +2168,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             right: { xs: 18, md: 22 },
             zIndex: 2,
             color: placeStyle.accent,
-            fontFamily: '"Spectral", serif',
+            fontFamily: 'var(--morius-font-heading)',
             fontSize: { xs: '4.4rem', md: '5.25rem' },
             fontWeight: 500,
             lineHeight: 0.9,
@@ -2509,6 +2562,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             className="morius-home-news-bg"
             aria-hidden
             sx={{
+              display: 'none',
               position: 'absolute',
               top: -100,
               left: '50%',
@@ -2564,8 +2618,287 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           </Box>
           <Box sx={{ display: 'grid', gap: 3.5, mb: 'var(--morius-cards-title-gap)' }}>
             <Box
+              component="section"
+              aria-labelledby="dashboard-hero-title"
               sx={{
                 display: 'grid',
+                gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 0.9fr) minmax(440px, 1.1fr)' },
+                gap: { xs: 3, lg: 5 },
+                alignItems: 'center',
+                minHeight: { lg: 520 },
+                pt: { xs: 2, md: 4 },
+              }}
+            >
+              <Stack spacing={{ xs: 2.4, md: 3 }} sx={{ maxWidth: 660 }}>
+                <Box
+                  sx={{
+                    width: 'fit-content',
+                    px: 1.5,
+                    py: 0.7,
+                    borderRadius: '999px',
+                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 72%, var(--morius-card-border))',
+                    color: 'color-mix(in srgb, var(--morius-title-text) 88%, var(--morius-accent) 12%)',
+                    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-app-base))',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 24px color-mix(in srgb, var(--morius-accent) 12%, transparent)',
+                    fontSize: '0.76rem',
+                    fontWeight: 850,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Интерактивные истории с ИИ
+                </Box>
+                <Typography
+                  id="dashboard-hero-title"
+                  component="h1"
+                  sx={{
+                    maxWidth: 640,
+                    color: 'var(--morius-title-text)',
+                    fontFamily: 'var(--morius-font-heading)',
+                    fontSize: { xs: '2.65rem', sm: '3.5rem', lg: '4.35rem' },
+                    fontWeight: 700,
+                    lineHeight: 0.98,
+                    letterSpacing: '-0.045em',
+                  }}
+                >
+                  Историю ведёте вы. Мир отвечает сам.
+                </Typography>
+                <Typography sx={{ maxWidth: 590, color: APP_TEXT_SECONDARY, fontSize: { xs: '1rem', md: '1.08rem' }, lineHeight: 1.7 }}>
+                  Создавайте миры и персонажей, выбирайте действие — и наблюдайте, как история меняется вслед за каждым вашим решением.
+                </Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.2}>
+                  <Button
+                    variant="contained"
+                    onClick={() => setIsQuickStartDialogOpen(true)}
+                    startIcon={<ThemedSvgIcon markup={dashboardQuickStartIconMarkup} size={20} />}
+                    sx={{
+                      minHeight: 48,
+                      px: 2.4,
+                      borderRadius: '12px',
+                      background: 'linear-gradient(135deg, var(--morius-accent), color-mix(in srgb, var(--morius-accent) 72%, #a782ff))',
+                      color: '#fff',
+                      textTransform: 'none',
+                      fontWeight: 850,
+                      boxShadow: '0 12px 30px color-mix(in srgb, var(--morius-accent) 26%, transparent)',
+                    }}
+                  >
+                    Начать историю
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={() => onNavigate('/games/all?tab=worlds')}
+                    sx={{
+                      minHeight: 48,
+                      px: 2.4,
+                      borderRadius: '12px',
+                      borderColor: 'var(--morius-card-border)',
+                      color: APP_TEXT_PRIMARY,
+                      textTransform: 'none',
+                      fontWeight: 800,
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 70%, transparent)',
+                    }}
+                  >
+                    Смотреть миры
+                  </Button>
+                </Stack>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                    gap: { xs: 1.2, sm: 2.5 },
+                    pt: 1,
+                  }}
+                >
+                  {[
+                    ['Игры', dashboardStats?.published_games_count ?? 0],
+                    ['Персонажи', dashboardStats?.published_characters_count ?? 0],
+                    ['Игроки', dashboardStats?.players_count ?? 0],
+                  ].map(([label, rawValue]) => (
+                    <Box key={String(label)}>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '1.45rem', md: '1.75rem' }, fontWeight: 700 }}>
+                        {formatDashboardStat(Number(rawValue))}
+                      </Typography>
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: { xs: '0.76rem', sm: '0.86rem' } }}>{label}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </Stack>
+
+              <ButtonBase
+                onClick={() => void handleDashboardContinue()}
+                disabled={isDashboardDataLoading || isDashboardContinueResolving}
+                aria-label={dashboardLastPlayedGame ? `Продолжить игру ${buildDashboardGameHeadline(dashboardLastPlayedGame)}` : 'Создать новую игру'}
+                sx={{
+                  position: 'relative',
+                  width: '100%',
+                  minHeight: { xs: 410, sm: 480, lg: 510 },
+                  overflow: 'hidden',
+                  borderRadius: { xs: '18px', md: '24px' },
+                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                  background: dashboardHeroCoverUrl ? 'var(--morius-card-bg)' : 'radial-gradient(circle at 82% 18%, rgba(109,112,232,0.32), transparent 34%), linear-gradient(155deg, #343944, #252933)',
+                  textAlign: 'left',
+                  boxShadow: '0 30px 80px rgba(8, 10, 18, 0.38)',
+                  transition: 'transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease',
+                  '&:hover': {
+                    transform: 'translateY(-5px)',
+                    borderColor: 'var(--morius-hover-border)',
+                    boxShadow: '0 36px 90px rgba(8, 10, 18, 0.48)',
+                  },
+                  '&:focus-visible': { outline: '2px solid var(--morius-accent)', outlineOffset: '3px' },
+                }}
+              >
+                {dashboardHeroCoverUrl ? (
+                  <Box
+                    component="img"
+                    src={resolveApiResourceUrl(dashboardHeroCoverUrl) ?? undefined}
+                    alt=""
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      objectPosition: `${dashboardHeroCoverPositionX}% ${dashboardHeroCoverPositionY}%`,
+                      transform: `scale(${dashboardLastPlayedGame?.cover_scale ?? 1})`,
+                    }}
+                  />
+                ) : null}
+                <Box
+                  aria-hidden
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: dashboardHeroCoverUrl
+                      ? 'linear-gradient(180deg, rgba(17,19,26,0.08) 18%, rgba(17,19,26,0.92) 78%, rgba(17,19,26,0.98) 100%)'
+                      : 'linear-gradient(180deg, transparent 12%, rgba(25,28,36,0.92) 100%)',
+                  }}
+                />
+                <Stack justifyContent="flex-end" spacing={1.2} sx={{ position: 'relative', zIndex: 1, minHeight: 'inherit', width: '100%', p: { xs: 2.2, sm: 3.2 } }}>
+                  {dashboardLastPlayedGame ? (
+                    <>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+                        <Box sx={{ px: 1.1, py: 0.55, borderRadius: '999px', backgroundColor: 'rgba(17,19,26,0.72)', color: '#fff', fontSize: '0.76rem', fontWeight: 800, backdropFilter: 'blur(8px)' }}>
+                          Ход {dashboardLastPlayedGame.turn_count}
+                        </Box>
+                        <Typography sx={{ color: 'rgba(255,255,255,0.72)', fontSize: '0.82rem' }}>
+                          {formatDashboardActivity(dashboardLastPlayedGame.last_activity_at || dashboardLastPlayedGame.updated_at)}
+                        </Typography>
+                      </Stack>
+                      <Typography sx={{ color: '#fff', fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '1.9rem', md: '2.45rem' }, fontWeight: 700, lineHeight: 1.08 }}>
+                        {buildDashboardGameHeadline(dashboardLastPlayedGame)}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          maxWidth: 610,
+                          display: '-webkit-box',
+                          overflow: 'hidden',
+                          WebkitBoxOrient: 'vertical',
+                          WebkitLineClamp: { xs: 4, sm: 5 },
+                          color: 'rgba(255,255,255,0.78)',
+                          fontFamily: 'var(--morius-font-heading)',
+                          fontSize: { xs: '0.96rem', md: '1.03rem' },
+                          lineHeight: 1.62,
+                        }}
+                      >
+                        {dashboardLastPlayedGame.latest_message_preview?.trim() || buildDashboardGameDescription(dashboardLastPlayedGame)}
+                      </Typography>
+                      <Stack direction="row" spacing={0.8} alignItems="center" sx={{ color: '#fff', fontWeight: 850, fontSize: '0.9rem' }}>
+                        <ThemedSvgIcon markup={dashboardContinueIconMarkup} size={18} />
+                        <span>Продолжить историю</span>
+                      </Stack>
+                    </>
+                  ) : (
+                    <>
+                      <Typography sx={{ color: '#fff', fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '1.9rem', md: '2.3rem' }, fontWeight: 700, lineHeight: 1.1 }}>
+                        Ваша первая история ждёт
+                      </Typography>
+                      <Typography sx={{ maxWidth: 520, color: 'rgba(255,255,255,0.72)', fontSize: '1rem', lineHeight: 1.6 }}>
+                        Выберите готовый мир или соберите собственный — персонажи и сюжет начнут жить после первого хода.
+                      </Typography>
+                      <Typography sx={{ color: '#fff', fontWeight: 850, fontSize: '0.9rem' }}>Создать новую игру →</Typography>
+                    </>
+                  )}
+                </Stack>
+              </ButtonBase>
+            </Box>
+
+            <Box component="section" aria-labelledby="dashboard-continue-title">
+              <Stack direction="row" justifyContent="space-between" alignItems="flex-end" spacing={2} sx={{ mb: 1.5 }}>
+                <Box>
+                  <Typography id="dashboard-continue-title" component="h2" sx={{ color: 'var(--morius-title-text)', fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '1.55rem', md: '2rem' }, fontWeight: 700 }}>
+                    Продолжить
+                  </Typography>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem' }}>Ваши последние истории — без искусственной прогрессии.</Typography>
+                </Box>
+                <Button onClick={() => onNavigate('/games')} sx={{ color: APP_TEXT_SECONDARY, textTransform: 'none', fontWeight: 750, whiteSpace: 'nowrap' }}>
+                  Все игры
+                </Button>
+              </Stack>
+              {isDashboardDataLoading ? (
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 }}>
+                  {[1, 2, 3].map((key) => <Box key={key} className="morius-skeleton-card" sx={{ minHeight: 176, borderRadius: '16px' }} />)}
+                </Box>
+              ) : dashboardRecentGames.length > 0 ? (
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 }}>
+                  {dashboardRecentGames.map((game) => {
+                    const coverUrl = game.cover_image_url?.trim() || ''
+                    return (
+                      <ButtonBase
+                        key={game.id}
+                        onClick={() => {
+                          rememberLastPlayedGameCard(game)
+                          onNavigate(`/home/${game.id}`)
+                        }}
+                        sx={{
+                          position: 'relative',
+                          minHeight: 176,
+                          overflow: 'hidden',
+                          display: 'flex',
+                          alignItems: 'flex-end',
+                          justifyContent: 'stretch',
+                          borderRadius: '16px',
+                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          background: coverUrl ? 'var(--morius-card-bg)' : buildWorldFallbackArtwork(game.id),
+                          textAlign: 'left',
+                          transition: 'transform 180ms ease, border-color 180ms ease',
+                          '&:hover': { transform: 'translateY(-3px)', borderColor: 'var(--morius-hover-border)' },
+                          '&:focus-visible': { outline: '2px solid var(--morius-accent)', outlineOffset: '2px' },
+                        }}
+                      >
+                        {coverUrl ? (
+                          <Box component="img" src={resolveApiResourceUrl(coverUrl) ?? undefined} alt="" loading="lazy" sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${clampCoverPosition(game.cover_position_x)}% ${clampCoverPosition(game.cover_position_y)}%` }} />
+                        ) : null}
+                        <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(17,19,26,0.04), rgba(17,19,26,0.94))' }} />
+                        <Stack spacing={0.6} sx={{ position: 'relative', zIndex: 1, width: '100%', p: 2 }}>
+                          <Stack direction="row" justifyContent="space-between" spacing={1}>
+                            <Typography sx={{ color: 'rgba(255,255,255,0.72)', fontSize: '0.76rem', fontWeight: 700 }}>Ход {game.turn_count}</Typography>
+                            <Typography sx={{ color: 'rgba(255,255,255,0.62)', fontSize: '0.74rem' }}>{formatDashboardActivity(game.last_activity_at || game.updated_at)}</Typography>
+                          </Stack>
+                          <Typography sx={{ color: '#fff', fontFamily: 'var(--morius-font-heading)', fontSize: '1.18rem', fontWeight: 700, lineHeight: 1.15 }} noWrap>
+                            {buildDashboardGameHeadline(game)}
+                          </Typography>
+                          <Typography sx={{ color: 'rgba(255,255,255,0.68)', fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {game.latest_message_preview?.trim() || buildDashboardGameDescription(game)}
+                          </Typography>
+                        </Stack>
+                      </ButtonBase>
+                    )
+                  })}
+                </Box>
+              ) : (
+                <Box sx={{ display: 'flex', alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, p: { xs: 2.2, md: 3 }, borderRadius: '16px', border: 'var(--morius-border-width) dashed var(--morius-card-border)', background: 'var(--morius-card-gradient)' }}>
+                  <Box>
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontFamily: 'var(--morius-font-heading)', fontSize: '1.25rem', fontWeight: 700 }}>Здесь появятся ваши истории</Typography>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY, mt: 0.5 }}>Начните новую игру, и мы сохраним её в этом блоке.</Typography>
+                  </Box>
+                  <Button variant="contained" onClick={() => onNavigate('/worlds/new')} sx={{ textTransform: 'none', fontWeight: 800, borderRadius: '10px' }}>Новая игра</Button>
+                </Box>
+              )}
+            </Box>
+
+            <Box
+              sx={{
+                display: 'none',
                 gap: 1.25,
                 gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1.7fr) minmax(310px, 1fr)' },
                 minWidth: 0,
@@ -2675,7 +3008,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         <Typography sx={{ color: 'var(--accent, #4c8dff)', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase' }}>
                           Новость
                         </Typography>
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontFamily: '"Spectral", serif', fontSize: { xs: '2.1rem', md: '46px' }, fontWeight: 700, lineHeight: 1.02, maxWidth: 620 }}>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '2.1rem', md: '46px' }, fontWeight: 700, lineHeight: 1.02, maxWidth: 620 }}>
                           {selectedDashboardNews.title}
                         </Typography>
                         <Typography
@@ -2970,7 +3303,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
 
           <Box
             sx={{
-              display: { xs: 'block', md: 'none' },
+              display: 'none',
               width: '100%',
               maxWidth: '100%',
               overflow: 'hidden',
@@ -3184,12 +3517,14 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             ) : null}
           </Box>
 
-          <CreatorRewardPromoBanner />
+          <Box sx={{ display: 'none' }}>
+            <CreatorRewardPromoBanner />
+          </Box>
 
-          <Box sx={{ display: 'grid', gap: 1.35 }}>
+          <Box sx={{ display: 'none', gap: 1.35 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
               <Box>
-                <Typography sx={{ color: 'var(--morius-title-text)', fontFamily: '"Spectral", serif', fontSize: { xs: '1.45rem', md: '26px' }, fontWeight: 700, lineHeight: 1.08 }}>
+                <Typography sx={{ color: 'var(--morius-title-text)', fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '1.45rem', md: '26px' }, fontWeight: 700, lineHeight: 1.08 }}>
                   Креаторы месяца
                 </Typography>
                 <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.96rem', lineHeight: 1.45 }}>
@@ -3401,7 +3736,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 {isCommunityRulesLoading && communityRules.length === 0
                   ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
                       <SliderCard key={key}>
-                        <Box className="morius-skeleton-card" sx={{ height: 318 }} />
+                        <Box className="morius-skeleton-card" sx={{ height: 272 }} />
                       </SliderCard>
                     ))
                   : communityRules.map((item) => (
@@ -3463,6 +3798,85 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     />
                   ))}
             </MobileCardSlider>
+          </Box>
+
+          <Box component="section" aria-labelledby="dashboard-news-title" sx={{ mt: { xs: 4, md: 7 } }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'flex-end' }} sx={{ mb: 1.6 }}>
+              <Box>
+                <Typography id="dashboard-news-title" component="h2" sx={{ color: 'var(--morius-title-text)', fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '1.55rem', md: '2rem' }, fontWeight: 700 }}>
+                  Новости MoRius
+                </Typography>
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem' }}>Обновления платформы и новые возможности для авторов.</Typography>
+              </Box>
+              {isDashboardNewsEditor ? (
+                <Button onClick={() => handleOpenDashboardNewsEditor()} sx={{ color: APP_TEXT_SECONDARY, textTransform: 'none', fontWeight: 750 }}>
+                  Редактировать новости
+                </Button>
+              ) : null}
+            </Stack>
+            {dashboardNewsError ? <Alert severity="error" sx={{ mb: 1.5, borderRadius: '12px' }}>{dashboardNewsError}</Alert> : null}
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 1.4 }}>
+              {isDashboardNewsLoading && dashboardNews.length === 0
+                ? [1, 2, 3, 4].map((key) => <Box key={key} className="morius-skeleton-card" sx={{ minHeight: 250, borderRadius: '16px' }} />)
+                : dashboardNews.slice(0, 4).map((item) => {
+                    const imageUrl = item.image_url?.trim() || getDashboardNewsFallbackImage(item.slot)
+                    return (
+                      <ButtonBase
+                        key={item.id}
+                        onClick={() => handleOpenDashboardNewsDialog(item)}
+                        sx={{
+                          position: 'relative',
+                          minHeight: 250,
+                          overflow: 'hidden',
+                          display: 'flex',
+                          alignItems: 'flex-end',
+                          justifyContent: 'stretch',
+                          borderRadius: '16px',
+                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          background: 'var(--morius-card-gradient)',
+                          textAlign: 'left',
+                          transition: 'transform 180ms ease, border-color 180ms ease',
+                          '&:hover': { transform: 'translateY(-4px)', borderColor: 'var(--morius-hover-border)' },
+                          '&:focus-visible': { outline: '2px solid var(--morius-accent)', outlineOffset: '2px' },
+                        }}
+                      >
+                        <Box component="img" src={imageUrl} alt="" loading="lazy" sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(19,21,28,0.08) 15%, rgba(19,21,28,0.96) 82%)' }} />
+                        <Stack spacing={0.75} sx={{ position: 'relative', zIndex: 1, width: '100%', p: 1.8 }}>
+                          <Typography sx={{ color: 'var(--morius-accent-soft)', fontSize: '0.7rem', fontWeight: 850, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{item.category}</Typography>
+                          <Typography sx={{ color: '#fff', fontFamily: 'var(--morius-font-heading)', fontSize: '1.12rem', fontWeight: 700, lineHeight: 1.22 }}>{item.title}</Typography>
+                          <Typography sx={{ color: 'rgba(255,255,255,0.58)', fontSize: '0.74rem' }}>{item.date_label}</Typography>
+                        </Stack>
+                      </ButtonBase>
+                    )
+                  })}
+            </Box>
+          </Box>
+
+          <Box sx={{ mt: { xs: 2, md: 3 } }}>
+            <CreatorRewardPromoBanner />
+          </Box>
+
+          <Box component="section" aria-labelledby="dashboard-creators-title" sx={{ display: 'grid', gap: 1.5, mt: { xs: 2, md: 3 } }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
+              <Box>
+                <Typography id="dashboard-creators-title" component="h2" sx={{ color: 'var(--morius-title-text)', fontFamily: 'var(--morius-font-heading)', fontSize: { xs: '1.55rem', md: '2rem' }, fontWeight: 700 }}>
+                  Креаторы месяца
+                </Typography>
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem' }}>Авторы, которые сильнее всего оживили сообщество.</Typography>
+              </Box>
+              {creatorMonthLabel ? (
+                <Box sx={{ px: 1.45, py: 0.7, borderRadius: '999px', border: 'var(--morius-border-width) solid var(--morius-card-border)', color: APP_TEXT_SECONDARY, fontSize: '0.8rem', fontWeight: 750 }}>
+                  {creatorMonthLabel}
+                </Box>
+              ) : null}
+            </Stack>
+            {creatorMonthError ? <Alert severity="error" sx={{ borderRadius: '12px' }}>{creatorMonthError}</Alert> : null}
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 }}>
+              {isCreatorMonthInitialLoading
+                ? [1, 2, 3].map((place) => renderCreatorMonthSkeletonCard(place))
+                : creatorMonthSlots.map((slot) => renderCreatorMonthCard(slot))}
+            </Box>
           </Box>
 
 
@@ -4003,7 +4417,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   component="h2"
                   sx={{
                     color: 'var(--morius-title-text)',
-                    fontFamily: '"Spectral", serif',
+                    fontFamily: 'var(--morius-font-heading)',
                     fontSize: { xs: '2rem', sm: '2.35rem', md: '3rem' },
                     fontWeight: 700,
                     lineHeight: 1.02,
