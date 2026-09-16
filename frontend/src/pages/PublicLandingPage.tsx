@@ -372,15 +372,23 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
     onNavigate(`/auth?mode=${mode}`)
   }
 
-  /** Rounded down to the nearest hundred so the claim on the page is never ahead of reality. */
+  /**
+   * Rounded down so a claim is never ahead of reality, and null until the real number arrives -
+   * a page that has no data must say nothing rather than invent a figure.
+   */
   const playersLabel = useMemo(() => {
     const players = showcase.players
-    if (players < 50) return '50+'
+    if (players < 10) return null
     if (players < 1000) return `${Math.floor(players / 50) * 50}+`
     return `${Math.floor(players / 500) * 500}+`
   }, [showcase.players])
 
-  const worldsLabel = useMemo(() => (showcase.worlds >= 100 ? `${Math.floor(showcase.worlds / 100) * 100}+` : `${showcase.worlds}`), [showcase.worlds])
+  const worldsLabel = useMemo(() => {
+    const worlds = showcase.worlds
+    if (worlds < 10) return null
+    if (worlds < 100) return `${Math.floor(worlds / 10) * 10}+`
+    return `${Math.floor(worlds / 100) * 100}+`
+  }, [showcase.worlds])
 
   const navLinks = [
     { href: '#formats', label: 'Форматы' },
@@ -581,10 +589,13 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
             </Box>
             <Box sx={{ display: 'flex', gap: '28px', mt: '34px', fontSize: 12, color: L.muted, flexWrap: 'wrap', '@media (max-width: 720px)': { mt: '25px', gap: '24px' } }}>
               {[
-                { strong: playersLabel, rest: 'игроков' },
-                { strong: `${worldsLabel} миров`, rest: 'создано сообществом' },
+                playersLabel ? { strong: playersLabel, rest: 'игроков' } : null,
+                worldsLabel ? { strong: `${worldsLabel} миров`, rest: 'создано сообществом' } : null,
+                { strong: 'Несколько AI-моделей', rest: 'под твой стиль' },
                 { strong: 'Любой опыт', rest: 'от первого шага до профи' },
-              ].map((item) => (
+              ]
+                .filter((item): item is { strong: string; rest: string } => item !== null)
+                .map((item) => (
                 <Box key={item.strong}>
                   <Box component="strong" sx={{ display: 'block', color: L.title, fontSize: 17, fontWeight: 400, fontFamily: L.serif }}>
                     {item.strong}
@@ -1242,17 +1253,21 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
                     ))}
                   </Box>
                 ) : null}
-                <Box>
-                  <Box sx={{ fontFamily: L.serif, fontSize: 47, color: L.accent, lineHeight: 1 }}>{playersLabel}</Box>
-                  <Box sx={{ fontSize: 13, color: L.muted, mt: '9px' }}>игроков уже создают свои миры</Box>
-                </Box>
-                <Box>
-                  <Box sx={{ fontFamily: L.serif, fontSize: 47, color: L.accent, lineHeight: 1, display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <PeopleIcon size={34} />
-                    {worldsLabel}
+                {playersLabel ? (
+                  <Box>
+                    <Box sx={{ fontFamily: L.serif, fontSize: 47, color: L.accent, lineHeight: 1 }}>{playersLabel}</Box>
+                    <Box sx={{ fontSize: 13, color: L.muted, mt: '9px' }}>игроков уже создают свои миры</Box>
                   </Box>
-                  <Box sx={{ fontSize: 13, color: L.muted, mt: '9px' }}>миров открыто для игры</Box>
-                </Box>
+                ) : null}
+                {worldsLabel ? (
+                  <Box>
+                    <Box sx={{ fontFamily: L.serif, fontSize: 47, color: L.accent, lineHeight: 1, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <PeopleIcon size={34} />
+                      {worldsLabel}
+                    </Box>
+                    <Box sx={{ fontSize: 13, color: L.muted, mt: '9px' }}>миров открыто для игры</Box>
+                  </Box>
+                ) : null}
               </Box>
             </Box>
           </Box>
