@@ -37,10 +37,12 @@ const GUIDE_IMAGE = '/landing/guide.webp'
  */
 const L = {
   page: '#000000',
+  /** The top of `main`, which the hero's tear has to match. */
+  deepPage: '#0d0e0f',
   pageArt: 'radial-gradient(120% 85% at 18% -6%, #0d0e0f 0%, #070708 45%, #010102 75%, #000000 100%)',
   /** Sections the mockup painted dark teal. Kept a touch above the page so the torn edge reads. */
-  deep: '#0d0e0f',
-  deepArt: 'radial-gradient(ellipse at 50% 100%, #1e2226 0%, transparent 70%), #0d0e0f',
+  deep: '#15181b',
+  deepArt: 'radial-gradient(ellipse at 50% 100%, #232830 0%, transparent 70%), #15181b',
   surface: 'rgba(199,231,255,0.055)',
   surfaceSolid: '#1b1f22',
   elevated: '#272c30',
@@ -167,7 +169,7 @@ function Action({ children, onClick, href, variant = 'solid', icon, sx, ariaLabe
  * The ragged edge the mockup used between its paper and dark sections. Here it cuts the page
  * black into the slightly lighter section above/below it, so the tear still reads.
  */
-function TornEdge({ place }: { place: 'top' | 'bottom' }) {
+function TornEdge({ place, color }: { place: 'top' | 'bottom'; color: string }) {
   const bottom =
     'polygon(0 45%,2% 57%,3% 35%,5% 65%,7% 46%,9% 64%,12% 30%,14% 55%,17% 42%,19% 68%,22% 37%,25% 58%,28% 40%,30% 61%,34% 33%,38% 62%,41% 48%,44% 64%,47% 33%,51% 56%,54% 43%,57% 65%,60% 37%,64% 61%,67% 39%,70% 66%,73% 50%,76% 30%,79% 57%,82% 38%,85% 64%,88% 41%,91% 61%,94% 40%,97% 64%,100% 42%,100% 100%,0 100%)'
   const top =
@@ -181,11 +183,14 @@ function TornEdge({ place }: { place: 'top' | 'bottom' }) {
         right: 0,
         height: place === 'bottom' ? 37 : 24,
         [place]: '-1px',
-        background: L.page,
+        // The colour of the section on the other side of the boundary, so the ragged silhouette
+        // contrasts with the one it bites into. Painting it the same black as the hero's faded
+        // bottom is what made the seam look like a straight line.
+        background: color,
         clipPath: place === 'bottom' ? bottom : top,
-        // The mockup's tear was beige biting into a dark section, so its silhouette was obvious.
-        // Black on black is not, so the shape carries its own hairline rim.
-        filter: 'drop-shadow(0 -1px 0 rgba(199,231,255,0.20)) drop-shadow(0 1px 0 rgba(199,231,255,0.10))',
+        // A definite hairline, not a tonal hint: on an all-dark page the two sides of the
+        // seam are close in value, so the silhouette has to be drawn rather than implied.
+        filter: 'drop-shadow(0 -1.5px 0 rgba(199,231,255,0.34))',
         zIndex: 1,
         pointerEvents: 'none',
       }}
@@ -597,7 +602,7 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
             position: 'absolute',
             inset: 0,
             zIndex: -2,
-            background: `linear-gradient(90deg, rgba(0,0,0,.92), rgba(0,0,0,.5) 43%, rgba(0,0,0,.12) 72%), linear-gradient(0deg, #000000 1%, transparent 35%), url('${HERO_IMAGE}') center 30%/cover`,
+            background: `linear-gradient(90deg, rgba(0,0,0,.92), rgba(0,0,0,.5) 43%, rgba(0,0,0,.12) 72%), linear-gradient(0deg, rgba(0,0,0,0.70) 0%, rgba(0,0,0,0.28) 15%, transparent 34%), url('${HERO_IMAGE}') center 30%/cover`,
           },
           '@media (max-width: 1000px)': { minHeight: 810 },
           '@media (max-width: 720px)': {
@@ -610,7 +615,7 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
           },
         }}
       >
-        <TornEdge place="bottom" />
+        <TornEdge place="bottom" color={L.deepPage} />
         <Box sx={WRAP}>
 
           <Box
@@ -977,7 +982,7 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
             '@media (max-width: 720px)': { p: '75px 0 85px' },
           }}
         >
-          <TornEdge place="top" />
+          <TornEdge place="top" color={L.page} />
           <Box sx={WRAP}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: '50px', mb: '45px', '@media (max-width: 720px)': { display: 'block', mb: '30px' } }}>
               <Box>
@@ -1280,7 +1285,7 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
             '@media (max-width: 720px)': { p: '70px 0 90px', backgroundPosition: '65% center' },
           }}
         >
-          <TornEdge place="top" />
+          <TornEdge place="top" color={L.page} />
           <Box sx={WRAP}>
             <Box sx={{ maxWidth: 690 }}>
               <Eyebrow tone="accent">Истории объединяют</Eyebrow>
