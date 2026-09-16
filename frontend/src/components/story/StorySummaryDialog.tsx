@@ -114,7 +114,7 @@ function InfoNote({ tone, children }: { tone: 'accent' | 'warning'; children: Re
           : 'color-mix(in srgb, var(--morius-accent) 40%, var(--morius-card-border))',
         backgroundColor: isWarning
           ? 'color-mix(in srgb, #E0A23A 12%, var(--morius-elevated-bg) 88%)'
-          : 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-elevated-bg) 90%)',
+          : 'var(--morius-elevated-bg)',
       }}
     >
       <Box

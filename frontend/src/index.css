@@ -517,7 +517,7 @@ body::-webkit-scrollbar-thumb,
   border: 3px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
-  background-color: color-mix(in srgb, var(--morius-accent) 46%, var(--morius-elevated-bg));
+  background-color: color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%);
 }
 
 html::-webkit-scrollbar-thumb:hover,

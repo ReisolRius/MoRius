@@ -410,9 +410,9 @@ function AiVoiceInputButton({
             borderRadius: '14px',
             border: 'none',
             color: listening ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
-            backgroundColor: listening ? 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-card-bg))' : 'var(--morius-elevated-bg)',
+            backgroundColor: listening ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' : 'var(--morius-elevated-bg)',
             '&:hover': {
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-elevated-bg))',
+              backgroundColor: 'var(--morius-elevated-bg)',
             },
           }}
         >
@@ -520,9 +520,9 @@ function AiAssistantInput({
               borderRadius: '14px',
               border: 'none',
               color: 'var(--morius-title-text)',
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-card-bg))',
+              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
               '&:hover': {
-                backgroundColor: 'color-mix(in srgb, var(--morius-accent) 30%, var(--morius-card-bg))',
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
               },
               '&.Mui-disabled': {
                 color: 'var(--morius-text-secondary)',
@@ -665,7 +665,7 @@ function AiAssistantJobToast({
               borderRadius: '12px',
               textTransform: 'none',
               color: 'var(--morius-title-text)',
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg))',
+              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
             }}
           >
             {redirectUrl.startsWith('/profile') ? 'Открыть профиль' : 'Открыть мир'}

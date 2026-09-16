@@ -436,12 +436,12 @@ function NovelPlacesPanel({
               borderRadius: '12px',
               color: 'var(--morius-title-text)',
               border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 52%, var(--morius-card-border))',
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-elevated-bg))',
+              backgroundColor: 'var(--morius-elevated-bg)',
               fontSize: '0.78rem',
               fontWeight: 800,
               whiteSpace: 'nowrap',
               '&:hover': {
-                backgroundColor: 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-elevated-bg))',
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
               },
             }}
           >

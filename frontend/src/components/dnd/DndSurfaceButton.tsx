@@ -35,7 +35,7 @@ const baseSx = {
   backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, transparent)',
   transition: 'background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 120ms ease',
   '&:hover:not(:disabled)': {
-    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-elevated-bg))',
+    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
     borderColor: 'color-mix(in srgb, var(--morius-accent) 40%, var(--morius-card-border))',
     color: 'var(--morius-title-text)',
   },

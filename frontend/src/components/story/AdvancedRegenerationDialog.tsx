@@ -138,10 +138,10 @@ function AdvancedRegenerationDialog({
                 backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
                 '&.Mui-selected': {
                   color: 'var(--morius-text-primary)',
-                  backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-elevated-bg))',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
                 },
                 '&.Mui-selected:hover': {
-                  backgroundColor: 'color-mix(in srgb, var(--morius-accent) 25%, var(--morius-elevated-bg))',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
                 },
               }}
             >
@@ -175,7 +175,7 @@ function AdvancedRegenerationDialog({
                 borderRadius: '8px',
                 border: 'var(--morius-border-width) solid var(--morius-card-border)',
                 backgroundColor: checked
-                  ? 'color-mix(in srgb, var(--morius-accent) 15%, var(--morius-elevated-bg))'
+                  ? 'var(--morius-elevated-bg)'
                   : 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
                 cursor: optionDisabled ? 'default' : 'pointer',
                 opacity: optionDisabled && option.id !== 'preserve_format' ? 0.58 : 1,

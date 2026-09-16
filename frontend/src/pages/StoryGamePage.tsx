@@ -475,7 +475,7 @@ function EnvironmentModuleCard({
         sx={{
           borderRadius: '18px',
           backgroundColor: isDragging
-            ? 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-card-bg))'
+            ? 'var(--morius-card-bg)'
             : 'color-mix(in srgb, var(--morius-card-bg) 92%, #000 8%)',
           border: isDragging
             ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 82%, transparent)'
@@ -2310,12 +2310,12 @@ function SettingsInfoTooltipIcon({ text }: { text: string }) {
           flexShrink: 0,
           userSelect: 'none',
           paddingTop: '0.5px',
-          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-elevated-bg))',
+          backgroundColor: 'var(--morius-elevated-bg)',
           transition: 'color 150ms ease, border-color 150ms ease, background-color 150ms ease',
           '&:hover': {
             color: 'var(--morius-accent)',
             borderColor: 'color-mix(in srgb, var(--morius-accent) 80%, transparent)',
-            backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-elevated-bg))',
+            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
           },
         }}
       >
@@ -6481,7 +6481,7 @@ function StoryTurnCostValueCell({ value, isHighlighted }: { value: string; isHig
         backgroundColor: isEmpty
           ? 'color-mix(in srgb, var(--morius-card-bg) 45%, transparent)'
           : isHighlighted
-            ? 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-card-bg))'
+            ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)'
             : 'color-mix(in srgb, var(--morius-card-bg) 82%, #000 18%)',
         color: isEmpty ? 'var(--morius-text-secondary)' : 'var(--morius-text-primary)',
         fontSize: '0.78rem',
@@ -20612,8 +20612,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     boxShadow: 'none',
   } as const
   const rightPanelActiveCardSx = {
-    borderColor: 'color-mix(in srgb, var(--morius-accent) 50%, var(--morius-card-border))',
-    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-elevated-bg) 90%)',
+    // Active reads from the accent border and a neutral lift, never from an accent-tinted fill.
+    borderColor: 'var(--morius-accent)',
+    backgroundColor: 'var(--morius-elevated-bg)',
   } as const
   const rightPanelGreenCardSx = {
     borderColor: 'rgba(91, 168, 120, 0.3)',
@@ -20635,13 +20636,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     minHeight: 44,
     borderRadius: '14px',
     textTransform: 'none',
-    color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))',
+    color: 'var(--morius-accent)',
     fontSize: '0.9rem',
     fontWeight: 900,
     border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 48%, var(--morius-card-border))',
-    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-elevated-bg) 84%)',
+    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
     '&:hover': {
-      backgroundColor: 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-elevated-bg) 78%)',
+      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
       borderColor: 'color-mix(in srgb, var(--morius-accent) 62%, var(--morius-card-border))',
     },
   } as const
@@ -21656,7 +21657,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 ? 'var(--morius-border-width) solid var(--morius-accent)'
                                 : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
                               backgroundColor: isActive
-                                ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-elevated-bg))'
+                                ? 'var(--morius-elevated-bg)'
                                 : 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
                               boxShadow: isActive ? '0 14px 28px -24px rgba(0,0,0,0.78)' : 'none',
                             }}
@@ -24205,7 +24206,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   backgroundColor: isPlotCardDisabled
                                     ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)'
                                     : isPlotCardContextActive
-                                      ? 'color-mix(in srgb, var(--morius-accent) 8%, var(--morius-card-bg))'
+                                      ? 'var(--morius-card-bg)'
                                       : 'var(--morius-card-bg)',
                                   p: 0.9,
                                   opacity: isPlotCardDisabled ? 0.82 : 1,
@@ -24894,7 +24895,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             height: 46,
                             borderRadius: '14px',
                             color: 'color-mix(in srgb, var(--morius-accent) 44%, var(--morius-title-text))',
-                            backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-elevated-bg) 84%)',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
                             fontWeight: 950,
                             '& .MuiSelect-select': { py: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
                             '& .MuiOutlinedInput-notchedOutline': {
@@ -24915,7 +24916,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             mt: 0.8,
                             borderRadius: '12px',
                             border: '1px solid color-mix(in srgb, var(--morius-accent) 40%, var(--morius-card-border))',
-                            backgroundColor: 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-elevated-bg) 90%)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
                             p: 1,
                           }}
                         >
@@ -25103,7 +25104,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950 }}>
                             Лимит контекста
                           </Typography>
-                          <Typography sx={{ color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))', fontSize: '0.98rem', fontWeight: 950 }}>
+                          <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.98rem', fontWeight: 950 }}>
                             {formatContextChars(contextLimitChars)}
                           </Typography>
                         </Stack>
@@ -25278,7 +25279,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
                                   Температура
                                 </Typography>
-                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))', fontSize: '0.92rem', fontWeight: 950 }}>{storyTemperature.toFixed(2)}</Typography>
+                                <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.92rem', fontWeight: 950 }}>{storyTemperature.toFixed(2)}</Typography>
                               </Stack>
                               <Slider
                                 value={storyTemperature}
@@ -25305,7 +25306,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
                                   Топ-K
                                 </Typography>
-                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))', fontSize: '0.92rem', fontWeight: 950 }}>{storyTopK}</Typography>
+                                <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.92rem', fontWeight: 950 }}>{storyTopK}</Typography>
                               </Stack>
                               <Slider
                                 value={storyTopK}
@@ -25332,7 +25333,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
                                   Топ-P
                                 </Typography>
-                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))', fontSize: '0.92rem', fontWeight: 950 }}>{storyTopR.toFixed(2)}</Typography>
+                                <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.92rem', fontWeight: 950 }}>{storyTopR.toFixed(2)}</Typography>
                               </Stack>
                               <Slider
                                 value={storyTopR}
@@ -25359,7 +25360,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 86%, transparent)', fontSize: '0.9rem', fontWeight: 950 }}>
                                   Repetition penalty
                                 </Typography>
-                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-title-text))', fontSize: '0.92rem', fontWeight: 950 }}>{storyRepetitionPenalty.toFixed(2)}</Typography>
+                                <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.92rem', fontWeight: 950 }}>{storyRepetitionPenalty.toFixed(2)}</Typography>
                               </Stack>
                               <Slider
                                 value={storyRepetitionPenalty}
@@ -26042,7 +26043,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               mt: 0.95,
                               borderRadius: '14px',
                               border: '1px solid color-mix(in srgb, var(--morius-accent) 40%, var(--morius-card-border))',
-                              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-elevated-bg) 90%)',
+                              backgroundColor: 'var(--morius-elevated-bg)',
                               p: 1.1,
                             }}
                           >
@@ -27616,7 +27617,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           ? `var(--morius-border-width) solid ${option.accent}`
                                           : 'var(--morius-border-width) solid var(--morius-card-border)',
                                         backgroundColor: isSelected
-                                          ? 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-elevated-bg))'
+                                          ? 'var(--morius-elevated-bg)'
                                           : 'var(--morius-elevated-bg)',
                                         color: 'var(--morius-title-text)',
                                         boxShadow: isSelected ? `0 0 0 1px color-mix(in srgb, ${option.accent} 22%, transparent) inset` : 'none',
@@ -27718,7 +27719,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         flexDirection: 'column',
                                         textTransform: 'none',
                                         color: isSelected ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
-                                        backgroundColor: isSelected ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-elevated-bg))' : 'var(--morius-elevated-bg)',
+                                        backgroundColor: isSelected ? 'var(--morius-elevated-bg)' : 'var(--morius-elevated-bg)',
                                         border: isSelected
                                           ? 'var(--morius-border-width) solid var(--morius-accent)'
                                           : 'var(--morius-border-width) solid var(--morius-card-border)',
@@ -27852,7 +27853,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               backgroundColor: isPlotCardDisabled
                                 ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)'
                                 : isCardContextActive
-                                  ? 'color-mix(in srgb, var(--morius-accent) 8%, var(--morius-elevated-bg))'
+                                  ? 'var(--morius-elevated-bg)'
                                   : 'var(--morius-elevated-bg)',
                               boxShadow: isCardContextActive
                                 ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 20%, transparent) inset'
@@ -28150,7 +28151,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))'
                                 : 'var(--morius-border-width) solid var(--morius-card-border)',
                               backgroundColor: isCardContextActive
-                                ? 'color-mix(in srgb, var(--morius-accent) 8%, var(--morius-elevated-bg))'
+                                ? 'var(--morius-elevated-bg)'
                                 : 'var(--morius-elevated-bg)',
                               boxShadow: isCardContextActive
                                 ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 20%, transparent) inset'
@@ -28330,7 +28331,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))'
                       : 'var(--morius-border-width) solid transparent',
                     backgroundColor: isActive
-                      ? 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-elevated-bg) 84%) !important'
+                      ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%) !important'
                       : 'transparent !important',
                     transition: 'color 160ms ease, border-color 160ms ease, background-color 160ms ease, transform 160ms ease',
                     '&:hover': {
@@ -28367,7 +28368,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))'
                       : 'var(--morius-border-width) solid transparent',
                     backgroundColor: isActive
-                      ? 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-elevated-bg) 84%) !important'
+                      ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%) !important'
                       : 'transparent !important',
                     transition: 'color 160ms ease, border-color 160ms ease, background-color 160ms ease, transform 160ms ease',
                     '&:hover': {
@@ -28426,7 +28427,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 border: isActive
                   ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 44%, var(--morius-card-border))'
                   : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
-                backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-elevated-bg) 86%)' : 'transparent',
+                backgroundColor: isActive ? 'var(--morius-elevated-bg)' : 'transparent',
                 '&:hover': {
                   color: 'var(--morius-title-text)',
                   borderColor: 'color-mix(in srgb, var(--morius-accent) 34%, var(--morius-card-border))',
@@ -31187,11 +31188,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               color: 'var(--morius-title-text) !important',
             },
             '& .MuiMenuItem-root.Mui-selected': {
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-elevated-bg)) !important',
+              backgroundColor: 'var(--morius-elevated-bg) !important',
               color: 'var(--morius-title-text) !important',
             },
             '& .MuiMenuItem-root.Mui-selected:hover': {
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-elevated-bg)) !important',
+              backgroundColor: 'var(--morius-elevated-bg) !important',
               color: 'var(--morius-title-text) !important',
             },
           },
@@ -31210,7 +31211,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   gap: 0.85,
                   color: 'var(--morius-text-primary)',
                   '&.Mui-selected': {
-                    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-elevated-bg)) !important',
+                    backgroundColor: 'var(--morius-elevated-bg) !important',
                     color: 'var(--morius-title-text) !important',
                     '& .morius-main-hero-menu-subtitle': {
                       color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
@@ -31218,7 +31219,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   },
                   '&:hover': {
                     backgroundColor: isActiveHero
-                      ? 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-elevated-bg))'
+                      ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)'
                       : 'var(--morius-button-hover)',
                     color: 'var(--morius-title-text) !important',
                     '& .morius-main-hero-menu-subtitle': {

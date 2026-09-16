@@ -221,7 +221,7 @@ function ProfileShowcaseDialog({
                   borderRadius: '14px',
                   border: 'var(--morius-border-width) solid',
                   borderColor: selected ? 'color-mix(in srgb, var(--morius-accent) 48%, var(--morius-card-border))' : 'var(--morius-card-border)',
-                  backgroundColor: selected ? 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-elevated-bg))' : 'var(--morius-elevated-bg)',
+                  backgroundColor: selected ? 'var(--morius-elevated-bg)' : 'var(--morius-elevated-bg)',
                 }}
               >
                 <Box sx={{ minWidth: 0 }}>

@@ -281,7 +281,7 @@ function TopUpDialog({
                     textTransform: 'none',
                     fontWeight: 900,
                     color: 'var(--morius-title-text)',
-                    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))',
+                    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
                     '&.Mui-disabled': { color: 'var(--morius-text-secondary)' },
                   }}
                 >

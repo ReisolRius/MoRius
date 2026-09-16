@@ -52,11 +52,11 @@ function OptionTile({
           ? {
               color: 'var(--morius-title-text)',
               borderColor: 'var(--morius-accent)',
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-elevated-bg))',
+              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
               '&:hover:not(:disabled)': {
                 color: 'var(--morius-title-text)',
                 borderColor: 'var(--morius-accent)',
-                backgroundColor: 'color-mix(in srgb, var(--morius-accent) 26%, var(--morius-elevated-bg))',
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
               },
             }
           : {}),

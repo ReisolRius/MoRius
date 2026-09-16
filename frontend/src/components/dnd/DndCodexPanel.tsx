@@ -242,7 +242,7 @@ function NpcRow({
           ? 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-card-border))'
           : 'color-mix(in srgb, var(--morius-card-border) 74%, transparent)',
         backgroundColor: npc.is_active
-          ? 'color-mix(in srgb, var(--morius-accent) 8%, var(--morius-elevated-bg) 92%)'
+          ? 'var(--morius-elevated-bg)'
           : 'color-mix(in srgb, var(--morius-elevated-bg) 92%, #050507 8%)',
         transition: 'border-color 240ms ease, background-color 240ms ease',
       }}

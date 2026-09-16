@@ -317,7 +317,7 @@ function QuickStartWizardDialog({ open, authToken, onClose, onStarted }: QuickSt
                   border: `var(--morius-border-width) solid ${
                     isSelected ? 'color-mix(in srgb, var(--morius-accent) 58%, var(--morius-card-border))' : 'var(--morius-card-border)'
                   }`,
-                  backgroundColor: isSelected ? 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))' : 'var(--morius-card-bg)',
+                  backgroundColor: isSelected ? 'var(--morius-card-bg)' : 'var(--morius-card-bg)',
                   p: 1.2,
                   textAlign: 'left',
                   justifyContent: 'flex-start',
@@ -362,7 +362,7 @@ function QuickStartWizardDialog({ open, authToken, onClose, onStarted }: QuickSt
                   border: `var(--morius-border-width) solid ${
                     isSelected ? 'color-mix(in srgb, var(--morius-accent) 58%, var(--morius-card-border))' : 'var(--morius-card-border)'
                   }`,
-                  backgroundColor: isSelected ? 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))' : 'var(--morius-card-bg)',
+                  backgroundColor: isSelected ? 'var(--morius-card-bg)' : 'var(--morius-card-bg)',
                   p: 1.2,
                   textAlign: 'left',
                   justifyContent: 'flex-start',
@@ -419,7 +419,7 @@ function QuickStartWizardDialog({ open, authToken, onClose, onStarted }: QuickSt
                 border: `var(--morius-border-width) solid ${
                   isSelected ? 'color-mix(in srgb, var(--morius-accent) 58%, var(--morius-card-border))' : 'var(--morius-card-border)'
                 }`,
-                backgroundColor: isSelected ? 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))' : 'var(--morius-card-bg)',
+                backgroundColor: isSelected ? 'var(--morius-card-bg)' : 'var(--morius-card-bg)',
                 p: 1.2,
                 textAlign: 'left',
                 justifyContent: 'flex-start',

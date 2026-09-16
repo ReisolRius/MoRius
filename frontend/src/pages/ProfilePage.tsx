@@ -4183,7 +4183,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, transparent)',
                   backgroundColor: notification.is_read
                     ? 'var(--morius-elevated-bg)'
-                    : 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-elevated-bg))',
+                    : 'var(--morius-elevated-bg)',
                   cursor: notification.action_url ? 'pointer' : 'default',
                   transition: 'border-color 180ms ease, background-color 180ms ease, transform 180ms ease',
                   '&:hover': notification.action_url
@@ -6535,12 +6535,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         gap: 0.8,
                         textTransform: 'none',
                         border: 'none',
-                        backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-elevated-bg))',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
                         color: 'var(--morius-title-text)',
                         fontSize: '0.82rem',
                         fontWeight: 850,
                         '&:hover': {
-                          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 30%, var(--morius-elevated-bg))',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
                         },
                       }}
                     >
@@ -7119,7 +7119,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     position: 'relative',
                     p: 0.8,
                     borderRadius: '8px',
-                    backgroundColor: notification.is_read ? 'var(--morius-elevated-bg)' : 'color-mix(in srgb, var(--morius-accent) 9%, var(--morius-elevated-bg))',
+                    backgroundColor: notification.is_read ? 'var(--morius-elevated-bg)' : 'var(--morius-elevated-bg)',
                     cursor: notification.action_url ? 'pointer' : 'default',
                     '&:hover': {
                       backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',

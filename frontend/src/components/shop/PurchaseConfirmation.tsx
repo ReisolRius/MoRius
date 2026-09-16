@@ -110,7 +110,7 @@ export function VoluntaryCommissionControl({
       sx={{
         borderRadius: '14px',
         border: `var(--morius-border-width) solid ${checked ? 'color-mix(in srgb, var(--morius-accent) 55%, var(--morius-card-border))' : 'var(--morius-card-border)'}`,
-        backgroundColor: checked ? 'color-mix(in srgb, var(--morius-accent) 8%, var(--morius-elevated-bg))' : 'var(--morius-elevated-bg)',
+        backgroundColor: checked ? 'var(--morius-elevated-bg)' : 'var(--morius-elevated-bg)',
         px: 1.2,
         py: 0.8,
       }}

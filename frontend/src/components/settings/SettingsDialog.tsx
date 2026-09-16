@@ -568,9 +568,9 @@ function SettingsDialog({
                         fontWeight: isActive ? 750 : 650,
                         color: isActive ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
                         border: 'none',
-                        backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-accent) 28%, var(--morius-elevated-bg))' : 'transparent',
+                        backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' : 'transparent',
                         '&:hover': {
-                          backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-accent) 34%, var(--morius-elevated-bg))' : 'color-mix(in srgb, var(--morius-button-hover) 52%, transparent)',
+                          backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' : 'color-mix(in srgb, var(--morius-button-hover) 52%, transparent)',
                         },
                       }}
                     >
@@ -1149,7 +1149,7 @@ function SettingsDialog({
               borderRadius: '12px',
               textTransform: 'none',
               color: 'var(--morius-title-text)',
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg) 82%)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
             }}
           >
             {isReplacingAuthMethod ? 'Сохраняем...' : 'Включить вход по паролю'}
@@ -1190,7 +1190,7 @@ function SettingsDialog({
               textTransform: 'none',
               color: 'var(--morius-title-text)',
               border: 'none',
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg) 82%)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
             }}
           >
             Закрыть

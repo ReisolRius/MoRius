@@ -134,9 +134,9 @@ function CosmeticSortToggle({ value, onChange }: { value: CosmeticSortMode; onCh
               fontWeight: 700,
               whiteSpace: 'nowrap',
               color: active ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
-              backgroundColor: active ? 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-card-bg))' : 'transparent',
+              backgroundColor: active ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' : 'transparent',
               '&:hover': {
-                backgroundColor: active ? 'color-mix(in srgb, var(--morius-accent) 26%, var(--morius-card-bg))' : 'var(--morius-button-hover)',
+                backgroundColor: active ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' : 'var(--morius-button-hover)',
               },
             }}
           >
@@ -1130,8 +1130,8 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
                 textTransform: 'none',
                 fontWeight: 900,
                 color: isOwned ? 'var(--morius-text-secondary)' : 'var(--morius-title-text)',
-                backgroundColor: isOwned ? 'var(--morius-elevated-bg)' : 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg))',
-                '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))' },
+                backgroundColor: isOwned ? 'var(--morius-elevated-bg)' : 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
+                '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' },
               }}
             >
               {isOwned ? 'Куплено' : isUnavailable ? 'Недоступно' : isBuying ? 'Покупка...' : 'Купить'}
@@ -1245,7 +1245,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
                     color: 'var(--morius-title-text)',
                     border: 'var(--morius-border-width) solid var(--morius-card-border)',
                     backgroundColor: 'var(--morius-elevated-bg)',
-                    '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-elevated-bg))' },
+                    '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' },
                   }}
                 >
                   Способы оплаты
@@ -1274,7 +1274,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
                         borderRadius: '12px',
                         textTransform: 'none',
                         color: uploadKind === kind ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
-                        backgroundColor: uploadKind === kind ? 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg))' : 'var(--morius-elevated-bg)',
+                        backgroundColor: uploadKind === kind ? 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' : 'var(--morius-elevated-bg)',
                       }}
                     >
                       {kind === 'avatar_frame' ? 'Рамка' : 'Баннер'}
@@ -1290,7 +1290,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
                   <Button onClick={() => fileInputRef.current?.click()} sx={{ minHeight: 48, borderRadius: '14px', textTransform: 'none', backgroundColor: 'var(--morius-elevated-bg)', color: 'var(--morius-title-text)' }}>
                     {uploadImage ? 'Файл выбран' : 'Загрузить PNG/WebP'}
                   </Button>
-                  <Button onClick={() => void handleCreateCosmetic()} disabled={isUploading} sx={{ minHeight: 48, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))' }}>
+                  <Button onClick={() => void handleCreateCosmetic()} disabled={isUploading} sx={{ minHeight: 48, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' }}>
                     {isUploading ? 'Добавляем...' : 'Добавить'}
                   </Button>
                 </Stack>
@@ -1406,7 +1406,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
           <Button
             onClick={() => setPurchaseConfirmItem(previewTarget.item)}
             disabled={previewTarget.item.is_owned || ownedSelectionIds.has(previewTarget.item.selection_id) || buyingItemId === previewTarget.item.id || !previewTarget.item.is_active}
-            sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-card-bg))' }}
+            sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' }}
           >
             {previewTarget.item.is_owned || ownedSelectionIds.has(previewTarget.item.selection_id) ? (
               'Уже куплено'
@@ -1451,7 +1451,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
               void handleBuyCosmetic(item)
             }}
             disabled={!purchaseConfirmItem || buyingItemId !== null || !purchaseConfirmItem.is_active}
-            sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))' }}
+            sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' }}
           >
             Купить
           </Button>
@@ -1515,7 +1515,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
           <Button
             onClick={() => void handleSaveEditedCosmetic()}
             disabled={!editingItem || isEditingSaving || deletingItemId !== null}
-            sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))' }}
+            sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' }}
           >
             {isEditingSaving ? 'Сохраняем...' : 'Сохранить'}
           </Button>
@@ -1566,7 +1566,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
               textTransform: 'none',
               fontWeight: 900,
               color: 'var(--morius-title-text)',
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))',
+              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
               '&.Mui-disabled': { color: 'var(--morius-text-secondary)' },
             }}
           >
@@ -1662,7 +1662,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
               textTransform: 'none',
               fontWeight: 900,
               color: 'var(--morius-title-text)',
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))',
+              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
               '&.Mui-disabled': { color: 'var(--morius-text-secondary)' },
             }}
           >
@@ -1866,7 +1866,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
                   <Button
                     onClick={() => void handleCreateDemoCard()}
                     disabled={isCreatingDemoCard}
-                    sx={{ flexShrink: 0, minHeight: 38, px: 1.6, borderRadius: '10px', textTransform: 'none', fontWeight: 900, color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 20%, var(--morius-card-bg))' }}
+                    sx={{ flexShrink: 0, minHeight: 38, px: 1.6, borderRadius: '10px', textTransform: 'none', fontWeight: 900, color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' }}
                   >
                     {isCreatingDemoCard ? 'Добавляем...' : 'Добавить тестовую карту'}
                   </Button>

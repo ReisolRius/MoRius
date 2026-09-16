@@ -719,7 +719,7 @@ export default function DndCharacterSheetDialog({
                   '&:hover': {
                     backgroundColor: isSelected
                       ? 'var(--morius-accent)'
-                      : 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-elevated-bg))',
+                      : 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)',
                   },
                 }}
               />

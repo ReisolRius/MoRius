@@ -1147,7 +1147,7 @@ function AppHeader({
                           borderRadius: '16px',
                           color: item.isActive ? 'var(--morius-accent)' : 'var(--morius-text-primary)',
                           backgroundColor: item.isActive
-                            ? 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-card-bg))'
+                            ? 'var(--morius-card-bg)'
                             : 'transparent',
                           flexShrink: 0,
                           '&:hover': {
