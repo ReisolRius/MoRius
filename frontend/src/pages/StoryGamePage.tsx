@@ -21337,7 +21337,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   boxShadow: '0 16px 34px -18px color-mix(in srgb, var(--morius-accent) 82%, transparent)',
                   '&:hover': {
                     background:
-                      'color-mix(in srgb, var(--morius-accent) 86%, #000 14%)',
+                      'var(--morius-accent)',
                   },
                   '&.Mui-disabled': {
                     color: 'color-mix(in srgb, var(--morius-title-text) 60%, transparent)',

@@ -56,7 +56,8 @@ export const moriusThemeTokens = {
   },
   radii: {
     app: 14,
-    button: 12,
+    // Square buttons, everywhere. The presentation page set the shape and the app follows it.
+    button: 0,
     menu: 18,
   },
   borders: {
@@ -202,6 +203,7 @@ export function createMoriusCssVariables(
     '--morius-send-button-bg': colors.sendButton,
     '--morius-panel-gradient': colors.panelGradient,
     '--morius-radius': `${moriusThemeTokens.radii.app}px`,
+    '--morius-button-radius': `${moriusThemeTokens.radii.button}px`,
     '--morius-border-width': `${moriusThemeTokens.borders.width}px`,
     '--morius-heading-size': `${moriusThemeTokens.typography.headingSize}px`,
     '--morius-subheading-size': `${moriusThemeTokens.typography.subheadingSize}px`,

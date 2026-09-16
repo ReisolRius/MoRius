@@ -60,7 +60,7 @@ const accentButtonSx = {
   background: 'var(--morius-accent) !important',
   boxShadow: '0 16px 34px -18px color-mix(in srgb, var(--morius-accent) 80%, transparent) !important',
   '&:hover': {
-    background: 'color-mix(in srgb, var(--morius-accent) 86%, #000 14%) !important',
+    background: 'var(--morius-accent) !important',
   },
   '&.Mui-disabled': {
     opacity: 0.55,

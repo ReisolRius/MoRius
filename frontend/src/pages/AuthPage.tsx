@@ -55,7 +55,6 @@ const AUTH_CODE_LENGTH = 6
 const RESEND_COOLDOWN_SECONDS = 60
 const RESEND_COOLDOWN_REGEX = /please wait\s+(\d+)\s+seconds?/i
 const LOGIN_BUTTON_COLOR = '#f8ae2c'
-const LOGIN_BUTTON_HOVER = 'color-mix(in srgb, #f8ae2c 88%, #000 12%)'
 const REGISTER_LINK_COLOR = '#f8ae2c'
 const PAGE_BACKGROUND = '#090909'
 const INPUT_BACKGROUND = '#111114'
@@ -135,7 +134,10 @@ function AuthField({
               borderColor: error ? '#ff8585' : 'color-mix(in srgb, #ffffff 22%, transparent)',
             },
             '&.Mui-disabled': {
-              opacity: 0.68,
+              // A translucent accent over black reads as muddy brown. Solid muted fill instead.
+              opacity: 1,
+              backgroundColor: '#272c30',
+              color: '#666d75',
             },
           },
           '& .MuiInputBase-input::placeholder': {
@@ -1006,23 +1008,25 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                 sx={{
                   mt: { xs: 0.7, md: 1.2 },
                   minHeight: 57,
-                  borderRadius: '10px',
                   border: 'none',
-                  background: '#f8ae2c !important',
-                  color: '#ffffff !important',
+                  // Driven straight off the disabled flag: a `&:disabled` block loses the
+                  // !important fight with the root `background` and the fill stayed amber.
+                  background: (isSubmitting || isExternalAuthSubmitting || isRegisterSubmitBlocked) ? '#272c30 !important' : '#f8ae2c !important',
+                  // Near-black on amber, like the presentation page. White on amber is unreadable.
+                  color: (isSubmitting || isExternalAuthSubmitting || isRegisterSubmitBlocked) ? '#666d75 !important' : '#161009 !important',
                   fontFamily: '"Manrope", sans-serif',
                   fontSize: '1.05rem',
                   fontWeight: 700,
                   textTransform: 'none',
-                  '&:hover, &:focus, &:active, &.Mui-focusVisible': {
-                    background: `${LOGIN_BUTTON_HOVER} !important`,
-                    color: '#ffffff !important',
-                  },
-                  '&:disabled': {
-                    opacity: 0.66,
+                  // One accent, one hue: hover and press change brightness, never colour.
+                  '&:hover, &:focus, &.Mui-focusVisible': {
                     background: '#f8ae2c !important',
-                    color: '#ffffff !important',
+                    color: '#161009 !important',
+                    filter: 'brightness(1.08)',
                   },
+                  '&:active': { filter: 'brightness(0.94)' },
+                  // Disabled is a solid muted fill - fading the accent over black looked muddy.
+                  '&:disabled': { opacity: 1, filter: 'none' },
                 }}
               >
                 {isSubmitting ? <CircularProgress size={22} sx={{ color: '#ffffff' }} /> : submitLabel}

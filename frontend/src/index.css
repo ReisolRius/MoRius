@@ -926,3 +926,60 @@ body::-webkit-scrollbar-thumb:hover,
     filter: brightness(1.06);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   One button shape, one accent, nothing see-through.
+
+   The presentation page set the look: a square button filled with the flat amber
+   accent. Components across the app had drifted into pill radii, gradient fills and
+   translucent disabled states, so this pins the shape centrally instead of chasing
+   1120 hand-written borderRadius values.
+
+   Scoped to real buttons only - avatars, covers, chips and skeletons keep their own
+   radii, because those are images and placeholders, not controls. A control that must
+   stay circular opts out with .moru-keep-round.
+   --------------------------------------------------------------------------- */
+button,
+.MuiButton-root,
+.MuiIconButton-root,
+.MuiToggleButton-root,
+.MuiTab-root,
+.MuiFab-root {
+  border-radius: var(--morius-button-radius, 0px) !important;
+}
+
+.moru-keep-round,
+.moru-keep-round.MuiButton-root,
+.moru-keep-round.MuiIconButton-root {
+  border-radius: 50% !important;
+}
+
+/* A disabled control keeps its shape and simply stops looking clickable. Fading the
+   accent to 68% over a black page is what produced the muddy brown. */
+button:disabled,
+.MuiButton-root.Mui-disabled,
+.MuiIconButton-root.Mui-disabled {
+  opacity: 1 !important;
+  background-image: none !important;
+  background-color: var(--morius-elevated-bg) !important;
+  color: var(--morius-quiet-text) !important;
+  border-color: var(--morius-card-border) !important;
+  cursor: not-allowed;
+}
+
+/* The accent is a single flat colour. Hover and press change brightness, never hue. */
+.MuiButton-containedPrimary:not(.Mui-disabled) {
+  background-image: none !important;
+  background-color: var(--morius-accent) !important;
+  color: #161009 !important;
+  box-shadow: none !important;
+}
+
+.MuiButton-containedPrimary:not(.Mui-disabled):hover {
+  background-color: var(--morius-accent) !important;
+  filter: brightness(1.08);
+}
+
+.MuiButton-containedPrimary:not(.Mui-disabled):active {
+  filter: brightness(0.94);
+}
