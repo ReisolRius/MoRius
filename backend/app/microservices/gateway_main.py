@@ -19,6 +19,7 @@ app = create_service_app(
         "/api/shop",
         "/api/media",
         "/api/health",
+        "/api/public",
     ),
     include_health_route=False,
 )
