@@ -11,7 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import { brandLogo } from '../assets'
-import authHero from '../assets/images/auth-hero-rebrand.webp'
+const authHero = '/landing/auth.webp'
 import { GOOGLE_CLIENT_ID, IS_GOOGLE_AUTH_CONFIGURED } from '../config/env'
 import {
   loginWithEmail,
@@ -56,11 +56,12 @@ const RESEND_COOLDOWN_SECONDS = 60
 const RESEND_COOLDOWN_REGEX = /please wait\s+(\d+)\s+seconds?/i
 const LOGIN_BUTTON_COLOR = '#f8ae2c'
 const REGISTER_LINK_COLOR = '#f8ae2c'
-const PAGE_BACKGROUND = '#090909'
-const INPUT_BACKGROUND = '#111114'
-const INPUT_TEXT = '#f3f1ec'
-const MUTED_TEXT = '#9b9aa0'
-const BORDER_COLOR = 'rgba(255,255,255,0.09)'
+const PAGE_BACKGROUND = '#000000'
+const PANEL_BACKGROUND = '#0d0e0f'
+const INPUT_BACKGROUND = '#1b1f22'
+const INPUT_TEXT = '#f9f7f4'
+const MUTED_TEXT = '#828a92'
+const BORDER_COLOR = 'rgba(199,231,255,0.13)'
 
 function extractResendCooldownSeconds(detail: string): number | null {
   const match = detail.match(RESEND_COOLDOWN_REGEX)
@@ -705,7 +706,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
         zIndex: 2147483000,
         isolation: 'isolate',
         display: 'grid',
-        gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) minmax(0, 1fr)' },
+        gridTemplateColumns: { xs: '1fr', md: '52% 48%' },
         backgroundColor: PAGE_BACKGROUND,
         color: INPUT_TEXT,
         fontFamily: '"Manrope", sans-serif',
@@ -722,7 +723,6 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           height: '100dvh',
           minHeight: '100dvh',
           boxSizing: 'border-box',
-          p: { md: '40px', xl: '48px' },
           backgroundColor: PAGE_BACKGROUND,
         }}
       >
@@ -732,9 +732,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
             width: '100%',
             height: '100%',
             overflow: 'hidden',
-            borderRadius: { md: '12px', xl: '14px' },
-            background:
-              'radial-gradient(ellipse at 50% -8%, rgba(205,166,89,0.14) 0%, transparent 48%), linear-gradient(180deg, #17171c 0%, #111114 100%)',
+            background: PANEL_BACKGROUND,
           }}
         >
           <Box
@@ -752,13 +750,51 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
               height: '100%',
               display: 'block',
               objectFit: 'cover',
-              objectPosition: '32% center',
+              objectPosition: 'center 38%',
               opacity: isAuthHeroLoaded ? 1 : 0,
               transform: isAuthHeroLoaded ? 'scale(1)' : 'scale(1.012)',
-              transformOrigin: '32% center',
+              transformOrigin: 'center 38%',
               transition: 'opacity 720ms ease, transform 900ms ease',
             }}
           />
+          {/* Darkens the lower half so the copy below stays readable over the art. */}
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              background:
+                'linear-gradient(180deg, rgba(0,0,0,0.45), transparent 30%, transparent 46%, rgba(0,0,0,0.72) 72%, rgba(0,0,0,0.94) 100%)',
+            }}
+          />
+          <Box sx={{ position: 'absolute', zIndex: 1, top: 31, left: 36, right: 36, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Box component="img" src={brandLogo} alt="" sx={{ height: 34, width: 'auto', display: 'block' }} />
+              <Box component="span" sx={{ fontFamily: 'var(--morius-font-heading, Georgia, serif)', fontSize: 32, color: INPUT_TEXT, letterSpacing: '0.5px' }}>
+                Moru
+              </Box>
+            </Box>
+            <Box sx={{ color: MUTED_TEXT, fontSize: 11, letterSpacing: '2px' }}>ТВОЙ МИР НАЧИНАЕТСЯ ЗДЕСЬ</Box>
+          </Box>
+          <Box sx={{ position: 'absolute', zIndex: 1, bottom: 44, left: '9%', right: '9%', color: INPUT_TEXT }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: 11, letterSpacing: '2px', textTransform: 'uppercase', fontWeight: 700, color: LOGIN_BUTTON_COLOR, mb: '19px', '&:before': { content: '""', height: '1px', width: 31, background: 'currentColor' } }}>
+              У каждой истории есть начало
+            </Box>
+            <Box component="h2" sx={{ fontFamily: 'var(--morius-font-heading, Georgia, serif)', fontWeight: 400, fontSize: 'clamp(36px, 3.5vw, 55px)', lineHeight: 1.12, letterSpacing: '-1.2px', m: '0 0 16px', color: INPUT_TEXT }}>
+              За этой дверью —
+              <br />
+              <Box component="em" sx={{ color: LOGIN_BUTTON_COLOR, fontStyle: 'normal' }}>твой новый мир.</Box>
+            </Box>
+            <Box component="p" sx={{ color: MUTED_TEXT, fontSize: 15, lineHeight: 1.8, maxWidth: 390, m: 0 }}>
+              Я проведу тебя к первой главе.
+              <br />
+              А какой она будет — решать тебе.
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${BORDER_COLOR}`, display: 'flex', justifyContent: 'space-between', gap: '20px', mt: '28px', pt: '22px', fontSize: 12, color: MUTED_TEXT }}>
+              <span>Storytelling · D&amp;D · Новеллы</span>
+              <span>Твои живые истории</span>
+            </Box>
+          </Box>
         </Box>
       </Box>
       <Box
@@ -769,6 +805,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           minHeight: 0,
           width: '100%',
           minWidth: 0,
+          backgroundColor: PAGE_BACKGROUND,
           display: 'flex',
           alignItems: { xs: 'flex-start', md: 'center' },
           justifyContent: 'center',
@@ -779,6 +816,24 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           overflowY: 'auto',
         }}
       >
+        {/* The torn seam from the mockup: the form side bites into the art in a ragged line
+            instead of meeting it on a ruled edge. Black over the picture, so it reads. */}
+        <Box
+          aria-hidden
+          sx={{
+            display: { xs: 'none', md: 'block' },
+            position: 'absolute',
+            top: 0,
+            left: -13,
+            width: 15,
+            height: '100%',
+            backgroundColor: PAGE_BACKGROUND,
+            clipPath:
+              'polygon(100% 0,100% 100%,30% 100%,64% 97%,20% 94%,53% 91%,10% 88%,65% 85%,25% 82%,60% 79%,15% 76%,68% 73%,20% 70%,57% 67%,15% 64%,60% 61%,25% 58%,65% 55%,18% 52%,60% 49%,20% 46%,65% 43%,15% 40%,55% 37%,20% 34%,63% 31%,15% 28%,62% 25%,25% 22%,55% 19%,12% 16%,65% 13%,20% 10%,60% 7%,15% 4%,55% 0)',
+            zIndex: 2,
+            pointerEvents: 'none',
+          }}
+        />
         <Box
           component="button"
           type="button"
@@ -1005,31 +1060,29 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                 type="submit"
                 fullWidth
                 disabled={isSubmitting || isExternalAuthSubmitting || isRegisterSubmitBlocked}
+                // Inline rather than sx: the theme's MuiButton override sets background-color on
+                // the same generated class, and an sx `background` shorthand kept losing to it.
+                // An inline declaration outranks any author rule that is not !important.
+                style={{
+                  background: (isSubmitting || isExternalAuthSubmitting || isRegisterSubmitBlocked) ? '#272c30' : '#f8ae2c',
+                  color: (isSubmitting || isExternalAuthSubmitting || isRegisterSubmitBlocked) ? '#666d75' : '#161009',
+                }}
                 sx={{
                   mt: { xs: 0.7, md: 1.2 },
                   minHeight: 57,
                   border: 'none',
-                  // Driven straight off the disabled flag: a `&:disabled` block loses the
-                  // !important fight with the root `background` and the fill stayed amber.
-                  background: (isSubmitting || isExternalAuthSubmitting || isRegisterSubmitBlocked) ? '#272c30 !important' : '#f8ae2c !important',
-                  // Near-black on amber, like the presentation page. White on amber is unreadable.
-                  color: (isSubmitting || isExternalAuthSubmitting || isRegisterSubmitBlocked) ? '#666d75 !important' : '#161009 !important',
                   fontFamily: '"Manrope", sans-serif',
                   fontSize: '1.05rem',
                   fontWeight: 700,
                   textTransform: 'none',
                   // One accent, one hue: hover and press change brightness, never colour.
-                  '&:hover, &:focus, &.Mui-focusVisible': {
-                    background: '#f8ae2c !important',
-                    color: '#161009 !important',
-                    filter: 'brightness(1.08)',
-                  },
+                  '&:hover, &:focus, &.Mui-focusVisible': { filter: 'brightness(1.08)' },
                   '&:active': { filter: 'brightness(0.94)' },
                   // Disabled is a solid muted fill - fading the accent over black looked muddy.
                   '&:disabled': { opacity: 1, filter: 'none' },
                 }}
               >
-                {isSubmitting ? <CircularProgress size={22} sx={{ color: '#ffffff' }} /> : submitLabel}
+                {isSubmitting ? <CircularProgress size={22} sx={{ color: '#161009' }} /> : submitLabel}
               </Button>
 
               {shouldShowExternalAuth ? (
