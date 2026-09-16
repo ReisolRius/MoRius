@@ -20612,8 +20612,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     boxShadow: 'none',
   } as const
   const rightPanelActiveCardSx = {
-    // Active reads from the accent border and a neutral lift, never from an accent-tinted fill.
-    borderColor: 'var(--morius-accent)',
+    // Every card in this list is "active", so outlining each one turns the panel into a picket
+    // fence: six amber rectangles compete and none of them reads. The card keeps the same quiet
+    // border as any other, and the state shows as a short accent edge down its left side -
+    // visible at a glance, and it does not fight the avatars or the text.
+    borderColor: 'var(--morius-card-border)',
+    boxShadow: 'inset 3px 0 0 var(--morius-accent)',
     backgroundColor: 'var(--morius-elevated-bg)',
   } as const
   const rightPanelGreenCardSx = {
