@@ -183,6 +183,9 @@ function TornEdge({ place }: { place: 'top' | 'bottom' }) {
         [place]: '-1px',
         background: L.page,
         clipPath: place === 'bottom' ? bottom : top,
+        // The mockup's tear was beige biting into a dark section, so its silhouette was obvious.
+        // Black on black is not, so the shape carries its own hairline rim.
+        filter: 'drop-shadow(0 -1px 0 rgba(199,231,255,0.20)) drop-shadow(0 1px 0 rgba(199,231,255,0.10))',
         zIndex: 1,
         pointerEvents: 'none',
       }}
@@ -349,8 +352,43 @@ export type PublicLandingPageProps = {
 
 export default function PublicLandingPage({ isAuthenticated, pendingReferralCode, onNavigate, onGoHome }: PublicLandingPageProps) {
   const openedReferralCodeRef = useRef<string | null>(null)
+  const stickySentinelRef = useRef<HTMLDivElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [headerStuck, setHeaderStuck] = useState(false)
   const [showcase, setShowcase] = useState<LandingShowcase>({ players: 0, worlds: 0, characters: 0, avatars: [] })
+
+  /**
+   * The bar is frosted only once the page has moved, so it stays invisible over the hero art.
+   * Driven by a sentinel at the top of the document rather than a scroll listener: scroll events
+   * are throttled or missing in some embedded webviews, and an observer reports the same fact
+   * without firing on every frame.
+   */
+  useEffect(() => {
+    const node = stickySentinelRef.current
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      const onScroll = () => setHeaderStuck(window.scrollY > 40)
+      onScroll()
+      window.addEventListener('scroll', onScroll, { passive: true })
+      return () => window.removeEventListener('scroll', onScroll)
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setHeaderStuck(!entry.isIntersecting),
+      { threshold: 0 },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  /** Glide to a section instead of teleporting. scroll-margin-top clears the sticky bar. */
+  const scrollToSection = (href: string) => (event: MouseEvent<HTMLElement>) => {
+    if (!href.startsWith('#')) return
+    event.preventDefault()
+    setMenuOpen(false)
+    const target = document.querySelector(href)
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -403,6 +441,7 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
     <Box
       component="a"
       href="#top"
+      onClick={scrollToSection('#top')}
       aria-label="Moru — на главную"
       sx={{ display: 'flex', alignItems: 'center', gap: '12px', textDecoration: 'none', color: L.title }}
     >
@@ -422,16 +461,131 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
         fontFamily: L.ui,
         fontSize: 16,
         lineHeight: 1.65,
+        position: 'relative',
         scrollBehavior: 'smooth',
+        // Anchors land below the sticky bar rather than under it.
+        '& section[id]': { scrollMarginTop: '99px' },
         '& a': { color: 'inherit', textDecoration: 'none' },
       }}
     >
+      <Box ref={stickySentinelRef} aria-hidden sx={{ position: 'absolute', top: 0, height: 40, width: '100%', pointerEvents: 'none' }} />
+      {/* Sticky so the nav is reachable from any section; frosted only once the page has
+          scrolled, so it stays invisible over the hero art the way the mockup had it. */}
+      <Box
+        sx={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 40,
+          transition: 'background-color 220ms ease, backdrop-filter 220ms ease, border-color 220ms ease',
+          // Always frosted, because the nav sits over busy hero art and has to stay readable
+          // there too - scrolling only deepens it. Never conditional on JS alone: if the
+          // observer never fires, the labels must still be legible.
+          backgroundColor: headerStuck ? 'rgba(6, 7, 8, 0.78)' : 'rgba(6, 7, 8, 0.30)',
+          backdropFilter: headerStuck ? 'blur(20px) saturate(130%)' : 'blur(10px) saturate(115%)',
+          WebkitBackdropFilter: headerStuck ? 'blur(20px) saturate(130%)' : 'blur(10px) saturate(115%)',
+          borderBottom: `1px solid ${headerStuck ? L.border : 'rgba(199,231,255,0.07)'}`,
+        }}
+      >
+        <Box sx={{ ...WRAP, position: 'relative' }}>
+        <Box
+          component="header"
+          sx={{
+            height: 99,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '25px',
+            borderBottom: `1px solid ${L.border}`,
+            '@media (max-width: 720px)': { height: 78 },
+          }}
+        >
+          {brandNode}
+          <Box
+            component="nav"
+            aria-label="Основная навигация"
+            sx={{
+              display: 'flex',
+              gap: '29px',
+              fontSize: 14,
+              color: L.text,
+              '& a:hover': { color: L.accent },
+              '@media (max-width: 1000px)': { gap: '18px' },
+              '@media (max-width: 720px)': { display: 'none' },
+            }}
+          >
+            {navLinks.map((link) => (
+              <a key={link.href} href={link.href} onClick={scrollToSection(link.href)}>
+                {link.label}
+              </a>
+            ))}
+          </Box>
+          {/* The mockup left this one transparent and the label disappeared — it is accent-filled now. */}
+          <Action onClick={() => openAuthPage('register')} sx={{ px: '19px', py: '9px', minHeight: 42, gap: '14px', '@media (max-width: 720px)': { display: 'none' } }}>
+            {isAuthenticated ? 'Продолжить' : 'Начать игру'}
+          </Action>
+          <Box
+            component="button"
+            type="button"
+            aria-label={menuOpen ? 'Закрыть меню' : 'Открыть меню'}
+            aria-expanded={menuOpen}
+            aria-controls="landing-mobile-nav"
+            onClick={() => setMenuOpen((value) => !value)}
+            sx={{
+              display: 'none',
+              background: 'none',
+              border: `1px solid ${L.border}`,
+              color: L.title,
+              p: '7px 12px',
+              cursor: 'pointer',
+              '@media (max-width: 720px)': { display: 'block' },
+            }}
+          >
+            {menuOpen ? <CloseIcon size={20} /> : <MenuIcon size={20} />}
+          </Box>
+        </Box>
+
+        {menuOpen ? (
+          <Box
+            component="nav"
+            id="landing-mobile-nav"
+            aria-label="Мобильная навигация"
+            sx={{
+              display: 'none',
+              '@media (max-width: 720px)': {
+                display: 'flex',
+                position: 'absolute',
+                top: 77,
+                left: 0,
+                right: 0,
+                background: '#0d0e0f',
+                p: '22px',
+                flexDirection: 'column',
+                gap: '17px',
+                zIndex: 9,
+                borderBottom: `1px solid ${L.accentBorder}`,
+              },
+            }}
+          >
+            {navLinks.map((link) => (
+              <a key={link.href} href={link.href} onClick={scrollToSection(link.href)}>
+                {link.label}
+              </a>
+            ))}
+            <Action onClick={() => openAuthPage('register')}>{isAuthenticated ? 'Продолжить' : 'Начать игру'}</Action>
+          </Box>
+        ) : null}
+        </Box>
+      </Box>
+
       {/* ------------------------------------------------------------------ hero */}
       <Box
         component="section"
         id="top"
         sx={{
           position: 'relative',
+          // Pulled up under the sticky bar, which is transparent here, so the art is full-bleed.
+          mt: '-99px',
+          pt: '99px',
           minHeight: 850,
           height: 'min(920px, 100vh)',
           color: L.title,
@@ -458,93 +612,6 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
       >
         <TornEdge place="bottom" />
         <Box sx={WRAP}>
-          <Box
-            component="header"
-            sx={{
-              height: 99,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '25px',
-              borderBottom: `1px solid ${L.border}`,
-              '@media (max-width: 720px)': { height: 78 },
-            }}
-          >
-            {brandNode}
-            <Box
-              component="nav"
-              aria-label="Основная навигация"
-              sx={{
-                display: 'flex',
-                gap: '29px',
-                fontSize: 14,
-                color: L.text,
-                '& a:hover': { color: L.accent },
-                '@media (max-width: 1000px)': { gap: '18px' },
-                '@media (max-width: 720px)': { display: 'none' },
-              }}
-            >
-              {navLinks.map((link) => (
-                <a key={link.href} href={link.href}>
-                  {link.label}
-                </a>
-              ))}
-            </Box>
-            {/* The mockup left this one transparent and the label disappeared — it is accent-filled now. */}
-            <Action onClick={() => openAuthPage('register')} sx={{ px: '19px', py: '9px', minHeight: 42, gap: '14px', '@media (max-width: 720px)': { display: 'none' } }}>
-              {isAuthenticated ? 'Продолжить' : 'Начать игру'}
-            </Action>
-            <Box
-              component="button"
-              type="button"
-              aria-label={menuOpen ? 'Закрыть меню' : 'Открыть меню'}
-              aria-expanded={menuOpen}
-              aria-controls="landing-mobile-nav"
-              onClick={() => setMenuOpen((value) => !value)}
-              sx={{
-                display: 'none',
-                background: 'none',
-                border: `1px solid ${L.border}`,
-                color: L.title,
-                p: '7px 12px',
-                cursor: 'pointer',
-                '@media (max-width: 720px)': { display: 'block' },
-              }}
-            >
-              {menuOpen ? <CloseIcon size={20} /> : <MenuIcon size={20} />}
-            </Box>
-          </Box>
-
-          {menuOpen ? (
-            <Box
-              component="nav"
-              id="landing-mobile-nav"
-              aria-label="Мобильная навигация"
-              sx={{
-                display: 'none',
-                '@media (max-width: 720px)': {
-                  display: 'flex',
-                  position: 'absolute',
-                  top: 77,
-                  left: 0,
-                  right: 0,
-                  background: '#0d0e0f',
-                  p: '22px',
-                  flexDirection: 'column',
-                  gap: '17px',
-                  zIndex: 9,
-                  borderBottom: `1px solid ${L.accentBorder}`,
-                },
-              }}
-            >
-              {navLinks.map((link) => (
-                <a key={link.href} href={link.href} onClick={() => setMenuOpen(false)}>
-                  {link.label}
-                </a>
-              ))}
-              <Action onClick={() => openAuthPage('register')}>{isAuthenticated ? 'Продолжить' : 'Начать игру'}</Action>
-            </Box>
-          ) : null}
 
           <Box
             sx={{
