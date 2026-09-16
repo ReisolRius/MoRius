@@ -2676,7 +2676,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       px: 2.4,
                       borderRadius: '12px',
                       background: 'var(--morius-accent)',
-                      color: '#fff',
+                      color: 'var(--morius-accent-contrast)',
                       textTransform: 'none',
                       fontWeight: 850,
                       boxShadow: '0 12px 30px color-mix(in srgb, var(--morius-accent) 26%, transparent)',

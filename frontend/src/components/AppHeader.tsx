@@ -1546,8 +1546,11 @@ function AppHeader({
               {headerNavItems.map((item, index) => {
                 const MenuIcon = primaryMenuIconByKey[item.key] ?? primaryMenuIcons[index % primaryMenuIcons.length]
                 const isActive = isHeaderNavItemActive(item)
-                const navItemColor = isActive ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)'
-                const navIconColor = isActive ? '#fff' : 'var(--morius-text-secondary)'
+                // These win over headerNavButtonSx because they are applied with !important, so
+                // the active pill's label and icon have to be set here too - on the amber fill
+                // they take the dark contrast colour, not white.
+                const navItemColor = isActive ? 'var(--morius-accent-contrast)' : 'var(--morius-text-secondary)'
+                const navIconColor = isActive ? 'var(--morius-accent-contrast)' : 'var(--morius-text-secondary)'
 
                 return (
                   <Button

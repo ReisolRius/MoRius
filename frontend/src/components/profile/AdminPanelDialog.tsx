@@ -1439,7 +1439,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
     textTransform: 'none' as const,
     fontWeight: 800,
     borderRadius: '12px',
-    color: '#ffffff',
+    color: 'var(--morius-accent-contrast)',
     backgroundColor: 'var(--morius-accent)',
     border: 'var(--morius-border-width) solid var(--morius-accent)',
     boxShadow: 'none',

@@ -600,7 +600,7 @@ function NovelPlacesPanel({
                           top: 8,
                           left: 8,
                           height: 25,
-                          color: 'var(--morius-title-text)',
+                          color: 'var(--morius-accent-contrast)',
                           backgroundColor: 'var(--morius-accent)',
                           backdropFilter: 'blur(10px)',
                           fontSize: '0.68rem',

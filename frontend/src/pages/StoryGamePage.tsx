@@ -24978,7 +24978,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               borderRadius: '13px',
                               display: 'grid',
                               placeItems: 'center',
-                              color: 'var(--morius-title-text)',
+                              color: 'var(--morius-accent-contrast)',
                               background: 'var(--morius-accent)',
                               flexShrink: 0,
                             }}
@@ -27641,7 +27641,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                                 height: 20,
                                                 borderRadius: '50%',
                                                 backgroundColor: 'var(--morius-accent)',
-                                                color: 'var(--morius-title-text)',
+                                                color: 'var(--morius-accent-contrast)',
                                                 display: 'grid',
                                                 placeItems: 'center',
                                                 fontSize: '0.82rem',
@@ -30929,7 +30929,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               minHeight: 38,
               borderRadius: '12px',
               border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 56%, rgba(221, 229, 241, 0.18))',
-              color: '#FFFFFF',
+              color: 'var(--morius-accent-contrast)',
               backgroundColor: 'var(--morius-accent)',
               '&:hover': {
                 backgroundColor: 'var(--morius-accent)', filter: 'brightness(1.08)',
