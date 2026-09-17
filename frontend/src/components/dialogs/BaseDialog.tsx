@@ -169,13 +169,21 @@ function BaseDialog({
       TransitionComponent={transitionComponent}
       sx={{
         ...mobileSheet.dialogSx,
-        '& .MuiButton-root': {
+        // Text buttons in a dialog are borderless and unfilled - but `contained` is exactly the
+        // variant that asked for a fill, and stripping it left the confirm action as near-black
+        // label text on a near-black sheet. Only flatten what did not ask to be filled.
+        '& .MuiButton-root:not(.MuiButton-contained)': {
           border: 'none !important',
           backgroundColor: 'transparent !important',
           boxShadow: 'none !important',
         },
-        '& .MuiButton-root:hover, & .MuiButton-root:active, & .MuiButton-root.Mui-focusVisible': {
-          backgroundColor: 'transparent !important',
+        '& .MuiButton-root:not(.MuiButton-contained):hover, & .MuiButton-root:not(.MuiButton-contained):active, & .MuiButton-root:not(.MuiButton-contained).Mui-focusVisible':
+          {
+            backgroundColor: 'transparent !important',
+            boxShadow: 'none !important',
+          },
+        '& .MuiButton-contained': {
+          border: 'none !important',
           boxShadow: 'none !important',
         },
         '& .MuiIconButton-root': {

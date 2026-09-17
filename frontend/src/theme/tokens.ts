@@ -125,6 +125,10 @@ function resolveSurfaceDecor(colors: MoriusThemeColors, surface: MoriusThemeSurf
       '--morius-font-heading': moriusThemeTokens.legacyFonts.heading,
       '--morius-heading-weight': '700',
       '--morius-menu-border': 'rgba(255,255,255,0.09)',
+      // The page backdrop the legacy screens sit on: the same shape as the app one, tuned to
+      // their warmer off-black base so the two surfaces never look like different products.
+      '--morius-app-backdrop':
+        'radial-gradient(135% 105% at 14% -14%, rgba(152,154,170,0.20) 0%, rgba(152,154,170,0.08) 38%, rgba(152,154,170,0) 72%), radial-gradient(95% 72% at 94% 0%, rgba(248,174,44,0.07) 0%, rgba(248,174,44,0) 58%), radial-gradient(120% 85% at 52% 114%, rgba(112,110,128,0.11) 0%, rgba(112,110,128,0) 62%), linear-gradient(168deg, #1a1a20 0%, #131316 40%, #0d0d0f 72%, #090909 100%)',
       '--morius-card-gradient': 'linear-gradient(180deg, #17171c, #121216)',
       '--morius-card-alt-gradient': 'linear-gradient(180deg, #16161b, #111114)',
       '--morius-chip-bg': 'rgba(255,255,255,0.03)',
@@ -153,6 +157,14 @@ function resolveSurfaceDecor(colors: MoriusThemeColors, surface: MoriusThemeSurf
     '--morius-font-heading': moriusThemeTokens.fonts.heading,
     '--morius-heading-weight': '600',
     '--morius-menu-border': 'rgba(199,231,255,0.13)',
+    /**
+     * The page backdrop, painted by AppBackdropGlow across every redesigned screen. AI Dungeon
+     * never shows flat black: a broad cool haze falls off the top-left corner, a faint amber one
+     * answers it from the top-right, the floor lifts a little, and the whole thing lands on a
+     * near-black vertical ramp. Sizes are percentages of the viewport, so it scales on phones.
+     */
+    '--morius-app-backdrop':
+      'radial-gradient(135% 105% at 14% -14%, rgba(142,158,184,0.24) 0%, rgba(142,158,184,0.10) 38%, rgba(142,158,184,0) 72%), radial-gradient(95% 72% at 94% 0%, rgba(248,174,44,0.09) 0%, rgba(248,174,44,0) 58%), radial-gradient(120% 85% at 52% 114%, rgba(104,120,148,0.13) 0%, rgba(104,120,148,0) 62%), linear-gradient(168deg, #13171c 0%, #0c0e11 40%, #060608 72%, #000000 100%)',
     // Cards are a cool-tinted translucent white over the black page, the way AI Dungeon fills them.
     '--morius-card-gradient': 'linear-gradient(180deg, rgba(199,231,255,0.145), rgba(199,231,255,0.115))',
     '--morius-card-alt-gradient': 'linear-gradient(180deg, rgba(199,231,255,0.115), rgba(199,231,255,0.09))',

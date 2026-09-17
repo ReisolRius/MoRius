@@ -1540,6 +1540,7 @@ function CommunityWorldDialog({
                         onClick={moderationControls.onRemoveWorld}
                         disabled={moderationControls.isApplying}
                         variant="contained"
+                        color="error"
                         sx={{
                           minHeight: 38,
                           borderRadius: 'var(--morius-radius)',
@@ -1744,6 +1745,7 @@ function CommunityWorldDialog({
             onClick={() => void handleSubmitReport()}
             disabled={isReportSubmitting}
             variant="contained"
+            color="error"
             sx={{
               minHeight: 38,
               borderRadius: 'var(--morius-radius)',

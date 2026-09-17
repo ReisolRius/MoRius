@@ -2297,6 +2297,7 @@ function CharacterManagerDialog({
           </Button>
           <Button
             variant="contained"
+            color="error"
             onClick={() => void handleConfirmCharacterDeletion()}
             disabled={deletingCharacterId !== null || isAvatarActionsLocked}
             sx={{

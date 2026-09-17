@@ -28,7 +28,11 @@ body,
 
 body {
   overflow-x: hidden;
-  background: var(--morius-app-base);
+  /* Longhands, not the `background` shorthand: the shorthand would wipe the gradient image that
+     main.tsx layers on top of this colour. */
+  background-color: var(--morius-app-base);
+  background-image: var(--morius-app-backdrop, none);
+  background-attachment: fixed;
   color: var(--morius-text-secondary);
   font-size: var(--morius-body-size);
   line-height: 1.5;

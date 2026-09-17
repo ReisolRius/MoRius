@@ -16,10 +16,20 @@ function ThemedApp() {
       <GlobalStyles
         styles={{
           ':root': cssVariables,
-          'html, body, #root': {
+          'html, body': {
             backgroundColor: activeTheme.colors.bootBackground,
+            // The page gradient lives here as well as on AppBackdropGlow, so screens that are not
+            // wrapped in `.morius-app-shell` - and the overscroll area on mobile - are never
+            // flatly black. `fixed` keeps it pinned to the viewport while the page scrolls.
+            backgroundImage: 'var(--morius-app-backdrop, none)',
+            backgroundAttachment: 'fixed',
             color: activeTheme.colors.baseText,
             transition: 'background-color 180ms ease, color 180ms ease',
+          },
+          // Opaque here would hide the gradient above for every page at once.
+          '#root': {
+            backgroundColor: 'transparent',
+            color: activeTheme.colors.baseText,
           },
         }}
       />

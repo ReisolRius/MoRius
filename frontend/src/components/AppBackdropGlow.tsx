@@ -1,10 +1,14 @@
 import { Box } from '@mui/material'
 
 /**
- * The page backdrop behind every redesigned screen: AI Dungeon's off-black radial, anchored
- * off the top-left corner so the page is never flatly black. It lives on the viewport (fixed)
- * so long pages don't drag it away, and below the shell's content via the `isolation: isolate`
- * the shell gets in index.css.
+ * The page backdrop behind every redesigned screen: AI Dungeon's layered off-black, so the page
+ * is never flatly black. It lives on the viewport (fixed) so long pages don't drag it away, and
+ * below the shell's content via the `isolation: isolate` the shell gets in index.css.
+ *
+ * Because it is opaque and sits above the shell's own background, it - not `--morius-app-bg` - is
+ * what the user actually sees. Anything that wants to repaint the page (the story Appearance
+ * panel's gradient, its UI styles) therefore overrides `--morius-app-backdrop` on the shell and
+ * this element inherits it.
  */
 function AppBackdropGlow() {
   return (
@@ -15,8 +19,8 @@ function AppBackdropGlow() {
         inset: 0,
         zIndex: -1,
         pointerEvents: 'none',
-        background:
-          'radial-gradient(120% 85% at 18% -6%, #0d0e0f 0%, #070708 45%, #010102 75%, #000000 100%)',
+        background: 'var(--morius-app-backdrop, var(--morius-app-bg, #000000))',
+        transition: 'background 240ms ease',
       }}
     />
   )

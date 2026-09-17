@@ -1058,12 +1058,14 @@ const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1
 const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_NANO_BANANO_ID
 const STORY_APPEARANCE_DEFAULT_BACKGROUND_MODE: StoryAppearanceBackgroundMode = 'custom'
 const STORY_APPEARANCE_DEFAULT_GRADIENT_ENABLED = true
-const STORY_APPEARANCE_DEFAULT_GRADIENT_FROM = '#20232D'
-const STORY_APPEARANCE_DEFAULT_GRADIENT_TO = '#0A0400'
+const STORY_APPEARANCE_DEFAULT_GRADIENT_FROM = '#12151A'
+const STORY_APPEARANCE_DEFAULT_GRADIENT_TO = '#000000'
 const STORY_APPEARANCE_LEGACY_GRADIENT_FROM = '#21242C'
 const STORY_APPEARANCE_LEGACY_GRADIENT_TO = '#292D36'
 const STORY_APPEARANCE_LEGACY_DARK_GRADIENT_FROM = '#050506'
 const STORY_APPEARANCE_LEGACY_DARK_GRADIENT_TO = '#120803'
+const STORY_APPEARANCE_LEGACY_SLATE_GRADIENT_FROM = '#20232D'
+const STORY_APPEARANCE_LEGACY_SLATE_GRADIENT_TO = '#0A0400'
 const STORY_APPEARANCE_DEFAULT_SOLID_COLOR = '#21242C'
 const STORY_APPEARANCE_DEFAULT_UI_STYLE: StoryAppearanceUiStyle = 'default'
 const STORY_APPEARANCE_DEFAULT_TEXT_STYLE: StoryAppearanceTextStyle = 'default'
@@ -9363,7 +9365,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     return {
       ...palette,
-      ...(effectiveBackground ? { '--morius-app-bg': effectiveBackground } : {}),
+      // AppBackdropGlow is fixed, opaque and painted above the shell's own background, so a story
+      // background only reaches the screen through --morius-app-backdrop. --morius-app-bg stays a
+      // flat colour on purpose: half the page mixes it with color-mix(), which a gradient breaks.
+      ...(effectiveBackground ? { '--morius-app-backdrop': effectiveBackground } : {}),
       background: effectiveBackground ?? 'var(--morius-app-bg)',
       transition: 'background 240ms ease',
       '& .MuiButton-root': {
@@ -9503,7 +9508,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       (runtimeGradientFrom.toUpperCase() === STORY_APPEARANCE_LEGACY_GRADIENT_FROM &&
         runtimeGradientTo.toUpperCase() === STORY_APPEARANCE_LEGACY_GRADIENT_TO) ||
       (runtimeGradientFrom.toUpperCase() === STORY_APPEARANCE_LEGACY_DARK_GRADIENT_FROM &&
-        runtimeGradientTo.toUpperCase() === STORY_APPEARANCE_LEGACY_DARK_GRADIENT_TO)
+        runtimeGradientTo.toUpperCase() === STORY_APPEARANCE_LEGACY_DARK_GRADIENT_TO) ||
+      (runtimeGradientFrom.toUpperCase() === STORY_APPEARANCE_LEGACY_SLATE_GRADIENT_FROM &&
+        runtimeGradientTo.toUpperCase() === STORY_APPEARANCE_LEGACY_SLATE_GRADIENT_TO)
     setAppearanceGradientFrom(hasLegacyDefaultGradient ? STORY_APPEARANCE_DEFAULT_GRADIENT_FROM : runtimeGradientFrom)
     setAppearanceGradientTo(hasLegacyDefaultGradient ? STORY_APPEARANCE_DEFAULT_GRADIENT_TO : runtimeGradientTo)
     setAppearanceSolidColor(
@@ -31025,16 +31032,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             variant="contained"
             onClick={() => void handleSubmitBugReport()}
             disabled={isBugReportSubmitting || !bugReportTitleDraft.trim() || !bugReportDescriptionDraft.trim()}
-            sx={{
-              border: 'var(--morius-border-width) solid var(--morius-card-border)',
-              backgroundColor: 'var(--morius-elevated-bg)',
-              color: 'var(--morius-title-text)',
-              '&:hover': {
-                backgroundColor: 'transparent',
-              },
-            }}
+            sx={{ minWidth: 118 }}
           >
-            {isBugReportSubmitting ? <CircularProgress size={16} sx={{ color: 'var(--morius-title-text)' }} /> : 'Отправить'}
+            {isBugReportSubmitting ? <CircularProgress size={16} sx={{ color: 'var(--morius-accent-contrast)' }} /> : 'Отправить'}
           </Button>
         </DialogActions>
       </BaseDialog>
@@ -31572,6 +31572,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Button>
           <Button
             variant="contained"
+            color="error"
             onClick={() => void handleConfirmDeletionPrompt()}
             disabled={isDeletionPromptInProgress}
             sx={{
@@ -31880,15 +31881,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             variant="contained"
             onClick={() => void handleSaveInstructionCard()}
             disabled={isSavingInstruction || isCreatingGame}
-            sx={{
-              backgroundColor: 'var(--morius-card-bg)',
-              color: 'var(--morius-text-primary)',
-              minWidth: 118,
-              '&:hover': { backgroundColor: 'transparent' },
-            }}
+            sx={{ minWidth: 118 }}
           >
             {isSavingInstruction || isCreatingGame ? (
-              <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
+              <CircularProgress size={16} sx={{ color: 'var(--morius-accent-contrast)' }} />
             ) : editingInstructionId === null ? (
               'Добавить'
             ) : (
@@ -32235,15 +32231,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             variant="contained"
             onClick={() => void handleSavePlotCard()}
             disabled={isSavingPlotCard || isCreatingGame}
-            sx={{
-              backgroundColor: 'var(--morius-card-bg)',
-              color: 'var(--morius-text-primary)',
-              minWidth: 118,
-              '&:hover': { backgroundColor: 'transparent' },
-            }}
+            sx={{ minWidth: 118 }}
           >
             {isSavingPlotCard || isCreatingGame ? (
-              <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
+              <CircularProgress size={16} sx={{ color: 'var(--morius-accent-contrast)' }} />
             ) : editingPlotCardId === null ? (
               'Добавить'
             ) : (
@@ -32536,15 +32527,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             variant="contained"
             onClick={() => void handleSaveMemoryBlock()}
             disabled={isSavingMemoryBlock || isCreatingGame}
-            sx={{
-              backgroundColor: 'var(--morius-card-bg)',
-              color: 'var(--morius-text-primary)',
-              minWidth: 118,
-              '&:hover': { backgroundColor: 'transparent' },
-            }}
+            sx={{ minWidth: 118 }}
           >
             {isSavingMemoryBlock || isCreatingGame ? (
-              <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
+              <CircularProgress size={16} sx={{ color: 'var(--morius-accent-contrast)' }} />
             ) : editingMemoryBlockId === null ? (
               'Добавить'
             ) : (
@@ -33513,12 +33499,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         minHeight: 36,
                         borderRadius: 'var(--morius-radius)',
                         textTransform: 'none',
-                        backgroundColor: 'var(--morius-card-bg)',
-                        color: 'var(--morius-text-primary)',
                       }}
                     >
                       {isSavingCharacter ? (
-                        <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
+                        <CircularProgress size={16} sx={{ color: 'var(--morius-accent-contrast)' }} />
                       ) : characterDraftMode === 'create' ? (
                         'Добавить'
                       ) : (
