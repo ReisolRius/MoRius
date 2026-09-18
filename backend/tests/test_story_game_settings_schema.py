@@ -877,9 +877,59 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             model_name="deepseek/deepseek-v3.2",
             response_max_tokens=monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX,
         )
-        self.assertIn("Длина ответа", prompt)
+        self.assertIn("БЮДЖЕТ ОТВЕТА", prompt)
         self.assertNotIn("жесткий максимум", prompt)
         self.assertNotIn(str(monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX), prompt)
+        # The budget is the last thing the model reads: it is the instruction models drop
+        # first, and it lost to the style rules above it when it sat in the middle.
+        body_lines = [line for line in prompt.split("\n") if line.strip()]
+        self.assertIn("БЮДЖЕТ ОТВЕТА", body_lines[-3])
+        # It must not demand a paragraph count: the marker protocol already forces every
+        # spoken line onto its own paragraph, so a paragraph budget is unsatisfiable as soon
+        # as a scene has two speakers, and an impossible rule gets dropped wholesale.
+        budget_text = "\n".join(body_lines[-3:])
+        self.assertNotIn("абзац", budget_text)
+        self.assertIn("предложен", budget_text)
+        self.assertIn("реплик", budget_text)
+
+    def test_over_long_reply_is_cut_back_to_the_response_budget(self) -> None:
+        """max_tokens cannot hold a thinking model to the budget, so the text is trimmed."""
+        from app.services.story_runtime import _sanitize_streamed_story_markup
+        from app.services.story_token_budget import estimate_story_tokens
+
+        narration = (
+            "Дверь открылась плавно, впуская в душную комнату свежий весенний воздух, "
+            "который тут же скользнул по деревянным половицам и растаял у дальней стены."
+        )
+        paragraphs = []
+        for index in range(12):
+            paragraphs.append(narration)
+            paragraphs.append(f"[[NPC:Мисака]] Реплика номер {index}, произнесённая спокойно и ровно.")
+        reply = "\n".join(paragraphs)
+        self.assertGreater(estimate_story_tokens(reply), 900)
+
+        trimmed = _sanitize_streamed_story_markup(reply, response_target_tokens=300)
+        trimmed_tokens = estimate_story_tokens(trimmed)
+        self.assertLessEqual(
+            trimmed_tokens,
+            int(300 * monolith_main.STORY_RESPONSE_OVERRUN_TOLERANCE),
+        )
+        self.assertGreater(trimmed_tokens, 0)
+        # Paragraph boundaries only: a half paragraph would break the marker contract, and in
+        # visual-novel mode it would drop a {{VN_CAST|...}} tag.
+        for block in trimmed.split("\n"):
+            self.assertIn(block.strip(), {line.strip() for line in reply.split("\n")})
+
+        # A reply already inside the budget is returned untouched, and so is one with no budget.
+        short_reply = "\n".join(paragraphs[:2])
+        self.assertEqual(
+            estimate_story_tokens(_sanitize_streamed_story_markup(short_reply, response_target_tokens=300)),
+            estimate_story_tokens(short_reply),
+        )
+        self.assertEqual(
+            estimate_story_tokens(_sanitize_streamed_story_markup(reply, response_target_tokens=None)),
+            estimate_story_tokens(reply),
+        )
 
 
 if __name__ == "__main__":

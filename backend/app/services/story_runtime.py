@@ -701,6 +701,23 @@ def _append_story_message_variant_log_entry(
     return combined[-STORY_MESSAGE_VARIANT_HISTORY_MAX:]
 
 
+def _trim_story_response_to_target(value: str, target_tokens: int | None) -> str:
+    """Apply the response-budget backstop from the monolith, if there is a budget to apply."""
+    normalized = _normalize_story_message_content(value)
+    if not normalized or not target_tokens:
+        return normalized
+    try:
+        from app import main as monolith_main
+
+        trimmer = getattr(monolith_main, "_trim_story_response_to_target", None)
+        if not callable(trimmer):
+            return normalized
+        return str(trimmer(normalized, target_tokens) or "").strip() or normalized
+    except Exception:
+        logger.exception("Failed to apply the response budget; keeping provider text")
+        return normalized
+
+
 def _trim_story_truncated_tail(value: str) -> str:
     """Repair an answer the provider cut off at max_tokens.
 
@@ -741,16 +758,24 @@ def _sanitize_streamed_story_markup(
     model_name: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
+    response_target_tokens: int | None = None,
 ) -> str:
-    """Final safety net for the streamed reply: markup repair, then truncation repair."""
+    """Final safety net: markup repair, then the response budget, then truncation repair.
+
+    Budget before truncation repair on purpose -- trimming to a paragraph boundary can itself
+    leave the text ending on something the tail repair should look at.
+    """
     return _trim_story_truncated_tail(
-        _repair_streamed_story_markup(
-            value,
-            normalize_generated_story_output=normalize_generated_story_output,
-            world_cards=world_cards,
-            model_name=model_name,
-            show_gg_thoughts=show_gg_thoughts,
-            show_npc_thoughts=show_npc_thoughts,
+        _trim_story_response_to_target(
+            _repair_streamed_story_markup(
+                value,
+                normalize_generated_story_output=normalize_generated_story_output,
+                world_cards=world_cards,
+                model_name=model_name,
+                show_gg_thoughts=show_gg_thoughts,
+                show_npc_thoughts=show_npc_thoughts,
+            ),
+            response_target_tokens,
         )
     )
 
@@ -2254,6 +2279,7 @@ def _stream_story_response(
         model_name=story_model_name,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
+        response_target_tokens=story_response_max_tokens,
     )
 
     try:

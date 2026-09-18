@@ -1509,8 +1509,21 @@ STORY_LATIN_TO_CYRILLIC_NAME_CHAR_MAP = {
 # (_trim_story_trailing_incomplete_fragment).
 STORY_RESPONSE_COMPLETION_MARGIN_MIN_TOKENS = 200
 STORY_RESPONSE_COMPLETION_MARGIN_SHARE = 0.25
-STORY_RESPONSE_TARGET_TOKENS_PER_PARAGRAPH = 250
-STORY_RESPONSE_MAX_TARGET_PARAGRAPHS = 10
+# A Russian sentence of narration runs ~30 tokens in this project's own corpus. Sentences and
+# reply counts are the units a model can actually hold itself to; paragraph counts are NOT --
+# the marker protocol already forces every spoken line and every thought onto its own
+# paragraph, so "уложись в 1-2 абзаца" is unsatisfiable the moment a scene has two speakers,
+# and a model handed an impossible constraint drops it altogether. That is exactly what made a
+# 300-token setting come back as a 598-token scene.
+STORY_RESPONSE_TARGET_TOKENS_PER_SENTENCE = 30
+STORY_RESPONSE_TARGET_TOKENS_PER_REPLY = 150
+STORY_RESPONSE_MAX_TARGET_REPLIES = 6
+# Backstop. max_tokens cannot enforce the budget on a thinking model: the reasoning reserve is
+# added on top of it (1024 tokens for Gemini 3.1 Pro), and whatever the model does not spend on
+# thinking becomes room for prose. So an overrun past this factor is cut back to a paragraph
+# boundary -- paragraphs, never sentences, so the marker and visual-novel contracts survive.
+STORY_RESPONSE_OVERRUN_TOLERANCE = 1.35
+STORY_RESPONSE_OVERRUN_MIN_KEEP_PARAGRAPHS = 2
 STORY_OUTPUT_SENTENCE_END_CHARS = ".!?…"
 # How much of a truncated reply must survive before it is cut back to the last finished
 # sentence. Below this the hanging clause is kept: losing most of a short answer reads worse
@@ -4588,31 +4601,35 @@ def _build_story_system_prompt(
     if normalized_model_name in STORY_FICTION_FRAMING_MODEL_IDS:
         lines.extend(["", "КОНТЕКСТ ПЛОЩАДКИ:", *STORY_FICTION_FRAMING_LINES])
 
+    # The length budget is appended LAST, after the format checklist, on purpose: it is the
+    # instruction models drop first, and the end of a 3 400-token system prompt is where they
+    # weigh it most. Deliberately no "hard maximum" either -- naming the ceiling made models
+    # write up to it and get guillotined by max_tokens at the same number.
+    response_budget_lines: list[str] = []
     if response_max_tokens is not None:
         target_tokens = _story_response_target_tokens(response_max_tokens)
-        # Deliberately no "hard maximum": naming the ceiling made models write up to it and get
-        # guillotined by max_tokens at the same number. Paragraph counts are something a model
-        # can actually control; a token target on its own is not.
-        target_paragraphs = max(
+        target_sentences = max(
+            3,
+            round(target_tokens / STORY_RESPONSE_TARGET_TOKENS_PER_SENTENCE),
+        )
+        target_replies = max(
             1,
             min(
-                STORY_RESPONSE_MAX_TARGET_PARAGRAPHS,
-                round(target_tokens / STORY_RESPONSE_TARGET_TOKENS_PER_PARAGRAPH),
+                STORY_RESPONSE_MAX_TARGET_REPLIES,
+                round(target_tokens / STORY_RESPONSE_TARGET_TOKENS_PER_REPLY),
             ),
         )
-        paragraph_hint = (
-            "уложись в один-два коротких абзаца"
-            if target_paragraphs <= 1
-            else f"это примерно {target_paragraphs} {_russian_plural(target_paragraphs, 'абзац', 'абзаца', 'абзацев')}"
-        )
-        lines.extend(
-            [
-                "",
-                f"Длина ответа: ориентир — около {target_tokens} токенов, {paragraph_hint}. "
-                "Спланируй сцену под этот объём с самого начала и доведи последнюю фразу до точки. "
-                "Короче ориентира — нормально; обрывать себя на полуслове нельзя.",
-            ]
-        )
+        response_budget_lines = [
+            "",
+            "БЮДЖЕТ ОТВЕТА (жёсткое требование, важнее красоты сцены):",
+            f"Весь ход — примерно {target_sentences} "
+            f"{_russian_plural(target_sentences, 'предложение', 'предложения', 'предложений')} "
+            f"(около {target_tokens} токенов), из них не больше {target_replies} "
+            f"{_russian_plural(target_replies, 'реплики', 'реплик', 'реплик')} персонажей.",
+            "Спланируй сцену под этот объём до того, как начнёшь писать: возьми один эпизод, а не три. "
+            "Выйти за объём нельзя; закончить раньше — можно и нужно. "
+            "Последнее предложение всегда доводи до точки.",
+        ]
 
     if instruction_cards_for_prompt:
         lines.extend(["", "Карточки инструкций игрока:"])
@@ -4760,6 +4777,8 @@ def _build_story_system_prompt(
         ]
     )
     lines.extend(final_check_lines)
+    # Last word in the prompt: see the comment above response_budget_lines.
+    lines.extend(response_budget_lines)
     return "\n".join(lines)
 
 
@@ -5849,6 +5868,55 @@ def _repair_story_markup_with_polza(
         ),
     )
     return repaired_text.replace("\r\n", "\n").strip()
+
+
+def _trim_story_response_to_target(text_value: str, target_tokens: int | None) -> str:
+    """Cut an over-long reply back to a paragraph boundary near the player's budget.
+
+    max_tokens cannot enforce the budget on a thinking model: the reasoning reserve is added on
+    top of it, and whatever the model does not spend on thinking is free room for prose. A
+    300-token setting came back as a 598-token scene that way. The prompt asks for the budget;
+    this is what makes the number mean something when the model ignores it.
+
+    Paragraph boundaries only. Every spoken line and every thought is its own paragraph under
+    the marker protocol, and in visual-novel mode each one carries its {{VN_CAST|...}} tag, so
+    cutting anywhere else would produce output that violates the format contract.
+    """
+    normalized_text = _normalize_story_message_content(text_value)
+    if not normalized_text or not target_tokens:
+        return normalized_text
+    target = max(int(target_tokens), 0)
+    if target <= 0:
+        return normalized_text
+    allowed_tokens = int(target * STORY_RESPONSE_OVERRUN_TOLERANCE)
+    if _estimate_story_tokens(normalized_text) <= allowed_tokens:
+        return normalized_text
+
+    paragraphs = [block for block in normalized_text.split("\n") if block.strip()]
+    if len(paragraphs) <= STORY_RESPONSE_OVERRUN_MIN_KEEP_PARAGRAPHS:
+        return normalized_text
+
+    kept: list[str] = []
+    kept_tokens = 0
+    for paragraph in paragraphs:
+        paragraph_tokens = _estimate_story_tokens(paragraph)
+        if kept and kept_tokens + paragraph_tokens > allowed_tokens:
+            break
+        kept.append(paragraph)
+        kept_tokens += paragraph_tokens
+    if len(kept) < STORY_RESPONSE_OVERRUN_MIN_KEEP_PARAGRAPHS or len(kept) >= len(paragraphs):
+        return normalized_text
+
+    trimmed = "\n".join(kept).strip()
+    if not trimmed:
+        return normalized_text
+    logger.info(
+        "Trimmed over-long story reply to the response budget: %s -> %s tokens (target %s)",
+        _estimate_story_tokens(normalized_text),
+        _estimate_story_tokens(trimmed),
+        target,
+    )
+    return trimmed
 
 
 def _trim_story_trailing_incomplete_fragment(text_value: str) -> str:
