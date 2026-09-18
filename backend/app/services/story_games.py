@@ -222,7 +222,13 @@ STORY_TURN_COST_GLM51_TIERS = (3, 5, 7, 12, 22)
 STORY_TURN_COST_GLM52_TIERS = (2, 3, 5, 8, 9)
 STORY_TURN_COST_GEMINI_31_PRO_TIERS = (10, 14, 19, 29, 30)
 STORY_TURN_COST_CLAUDE_SONNET_TIERS = (11, 16, 23, 39, 40)
-STORY_TURN_COST_KIMI_K26_TIERS = (2, 3, 4, 7, 11)
+# Kimi K2.5. RouterAI 2026-09-18: 49.438 / 247.190 RUB per 1M, 262k context (capped at our
+# 128k tier like its siblings). Dearer per token than K2.6, cheaper than K3.
+STORY_TURN_COST_KIMI_K25_TIERS = (2, 3, 4, 7, 11)
+# K2.6 dropped to 43.313 / 182.371 RUB per 1M on 2026-09-18 (from 51.663 / 217.527); tiers 4
+# and 5 re-derived down on the same day so the cut reaches the player and K2.5 stays the
+# dearer of the two, which is what its token price actually is.
+STORY_TURN_COST_KIMI_K26_TIERS = (2, 3, 4, 6, 10)
 STORY_TURN_COST_KIMI_K3_TIERS = (8, 11, 17, 28, 50)
 STORY_REASONING_MAX_TOKENS = 2_048
 STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS = 128
@@ -245,6 +251,7 @@ STORY_LLM_MODEL_CLAUDE_SONNET_46 = "anthropic/claude-sonnet-4.6"
 STORY_LLM_MODEL_GEMINI_25_PRO = "google/gemini-2.5-pro"
 STORY_LLM_MODEL_GEMINI_31_PRO = "google/gemini-3.1-pro-preview"
 STORY_LLM_MODEL_QWEN37_PLUS = "qwen/qwen3.7-plus"
+STORY_LLM_MODEL_KIMI_K25 = "moonshotai/kimi-k2.5"
 STORY_LLM_MODEL_KIMI_K26 = "moonshotai/kimi-k2.6"
 STORY_LLM_MODEL_KIMI_K3 = "moonshotai/kimi-k3"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V32
@@ -294,6 +301,7 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GEMINI_25_PRO,
     STORY_LLM_MODEL_GEMINI_31_PRO,
     STORY_LLM_MODEL_QWEN37_PLUS,
+    STORY_LLM_MODEL_KIMI_K25,
     STORY_LLM_MODEL_KIMI_K26,
     STORY_LLM_MODEL_KIMI_K3,
     *STORY_SUBSCRIPTION_LLM_MODELS,
@@ -315,6 +323,7 @@ STORY_REASONING_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GEMINI_25_PRO,
     STORY_LLM_MODEL_GEMINI_31_PRO,
     STORY_LLM_MODEL_QWEN37_PLUS,
+    STORY_LLM_MODEL_KIMI_K25,
     STORY_LLM_MODEL_KIMI_K26,
     STORY_LLM_MODEL_KIMI_K3,
     *STORY_SUBSCRIPTION_LLM_MODELS,
@@ -364,6 +373,7 @@ STORY_REASONING_SURCHARGE_BY_MODEL: dict[str, int] = {
     # control — priced for ~4K reasoning tokens rather than the 2_048 the other models cap at.
     STORY_LLM_MODEL_GEMINI_31_PRO: 6,
     STORY_LLM_MODEL_QWEN37_PLUS: 1,
+    STORY_LLM_MODEL_KIMI_K25: 1,
     STORY_LLM_MODEL_KIMI_K26: 1,
     STORY_LLM_MODEL_KIMI_K3: 4,
     STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH: 1,
@@ -373,6 +383,7 @@ STORY_REASONING_SURCHARGE_BY_MODEL: dict[str, int] = {
 STORY_EXTENDED_CONTEXT_LLM_MODELS = {
     STORY_LLM_MODEL_GLM51,
     STORY_LLM_MODEL_DEEPSEEK_V4_PRO,
+    STORY_LLM_MODEL_KIMI_K25,
     STORY_LLM_MODEL_KIMI_K26,
     STORY_LLM_MODEL_KIMI_K3,
 }
@@ -458,6 +469,7 @@ STORY_MODEL_SAMPLING_PROFILES: dict[str, dict[str, float]] = {
     STORY_LLM_MODEL_GEMINI_25_PRO: {"temperature": 1.05, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.00},
     STORY_LLM_MODEL_GEMINI_31_PRO: {"temperature": 1.10, "top_r": 0.97, "top_k": 128, "repetition_penalty": 1.00},
     STORY_LLM_MODEL_QWEN37_PLUS: {"temperature": 0.85, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.05},
+    STORY_LLM_MODEL_KIMI_K25: {"temperature": 0.90, "top_r": 0.95, "top_k": 50, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_KIMI_K26: {"temperature": 0.90, "top_r": 0.95, "top_k": 50, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_KIMI_K3: {"temperature": 0.85, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.03},
     # The OpenAI reasoning family accepts none of temperature / top_p / top_k / repetition_penalty,
@@ -829,6 +841,8 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
         return STORY_TURN_COST_CLAUDE_SONNET_TIERS
     if normalized_model_name == STORY_LLM_MODEL_GEMINI_31_PRO:
         return STORY_TURN_COST_GEMINI_31_PRO_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_KIMI_K25:
+        return STORY_TURN_COST_KIMI_K25_TIERS
     if normalized_model_name == STORY_LLM_MODEL_KIMI_K26:
         return STORY_TURN_COST_KIMI_K26_TIERS
     if normalized_model_name == STORY_LLM_MODEL_KIMI_K3:
@@ -882,7 +896,7 @@ def normalize_story_llm_model(value: str | None) -> str:
                 "aion-labs/aion-2.0, aion-labs/aion-3.0, aion-labs/aion-3.0-mini, "
                 "google/gemini-3.1-flash-lite, google/gemini-2.5-pro, google/gemini-3.1-pro-preview, "
                 "anthropic/claude-sonnet-4.6, qwen/qwen3.7-plus, "
-                "moonshotai/kimi-k2.6, moonshotai/kimi-k3"
+                "moonshotai/kimi-k2.5, moonshotai/kimi-k2.6, moonshotai/kimi-k3"
             ),
         )
     return normalized

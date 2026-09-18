@@ -989,7 +989,8 @@ const STORY_TURN_COST_GLM52_TIERS: readonly [number, number, number, number, num
 const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [10, 14, 19, 29, 30]
 const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [11, 16, 23, 39, 40]
 const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 5, 6]
-const STORY_TURN_COST_KIMI_K26_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 7, 11]
+const STORY_TURN_COST_KIMI_K25_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 7, 11]
+const STORY_TURN_COST_KIMI_K26_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 6, 10]
 const STORY_TURN_COST_KIMI_K3_TIERS: readonly [number, number, number, number, number] = [8, 11, 17, 28, 50]
 const STORY_REASONING_MAX_TOKENS = 2048
 const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, number>> = {
@@ -1004,6 +1005,7 @@ const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, n
   'google/gemini-2.5-pro': 4,
   'google/gemini-3.1-pro-preview': 6,
   'qwen/qwen3.7-plus': 1,
+  'moonshotai/kimi-k2.5': 1,
   'moonshotai/kimi-k2.6': 1,
   'moonshotai/kimi-k3': 4,
   'deepseek/deepseek-v4-flash': 1,
@@ -1028,6 +1030,7 @@ const STORY_REASONING_FIXED_MODEL_IDS = new Set<StoryNarratorModelId>([
 const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-5.1',
   'deepseek/deepseek-v4-pro-0813',
+  'moonshotai/kimi-k2.5',
   'moonshotai/kimi-k2.6',
   'moonshotai/kimi-k3',
 ])
@@ -1338,6 +1341,12 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 50,
     storyTopR: 0.92,
   },
+  'moonshotai/kimi-k2.5': {
+    storyTemperature: 0.9,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 50,
+    storyTopR: 0.95,
+  },
   'moonshotai/kimi-k2.6': {
     storyTemperature: 0.9,
     storyRepetitionPenalty: 1.05,
@@ -1551,6 +1560,19 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Интеллект', value: 4 },
       { label: 'Скорость', value: 4 },
       { label: 'Глубина', value: 4 },
+    ],
+  },
+  {
+    id: 'moonshotai/kimi-k2.5',
+    title: 'Kimi K2.5',
+    description:
+      'Мультимодальная Kimi с длинной памятью: внимательна к деталям сцены и держит характерный диалог. Контекст до 128K.',
+    portraitSrc: narratorFreyaPortrait,
+    portraitAlt: 'Kimi K2.5',
+    stats: [
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 3 },
     ],
   },
   {
@@ -6303,6 +6325,9 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   }
   if (modelId === 'qwen/qwen3.7-plus') {
     return STORY_TURN_COST_QWEN_TIERS
+  }
+  if (modelId === 'moonshotai/kimi-k2.5') {
+    return STORY_TURN_COST_KIMI_K25_TIERS
   }
   if (modelId === 'moonshotai/kimi-k2.6') {
     return STORY_TURN_COST_KIMI_K26_TIERS

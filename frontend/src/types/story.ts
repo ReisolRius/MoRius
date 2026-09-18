@@ -39,6 +39,7 @@ export type StoryNarratorModelId =
   | 'google/gemini-2.5-pro'
   | 'google/gemini-3.1-pro-preview'
   | 'qwen/qwen3.7-plus'
+  | 'moonshotai/kimi-k2.5'
   | 'moonshotai/kimi-k2.6'
   | 'moonshotai/kimi-k3'
   // Subscription-only narrator models (gated by an active subscription / admin test).

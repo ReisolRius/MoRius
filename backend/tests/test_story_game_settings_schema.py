@@ -327,6 +327,10 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "google/gemini-3.1-flash-lite",
         )
         self.assertEqual(
+            coerce_story_llm_model("moonshotai/kimi-k2.5"),
+            "moonshotai/kimi-k2.5",
+        )
+        self.assertEqual(
             coerce_story_llm_model("moonshotai/kimi-k2.6"),
             "moonshotai/kimi-k2.6",
         )
@@ -362,7 +366,9 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_turn_cost_tokens(16_001, "z-ai/glm-4.7"), 4)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-flash-lite"), 4)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k2.6"), 4)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.6"), 11)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.6"), 10)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k2.5"), 4)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.5"), 11)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k3"), 17)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k3"), 50)
 
@@ -392,7 +398,8 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "google/gemini-2.5-pro": (7, 10, 13, 20, 20),
             "google/gemini-3.1-pro-preview": (10, 14, 19, 29, 29),
             "anthropic/claude-sonnet-4.6": (11, 16, 23, 39, 39),
-            "moonshotai/kimi-k2.6": (2, 3, 4, 7, 11),
+            "moonshotai/kimi-k2.5": (2, 3, 4, 7, 11),
+            "moonshotai/kimi-k2.6": (2, 3, 4, 6, 10),
             "moonshotai/kimi-k3": (8, 11, 17, 28, 50),
         }
         # The matrix is the whole sellable catalogue: a narrator added or retired without a
@@ -768,6 +775,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             "deepseek/deepseek-v4-pro-0813": 1,
             "google/gemini-3.1-flash-lite": 1,
             "qwen/qwen3.7-plus": 1,
+            "moonshotai/kimi-k2.5": 1,
             "moonshotai/kimi-k2.6": 1,
             "moonshotai/kimi-k3": 4,
             "google/gemini-2.5-pro": 4,
