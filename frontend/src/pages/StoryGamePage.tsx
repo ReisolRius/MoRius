@@ -25116,6 +25116,76 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         </Stack>
                       </Stack>
                     </Box>
+                    <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
+                      <Stack spacing={0.8}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" alignItems="center" spacing={0.5}>
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950 }}>
+                              Длина ответа
+                            </Typography>
+                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.responseTokens} />
+                          </Stack>
+                          <Stack direction="row" alignItems="center" spacing={0.6}>
+                            {responseMaxTokensEnabled ? (
+                              <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.98rem', fontWeight: 950 }}>
+                                {responseMaxTokens}
+                              </Typography>
+                            ) : null}
+                            {isSavingResponseMaxTokens || isSavingResponseMaxTokensEnabled ? (
+                              <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} />
+                            ) : null}
+                            <Switch
+                              size="small"
+                              checked={responseMaxTokensEnabled}
+                              onChange={(event) => {
+                                void persistResponseMaxTokens(null, event.target.checked)
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                            />
+                          </Stack>
+                        </Stack>
+                        {responseMaxTokensEnabled ? (
+                          <>
+                            <Slider
+                              value={responseMaxTokens}
+                              min={STORY_RESPONSE_MAX_TOKENS_MIN}
+                              max={STORY_RESPONSE_MAX_TOKENS_MAX}
+                              step={STORY_RESPONSE_MAX_TOKENS_STEP}
+                              onChange={handleResponseMaxTokensSliderChange}
+                              onChangeCommitted={(event, value) => {
+                                void handleResponseMaxTokensSliderCommit(event, value)
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                color: 'var(--morius-accent)',
+                                '& .MuiSlider-thumb': {
+                                  width: 22,
+                                  height: 22,
+                                  backgroundColor: 'var(--morius-accent)',
+                                  border: 'none',
+                                  boxShadow: '0 0 0 4px color-mix(in srgb, var(--morius-accent) 16%, transparent)',
+                                },
+                                '& .MuiSlider-track': { height: 5, border: 'none' },
+                                '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
+                              }}
+                            />
+                            <Stack direction="row" justifyContent="space-between">
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
+                                {STORY_RESPONSE_MAX_TOKENS_MIN}
+                              </Typography>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
+                                {STORY_RESPONSE_MAX_TOKENS_MAX}
+                              </Typography>
+                            </Stack>
+                          </>
+                        ) : (
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.35 }}>
+                            Без ограничения рассказчик пишет столько, сколько сочтёт нужным — до {STORY_RESPONSE_MAX_TOKENS_MAX} токенов.
+                            Ходы длиннее, память истории заполняется быстрее.
+                          </Typography>
+                        )}
+                      </Stack>
+                    </Box>
                     {cardsContextOverflowChars > 0 ? (
                       <Alert
                         severity="warning"
