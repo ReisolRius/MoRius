@@ -961,7 +961,7 @@ const STORY_KEY_MEMORY_BUDGET_SHARE = 0.1
 const STORY_KEY_MEMORY_MIN_BUDGET_TOKENS = 500
 const STORY_PLOT_CONTEXT_MAX_SHARE = 0.35
 const STORY_RESPONSE_MAX_TOKENS_MIN = 200
-const STORY_RESPONSE_MAX_TOKENS_MAX = 3000
+const STORY_RESPONSE_MAX_TOKENS_MAX = 2500
 const STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 const STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6000
 const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
@@ -971,22 +971,22 @@ const STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64000
 // backend/app/services/story_games.py -- if these drift, the meter quotes a price the server
 // does not charge. See that file for how each number is derived.
 const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [1, 2, 3, 4, 5]
-const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [3, 4, 6, 10, 18]
+const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [3, 4, 6, 10, 19]
 const STORY_TURN_COST_DEEPSEEK_R1_TIERS: readonly [number, number, number, number, number] = [3, 4, 5, 8, 9]
 const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 6, 7]
-const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [3, 4, 6, 10, 16]
-const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [8, 13, 21, 36, 37]
+const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [3, 4, 7, 11, 16]
+const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [9, 14, 22, 37, 38]
 const STORY_TURN_COST_AION3_MINI_TIERS: readonly [number, number, number, number, number] = [3, 4, 6, 9, 10]
 const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, number] = [2, 3, 5, 8, 9]
 const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 5, 6]
 const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [7, 10, 13, 20, 21]
 const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [3, 5, 7, 12, 22]
-const STORY_TURN_COST_GLM52_TIERS: readonly [number, number, number, number, number] = [2, 3, 5, 7, 8]
-const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [10, 13, 19, 29, 30]
-const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [11, 15, 23, 38, 39]
+const STORY_TURN_COST_GLM52_TIERS: readonly [number, number, number, number, number] = [2, 3, 5, 8, 9]
+const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [10, 14, 19, 29, 30]
+const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [11, 16, 23, 39, 40]
 const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 5, 6]
 const STORY_TURN_COST_KIMI_K26_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 7, 11]
-const STORY_TURN_COST_KIMI_K3_TIERS: readonly [number, number, number, number, number] = [8, 11, 17, 28, 49]
+const STORY_TURN_COST_KIMI_K3_TIERS: readonly [number, number, number, number, number] = [8, 11, 17, 28, 50]
 const STORY_REASONING_MAX_TOKENS = 2048
 const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, number>> = {
   'z-ai/glm-5': 1,
@@ -1125,6 +1125,12 @@ const STORY_COMPOSER_FALLBACK_HEIGHT = 170
 const STORY_MESSAGES_VIEWPORT_FALLBACK_BOTTOM =
   STORY_COMPOSER_FALLBACK_HEIGHT + moriusThemeTokens.layout.interfaceGap + 10
 const STORY_CONTINUE_PROMPT = 'Продолжай'
+// Mirrors STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_* in backend/app/services/story_runtime.py.
+// Compressed memory is lossy and may still be queued when the next turn starts, so the prompt
+// always carries a bounded exact window of recent messages on top of the memory cards. The
+// meter has to count the same window or it under-reports what the turn is charged for.
+const STORY_RECENT_HISTORY_MAX_MESSAGES = 7
+const STORY_RECENT_HISTORY_MAX_TOKENS = 1800
 /* const STORY_STAGE_MAIN_HERO_LOOKUP_ALIASES = [
   'главный герой',
   'герой',
@@ -1723,8 +1729,8 @@ const STORY_SETTINGS_INFO_TEXT = {
   // Says plainly what the meter counts and what it does not: it shows the player's own
   // content, while the same limit also has to hold the service prompt they never see.
   contextUsage:
-    'Следите за тем, сколько у вас осталось места в памяти истории для ИИ. Здесь учтено только ваше содержимое: карточки и текст истории. '
-    + 'Служебные промпты рассказчика в счётчик не входят, но занимают часть того же лимита, поэтому при маленьком лимите карточки могут обрезаться раньше, чем полоска заполнится.',
+    'Следите за тем, сколько у вас осталось места в памяти истории для ИИ. Лимит принадлежит только вашему содержимому: карточкам, памяти и тексту истории. '
+    + 'Служебные правила рассказчика занимают отдельный бюджет сверх него и на вашу полоску не влияют, поэтому шкала показывает ровно то, что расходуете вы.',
 } as const
 
 function shouldLogStoryPerf(): boolean {
@@ -10100,41 +10106,34 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         content: toStoryText(message.content).replace(/\r\n/g, '\n').trim(),
       }))
       .filter((message) => message.content.length > 0)
-    const userIndexes = normalizedHistory
+    const latestUserIndex = normalizedHistory
       .map((message, index) => (message.role === 'user' ? index : -1))
       .filter((index) => index >= 0)
-    const latestUserIndex = userIndexes.at(-1)
+      .at(-1)
     if (latestUserIndex === undefined) {
       return 0
     }
-    const selectedHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
-    const latestUserMessage = normalizedHistory[latestUserIndex]
-    if (latestUserMessage.content === STORY_CONTINUE_PROMPT) {
-      let previousAssistantIndex = -1
-      for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
-        if (normalizedHistory[index].role === 'assistant') {
-          previousAssistantIndex = index
-          break
-        }
+    // Same window the server builds in _select_story_history_source: walk back from the latest
+    // player line, at most STORY_RECENT_HISTORY_MAX_MESSAGES messages and
+    // STORY_RECENT_HISTORY_MAX_TOKENS tokens.
+    const selectedReversed: Array<{ role: 'user' | 'assistant'; content: string }> = []
+    let windowTokens = 0
+    for (let index = latestUserIndex; index >= 0; index -= 1) {
+      if (selectedReversed.length >= STORY_RECENT_HISTORY_MAX_MESSAGES) {
+        break
       }
-      if (previousAssistantIndex >= 0) {
-        for (let index = previousAssistantIndex - 1; index >= 0; index -= 1) {
-          if (normalizedHistory[index].role === 'user') {
-            selectedHistory.push(normalizedHistory[index])
-            break
-          }
+      const message = normalizedHistory[index]
+      const entryCost = estimateTextTokens(message.content) + 4
+      if (windowTokens + entryCost > STORY_RECENT_HISTORY_MAX_TOKENS) {
+        if (selectedReversed.length === 0) {
+          selectedReversed.push(message)
         }
-        selectedHistory.push(normalizedHistory[previousAssistantIndex])
+        break
       }
-    } else if (userIndexes.length === 1) {
-      for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
-        if (normalizedHistory[index].role === 'assistant') {
-          selectedHistory.push(normalizedHistory[index])
-          break
-        }
-      }
+      selectedReversed.push(message)
+      windowTokens += entryCost
     }
-    selectedHistory.push(latestUserMessage)
+    const selectedHistory = selectedReversed.reverse()
     const historyBudgetTokens = Math.max(contextLimitChars - instructionContextTokensUsed - worldContextTokensUsed, 0)
     return estimateHistoryTokensWithinBudget(selectedHistory, historyBudgetTokens)
   }, [

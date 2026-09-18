@@ -125,7 +125,7 @@ def _polza_context_output_reserve_tokens(model_name: str | None, max_tokens: int
     if max_tokens is not None:
         return max(int(max_tokens), 1)
     if _polza_combined_context_window_tokens(model_name) is not None:
-        return max(int(getattr(monolith_main, "STORY_RESPONSE_MAX_TOKENS_MAX", 3_000) or 3_000), 1)
+        return max(int(getattr(monolith_main, "STORY_RESPONSE_MAX_TOKENS_MAX", 2_500) or 2_500), 1)
     return 0
 
 
@@ -671,7 +671,7 @@ def _recover_polza_story_stream_tail(
             return ""
         remaining_max_tokens = max(128, remaining_max_tokens)
     elif isinstance(max_tokens, int):
-        max_story_tokens = int(getattr(monolith_main, "STORY_RESPONSE_MAX_TOKENS_MAX", 3_000) or 3_000)
+        max_story_tokens = int(getattr(monolith_main, "STORY_RESPONSE_MAX_TOKENS_MAX", 2_500) or 2_500)
         remaining_max_tokens = max(512, min(max(int(max_tokens), 1_200), max_story_tokens))
 
     continuation_messages = [

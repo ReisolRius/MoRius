@@ -842,11 +842,21 @@ def _build_story_provider_messages(
         for message in context_messages
         if message.role in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE} and message.content.strip()
     ]
-    effective_context_limit_tokens = _effective_story_context_limit_tokens(
+    player_context_limit_tokens = _effective_story_context_limit_tokens(
         context_limit_tokens,
         model_name=model_name,
         response_max_tokens=response_max_tokens,
     )
+    # The player's limit is theirs alone: the mandatory narrator contract is added on top of it
+    # instead of eating it. Without this a "6000" setting really gave the player ~2 900 tokens
+    # and silently trimmed their cards and memory to fit the rest.
+    service_prompt_overhead_tokens = monolith_main._story_service_prompt_overhead_tokens(
+        model_name,
+        response_max_tokens,
+        show_gg_thoughts,
+        show_npc_thoughts,
+    )
+    effective_context_limit_tokens = player_context_limit_tokens + service_prompt_overhead_tokens
     selected_history = _select_story_history_source(
         full_history,
         use_plot_memory=use_plot_memory,

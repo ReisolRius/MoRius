@@ -701,6 +701,38 @@ def _append_story_message_variant_log_entry(
     return combined[-STORY_MESSAGE_VARIANT_HISTORY_MAX:]
 
 
+def _trim_story_truncated_tail(value: str) -> str:
+    """Repair an answer the provider cut off at max_tokens.
+
+    max_tokens is a hard stop: when a model overruns its length target the last thing the
+    player sees is a half-word, a dangling [[NPC: marker or a broken UTF-8 byte. The monolith
+    already has the repair for it; this is the call site it was missing, so it now runs on
+    every finalized reply. It is a no-op for text that ends on real punctuation, which is what
+    a well-behaved answer does.
+    """
+    normalized = _normalize_story_message_content(value)
+    if not normalized:
+        return normalized
+    try:
+        from app import main as monolith_main
+
+        trimmer = getattr(monolith_main, "_trim_story_trailing_incomplete_fragment", None)
+        if not callable(trimmer):
+            return normalized
+        trimmed = str(trimmer(normalized) or "").strip()
+    except Exception:
+        logger.exception("Failed to trim truncated story tail; keeping provider text")
+        return normalized
+    if not trimmed or trimmed == normalized:
+        return normalized
+    logger.info(
+        "Trimmed truncated story tail: %s -> %s chars",
+        len(normalized),
+        len(trimmed),
+    )
+    return trimmed
+
+
 def _sanitize_streamed_story_markup(
     value: Any,
     *,
@@ -710,7 +742,29 @@ def _sanitize_streamed_story_markup(
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ) -> str:
-    """Final safety net for the streamed reply.
+    """Final safety net for the streamed reply: markup repair, then truncation repair."""
+    return _trim_story_truncated_tail(
+        _repair_streamed_story_markup(
+            value,
+            normalize_generated_story_output=normalize_generated_story_output,
+            world_cards=world_cards,
+            model_name=model_name,
+            show_gg_thoughts=show_gg_thoughts,
+            show_npc_thoughts=show_npc_thoughts,
+        )
+    )
+
+
+def _repair_streamed_story_markup(
+    value: Any,
+    *,
+    normalize_generated_story_output: Callable[..., str] | None = None,
+    world_cards: list[dict[str, Any]] | None = None,
+    model_name: str | None = None,
+    show_gg_thoughts: bool = False,
+    show_npc_thoughts: bool = False,
+) -> str:
+    """Markup half of the safety net.
 
     Delegates to the monolith markup sanitizer, which strips markdown noise and rewrites
     invented speaker tags into canonical [[...]] markers. A strict, read-only validation pass

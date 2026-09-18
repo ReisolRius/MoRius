@@ -157,7 +157,7 @@ STORY_NARRATOR_MODE_VALUES = {
     STORY_NARRATOR_MODE_HARDCORE,
 }
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
-STORY_RESPONSE_MAX_TOKENS_MAX = 3_000
+STORY_RESPONSE_MAX_TOKENS_MAX = 2_500
 STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 STORY_REPETITION_PENALTY_MIN = 1.0
 STORY_REPETITION_PENALTY_MAX = 2.0
@@ -176,8 +176,11 @@ STORY_TURN_COST_TIER_5_CONTEXT_LIMIT_MAX = 128_000
 #   one sol is therefore 0.25 * 2.786 = 0.6965 RUB.
 #
 #   Cost, worst case. Input = the tier's full context ceiling (or the model's own ceiling when
-#   it is lower, e.g. Aion 2.0's 108k on tier 5). Output = 3000 tokens: sol turns ignore the
-#   per-game response setting because story_runtime forces STORY_RESPONSE_MAX_TOKENS_MAX.
+#   it is lower, e.g. Aion 2.0's 108k on tier 5) PLUS the service prompt, which since
+#   2026-09-18 is spent on top of the player's limit rather than out of it
+#   (_story_service_prompt_overhead_tokens, ~2 900-3 550 tokens depending on the model).
+#   Output = STORY_RESPONSE_MAX_TOKENS_MAX (2500): sol turns ignore the per-game response
+#   setting, story_runtime forces the ceiling.
 #   Reasoning is billed on top at internal_reasoning where the provider publishes one.
 #   PLUS the service layer, which the previous pricing left out entirely: every sol turn also
 #   runs Call A (world/location analysis) and the memory compression on the service model
@@ -197,11 +200,11 @@ STORY_TURN_COST_TIER_5_CONTEXT_LIMIT_MAX = 128_000
 # STORY_EXTENDED_CONTEXT_LLM_MODELS and Aion 2.0's 108k); for the rest it is never charged and
 # the number only exists to keep the tuple monotonic.
 STORY_TURN_COST_DEEPSEEK_TIERS = (1, 2, 3, 4, 5)
-STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS = (3, 4, 6, 10, 18)
+STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS = (3, 4, 6, 10, 19)
 STORY_TURN_COST_DEEPSEEK_R1_TIERS = (3, 4, 5, 8, 9)
 STORY_TURN_COST_GLM47_TIERS = (2, 3, 4, 6, 7)
-STORY_TURN_COST_AION_TIERS = (3, 4, 6, 10, 16)
-STORY_TURN_COST_AION3_TIERS = (8, 13, 21, 36, 37)
+STORY_TURN_COST_AION_TIERS = (3, 4, 7, 11, 16)
+STORY_TURN_COST_AION3_TIERS = (9, 14, 22, 37, 38)
 # Aion 3.0 Mini: reasoning is MANDATORY on this endpoint (RouterAI answers "Reasoning is
 # mandatory for this endpoint and cannot be disabled." to reasoning={"enabled": false}), so the
 # bounded STORY_REASONING_MAX_TOKENS budget is billed as completion on every single turn and is
@@ -213,11 +216,11 @@ STORY_TURN_COST_GLM5_TIERS = (2, 3, 5, 8, 9)
 STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS = (2, 3, 4, 5, 6)
 STORY_TURN_COST_GEMINI_25_PRO_TIERS = (7, 10, 13, 20, 21)
 STORY_TURN_COST_GLM51_TIERS = (3, 5, 7, 12, 22)
-STORY_TURN_COST_GLM52_TIERS = (2, 3, 5, 7, 8)
-STORY_TURN_COST_GEMINI_31_PRO_TIERS = (10, 13, 19, 29, 30)
-STORY_TURN_COST_CLAUDE_SONNET_TIERS = (11, 15, 23, 38, 39)
+STORY_TURN_COST_GLM52_TIERS = (2, 3, 5, 8, 9)
+STORY_TURN_COST_GEMINI_31_PRO_TIERS = (10, 14, 19, 29, 30)
+STORY_TURN_COST_CLAUDE_SONNET_TIERS = (11, 16, 23, 39, 40)
 STORY_TURN_COST_KIMI_K26_TIERS = (2, 3, 4, 7, 11)
-STORY_TURN_COST_KIMI_K3_TIERS = (8, 11, 17, 28, 49)
+STORY_TURN_COST_KIMI_K3_TIERS = (8, 11, 17, 28, 50)
 STORY_REASONING_MAX_TOKENS = 2_048
 STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS = 128
 STORY_REASONING_GEMINI_31_PRO_BASE_TOKENS = 1_024
@@ -333,9 +336,17 @@ STORY_REASONING_FIXED_LLM_MODELS = {
     STORY_LLM_MODEL_DEEPSEEK_R1,
 }
 
-# Incremental add-on above the model's off/minimum mode, re-derived 2026-09-18 on the same
-# v2 basis as the turn tiers above: ceil(reasoning_tokens x completion rate / 0.6965 RUB).
-# A full STORY_REASONING_MAX_TOKENS budget is assumed, billed on top of the 3000 output tokens.
+# Incremental add-on above the model's off/minimum mode: the extra thinking tokens the toggle
+# buys, at the model's internal_reasoning rate (completion rate where the provider publishes
+# none), divided by the 0.6965 RUB of AI budget one sol carries and rounded up.
+#
+#   sols = ceil((full_budget - mandatory_minimum) x reasoning_rate / 0.6965)
+#
+# full_budget is STORY_REASONING_MAX_TOKENS, except Gemini 3.x which takes a thinking *level*
+# rather than a token budget and is therefore priced for ~4000 tokens. The mandatory minimum is
+# already inside the base tier (see STORY_REASONING_MINIMUM_LLM_MODELS), so only the difference
+# is charged. Verified against live RouterAI rates: base tier + surcharge holds >= 55% net at
+# every tier of every model, worst case 56.5%.
 STORY_REASONING_SURCHARGE_BY_MODEL: dict[str, int] = {
     STORY_LLM_MODEL_GLM5: 1,
     STORY_LLM_MODEL_GLM51: 1,

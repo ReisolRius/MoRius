@@ -41,8 +41,8 @@ class _FakeStreamResponse(_FakeResponse):
 
 
 class StoryServiceModelResilienceTests(unittest.TestCase):
-    def test_story_response_limit_remains_3000_tokens(self) -> None:
-        self.assertEqual(monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX, 3_000)
+    def test_story_response_limit_is_the_published_ceiling(self) -> None:
+        self.assertEqual(monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX, 2_500)
 
     def test_aion_routerai_request_is_fitted_inside_combined_context_window(self) -> None:
         oversized_messages = [
@@ -72,8 +72,8 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
 
         self.assertEqual(result, "ok")
         request_payload = post_mock.call_args.kwargs["json"]
-        self.assertEqual(request_payload["max_tokens"], 3_000)
-        self.assertEqual(request_payload["max_completion_tokens"], 3_000)
+        self.assertEqual(request_payload["max_tokens"], 2_500)
+        self.assertEqual(request_payload["max_completion_tokens"], 2_500)
         fitted_messages = request_payload["messages"]
         self.assertEqual(fitted_messages[-1]["role"], "user")
         self.assertEqual(fitted_messages[-1]["content"], "latest turn")
@@ -367,7 +367,7 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
                     [],
                     context_limit_chars=6_000,
                     model_name="deepseek/deepseek-v3.2",
-                    max_tokens=3_000,
+                    max_tokens=2_500,
                 )
             )
 

@@ -215,10 +215,10 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
     def test_cost_tiers_respect_model_context_caps(self) -> None:
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 12)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 22)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.2"), 7)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.2"), 8)
         # GLM 5.2 stops at 64k, so past the tier-4 ceiling it is still charged tier 4.
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.2"), 7)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 10)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.2"), 8)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 11)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 16)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 8)
 
@@ -282,7 +282,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-v4-pro-0813"), 4)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-v4-pro-0813"), 6)
         self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v4-pro-0813"), 10)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "deepseek/deepseek-v4-pro-0813"), 18)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "deepseek/deepseek-v4-pro-0813"), 19)
         self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-r1-0528"), 3)
         self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-r1-0528"), 4)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-r1-0528"), 5)
@@ -301,14 +301,14 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         )
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-2.5-pro"), 13)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 23)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 38)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 39)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-pro-preview"), 19)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "z-ai/glm-4.7"), 4)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-flash-lite"), 4)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k2.6"), 4)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.6"), 11)
         self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k3"), 17)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k3"), 49)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k3"), 50)
 
     def test_turn_cost_table_matches_product_matrix(self) -> None:
         from app.services.story_games import (
@@ -322,22 +322,22 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         # GLM 5.1 and both Kimi models (128k), plus Aion 2.0 (108k), reach tier five.
         expected_rows = {
             "deepseek/deepseek-v3.2": (1, 2, 3, 4, 4),
-            "deepseek/deepseek-v4-pro-0813": (3, 4, 6, 10, 18),
+            "deepseek/deepseek-v4-pro-0813": (3, 4, 6, 10, 19),
             "deepseek/deepseek-r1-0528": (3, 4, 5, 8, 8),
             "z-ai/glm-4.7": (2, 3, 4, 6, 6),
             "z-ai/glm-5": (2, 3, 5, 8, 8),
             "z-ai/glm-5.1": (3, 5, 7, 12, 22),
-            "z-ai/glm-5.2": (2, 3, 5, 7, 7),
-            "aion-labs/aion-2.0": (3, 4, 6, 10, 16),
-            "aion-labs/aion-3.0": (8, 13, 21, 36, 36),
+            "z-ai/glm-5.2": (2, 3, 5, 8, 8),
+            "aion-labs/aion-2.0": (3, 4, 7, 11, 16),
+            "aion-labs/aion-3.0": (9, 14, 22, 37, 37),
             "aion-labs/aion-3.0-mini": (3, 4, 6, 9, 9),
             "qwen/qwen3.7-plus": (2, 3, 4, 5, 5),
             "google/gemini-3.1-flash-lite": (2, 3, 4, 5, 5),
             "google/gemini-2.5-pro": (7, 10, 13, 20, 20),
-            "google/gemini-3.1-pro-preview": (10, 13, 19, 29, 29),
-            "anthropic/claude-sonnet-4.6": (11, 15, 23, 38, 38),
+            "google/gemini-3.1-pro-preview": (10, 14, 19, 29, 29),
+            "anthropic/claude-sonnet-4.6": (11, 16, 23, 39, 39),
             "moonshotai/kimi-k2.6": (2, 3, 4, 7, 11),
-            "moonshotai/kimi-k3": (8, 11, 17, 28, 49),
+            "moonshotai/kimi-k3": (8, 11, 17, 28, 50),
         }
         # The matrix is the whole sellable catalogue: a narrator added or retired without a
         # price lands here as a failure rather than shipping unpriced.
@@ -682,6 +682,148 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertTrue(normalize_story_appearance_gradient_enabled(None))
         self.assertEqual(normalize_story_appearance_color("#00eaff", default="#050506"), "#00EAFF")
         self.assertEqual(normalize_story_appearance_color("not-a-color", default="#050506"), "#050506")
+
+
+    def test_reasoning_surcharge_covers_every_model_that_sells_the_toggle(self) -> None:
+        """No model may offer paid reasoning without a price, and none may carry a dead price."""
+        from app.services.story_games import (
+            STORY_REASONING_SUPPORTED_LLM_MODELS,
+            STORY_REASONING_SURCHARGE_BY_MODEL,
+            STORY_REASONING_MINIMUM_LLM_MODELS,
+        )
+
+        sellable = {
+            model
+            for model in STORY_REASONING_SUPPORTED_LLM_MODELS
+            if model not in STORY_REASONING_MINIMUM_LLM_MODELS
+            or model in STORY_REASONING_SURCHARGE_BY_MODEL
+        }
+        self.assertEqual(set(STORY_REASONING_SURCHARGE_BY_MODEL), sellable)
+        self.assertTrue(all(value >= 1 for value in STORY_REASONING_SURCHARGE_BY_MODEL.values()))
+
+    def test_reasoning_surcharges_match_the_derived_prices(self) -> None:
+        """Pins the derivation: extra thinking tokens / 0.6965 RUB of AI budget per sol."""
+        expected = {
+            "z-ai/glm-5": 1,
+            "z-ai/glm-5.1": 1,
+            "z-ai/glm-5.2": 1,
+            "z-ai/glm-4.7": 1,
+            "deepseek/deepseek-v3.2": 1,
+            "deepseek/deepseek-v4-pro-0813": 1,
+            "google/gemini-3.1-flash-lite": 1,
+            "qwen/qwen3.7-plus": 1,
+            "moonshotai/kimi-k2.6": 1,
+            "moonshotai/kimi-k3": 4,
+            "google/gemini-2.5-pro": 4,
+            "anthropic/claude-sonnet-4.6": 5,
+            "google/gemini-3.1-pro-preview": 6,
+            "deepseek/deepseek-v4-flash": 1,
+            "google/gemini-2.5-flash-lite": 1,
+            "z-ai/glm-4.5-air": 1,
+        }
+        from app.services.story_games import STORY_REASONING_SURCHARGE_BY_MODEL
+
+        self.assertEqual(dict(STORY_REASONING_SURCHARGE_BY_MODEL), expected)
+        for model_name, surcharge in expected.items():
+            with self.subTest(model_name=model_name):
+                self.assertEqual(
+                    get_story_reasoning_surcharge_tokens(model_name, reasoning_enabled=True),
+                    surcharge,
+                )
+                self.assertEqual(
+                    get_story_reasoning_surcharge_tokens(model_name, reasoning_enabled=False),
+                    0,
+                )
+
+    def test_service_prompt_is_spent_on_top_of_the_player_context_limit(self) -> None:
+        """The player's limit buys the player's content; the narrator contract is extra.
+
+        Before this the mandatory rules (~3 000 tokens) came out of the same budget, so a
+        6 000 setting really gave the player less than half of it and trimmed their cards to
+        fit -- while the meter, which counts player content only, still showed room.
+        """
+        from app.services import story_prompt_engine
+        from app.services.story_token_budget import estimate_story_tokens
+
+        model_name = "deepseek/deepseek-v3.2"
+        overhead = monolith_main._story_service_prompt_overhead_tokens(
+            model_name,
+            monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX,
+            False,
+            True,
+        )
+        self.assertGreater(overhead, 1_000)
+
+        cards = [
+            {"title": f"Память {index}", "content": "Плотный русский текст блока памяти. " * 40}
+            for index in range(24)
+        ]
+        history = [StoryMessage(game_id=1, role="user", content="Иду дальше по коридору.")]
+        available_card_tokens = sum(
+            estimate_story_tokens(card["title"]) + estimate_story_tokens(card["content"])
+            for card in cards
+        )
+        for context_limit in (6_000, 16_000, 32_000):
+            with self.subTest(context_limit=context_limit):
+                payload = story_prompt_engine._build_story_provider_messages(
+                    history,
+                    [],
+                    cards,
+                    [],
+                    use_plot_memory=True,
+                    context_limit_tokens=context_limit,
+                    response_max_tokens=monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX,
+                    model_name=model_name,
+                    show_gg_thoughts=False,
+                    show_npc_thoughts=True,
+                )
+                total = sum(estimate_story_tokens(item.get("content", "")) for item in payload)
+                player_tokens = total - overhead
+                # The player never gets charged more than their limit...
+                self.assertLessEqual(player_tokens, int(context_limit * 1.02))
+                # ...and when there is more content than the limit, they get to use it all
+                # rather than losing the service prompt's share off the top.
+                if available_card_tokens > context_limit * 1.2:
+                    self.assertGreater(player_tokens, int(context_limit * 0.7))
+
+    def test_truncated_reply_is_repaired_before_it_reaches_the_player(self) -> None:
+        """max_tokens is a hard cut, so a long reply can end mid-word; that must never ship."""
+        from app.services.story_runtime import _sanitize_streamed_story_markup
+
+        body = (
+            "Он шагнул в проём, и холод ударил в лицо. Стражник обернулся медленно, будто "
+            "нехотя, и свет фонаря выхватил из темноты его небритую щёку. За спиной хлопнула "
+            "дверь. Где-то наверху заскрипели половицы, и этот звук показался громче "
+            "собственного дыхания. Он замер, считая удары сердца, и понял, что путь назад "
+            "уже отрезан, а впереди только узкий коридор с низким потолком."
+        )
+        for label, truncated in (
+            ("half word", body + " Он сделал шаг и не усп"),
+            ("dangling marker", body + "\n\n[[NPC:Мир"),
+        ):
+            with self.subTest(label=label):
+                repaired = _sanitize_streamed_story_markup(truncated)
+                self.assertTrue(repaired.endswith(("." , "!", "?", "…")), repaired[-40:])
+                self.assertNotIn("не усп", repaired)
+                self.assertNotIn("[[NPC:Мир\n", repaired)
+
+        # A well-formed reply is returned untouched.
+        self.assertEqual(_sanitize_streamed_story_markup(body), body)
+        # A short line without a full stop is a style choice, not a 2500-token truncation.
+        self.assertEqual(_sanitize_streamed_story_markup("Он молчал"), "Он молчал")
+
+    def test_model_is_not_told_the_hard_token_ceiling(self) -> None:
+        """Naming the ceiling made models write up to it and get guillotined at the same number."""
+        prompt = monolith_main._build_story_system_prompt(
+            [],
+            [],
+            [],
+            model_name="deepseek/deepseek-v3.2",
+            response_max_tokens=monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX,
+        )
+        self.assertIn("Длина ответа", prompt)
+        self.assertNotIn("жесткий максимум", prompt)
+        self.assertNotIn(str(monolith_main.STORY_RESPONSE_MAX_TOKENS_MAX), prompt)
 
 
 if __name__ == "__main__":

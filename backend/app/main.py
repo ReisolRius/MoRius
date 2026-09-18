@@ -333,7 +333,7 @@ STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS = 2_048
 STORY_CONTEXT_RESPONSE_RESERVE_SAFETY_TOKENS = STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 6_000
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
-STORY_RESPONSE_MAX_TOKENS_MAX = 3_000
+STORY_RESPONSE_MAX_TOKENS_MAX = 2_500
 STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS = 4
 STORY_POSTPROCESS_READ_TIMEOUT_SECONDS = 7
@@ -1493,9 +1493,20 @@ STORY_LATIN_TO_CYRILLIC_NAME_CHAR_MAP = {
     "y": "и",
     "z": "з",
 }
-STORY_RESPONSE_BUDGET_TARGET_FACTOR = 0.85
+# The model is told this target and nothing else. It is NOT told the hard ceiling, and the
+# gap between the two is deliberate: max_tokens is a guillotine the provider applies mid-word,
+# while the target is advice a model can only follow approximately (no model can count its own
+# tokens). Telling it "hard maximum N" while the API also cuts at N left zero slack, so every
+# overshoot became a half-word ending. 0.80 leaves a 25% cushion under the ceiling.
+STORY_RESPONSE_BUDGET_TARGET_FACTOR = 0.80
 STORY_RESPONSE_MIN_TARGET_TOKENS = 120
 STORY_OUTPUT_SENTENCE_END_CHARS = ".!?…"
+# How much of a truncated reply must survive before it is cut back to the last finished
+# sentence. Below this the hanging clause is kept: losing most of a short answer reads worse
+# than an unfinished one.
+STORY_OUTPUT_SENTENCE_TRIM_MIN_KEEP_RATIO = 0.6
+# Below this word count an unpunctuated ending is not treated as truncation at all.
+STORY_OUTPUT_TRIM_MIN_WORDS = 60
 STORY_OUTPUT_CLOSING_CHARS = "\"'”»)]}"
 STORY_OUTPUT_TERMINAL_CHARS = STORY_OUTPUT_SENTENCE_END_CHARS + STORY_OUTPUT_CLOSING_CHARS
 STORY_MORPH_ANALYZER: Any | bool | None = None
@@ -4572,10 +4583,16 @@ def _build_story_system_prompt(
             min(normalized_limit, int(normalized_limit * STORY_RESPONSE_BUDGET_TARGET_FACTOR)),
             STORY_RESPONSE_MIN_TARGET_TOKENS,
         )
+        # Deliberately no "hard maximum": naming the ceiling made models write up to it and get
+        # guillotined by max_tokens at the same number. Paragraph counts are something a model
+        # can actually control; a token target on its own is not.
+        target_paragraphs = max(2, min(8, round(target_tokens / 260)))
         lines.extend(
             [
                 "",
-                f"Длина ответа: цель до {target_tokens} токенов, жесткий максимум {normalized_limit}; заверши финальную фразу полностью.",
+                f"Длина ответа: ориентир — около {target_tokens} токенов, примерно {target_paragraphs} абзацев. "
+                "Планируй сцену так, чтобы уложиться, и всегда дописывай последнюю фразу до конца: "
+                "лучше закончить раньше, чем оборваться на полуслове.",
             ]
         )
 
@@ -5851,14 +5868,33 @@ def _trim_story_trailing_incomplete_fragment(text_value: str) -> str:
     if re.search(r"[A-Za-zА-Яа-яЁё]", tail_token) is None:
         return normalized_text
 
+    # Only reply-length truncation is worth cutting for. A short answer that simply ends
+    # without a full stop is a style choice, not a guillotined 2500-token scene, and must be
+    # left alone -- the repairs above (dangling markup, broken UTF-8) already ran on it.
     word_count = len(normalized_text.split())
-    if word_count < 2:
+    if word_count < STORY_OUTPUT_TRIM_MIN_WORDS:
         return normalized_text
 
     candidate = normalized_text[:tail_token_match.start()].rstrip(" ,;:-")
-    if candidate:
-        return candidate
-    return normalized_text
+    if not candidate:
+        return normalized_text
+
+    # Dropping the half-word still leaves a clause hanging ("...обернулся, но не"). Fall back
+    # to the last completed sentence, which is the last point the model actually finished a
+    # thought. Only when that keeps most of the reply: a short answer that simply ends without
+    # punctuation must not lose its body.
+    last_sentence_end = max(candidate.rfind(char) for char in STORY_OUTPUT_SENTENCE_END_CHARS)
+    if last_sentence_end >= 0:
+        sentence_candidate = candidate[: last_sentence_end + 1]
+        while (
+            last_sentence_end + 1 < len(candidate)
+            and candidate[last_sentence_end + 1] in STORY_OUTPUT_CLOSING_CHARS
+        ):
+            last_sentence_end += 1
+            sentence_candidate = candidate[: last_sentence_end + 1]
+        if len(sentence_candidate) >= int(len(candidate) * STORY_OUTPUT_SENTENCE_TRIM_MIN_KEEP_RATIO):
+            return sentence_candidate.rstrip()
+    return candidate
 
 
 def _resolve_story_thought_owner(marker_key: str) -> str | None:
@@ -6285,6 +6321,35 @@ def _normalize_story_prompt_list(values: list[Any], *, max_items: int, max_chars
     if not normalized_values:
         return "нет"
     return ", ".join(normalized_values[:max_items])
+@lru_cache(maxsize=256)
+def _story_service_prompt_overhead_tokens(
+    model_name: str | None,
+    response_max_tokens: int | None,
+    show_gg_thoughts: bool,
+    show_npc_thoughts: bool,
+) -> int:
+    """Tokens the narrator contract costs before the player owns a single one.
+
+    The format protocol, marker rules, thought settings and the per-model hint are mandatory
+    on every turn and are not the player's content, so they must not be billed to the player's
+    context limit. Measured today this is roughly 2 900-3 400 tokens depending on the model --
+    at the 6 000 minimum that used to be more than half of a limit the meter showed as free,
+    which is why memory was trimmed while the bar still looked empty.
+
+    Deterministic for its inputs (no cards go in), hence the cache.
+    """
+    prompt = _build_story_system_prompt(
+        [],
+        [],
+        [],
+        model_name=model_name,
+        response_max_tokens=response_max_tokens,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
+    )
+    return max(_estimate_story_tokens(prompt), 0)
+
+
 def _effective_story_context_limit_tokens(
     context_limit_tokens: int,
     *,
@@ -6299,11 +6364,20 @@ def _effective_story_context_limit_tokens(
             if response_max_tokens is not None
             else STORY_RESPONSE_MAX_TOKENS_MAX
         )
+        # The player's limit now buys player content only, so the service contract is spent on
+        # top of it and has to be reserved here as well or the request overruns Aion's window.
+        service_overhead = _story_service_prompt_overhead_tokens(
+            normalized_model_name,
+            completion_reserve,
+            False,
+            True,
+        )
         safe_input_limit = int(
             (
                 STORY_AION_CONTEXT_WINDOW_TOKENS
                 - completion_reserve
                 - STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS
+                - service_overhead
             )
             / STORY_AION_INPUT_TOKENIZER_SAFETY_FACTOR
         )
@@ -6948,10 +7022,18 @@ def _build_story_provider_messages(
         if message.role in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE}
         and _normalize_story_message_content(getattr(message, "content", None))
     ]
-    effective_context_limit_tokens = _effective_story_context_limit_tokens(
+    player_context_limit_tokens = _effective_story_context_limit_tokens(
         context_limit_tokens,
         model_name=model_name,
         response_max_tokens=response_max_tokens,
+    )
+    # Mirror of story_prompt_engine: the narrator contract is spent on top of the player's
+    # limit, not out of it. Keep the two in step -- this copy is the fallback path.
+    effective_context_limit_tokens = player_context_limit_tokens + _story_service_prompt_overhead_tokens(
+        model_name,
+        response_max_tokens,
+        show_gg_thoughts,
+        show_npc_thoughts,
     )
     selected_history = _select_story_history_source(
         full_history,
