@@ -258,7 +258,8 @@ logger = logging.getLogger(__name__)
 AVATAR_SCALE_MIN = 1.0
 AVATAR_SCALE_MAX = 3.0
 AVATAR_SCALE_DEFAULT = 1.0
-NEW_USER_STARTER_COINS = 50
+# Sol economy v2: 50 old sols bought ~12 cheap turns, 30 new ones buy 30.
+NEW_USER_STARTER_COINS = 30
 ONBOARDING_GUIDE_DEFAULT_STATUS = "pending"
 ONBOARDING_GUIDE_ALLOWED_STATUSES = {"pending", "completed", "skipped"}
 ONBOARDING_GUIDE_STEP_ID_MAX_LENGTH = 120

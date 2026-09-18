@@ -9,36 +9,23 @@ from sqlalchemy.orm import Session
 
 from app.models import User
 
-MONTHLY_REWARD_RESET_TIMEZONE = ZoneInfo("Europe/Moscow")
+# Weekly reward cycle, Moscow time. The ladder resets every Monday at 00:00 MSK regardless of
+# how far the player got: claim day 3 on Sunday and Monday starts again at day 1.
+WEEKLY_REWARD_RESET_TIMEZONE = ZoneInfo("Europe/Moscow")
+# Kept under the old name so existing importers keep working.
+MONTHLY_REWARD_RESET_TIMEZONE = WEEKLY_REWARD_RESET_TIMEZONE
+# Sol economy v2. The previous ladder ran 28 days and paid 286 sols a month, which at the new
+# rate would be worth ~800 RUB of free play per fully-engaged non-payer. One sol now buys a
+# cheap turn outright, so a perfect week pays 15 sols = 15 turns, ~65 a month. Worst case that
+# costs 15 x 0.6965 = 10.45 RUB of AI per week per player who never misses a day.
 DAILY_REWARD_AMOUNTS: tuple[int, ...] = (
+    1,
+    1,
+    2,
+    2,
+    2,
+    2,
     5,
-    6,
-    5,
-    6,
-    7,
-    6,
-    20,
-    6,
-    5,
-    6,
-    6,
-    7,
-    7,
-    30,
-    6,
-    5,
-    6,
-    6,
-    7,
-    6,
-    40,
-    7,
-    6,
-    6,
-    7,
-    6,
-    6,
-    50,
 )
 DAILY_REWARD_TOTAL_DAYS = len(DAILY_REWARD_AMOUNTS)
 DAILY_REWARD_TOTAL_AMOUNT = sum(DAILY_REWARD_AMOUNTS)
@@ -71,18 +58,30 @@ def _normalize_claim_timestamp(value: object) -> datetime | None:
 
 
 def _normalize_claim_month(value: object) -> str:
+    """Accept a stored cycle key, in the ISO-week form this module writes.
+
+    Anything else -- including a key left behind by the old monthly cycle ("2026-09") -- is
+    rejected, which restarts the ladder on the next claim instead of resuming mid-week.
+    """
     if not isinstance(value, str):
         return ""
     normalized = value.strip()
-    if len(normalized) != 7 or normalized[4] != "-":
+    if len(normalized) != 8 or normalized[4:6] != "-W":
         return ""
-    if not normalized[:4].isdigit() or not normalized[5:].isdigit():
+    if not normalized[:4].isdigit() or not normalized[6:].isdigit():
         return ""
     return normalized
 
 
 def _resolve_claim_month_key(value: datetime) -> str:
-    return value.astimezone(MONTHLY_REWARD_RESET_TIMEZONE).strftime("%Y-%m")
+    """ISO year-week in Moscow time, e.g. "2026-W38".
+
+    ISO weeks start on Monday, which is exactly the reset the players were promised: a reward
+    taken on Sunday evening is the last of its week, and Monday 00:00 MSK opens a new one.
+    """
+    local_value = value.astimezone(WEEKLY_REWARD_RESET_TIMEZONE)
+    iso_year, iso_week, _ = local_value.isocalendar()
+    return f"{iso_year:04d}-W{iso_week:02d}"
 
 
 def _resolve_stored_claim_month(user: User) -> str:
@@ -108,14 +107,14 @@ def _resolve_next_claim_at(
 ) -> datetime | None:
     if last_claimed_at is None:
         return None
-    current_local_time = current_time.astimezone(MONTHLY_REWARD_RESET_TIMEZONE)
-    last_claimed_local_time = last_claimed_at.astimezone(MONTHLY_REWARD_RESET_TIMEZONE)
+    current_local_time = current_time.astimezone(WEEKLY_REWARD_RESET_TIMEZONE)
+    last_claimed_local_time = last_claimed_at.astimezone(WEEKLY_REWARD_RESET_TIMEZONE)
     if current_local_time.date() > last_claimed_local_time.date():
         return None
     next_local_midnight = datetime.combine(
         last_claimed_local_time.date() + timedelta(days=1),
         datetime.min.time(),
-        tzinfo=MONTHLY_REWARD_RESET_TIMEZONE,
+        tzinfo=WEEKLY_REWARD_RESET_TIMEZONE,
     )
     next_claim_at = next_local_midnight.astimezone(timezone.utc)
     if next_claim_at <= current_time:

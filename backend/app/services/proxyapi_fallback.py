@@ -20,24 +20,24 @@ TEXT_MODEL_FALLBACKS: dict[str, list[str]] = {
     "*": ["deepseek/deepseek-chat", "z-ai/glm-5"],
 }
 
+# Only the two Nano Banana models are generated any more (sol economy v2), so the retired FLUX /
+# Seedream / Qwen-editor ids resolve onto Nano Banana here too rather than reaching a provider.
 IMAGE_MODEL_ALIASES: dict[str, str] = {
-    "flux.2-pro": "black-forest-labs/flux.2-pro",
-    "black-forest-labs/flux.2-pro": "black-forest-labs/flux.2-pro",
-    "flux.2-klein-4b": "black-forest-labs/flux.2-klein-4b",
-    "black-forest-labs/flux.2-klein-4b": "black-forest-labs/flux.2-klein-4b",
-    "seedream-4.5": "bytedance-seed/seedream-4.5",
-    "bytedance/seedream-4.5": "bytedance-seed/seedream-4.5",
-    "bytedance-seed/seedream-4.5": "bytedance-seed/seedream-4.5",
     "google/gemini-2.5-flash-image": "google/gemini-2.5-flash-image-preview",
     "google/gemini-2.5-flash-image-preview": "google/gemini-2.5-flash-image-preview",
     "google/gemini-3.1-flash-image-preview": "google/gemini-3.1-flash-image-preview",
-    "qwen-image-edit": "qwen/qwen-image-edit",
-    "qwen/qwen-image-edit": "qwen/qwen-image-edit",
+    "flux.2-pro": "google/gemini-2.5-flash-image-preview",
+    "black-forest-labs/flux.2-pro": "google/gemini-2.5-flash-image-preview",
+    "flux.2-klein-4b": "google/gemini-2.5-flash-image-preview",
+    "black-forest-labs/flux.2-klein-4b": "google/gemini-2.5-flash-image-preview",
+    "seedream-4.5": "google/gemini-2.5-flash-image-preview",
+    "bytedance/seedream-4.5": "google/gemini-2.5-flash-image-preview",
+    "bytedance-seed/seedream-4.5": "google/gemini-2.5-flash-image-preview",
+    "qwen-image-edit": "google/gemini-2.5-flash-image-preview",
+    "qwen/qwen-image-edit": "google/gemini-2.5-flash-image-preview",
 }
 
-IMAGE_MODEL_FALLBACKS: dict[str, list[str]] = {
-    "black-forest-labs/flux.2-pro": ["black-forest-labs/flux.2-pro:free"],
-}
+IMAGE_MODEL_FALLBACKS: dict[str, list[str]] = {}
 
 
 def is_configured() -> bool:

@@ -28,7 +28,6 @@ POLZA_DEFAULT_IMAGE_MODEL = "google/gemini-2.5-flash-image"
 SUBSCRIPTION_DEFAULT_MODEL_DEEPSEEK_V4_FLASH = "deepseek/deepseek-v4-flash"
 SUBSCRIPTION_DEFAULT_MODEL_GEMINI_25_FLASH_LITE = "google/gemini-2.5-flash-lite"
 SUBSCRIPTION_DEFAULT_MODEL_GLM_45_AIR = "z-ai/glm-4.5-air"
-SUBSCRIPTION_DEFAULT_MODEL_GEMINI_3_FLASH_PREVIEW = "google/gemini-3-flash-preview"
 DEFAULT_CORS_ORIGINS = [
     "http://localhost:5173",
     "https://mo-rius.vercel.app",
@@ -275,7 +274,6 @@ class Settings:
     subscription_model_deepseek_v4_flash: str
     subscription_model_gemini_25_flash_lite: str
     subscription_model_glm_45_air: str
-    subscription_model_gemini_3_flash_preview: str
     story_llm_provider: str
     gigachat_authorization_key: str
     gigachat_scope: str
@@ -427,10 +425,6 @@ settings = Settings(
     subscription_model_glm_45_air=_env(
         "SUBSCRIPTION_MODEL_GLM_45_AIR",
         SUBSCRIPTION_DEFAULT_MODEL_GLM_45_AIR,
-    ).strip(),
-    subscription_model_gemini_3_flash_preview=_env(
-        "SUBSCRIPTION_MODEL_GEMINI_3_FLASH_PREVIEW",
-        SUBSCRIPTION_DEFAULT_MODEL_GEMINI_3_FLASH_PREVIEW,
     ).strip(),
     story_llm_provider=_normalize_story_llm_provider(_env("STORY_LLM_PROVIDER", "routerai")),
     gigachat_authorization_key=os.getenv("GIGACHAT_AUTHORIZATION_KEY", "").strip(),

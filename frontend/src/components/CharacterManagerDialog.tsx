@@ -99,7 +99,6 @@ const DEFAULT_CHARACTER_RACE_VALUES = [
 const CHARACTER_EDITOR_AVATAR_SIZE = 248
 const CHARACTER_AI_AVATAR_OUTPUT_SIZE = 640
 const CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH = 320
-const CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
@@ -112,19 +111,13 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID,
     title: 'Nano Banano',
     description: 'High-detail character rendering.',
-    cost: 9,
+    cost: 7,
   },
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID,
     title: 'Nano Banano 2',
     description: 'Maximum detail and depth rendering.',
     cost: 13,
-  },
-  {
-    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID,
-    title: 'Seedream 4.5',
-    description: 'Более художественная и мягкая подача.',
-    cost: 20,
   },
 ]
 const CHARACTER_EMOTION_IDS: StoryCharacterEmotionId[] = STORY_CHARACTER_EMOTION_IDS

@@ -16,10 +16,17 @@ from app.database import Base  # noqa: E402
 from app.models import CoinPurchase, ReferralReward, User  # noqa: E402
 from app.services.concurrency import grant_purchase_coins_once  # noqa: E402
 from app.services.payments import (  # noqa: E402
+    COIN_TOP_UP_PLANS_BY_ID,
     grant_purchase_and_referral_rewards_once_for_purchase,
     sync_purchase_status,
     sync_user_pending_purchases,
 )
+from app.services.referrals import REFERRAL_BONUS_COINS  # noqa: E402
+
+# Read from the catalogue rather than hard-coded, so a repricing cannot silently break this
+# regression: what it guards is that each grant happens exactly once, not what the amounts are.
+STARTER_PLAN_COINS = int(COIN_TOP_UP_PLANS_BY_ID["standard"]["coins"])
+REFERRED_TOTAL_COINS = STARTER_PLAN_COINS + REFERRAL_BONUS_COINS
 
 
 class PaymentIdempotencyTests(unittest.TestCase):
@@ -51,8 +58,8 @@ class PaymentIdempotencyTests(unittest.TestCase):
             provider_payment_id=f"referral-payment-{suffix}",
             plan_id="standard",
             plan_title="Путник",
-            amount_rub=399,
-            coins=400,
+            amount_rub=int(COIN_TOP_UP_PLANS_BY_ID["standard"]["price_rub"]),
+            coins=STARTER_PLAN_COINS,
             status=status,
         )
         db.add(purchase)
@@ -133,7 +140,7 @@ class PaymentIdempotencyTests(unittest.TestCase):
             rewards = db.scalars(select(ReferralReward)).all()
             self.assertEqual(rewards, [])
 
-    def test_successful_purchase_grants_500_to_both_users_once(self) -> None:
+    def test_successful_purchase_grants_the_referral_bonus_to_both_users_once(self) -> None:
         with self.Session() as db:
             referrer, referred, purchase = self._create_referral_purchase(db, suffix="success")
 
@@ -149,9 +156,9 @@ class PaymentIdempotencyTests(unittest.TestCase):
 
             self.assertTrue(first_result.purchase_coins_granted)
             self.assertTrue(first_result.referral_bonus_granted)
-            self.assertEqual(first_result.referral_bonus_amount, 500)
-            self.assertEqual(referrer.coins, 500)
-            self.assertEqual(referred.coins, 900)
+            self.assertEqual(first_result.referral_bonus_amount, REFERRAL_BONUS_COINS)
+            self.assertEqual(referrer.coins, REFERRAL_BONUS_COINS)
+            self.assertEqual(referred.coins, REFERRED_TOTAL_COINS)
             self.assertIsNotNone(referred.referral_bonus_claimed_at)
             self.assertIsNotNone(purchase.coins_granted_at)
 
@@ -167,11 +174,11 @@ class PaymentIdempotencyTests(unittest.TestCase):
             rewards = db.scalars(select(ReferralReward)).all()
             self.assertFalse(second_result.purchase_coins_granted)
             self.assertFalse(second_result.referral_bonus_granted)
-            self.assertEqual(referrer.coins, 500)
-            self.assertEqual(referred.coins, 900)
+            self.assertEqual(referrer.coins, REFERRAL_BONUS_COINS)
+            self.assertEqual(referred.coins, REFERRED_TOTAL_COINS)
             self.assertEqual(len(rewards), 1)
-            self.assertEqual(rewards[0].referrer_reward_amount, 500)
-            self.assertEqual(rewards[0].referred_reward_amount, 500)
+            self.assertEqual(rewards[0].referrer_reward_amount, REFERRAL_BONUS_COINS)
+            self.assertEqual(rewards[0].referred_reward_amount, REFERRAL_BONUS_COINS)
             self.assertEqual(rewards[0].status, "granted")
 
     def test_referral_grant_retries_after_purchase_coins_were_already_granted(self) -> None:
@@ -208,8 +215,8 @@ class PaymentIdempotencyTests(unittest.TestCase):
             self.assertTrue(base_grant)
             self.assertFalse(duplicate_result.purchase_coins_granted)
             self.assertFalse(duplicate_result.referral_bonus_granted)
-            self.assertEqual(referrer.coins, 500)
-            self.assertEqual(referred.coins, 900)
+            self.assertEqual(referrer.coins, REFERRAL_BONUS_COINS)
+            self.assertEqual(referred.coins, REFERRED_TOTAL_COINS)
             self.assertEqual(len(rewards), 1)
 
 

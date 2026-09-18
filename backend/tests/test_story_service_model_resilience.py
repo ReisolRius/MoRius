@@ -10,7 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import main as monolith_main  # noqa: E402
-from app.services import story_generation_provider, story_memory_pipeline  # noqa: E402
+from app.services import story_games, story_generation_provider, story_memory_pipeline  # noqa: E402
 from app.services.story_service_budget import (  # noqa: E402
     StoryServiceHttpRequestBudget,
     use_story_service_http_request_budget,
@@ -508,15 +508,38 @@ class StoryServiceModelResilienceTests(unittest.TestCase):
         )
 
     def test_story_reasoning_parameter_is_omitted_for_unsupported_models(self) -> None:
+        # Every narrator in the live catalogue either sells the toggle or has reasoning forced
+        # on at a bounded budget, so the "strip it" branch has no catalogue model left to reach
+        # it. Pulling one out of the supported set is what exercises it: a model we do not sell
+        # reasoning for must never forward a caller-supplied reasoning block to the provider.
+        unsupported_model = "qwen/qwen3.7-plus"
+        reduced_support = set(story_games.STORY_REASONING_SUPPORTED_LLM_MODELS) - {unsupported_model}
+        payload: dict = {"reasoning": {"enabled": True}}
+
+        with patch.object(story_games, "STORY_REASONING_SUPPORTED_LLM_MODELS", reduced_support):
+            monolith_main._apply_polza_story_reasoning_preferences(
+                payload,
+                model_name=unsupported_model,
+                reasoning_enabled=True,
+            )
+
+        self.assertNotIn("reasoning", payload)
+
+    def test_story_reasoning_parameter_is_bounded_for_always_thinking_models(self) -> None:
+        # Aion cannot switch reasoning off, so a caller-supplied block must be replaced by the
+        # budget the turn price was derived from rather than passed through unbounded.
         payload: dict = {"reasoning": {"enabled": True}}
 
         monolith_main._apply_polza_story_reasoning_preferences(
             payload,
-            model_name="mistralai/mistral-nemo",
+            model_name="aion-labs/aion-2.0",
             reasoning_enabled=True,
         )
 
-        self.assertNotIn("reasoning", payload)
+        self.assertEqual(
+            payload["reasoning"],
+            {"enabled": True, "max_tokens": monolith_main.STORY_REASONING_MAX_TOKENS, "exclude": True},
+        )
 
     def test_slow_story_models_do_not_wait_five_minutes_for_first_token(self) -> None:
         self.assertEqual(

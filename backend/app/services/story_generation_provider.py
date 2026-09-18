@@ -400,7 +400,6 @@ def _apply_polza_story_reasoning_preferences(
             "google/gemini-3.1-pro-preview",
             "google/gemini-3.1-pro",
             "google/gemini-3.1-flash-lite",
-            "google/gemini-3-flash-preview",
         }:
             payload["reasoning"] = {
                 "enabled": True,

@@ -17,7 +17,9 @@ type DailyRewardsButtonProps = {
   size?: number
 }
 
-const BOOSTED_REWARD_DAYS = new Set([7, 14, 21, 28])
+// The weekly cycle's payday. Mirrors the last entry of DAILY_REWARD_AMOUNTS in
+// backend/app/services/daily_rewards.py, which is the one that is worth more than the rest.
+const BOOSTED_REWARD_DAYS = new Set([7])
 
 function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
@@ -92,7 +94,10 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
 
   const canClaim = Boolean(status?.can_claim)
 
-  const renderRewardCard = (reward: DailyRewardDay) => {
+  const renderRewardCard = (reward: DailyRewardDay, index: number, all: DailyRewardDay[]) => {
+    // Seven tiles over three columns: 3 + 3 and the payday spanning the final row.
+    const isFinalDay = index === all.length - 1
+    const spansRow = isFinalDay && all.length % 3 === 1
     const isBoosted = BOOSTED_REWARD_DAYS.has(reward.day)
     const isClaimable = canClaim && reward.is_current
     const isClaimed = reward.is_claimed
@@ -127,6 +132,7 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
         sx={{
           position: 'relative',
           minWidth: 0,
+          gridColumn: spansRow ? '1 / -1' : undefined,
           height: 42,
           px: 1,
           border: 'none',
@@ -294,6 +300,17 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
             Ежедневки
           </Typography>
 
+          <Typography
+            sx={{
+              fontSize: '0.74rem',
+              lineHeight: 1.3,
+              textAlign: 'center',
+              color: 'var(--morius-text-secondary)',
+            }}
+          >
+            Неделя наград обновляется каждый понедельник в 00:00 по Москве.
+          </Typography>
+
           {error ? (
             <Alert
               severity="error"
@@ -317,7 +334,7 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
             <Box
               sx={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
               gap: 0.75,
             }}
           >

@@ -15,7 +15,11 @@ from app.services.concurrency import add_user_tokens
 
 logger = logging.getLogger(__name__)
 
-REFERRAL_BONUS_COINS = 500
+# Paid to BOTH sides on the referred player's first purchase, so the real cost is twice this.
+# Sol economy v2: 500 + 500 against a 400-sol pack meant the pack's effective rate collapsed to
+# 0.285 RUB/sol and that whole cohort was sold below cost. 150 + 150 against the new 125-sol
+# Путник keeps the referred first purchase above break-even.
+REFERRAL_BONUS_COINS = 150
 REFERRAL_CODE_LENGTH = 10
 REFERRAL_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 REFERRAL_CODE_PATTERN = re.compile(r"^[A-Z0-9_-]{4,32}$")

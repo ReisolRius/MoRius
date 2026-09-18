@@ -40,7 +40,6 @@ from app.services.media import _load_pillow_modules
 from app.services.story_games import (
     STORY_IMAGE_MODEL_NANO_BANANO,
     STORY_IMAGE_MODEL_NANO_BANANO_2,
-    STORY_IMAGE_MODEL_SEEDREAM,
     coerce_story_image_model,
     deserialize_story_environment_datetime,
     deserialize_story_environment_weather,
@@ -78,12 +77,12 @@ STORY_MAP_IMAGE_SCOPES = {
 STORY_MAP_IMAGE_ALLOWED_MODELS = {
     STORY_IMAGE_MODEL_NANO_BANANO,
     STORY_IMAGE_MODEL_NANO_BANANO_2,
-    STORY_IMAGE_MODEL_SEEDREAM,
 }
+# Same sol economy v2 basis as STORY_TURN_IMAGE_COST_BY_MODEL: a map frame is one image plus a
+# prompt-composer call on the service model.
 STORY_MAP_IMAGE_COST_BY_MODEL = {
-    STORY_IMAGE_MODEL_NANO_BANANO: 9,
+    STORY_IMAGE_MODEL_NANO_BANANO: 7,
     STORY_IMAGE_MODEL_NANO_BANANO_2: 13,
-    STORY_IMAGE_MODEL_SEEDREAM: 20,
 }
 STORY_MAP_IMAGE_ACTIVE_LIMIT = 12
 

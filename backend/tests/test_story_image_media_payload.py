@@ -26,8 +26,6 @@ class _FakeResponse:
 class StoryImageMediaPayloadTests(unittest.TestCase):
     def test_image_media_payload_uses_polza_auto_provider_routing(self) -> None:
         for model in (
-            monolith_main.STORY_TURN_IMAGE_MODEL_FLUX,
-            monolith_main.STORY_TURN_IMAGE_MODEL_SEEDREAM,
             monolith_main.STORY_TURN_IMAGE_MODEL_NANO_BANANO,
             monolith_main.STORY_TURN_IMAGE_MODEL_NANO_BANANO_2,
         ):
@@ -43,16 +41,16 @@ class StoryImageMediaPayloadTests(unittest.TestCase):
 
         self.assertIsNone(payload)
 
-    def test_seedream_prompt_limit_matches_media_api_cap(self) -> None:
+    def test_prompt_limit_matches_media_api_cap(self) -> None:
         self.assertEqual(
             monolith_main._get_story_turn_image_request_prompt_max_chars(
-                monolith_main.STORY_TURN_IMAGE_MODEL_SEEDREAM,
+                monolith_main.STORY_TURN_IMAGE_MODEL_NANO_BANANO_2,
             ),
             20_000,
         )
         limited_prompt = monolith_main._limit_story_turn_image_request_prompt(
             "x" * 20_500,
-            model_name=monolith_main.STORY_TURN_IMAGE_MODEL_SEEDREAM,
+            model_name=monolith_main.STORY_TURN_IMAGE_MODEL_NANO_BANANO_2,
         )
 
         self.assertEqual(len(limited_prompt), 20_000)
@@ -62,10 +60,10 @@ class StoryImageMediaPayloadTests(unittest.TestCase):
             {
                 "object": "media.generation",
                 "status": "completed",
-                "model": monolith_main.STORY_TURN_IMAGE_MODEL_FLUX,
+                "model": monolith_main.STORY_TURN_IMAGE_MODEL_NANO_BANANO,
                 "output": {"url": "https://cdn.example/image.png"},
             },
-            selected_model=monolith_main.STORY_TURN_IMAGE_MODEL_FLUX,
+            selected_model=monolith_main.STORY_TURN_IMAGE_MODEL_NANO_BANANO,
         )
 
         self.assertEqual(parsed["image_url"], "https://cdn.example/image.png")
@@ -79,7 +77,7 @@ class StoryImageMediaPayloadTests(unittest.TestCase):
         success = _FakeResponse(
             200,
             {
-                "model": monolith_main.STORY_TURN_IMAGE_MODEL_FLUX,
+                "model": monolith_main.STORY_TURN_IMAGE_MODEL_NANO_BANANO,
                 "choices": [
                     {
                         "message": {
@@ -105,7 +103,7 @@ class StoryImageMediaPayloadTests(unittest.TestCase):
         ):
             payload = monolith_main._request_polza_story_turn_image(
                 prompt="scene",
-                model_name=monolith_main.STORY_TURN_IMAGE_MODEL_FLUX,
+                model_name=monolith_main.STORY_TURN_IMAGE_MODEL_NANO_BANANO,
             )
 
         self.assertEqual(payload["image_url"], "https://cdn.example/recovered.png")

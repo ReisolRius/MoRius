@@ -57,7 +57,6 @@ import {
 } from '../components/characters/CharacterPickerChrome'
 import { brandLogo, icons } from '../assets'
 import narratorFreyaPortrait from '../assets/images/narrators/freya.svg'
-import narratorIsidaPortrait from '../assets/images/narrators/isida.svg'
 import narratorOgmaPortrait from '../assets/images/narrators/ogma.svg'
 import narratorVelesPortrait from '../assets/images/narrators/veles.svg'
 import cardsCharactersTabIconMarkup from '../assets/icons/cards-characters.svg?raw'
@@ -968,48 +967,44 @@ const STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6000
 const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
 const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
 const STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64000
-const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [4, 5, 6, 7, 12]
-const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [5, 8, 14, 26, 48]
-const STORY_TURN_COST_DEEPSEEK_R1_TIERS: readonly [number, number, number, number, number] = [7, 8, 11, 17, 22]
-const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [4, 4, 4, 5, 5]
-const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [6, 7, 8, 12, 16]
-const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [8, 10, 13, 23, 36]
-const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [20, 30, 48, 85, 85]
-// Aion 3.0 Mini. Mirror of STORY_TURN_COST_AION3_MINI_TIERS in backend/app/services/story_games.py.
-const STORY_TURN_COST_AION3_MINI_TIERS: readonly [number, number, number, number, number] = [5, 7, 12, 20, 37]
-const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 17, 24]
-const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [6, 7, 9, 13, 21]
-const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [17, 22, 30, 47, 51]
-const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [8, 10, 16, 27, 51]
-const STORY_TURN_COST_GLM52_TIERS: readonly [number, number, number, number, number] = [8, 10, 14, 20, 36]
-const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [23, 31, 43, 67, 89]
-const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [24, 36, 54, 90, 120]
-const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [6, 8, 10, 16, 28]
-const STORY_TURN_COST_KIMI_K26_TIERS: readonly [number, number, number, number, number] = [5, 7, 10, 17, 31]
-const STORY_TURN_COST_KIMI_K3_TIERS: readonly [number, number, number, number, number] = [22, 30, 40, 72, 120]
-// Mirrors STORY_TURN_COST_GPT_56_LUNA_PRO_TIERS in backend/app/services/story_games.py.
-const STORY_TURN_COST_GPT_56_LUNA_PRO_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 7, 12]
+// Sol economy v2. Byte-for-byte mirrors of STORY_TURN_COST_*_TIERS in
+// backend/app/services/story_games.py -- if these drift, the meter quotes a price the server
+// does not charge. See that file for how each number is derived.
+const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [1, 2, 3, 4, 5]
+const STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS: readonly [number, number, number, number, number] = [3, 4, 6, 10, 18]
+const STORY_TURN_COST_DEEPSEEK_R1_TIERS: readonly [number, number, number, number, number] = [3, 4, 5, 8, 9]
+const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 6, 7]
+const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [3, 4, 6, 10, 16]
+const STORY_TURN_COST_AION3_TIERS: readonly [number, number, number, number, number] = [8, 13, 21, 36, 37]
+const STORY_TURN_COST_AION3_MINI_TIERS: readonly [number, number, number, number, number] = [3, 4, 6, 9, 10]
+const STORY_TURN_COST_GLM5_TIERS: readonly [number, number, number, number, number] = [2, 3, 5, 8, 9]
+const STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 5, 6]
+const STORY_TURN_COST_GEMINI_25_PRO_TIERS: readonly [number, number, number, number, number] = [7, 10, 13, 20, 21]
+const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [3, 5, 7, 12, 22]
+const STORY_TURN_COST_GLM52_TIERS: readonly [number, number, number, number, number] = [2, 3, 5, 7, 8]
+const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [10, 13, 19, 29, 30]
+const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [11, 15, 23, 38, 39]
+const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 5, 6]
+const STORY_TURN_COST_KIMI_K26_TIERS: readonly [number, number, number, number, number] = [2, 3, 4, 7, 11]
+const STORY_TURN_COST_KIMI_K3_TIERS: readonly [number, number, number, number, number] = [8, 11, 17, 28, 49]
 const STORY_REASONING_MAX_TOKENS = 2048
 const STORY_REASONING_SURCHARGE_BY_MODEL: Partial<Record<StoryNarratorModelId, number>> = {
-  'z-ai/glm-5': 2,
-  'z-ai/glm-5.1': 3,
-  'z-ai/glm-5.2': 2,
-  'z-ai/glm-4.7-flash': 1,
-  'z-ai/glm-4.7': 2,
+  'z-ai/glm-5': 1,
+  'z-ai/glm-5.1': 1,
+  'z-ai/glm-5.2': 1,
+  'z-ai/glm-4.7': 1,
   'deepseek/deepseek-v3.2': 1,
-  'deepseek/deepseek-v4-pro-0813': 2,
+  'deepseek/deepseek-v4-pro-0813': 1,
   'google/gemini-3.1-flash-lite': 1,
-  'anthropic/claude-sonnet-4.6': 12,
-  'google/gemini-2.5-pro': 8,
-  'google/gemini-3.1-pro-preview': 10,
+  'anthropic/claude-sonnet-4.6': 5,
+  'google/gemini-2.5-pro': 4,
+  'google/gemini-3.1-pro-preview': 6,
   'qwen/qwen3.7-plus': 1,
-  'moonshotai/kimi-k2.6': 2,
-  'moonshotai/kimi-k3': 9,
-  'openai/gpt-5.6-luna-pro': 1,
+  'moonshotai/kimi-k2.6': 1,
+  'moonshotai/kimi-k3': 4,
   'deepseek/deepseek-v4-flash': 1,
   'google/gemini-2.5-flash-lite': 1,
   'z-ai/glm-4.5-air': 1,
-  'google/gemini-3-flash-preview': 2,
 }
 const STORY_REASONING_MINIMUM_MODEL_IDS = new Set<StoryNarratorModelId>([
   'aion-labs/aion-2.0',
@@ -1019,7 +1014,6 @@ const STORY_REASONING_MINIMUM_MODEL_IDS = new Set<StoryNarratorModelId>([
   'google/gemini-3.1-flash-lite',
   'google/gemini-2.5-pro',
   'google/gemini-3.1-pro-preview',
-  'google/gemini-3-flash-preview',
 ])
 const STORY_REASONING_FIXED_MODEL_IDS = new Set<StoryNarratorModelId>([
   'aion-labs/aion-2.0',
@@ -1032,12 +1026,9 @@ const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'deepseek/deepseek-v4-pro-0813',
   'moonshotai/kimi-k2.6',
   'moonshotai/kimi-k3',
-  'openai/gpt-5.6-luna-pro',
 ])
 const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
-  'z-ai/glm-4.7-flash',
   'deepseek/deepseek-v3.2',
-  'mistralai/mistral-nemo',
 ])
 const STORY_TOP_K_MIN = 0
 const STORY_TOP_K_MAX = 200
@@ -1052,7 +1043,6 @@ const STORY_TEMPERATURE_MIN = 0
 const STORY_TEMPERATURE_MAX = 2
 const STORY_DEFAULT_TEMPERATURE = 0.75
 const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-v3.2'
-const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
 const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
 const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_NANO_BANANO_ID
@@ -1256,12 +1246,6 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopR: 0.95,
   },
   // Плотный темп с усиленным контролем повторов.
-  'z-ai/glm-4.7-flash': {
-    storyTemperature: 0.9,
-    storyRepetitionPenalty: 1.1,
-    storyTopK: 40,
-    storyTopR: 0.95,
-  },
   // Психологичный диалог с устойчивой связностью.
   'z-ai/glm-4.7': {
     storyTemperature: 0.85,
@@ -1290,12 +1274,6 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopR: 0.9,
   },
   // Бывает рыхлой — держим температуру ниже, штраф за повтор выше.
-  'mistralai/mistral-nemo': {
-    storyTemperature: 0.78,
-    storyRepetitionPenalty: 1.08,
-    storyTopK: 50,
-    storyTopR: 0.9,
-  },
   // Консервативный баланс логики, страсти и повторяемости.
   'aion-labs/aion-2.0': {
     storyTemperature: 0.8,
@@ -1324,12 +1302,6 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
   },
   // GPT-5.6 Luna Pro — рассуждающая семья OpenAI: не принимает ни одного из четырёх параметров сэмплинга,
   // поэтому профиль нейтральный — ничего не ограничивается и ничего не имитируется.
-  'openai/gpt-5.6-luna-pro': {
-    storyTemperature: 1,
-    storyRepetitionPenalty: 1,
-    storyTopK: 0,
-    storyTopR: 1,
-  },
   // Claude получает только temperature; остальные числовые поля нейтральны и не отправляются.
   'anthropic/claude-sonnet-4.6': {
     storyTemperature: 0.9,
@@ -1386,12 +1358,6 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Partial<Record<StoryNarratorModelId, Sto
     storyTopK: 50,
     storyTopR: 0.9,
   },
-  'google/gemini-3-flash-preview': {
-    storyTemperature: 0.95,
-    storyRepetitionPenalty: 1.06,
-    storyTopK: 0,
-    storyTopR: 0.95,
-  },
 }
 
 const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
@@ -1432,19 +1398,6 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Интеллект', value: 5 },
       { label: 'Скорость', value: 4 },
       { label: 'Глубина', value: 5 },
-    ],
-  },
-  {
-    id: 'z-ai/glm-4.7-flash',
-    title: 'GLM 4.7 Flash',
-    description:
-      'Быстрая экономичная версия GLM 4.7 для коротких ходов от 1 единицы валюты. Подходит для динамичных сцен, когда важны темп и цена.',
-    portraitSrc: narratorFreyaPortrait,
-    portraitAlt: 'GLM 4.7 Flash',
-    stats: [
-      { label: 'Интеллект', value: 3 },
-      { label: 'Скорость', value: 5 },
-      { label: 'Глубина', value: 2 },
     ],
   },
   {
@@ -1500,19 +1453,6 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
-    id: 'mistralai/mistral-nemo',
-    title: 'Mistral Nemo',
-    description:
-      'Сбалансированная модель для ровного темпа, более чистого текста и надёжного контроля сцены.',
-    portraitSrc: narratorOgmaPortrait,
-    portraitAlt: 'Mistral Nemo',
-    stats: [
-      { label: 'Интеллект', value: 4 },
-      { label: 'Скорость', value: 4 },
-      { label: 'Глубина', value: 3 },
-    ],
-  },
-  {
     id: 'aion-labs/aion-2.0',
     title: 'AionLabs',
     description:
@@ -1547,19 +1487,6 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     portraitAlt: 'Aion 3.0 Mini',
     stats: [
       { label: 'Интеллект', value: 4 },
-      { label: 'Скорость', value: 4 },
-      { label: 'Глубина', value: 4 },
-    ],
-  },
-  {
-    id: 'openai/gpt-5.6-luna-pro',
-    title: 'GPT-5.6 Luna Pro',
-    description:
-      'Рассуждающая модель OpenAI с редким сочетанием цены и качества: строгая причинность, живой русский и до 128K контекста. Режим рассуждения выключен по умолчанию и включается отдельно.',
-    portraitSrc: narratorIsidaPortrait,
-    portraitAlt: 'GPT-5.6 Luna Pro',
-    stats: [
-      { label: 'Интеллект', value: 5 },
       { label: 'Скорость', value: 4 },
       { label: 'Глубина', value: 4 },
     ],
@@ -1655,11 +1582,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Глубина', value: 5 },
     ],
   },
-].filter(
-  (option): option is StoryNarratorModelOption =>
-    // GLM 4.7 Flash is a service/processing model only — never offered in the narrator pool.
-    option.id !== 'mistralai/mistral-nemo' && option.id !== 'z-ai/glm-4.7-flash',
-)
+]
 
 // Subscription-only narrator models, shown as a separate labelled group ("Модели по подписке")
 // in the narrator dropdown. They are selectable only when the active subscription (or admin test)
@@ -1708,20 +1631,6 @@ const STORY_SUBSCRIPTION_NARRATOR_MODEL_OPTIONS: StorySubscriptionNarratorModelO
       { label: 'Интеллект', value: 4 },
       { label: 'Скорость', value: 4 },
       { label: 'Глубина', value: 4 },
-    ],
-  },
-  {
-    id: 'google/gemini-3-flash-preview',
-    title: 'Gemini 3 Flash Preview',
-    description:
-      'Премиальная Gemini 3 Flash для самых требовательных сцен. Доступна на тарифе «Созвездие».',
-    portraitSrc: narratorOgmaPortrait,
-    portraitAlt: 'Gemini 3 Flash Preview',
-    minPlanTitle: 'Созвездие',
-    stats: [
-      { label: 'Интеллект', value: 5 },
-      { label: 'Скорость', value: 4 },
-      { label: 'Глубина', value: 5 },
     ],
   },
 ]
@@ -1775,8 +1684,8 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
   {
     id: STORY_IMAGE_MODEL_NANO_BANANO_ID,
     title: 'Nano Banano',
-    description: '9 единиц валюты за генерацию кадра.',
-    priceLabel: '9',
+    description: '7 единиц валюты за генерацию кадра.',
+    priceLabel: '7',
   },
   {
     id: STORY_IMAGE_MODEL_NANO_BANANO_2_ID,
@@ -1784,16 +1693,10 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
     description: '13 единиц валюты за генерацию кадра.',
     priceLabel: '13',
   },
-  {
-    id: STORY_IMAGE_MODEL_SEEDREAM_ID,
-    title: 'Seedream 4.5',
-    description: 'RouterAI. 20 единиц валюты за генерацию кадра.',
-    priceLabel: '20',
-  },
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите модель рассказчика. GPT-5.6 Luna Pro и DeepSeek V3.2 — экономичные варианты от 2 единиц; Gemini 3.1 Flash Lite — быстрый и точный; старшие модели стоят по таблице.',
+    'Выберите модель рассказчика. DeepSeek V3.2 — самый экономичный вариант, от 1 сола за ход; Gemini 3.1 Flash Lite — быстрый и точный; старшие модели стоят по таблице.',
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
@@ -1895,10 +1798,8 @@ const STORY_NARRATOR_HIGHLIGHTS: Partial<Record<StoryNarratorModelId, StoryNarra
   'aion-labs/aion-2.0': { label: 'Топ РП', tone: 'rp' },
   // Лучшие из бюджетных.
   'deepseek/deepseek-v3.2': { label: 'Топ бюджет', tone: 'budget' },
-  'openai/gpt-5.6-luna-pro': { label: 'Цена/качество', tone: 'budget' },
   'z-ai/glm-5.2': { label: 'Топ бюджет', tone: 'budget' },
   // Лучшая среди подписочных.
-  'google/gemini-3-flash-preview': { label: 'Лучшая', tone: 'flagship' },
 }
 
 const NARRATOR_HIGHLIGHT_TONE_STYLES: Record<
@@ -6396,9 +6297,6 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'moonshotai/kimi-k3') {
     return STORY_TURN_COST_KIMI_K3_TIERS
   }
-  if (modelId === 'openai/gpt-5.6-luna-pro') {
-    return STORY_TURN_COST_GPT_56_LUNA_PRO_TIERS
-  }
   if (modelId === 'deepseek/deepseek-v4-pro-0813') {
     return STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS
   }
@@ -6407,9 +6305,6 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   }
   if (modelId === 'deepseek/deepseek-v3.2') {
     return STORY_TURN_COST_DEEPSEEK_TIERS
-  }
-  if (modelId === 'z-ai/glm-4.7-flash') {
-    return STORY_TURN_COST_GLM47_FLASH_TIERS
   }
   if (STORY_TURN_COST_STANDARD_NARRATOR_MODELS.has(modelId)) {
     return STORY_TURN_COST_DEEPSEEK_TIERS
@@ -6426,13 +6321,10 @@ type StoryTurnCostRow = {
   values: [string, string, string, string, string]
 }
 
-// Mirrors STORY_DND_BLOCKED_LLM_MODELS in app/services/story_games.py. The server refuses
-// these for a D&D game anyway; this keeps them out of the picker so nobody has to discover
-// the refusal by hitting it.
-const STORY_DND_BLOCKED_NARRATOR_MODEL_IDS: ReadonlySet<string> = new Set([
-  'mistralai/mistral-nemo',
-  'z-ai/glm-4.7-flash',
-])
+// Mirrors STORY_DND_BLOCKED_LLM_MODELS in app/services/story_games.py. Both models it used to
+// hold left the catalogue with the sol economy v2 cleanup, so every narrator now carries D&D
+// mode; the set stays so re-blocking one is a single-line change on both sides.
+const STORY_DND_BLOCKED_NARRATOR_MODEL_IDS: ReadonlySet<string> = new Set([])
 
 const STORY_TURN_COST_COLUMNS = ['6k', '16k', '32k', '64k', '>64k'] as const
 const STORY_TURN_COST_BANDS = ['до 6000', '6001–16000', '16001–32000', '32001–64000', 'свыше 64000'] as const
@@ -6811,11 +6703,11 @@ function normalizeStoryImageModelId(value: string | null | undefined): StoryImag
   const legacyImageModelAliases: Record<string, StoryImageModelId> = {
     'flux.2-pro': STORY_DEFAULT_IMAGE_MODEL_ID,
     'flux.2-klein-4b': STORY_DEFAULT_IMAGE_MODEL_ID,
-    'seedream-4.5': STORY_IMAGE_MODEL_SEEDREAM_ID,
+    'seedream-4.5': STORY_DEFAULT_IMAGE_MODEL_ID,
     'black-forest-labs/flux.2-pro': STORY_DEFAULT_IMAGE_MODEL_ID,
     'black-forest-labs/flux.2-klein-4b': STORY_DEFAULT_IMAGE_MODEL_ID,
-    'bytedance/seedream-4.5': STORY_IMAGE_MODEL_SEEDREAM_ID,
-    'bytedance-seed/seedream-4.5': STORY_IMAGE_MODEL_SEEDREAM_ID,
+    'bytedance/seedream-4.5': STORY_DEFAULT_IMAGE_MODEL_ID,
+    'bytedance-seed/seedream-4.5': STORY_DEFAULT_IMAGE_MODEL_ID,
     'qwen-image-edit': STORY_DEFAULT_IMAGE_MODEL_ID,
     'qwen/qwen-image-edit': STORY_DEFAULT_IMAGE_MODEL_ID,
   }

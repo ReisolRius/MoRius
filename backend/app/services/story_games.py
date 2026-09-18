@@ -167,55 +167,57 @@ STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16_000
 STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32_000
 STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64_000
 STORY_TURN_COST_TIER_5_CONTEXT_LIMIT_MAX = 128_000
-# Every tier below is sized to keep a >= 55% margin, re-derived 2026-09-13 against live
-# RouterAI rates. The basis, none of which is recoverable from the numbers themselves:
+# Sol economy v2 (re-derived 2026-09-18 against live RouterAI rates). Every tier below is
+# sized so the AI bill can never exceed 25% of the gross rouble the player paid, which is what
+# leaves >= 55% net after the 8% turnover tax, 3.5% YooKassa and the hosting allowance.
 #
-#   Revenue. Worst case a player can actually buy into is the cheapest pack per sol
-#   (Летописец, 7000 sols for 5990 RUB) *while a 10% storewide promo runs* -> 0.7701 RUB/sol
-#   gross. Net of 8% turnover tax, 3.5% YooKassa and a 5% hosting/infrastructure allowance
-#   (2500 RUB/mo at ~50k RUB turnover) -> 0.6431 RUB per sol.
+#   Revenue. Price against the cheapest pack per sol -- the worst rate a player can buy into.
+#   That is Летописец, 2150 sols for 5990 RUB -> 2.786 RUB/sol gross. The AI budget carried by
+#   one sol is therefore 0.25 * 2.786 = 0.6965 RUB.
 #
-#   Cost. Input = the tier's full context ceiling, since that is the most the player can be
-#   charged for at that tier. Output = 3000 tokens: sol turns ignore the per-game response
-#   setting because story_runtime forces STORY_RESPONSE_MAX_TOKENS_MAX. Reasoning tokens are
-#   billed on top of output, at internal_reasoning where the provider publishes one.
+#   Cost, worst case. Input = the tier's full context ceiling (or the model's own ceiling when
+#   it is lower, e.g. Aion 2.0's 108k on tier 5). Output = 3000 tokens: sol turns ignore the
+#   per-game response setting because story_runtime forces STORY_RESPONSE_MAX_TOKENS_MAX.
+#   Reasoning is billed on top at internal_reasoning where the provider publishes one.
+#   PLUS the service layer, which the previous pricing left out entirely: every sol turn also
+#   runs Call A (world/location analysis) and the memory compression on the service model
+#   (POLZA_STORY_SERVICE_TEXT_MODEL), and the player is never charged for either. Measured with
+#   this repo's own prompt builders: 0.157 RUB/turn up to a 16k context, 0.311 RUB above it.
+#
+#   price_sols = ceil(worst_case_cost_RUB / 0.6965), then forced strictly increasing across
+#   the five tiers, so a bigger context always costs more than a smaller one and the rounding
+#   always lands in the operator's favour.
 #
 #   Two modes, priced separately. Reasoning off (the default) is what the base tiers cover.
-#   Reasoning on adds STORY_REASONING_SURCHARGE_BY_MODEL, which is sized so base + surcharge
-#   still clears 55% with a full STORY_REASONING_MAX_TOKENS budget. For the models in
-#   STORY_REASONING_MINIMUM_LLM_MODELS the "off" state still reserves their mandatory
-#   minimum, so that reserve is already inside the base tier.
+#   Reasoning on adds STORY_REASONING_SURCHARGE_BY_MODEL, priced on the same basis with a full
+#   STORY_REASONING_MAX_TOKENS budget. For the models in STORY_REASONING_MINIMUM_LLM_MODELS the
+#   "off" state still reserves their mandatory minimum, so that reserve is already in the base.
 #
 # Tier 5 only applies to models whose context reaches past 64k (see
-# STORY_EXTENDED_CONTEXT_LLM_MODELS and Aion 2.0's 108k); for the rest it is never charged.
-STORY_TURN_COST_DEEPSEEK_TIERS = (4, 5, 6, 7, 12)
-STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS = (5, 8, 14, 26, 48)
-STORY_TURN_COST_DEEPSEEK_R1_TIERS = (7, 8, 11, 17, 22)
-STORY_TURN_COST_GLM47_FLASH_TIERS = (4, 4, 4, 5, 5)
-STORY_TURN_COST_GLM47_TIERS = (6, 7, 8, 12, 16)
-STORY_TURN_COST_AION_TIERS = (8, 10, 13, 23, 36)
-STORY_TURN_COST_AION3_TIERS = (20, 30, 48, 85, 85)
-# Aion 3.0 Mini. RouterAI 2026-09-14: 76.674 RUB / 1M prompt, 153.348 RUB / 1M completion.
-# Reasoning is MANDATORY on this endpoint (RouterAI answers "Reasoning is mandatory for this
-# endpoint and cannot be disabled." to reasoning={"enabled": false}), so the bounded
-# STORY_REASONING_MAX_TOKENS budget is billed as completion on every single turn and is
-# priced into the base tiers below -- there is no cheaper "off" state to sell and therefore
-# no paid toggle. Margins at the five tiers: 61.6 / 55.6 / 58.2 / 55.8 / 55.5 %.
-STORY_TURN_COST_AION3_MINI_TIERS = (5, 7, 12, 20, 37)
-STORY_TURN_COST_QWEN_TIERS = (6, 8, 10, 16, 28)
-STORY_TURN_COST_GLM5_TIERS = (6, 8, 10, 17, 24)
-STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS = (6, 7, 9, 13, 21)
-STORY_TURN_COST_GEMINI_25_PRO_TIERS = (17, 22, 30, 47, 51)
-STORY_TURN_COST_GLM51_TIERS = (8, 10, 16, 27, 51)
-STORY_TURN_COST_GLM52_TIERS = (8, 10, 14, 20, 36)
-STORY_TURN_COST_GEMINI_31_PRO_TIERS = (23, 31, 43, 67, 89)
-STORY_TURN_COST_CLAUDE_SONNET_TIERS = (24, 36, 54, 90, 120)
-STORY_TURN_COST_KIMI_K26_TIERS = (5, 7, 10, 17, 31)
-STORY_TURN_COST_KIMI_K3_TIERS = (22, 30, 40, 72, 120)
-# GPT-5.6 Luna Pro. RouterAI 2026-09-13: 21.91 RUB / 1M prompt, 131.44 RUB / 1M completion.
-# Re-checked against those live rates: 57-61% across all five tiers with reasoning off and
-# 58-61% with it on, so the launch prices still hold and are left alone.
-STORY_TURN_COST_GPT_56_LUNA_PRO_TIERS = (2, 3, 4, 7, 12)
+# STORY_EXTENDED_CONTEXT_LLM_MODELS and Aion 2.0's 108k); for the rest it is never charged and
+# the number only exists to keep the tuple monotonic.
+STORY_TURN_COST_DEEPSEEK_TIERS = (1, 2, 3, 4, 5)
+STORY_TURN_COST_DEEPSEEK_V4_PRO_TIERS = (3, 4, 6, 10, 18)
+STORY_TURN_COST_DEEPSEEK_R1_TIERS = (3, 4, 5, 8, 9)
+STORY_TURN_COST_GLM47_TIERS = (2, 3, 4, 6, 7)
+STORY_TURN_COST_AION_TIERS = (3, 4, 6, 10, 16)
+STORY_TURN_COST_AION3_TIERS = (8, 13, 21, 36, 37)
+# Aion 3.0 Mini: reasoning is MANDATORY on this endpoint (RouterAI answers "Reasoning is
+# mandatory for this endpoint and cannot be disabled." to reasoning={"enabled": false}), so the
+# bounded STORY_REASONING_MAX_TOKENS budget is billed as completion on every single turn and is
+# priced into the base tiers below -- there is no cheaper "off" state to sell and therefore no
+# paid toggle. Same for Aion 2.0/3.0 and DeepSeek R1.
+STORY_TURN_COST_AION3_MINI_TIERS = (3, 4, 6, 9, 10)
+STORY_TURN_COST_QWEN_TIERS = (2, 3, 4, 5, 6)
+STORY_TURN_COST_GLM5_TIERS = (2, 3, 5, 8, 9)
+STORY_TURN_COST_GEMINI_31_FLASH_LITE_TIERS = (2, 3, 4, 5, 6)
+STORY_TURN_COST_GEMINI_25_PRO_TIERS = (7, 10, 13, 20, 21)
+STORY_TURN_COST_GLM51_TIERS = (3, 5, 7, 12, 22)
+STORY_TURN_COST_GLM52_TIERS = (2, 3, 5, 7, 8)
+STORY_TURN_COST_GEMINI_31_PRO_TIERS = (10, 13, 19, 29, 30)
+STORY_TURN_COST_CLAUDE_SONNET_TIERS = (11, 15, 23, 38, 39)
+STORY_TURN_COST_KIMI_K26_TIERS = (2, 3, 4, 7, 11)
+STORY_TURN_COST_KIMI_K3_TIERS = (8, 11, 17, 28, 49)
 STORY_REASONING_MAX_TOKENS = 2_048
 STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS = 128
 STORY_REASONING_GEMINI_31_PRO_BASE_TOKENS = 1_024
@@ -225,12 +227,10 @@ STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 3
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
 STORY_LLM_MODEL_GLM51 = "z-ai/glm-5.1"
 STORY_LLM_MODEL_GLM52 = "z-ai/glm-5.2"
-STORY_LLM_MODEL_GLM47_FLASH = "z-ai/glm-4.7-flash"
 STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
 STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
 STORY_LLM_MODEL_DEEPSEEK_V4_PRO = "deepseek/deepseek-v4-pro-0813"
 STORY_LLM_MODEL_DEEPSEEK_R1 = "deepseek/deepseek-r1-0528"
-STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
 STORY_LLM_MODEL_AION_2 = "aion-labs/aion-2.0"
 STORY_LLM_MODEL_AION_3 = "aion-labs/aion-3.0"
 STORY_LLM_MODEL_AION_3_MINI = "aion-labs/aion-3.0-mini"
@@ -241,7 +241,6 @@ STORY_LLM_MODEL_GEMINI_31_PRO = "google/gemini-3.1-pro-preview"
 STORY_LLM_MODEL_QWEN37_PLUS = "qwen/qwen3.7-plus"
 STORY_LLM_MODEL_KIMI_K26 = "moonshotai/kimi-k2.6"
 STORY_LLM_MODEL_KIMI_K3 = "moonshotai/kimi-k3"
-STORY_LLM_MODEL_GPT_56_LUNA_PRO = "openai/gpt-5.6-luna-pro"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V32
 
 # Subscription-only narrator models (accessible ONLY with an active subscription or admin
@@ -250,15 +249,12 @@ STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V32
 STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH = settings.subscription_model_deepseek_v4_flash
 STORY_LLM_MODEL_SUB_GEMINI_25_FLASH_LITE = settings.subscription_model_gemini_25_flash_lite
 STORY_LLM_MODEL_SUB_GLM_45_AIR = settings.subscription_model_glm_45_air
-STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW = settings.subscription_model_gemini_3_flash_preview
 STORY_SUBSCRIPTION_LLM_MODELS = {
     STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH,
     STORY_LLM_MODEL_SUB_GEMINI_25_FLASH_LITE,
     STORY_LLM_MODEL_SUB_GLM_45_AIR,
-    STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW,
 }
 
-# NOTE: do not alias "google/gemini-3-flash-preview" here — it is a real subscription model id.
 STORY_LLM_MODEL_LEGACY_ALIASES: dict[str, str] = {
     "google/gemini-3-flash": STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
     "deepseek/deepseek-v4-pro": STORY_LLM_MODEL_DEEPSEEK_V4_PRO,
@@ -267,17 +263,23 @@ STORY_LLM_MODEL_LEGACY_ALIASES: dict[str, str] = {
     "deepseek/deepseek-chat-v3-0324": STORY_LLM_MODEL_DEEPSEEK_V32,
     "deepcogito/cogito-v2.1-671b": STORY_LLM_MODEL_DEEPSEEK_V4_PRO,
     "minimax/minimax-m2-her": STORY_LLM_MODEL_QWEN37_PLUS,
+    # Retired by the sol economy v2 cleanup (2026-09-18). Mistral Nemo and GPT-5.6 Luna Pro
+    # left the catalogue outright; GLM 4.7 Flash survives only as the service model
+    # (POLZA_STORY_SERVICE_TEXT_MODEL) and is no longer sellable as a narrator.
+    "mistralai/mistral-nemo": STORY_LLM_MODEL_DEEPSEEK_V32,
+    "openai/gpt-5.6-luna-pro": STORY_LLM_MODEL_DEEPSEEK_V32,
+    "z-ai/glm-4.7-flash": STORY_LLM_MODEL_GLM47,
+    # Was a subscription model; the tier now tops out at GLM 4.5 Air.
+    "google/gemini-3-flash-preview": STORY_LLM_MODEL_SUB_GLM_45_AIR,
 }
 STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
     STORY_LLM_MODEL_GLM51,
     STORY_LLM_MODEL_GLM52,
-    STORY_LLM_MODEL_GLM47_FLASH,
     STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_DEEPSEEK_V4_PRO,
     STORY_LLM_MODEL_DEEPSEEK_R1,
-    STORY_LLM_MODEL_MISTRAL_NEMO,
     STORY_LLM_MODEL_AION_2,
     STORY_LLM_MODEL_AION_3,
     STORY_LLM_MODEL_AION_3_MINI,
@@ -288,7 +290,6 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_QWEN37_PLUS,
     STORY_LLM_MODEL_KIMI_K26,
     STORY_LLM_MODEL_KIMI_K3,
-    STORY_LLM_MODEL_GPT_56_LUNA_PRO,
     *STORY_SUBSCRIPTION_LLM_MODELS,
 }
 
@@ -300,7 +301,6 @@ STORY_REASONING_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
     STORY_LLM_MODEL_GLM51,
     STORY_LLM_MODEL_GLM52,
-    STORY_LLM_MODEL_GLM47_FLASH,
     STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_DEEPSEEK_V4_PRO,
@@ -311,9 +311,6 @@ STORY_REASONING_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_QWEN37_PLUS,
     STORY_LLM_MODEL_KIMI_K26,
     STORY_LLM_MODEL_KIMI_K3,
-    # Probed against RouterAI on 2026-09-13: reasoning {"enabled": false} really does come
-    # back with reasoning_tokens == 0, so the off state is genuine and the toggle is honest.
-    STORY_LLM_MODEL_GPT_56_LUNA_PRO,
     *STORY_SUBSCRIPTION_LLM_MODELS,
 }
 
@@ -328,7 +325,6 @@ STORY_REASONING_MINIMUM_LLM_MODELS = {
     STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
     STORY_LLM_MODEL_GEMINI_25_PRO,
     STORY_LLM_MODEL_GEMINI_31_PRO,
-    STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW,
 }
 STORY_REASONING_FIXED_LLM_MODELS = {
     STORY_LLM_MODEL_AION_2,
@@ -337,59 +333,49 @@ STORY_REASONING_FIXED_LLM_MODELS = {
     STORY_LLM_MODEL_DEEPSEEK_R1,
 }
 
-# Incremental add-on above the model's off/minimum mode, re-derived 2026-09-13 on the same
-# basis as the turn tiers above. Each value is the smallest whole number of sols that keeps
-# base tier + surcharge at >= 55% margin at *every* tier once a full
-# STORY_REASONING_MAX_TOKENS budget is billed on top of the 3000 output tokens.
+# Incremental add-on above the model's off/minimum mode, re-derived 2026-09-18 on the same
+# v2 basis as the turn tiers above: ceil(reasoning_tokens x completion rate / 0.6965 RUB).
+# A full STORY_REASONING_MAX_TOKENS budget is assumed, billed on top of the 3000 output tokens.
 STORY_REASONING_SURCHARGE_BY_MODEL: dict[str, int] = {
-    STORY_LLM_MODEL_GLM5: 2,
-    STORY_LLM_MODEL_GLM51: 3,
-    STORY_LLM_MODEL_GLM52: 2,
-    STORY_LLM_MODEL_GLM47_FLASH: 1,
-    STORY_LLM_MODEL_GLM47: 2,
+    STORY_LLM_MODEL_GLM5: 1,
+    STORY_LLM_MODEL_GLM51: 1,
+    STORY_LLM_MODEL_GLM52: 1,
+    STORY_LLM_MODEL_GLM47: 1,
     STORY_LLM_MODEL_DEEPSEEK_V32: 1,
-    STORY_LLM_MODEL_DEEPSEEK_V4_PRO: 2,
+    STORY_LLM_MODEL_DEEPSEEK_V4_PRO: 1,
     STORY_LLM_MODEL_GEMINI_31_FLASH_LITE: 1,
-    STORY_LLM_MODEL_CLAUDE_SONNET_46: 12,
-    STORY_LLM_MODEL_GEMINI_25_PRO: 8,
+    STORY_LLM_MODEL_CLAUDE_SONNET_46: 5,
+    STORY_LLM_MODEL_GEMINI_25_PRO: 4,
     # Gemini 3.x takes a thinking *level*, not a token budget, so "medium" has no ceiling we
     # control — priced for ~4K reasoning tokens rather than the 2_048 the other models cap at.
-    STORY_LLM_MODEL_GEMINI_31_PRO: 10,
+    STORY_LLM_MODEL_GEMINI_31_PRO: 6,
     STORY_LLM_MODEL_QWEN37_PLUS: 1,
-    STORY_LLM_MODEL_KIMI_K26: 2,
-    STORY_LLM_MODEL_KIMI_K3: 9,
-    # 2048 reasoning tokens at 131.44 RUB/1M = 0.269 RUB, i.e. 0.93 sols at the defensive rate.
-    STORY_LLM_MODEL_GPT_56_LUNA_PRO: 1,
+    STORY_LLM_MODEL_KIMI_K26: 1,
+    STORY_LLM_MODEL_KIMI_K3: 4,
     STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH: 1,
     STORY_LLM_MODEL_SUB_GEMINI_25_FLASH_LITE: 1,
     STORY_LLM_MODEL_SUB_GLM_45_AIR: 1,
-    STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW: 2,
 }
 STORY_EXTENDED_CONTEXT_LLM_MODELS = {
     STORY_LLM_MODEL_GLM51,
     STORY_LLM_MODEL_DEEPSEEK_V4_PRO,
     STORY_LLM_MODEL_KIMI_K26,
     STORY_LLM_MODEL_KIMI_K3,
-    STORY_LLM_MODEL_GPT_56_LUNA_PRO,
 }
 STORY_TURN_COST_STANDARD_LLM_MODELS = {
-    STORY_LLM_MODEL_GLM47_FLASH,
     STORY_LLM_MODEL_DEEPSEEK_V32,
-    STORY_LLM_MODEL_MISTRAL_NEMO,
 }
 
 # Narrator models that cannot carry D&D mode. The mode hands the model a long structured
-# system card (sheet, hit points, dice verdict, NPC relations) and expects it to honour a
-# roll result it did not choose; these two drop instructions long before that, which reads to
-# a player as the dice being ignored. Everything else stays available, including the cheap
-# tiers -- openai/gpt-5.6-luna-pro and deepseek/deepseek-v3.2 are the budget options -- and
-# every subscription model, so a subscriber's plan never becomes unusable in this mode.
-STORY_DND_BLOCKED_LLM_MODELS = {
-    STORY_LLM_MODEL_MISTRAL_NEMO,
-    STORY_LLM_MODEL_GLM47_FLASH,
-}
+# system card (sheet, hit points, dice verdict, NPC relations) and expects it to honour a roll
+# result it did not choose, and a model that drops instructions before that point reads to a
+# player as the dice being ignored. The two models this used to hold (Mistral Nemo and GLM 4.7
+# Flash) left the narrator catalogue in the sol economy v2 cleanup, so every surviving narrator
+# now carries the mode -- including the budget option deepseek/deepseek-v3.2 and every
+# subscription model, so a subscriber's plan never becomes unusable here.
+STORY_DND_BLOCKED_LLM_MODELS: set[str] = set()
 # What a blocked game falls back to: the cheapest model that still follows the contract.
-STORY_DND_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_GPT_56_LUNA_PRO
+STORY_DND_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V32
 
 
 def is_story_dnd_supported_llm_model(model_name: str | None) -> bool:
@@ -401,34 +387,26 @@ def coerce_story_dnd_llm_model(model_name: str | None) -> str:
     if normalized in STORY_DND_BLOCKED_LLM_MODELS:
         return STORY_DND_DEFAULT_LLM_MODEL
     return normalized
-STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
-STORY_IMAGE_MODEL_FLUX_LEGACY = "flux.2-pro"
-STORY_IMAGE_MODEL_FLUX_KLEIN_4B = "black-forest-labs/flux.2-klein-4b"
-STORY_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY = "flux.2-klein-4b"
-STORY_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
-STORY_IMAGE_MODEL_SEEDREAM_SHORT_LEGACY = "seedream-4.5"
-STORY_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY = "bytedance/seedream-4.5"
-STORY_IMAGE_MODEL_SEEDREAM_LEGACY = "bytedance-seed/seedream-4.5"
-STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT = "qwen-image-edit"
-STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY = "qwen/qwen-image-edit"
 STORY_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
 STORY_DEFAULT_IMAGE_MODEL = STORY_IMAGE_MODEL_NANO_BANANO
+# Only the two Nano Banana models are sellable. FLUX.2 (pro / klein), Seedream 4.5 and the old
+# Qwen editor were retired with the sol economy v2 cleanup; every id they ever went by stays in
+# the alias table so saved turns, maps and novel backgrounds keep rendering on Nano Banana.
 STORY_SUPPORTED_IMAGE_MODELS = {
-    STORY_IMAGE_MODEL_SEEDREAM,
     STORY_IMAGE_MODEL_NANO_BANANO,
     STORY_IMAGE_MODEL_NANO_BANANO_2,
 }
 STORY_IMAGE_MODEL_LEGACY_ALIASES = {
-    STORY_IMAGE_MODEL_FLUX: STORY_IMAGE_MODEL_NANO_BANANO,
-    STORY_IMAGE_MODEL_FLUX_LEGACY: STORY_IMAGE_MODEL_NANO_BANANO,
-    STORY_IMAGE_MODEL_FLUX_KLEIN_4B: STORY_IMAGE_MODEL_NANO_BANANO,
-    STORY_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY: STORY_IMAGE_MODEL_NANO_BANANO,
-    STORY_IMAGE_MODEL_SEEDREAM_SHORT_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
-    STORY_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
-    STORY_IMAGE_MODEL_SEEDREAM_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
-    STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT: STORY_IMAGE_MODEL_NANO_BANANO,
-    STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY: STORY_IMAGE_MODEL_NANO_BANANO,
+    "black-forest-labs/flux.2-pro": STORY_IMAGE_MODEL_NANO_BANANO,
+    "flux.2-pro": STORY_IMAGE_MODEL_NANO_BANANO,
+    "black-forest-labs/flux.2-klein-4b": STORY_IMAGE_MODEL_NANO_BANANO,
+    "flux.2-klein-4b": STORY_IMAGE_MODEL_NANO_BANANO,
+    "bytedance-seed/seedream-4.5": STORY_IMAGE_MODEL_NANO_BANANO,
+    "seedream-4.5": STORY_IMAGE_MODEL_NANO_BANANO,
+    "bytedance/seedream-4.5": STORY_IMAGE_MODEL_NANO_BANANO,
+    "qwen-image-edit": STORY_IMAGE_MODEL_NANO_BANANO,
+    "qwen/qwen-image-edit": STORY_IMAGE_MODEL_NANO_BANANO,
 }
 STORY_TOP_K_MIN = 0
 STORY_TOP_K_MAX = 200
@@ -454,12 +432,10 @@ STORY_MODEL_SAMPLING_PROFILES: dict[str, dict[str, float]] = {
     STORY_LLM_MODEL_GLM5: {"temperature": 0.90, "top_r": 0.95, "top_k": 60, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_GLM51: {"temperature": 0.95, "top_r": 0.97, "top_k": 80, "repetition_penalty": 1.03},
     STORY_LLM_MODEL_GLM52: {"temperature": 0.90, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.05},
-    STORY_LLM_MODEL_GLM47_FLASH: {"temperature": 0.90, "top_r": 0.95, "top_k": 40, "repetition_penalty": 1.10},
     STORY_LLM_MODEL_GLM47: {"temperature": 0.85, "top_r": 0.95, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_DEEPSEEK_V32: {"temperature": 0.75, "top_r": 0.90, "top_k": 40, "repetition_penalty": 1.10},
     STORY_LLM_MODEL_DEEPSEEK_V4_PRO: {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
     STORY_LLM_MODEL_DEEPSEEK_R1: {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
-    STORY_LLM_MODEL_MISTRAL_NEMO: {"temperature": 0.78, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_AION_2: {"temperature": 0.80, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_AION_3: {"temperature": 0.80, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_AION_3_MINI: {"temperature": 0.80, "top_r": 0.92, "top_k": 50, "repetition_penalty": 1.08},
@@ -472,11 +448,9 @@ STORY_MODEL_SAMPLING_PROFILES: dict[str, dict[str, float]] = {
     STORY_LLM_MODEL_KIMI_K3: {"temperature": 0.85, "top_r": 0.95, "top_k": 64, "repetition_penalty": 1.03},
     # The OpenAI reasoning family accepts none of temperature / top_p / top_k / repetition_penalty,
     # so this profile is deliberately neutral -- nothing is constrained and nothing is faked.
-    STORY_LLM_MODEL_GPT_56_LUNA_PRO: {"temperature": 1.00, "top_r": 1.00, "top_k": 0, "repetition_penalty": 1.00},
     STORY_LLM_MODEL_SUB_DEEPSEEK_V4_FLASH: {"temperature": 0.85, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.08},
     STORY_LLM_MODEL_SUB_GEMINI_25_FLASH_LITE: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.06},
     STORY_LLM_MODEL_SUB_GLM_45_AIR: {"temperature": 0.82, "top_r": 0.90, "top_k": 50, "repetition_penalty": 1.06},
-    STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW: {"temperature": 0.95, "top_r": 0.95, "top_k": 0, "repetition_penalty": 1.06},
 }
 
 
@@ -793,10 +767,7 @@ def get_story_reasoning_reserved_tokens(
         return STORY_REASONING_GEMINI_25_PRO_MIN_TOKENS
     if normalized_model_name == STORY_LLM_MODEL_GEMINI_31_PRO:
         return STORY_REASONING_GEMINI_31_PRO_BASE_TOKENS
-    if normalized_model_name in {
-        STORY_LLM_MODEL_GEMINI_31_FLASH_LITE,
-        STORY_LLM_MODEL_SUB_GEMINI_3_FLASH_PREVIEW,
-    }:
+    if normalized_model_name == STORY_LLM_MODEL_GEMINI_31_FLASH_LITE:
         return STORY_REASONING_GEMINI_3_MIN_TOKENS
     if normalized_model_name in STORY_REASONING_FIXED_LLM_MODELS:
         return STORY_REASONING_MAX_TOKENS
@@ -848,8 +819,6 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
         return STORY_TURN_COST_KIMI_K26_TIERS
     if normalized_model_name == STORY_LLM_MODEL_KIMI_K3:
         return STORY_TURN_COST_KIMI_K3_TIERS
-    if normalized_model_name == STORY_LLM_MODEL_GPT_56_LUNA_PRO:
-        return STORY_TURN_COST_GPT_56_LUNA_PRO_TIERS
     if normalized_model_name == STORY_LLM_MODEL_DEEPSEEK_V32:
         return STORY_TURN_COST_DEEPSEEK_TIERS
     if normalized_model_name == STORY_LLM_MODEL_DEEPSEEK_V4_PRO:
@@ -858,8 +827,6 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
         return STORY_TURN_COST_DEEPSEEK_R1_TIERS
     if normalized_model_name == STORY_LLM_MODEL_QWEN37_PLUS:
         return STORY_TURN_COST_QWEN_TIERS
-    if normalized_model_name == STORY_LLM_MODEL_GLM47_FLASH:
-        return STORY_TURN_COST_GLM47_FLASH_TIERS
     if normalized_model_name in STORY_TURN_COST_STANDARD_LLM_MODELS:
         return STORY_TURN_COST_DEEPSEEK_TIERS
     return STORY_TURN_COST_DEEPSEEK_TIERS
@@ -896,13 +863,12 @@ def normalize_story_llm_model(value: str | None) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported story model. "
-                "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-5.2, z-ai/glm-4.7-flash, z-ai/glm-4.7, "
-                "deepseek/deepseek-v3.2, deepseek/deepseek-v4-pro-0813, "
-                "deepseek/deepseek-r1-0528, mistralai/mistral-nemo, "
+                "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-5.2, z-ai/glm-4.7, "
+                "deepseek/deepseek-v3.2, deepseek/deepseek-v4-pro-0813, deepseek/deepseek-r1-0528, "
                 "aion-labs/aion-2.0, aion-labs/aion-3.0, aion-labs/aion-3.0-mini, "
-                "google/gemini-3.1-flash-lite, "
-                "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, google/gemini-3.1-pro-preview, "
-                "qwen/qwen3.7-plus, moonshotai/kimi-k2.6, moonshotai/kimi-k3, openai/gpt-5.6-luna-pro"
+                "google/gemini-3.1-flash-lite, google/gemini-2.5-pro, google/gemini-3.1-pro-preview, "
+                "anthropic/claude-sonnet-4.6, qwen/qwen3.7-plus, "
+                "moonshotai/kimi-k2.6, moonshotai/kimi-k3"
             ),
         )
     return normalized
@@ -925,7 +891,7 @@ def normalize_story_image_model(value: str | None) -> str:
             detail=(
                 "Unsupported image model. "
                 "Use one of: google/gemini-2.5-flash-image, "
-                "google/gemini-3.1-flash-image-preview, bytedance-seed/seedream-4.5"
+                "google/gemini-3.1-flash-image-preview"
             ),
         )
     return normalized

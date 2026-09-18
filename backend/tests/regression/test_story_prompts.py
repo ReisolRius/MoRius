@@ -36,9 +36,7 @@ def _assert_json_only_contract(label: str, text: str) -> None:
 EXPECTED_STORY_SYSTEM_PROMPT_SHA256 = "bcc97a5ef564054a5a1f6ca5ab71ad34c3261cf09fa0f9ddf3e4a80c5b901420"
 EXPECTED_STORY_FORMAT_PROTOCOL_SHA256 = "d04edc055ec8d61c258656426362c11f86c68861b8e329efc12d8926900dd580"
 EXPECTED_MODEL_PROMPT_SHA256 = {
-    "z-ai/glm-4.7-flash": "8c4dcb8ca0f8e871b75d40d4f0a0a07acd7b133f3deb35d60770b4eae7737479",
     "deepseek/deepseek-v3.2": "2de3acb6855e1b331b5577581995353d90d5d81448d3e693301a541bf687c8a6",
-    "openai/gpt-5.6-luna-pro": "3a85c6396ffda5d432699451a840de38c504dec23f558160b2c3c346c3fde720",
     "deepseek/deepseek-v4-pro-0813": "f4422bbf7cabaae5fddf2455f8ed631ecd3353eb85701b4b2d8fa09148c95aee",
     "deepseek/deepseek-r1-0528": "f4422bbf7cabaae5fddf2455f8ed631ecd3353eb85701b4b2d8fa09148c95aee",
     "z-ai/glm-4.7": "880c3999126bf41d218dbef2834e11d72c3373505cf993b85658ed9b3ab2b5c0",

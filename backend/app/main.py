@@ -545,24 +545,28 @@ STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_CHARACTER_CARDS = 8
 STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_CARD_CONTENT_CHARS = 1_500
 STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_USER_CHARS = 3_000
 STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_ASSISTANT_CHARS = 8_000
-STORY_TURN_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
-STORY_TURN_IMAGE_MODEL_FLUX_LEGACY = "flux.2-pro"
-STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B = "black-forest-labs/flux.2-klein-4b"
-STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY = "flux.2-klein-4b"
-STORY_TURN_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
-STORY_TURN_IMAGE_MODEL_SEEDREAM_SHORT_LEGACY = "seedream-4.5"
-STORY_TURN_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY = "bytedance/seedream-4.5"
-STORY_TURN_IMAGE_MODEL_SEEDREAM_LEGACY = "bytedance-seed/seedream-4.5"
+# Retired image models. Kept only as ids so saved turns/backgrounds/maps that still carry them
+# normalise onto Nano Banana instead of erroring; nothing may be generated with them.
+STORY_TURN_IMAGE_MODEL_RETIRED_IDS = (
+    "black-forest-labs/flux.2-pro",
+    "flux.2-pro",
+    "black-forest-labs/flux.2-klein-4b",
+    "flux.2-klein-4b",
+    "bytedance-seed/seedream-4.5",
+    "seedream-4.5",
+    "bytedance/seedream-4.5",
+)
 STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT = "qwen-image-edit"
 STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY = "qwen/qwen-image-edit"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
+# Sol economy v2. RouterAI bills an image as output tokens: Nano Banana is 3295.86 RUB/1M x
+# 1290 tokens = 4.25 RUB, Nano Banana 2 is 6591.73 x 1290 = 8.50 RUB. Add the prompt-composer
+# call on the service model (~0.15 RUB) and divide by the 0.6965 RUB of AI budget one sol
+# carries. The old prices (9 and 13) predate that arithmetic and ran at 24% and 4% margin.
 STORY_TURN_IMAGE_COST_BY_MODEL = {
-    STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B: 6,
-    STORY_TURN_IMAGE_MODEL_NANO_BANANO: 9,
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO: 7,
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 13,
-    STORY_TURN_IMAGE_MODEL_FLUX: 18,
-    STORY_TURN_IMAGE_MODEL_SEEDREAM: 20,
 }
 STORY_AITUNNEL_IMAGE_MODELS: set[str] = set()
 STORY_AITUNNEL_IMAGE_EDIT_MODELS: set[str] = set()
@@ -574,10 +578,13 @@ STORY_SUMMARY_NARRATIVE_MODEL = POLZA_STORY_SERVICE_TEXT_MODEL
 STORY_SUMMARY_IMAGE_MODEL = STORY_TURN_IMAGE_MODEL_NANO_BANANO_2
 STORY_SUMMARY_MIN_TURNS = 10
 STORY_SUMMARY_MAX_IMAGES = 10
-STORY_SUMMARY_BASE_COST_TOKENS = 60
-STORY_SUMMARY_PER_IMAGE_COST_TOKENS = 44
-STORY_SUMMARY_MIN_COST_TOKENS = 100
-STORY_SUMMARY_MAX_COST_TOKENS = 500
+# Sol economy v2. The narrative itself runs on the service model (~20k in, up to 16k out =
+# 0.83 RUB = 2 sols); every illustration is a full Nano Banana 2 frame and is priced exactly as
+# one. Ten images is the ceiling (STORY_SUMMARY_MAX_IMAGES), hence 2 + 10 x 13 = 132.
+STORY_SUMMARY_BASE_COST_TOKENS = 2
+STORY_SUMMARY_PER_IMAGE_COST_TOKENS = 13
+STORY_SUMMARY_MIN_COST_TOKENS = 15
+STORY_SUMMARY_MAX_COST_TOKENS = 132
 STORY_SUMMARY_NARRATIVE_MAX_TOKENS = 16_000
 STORY_SUMMARY_SOURCE_HISTORY_MIN_TOKENS = 4_000
 STORY_SUMMARY_KEY_MEMORY_MAX_CHARS = 24_000
@@ -602,7 +609,6 @@ STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
 }
 STORY_TURN_IMAGE_RETRY_DELAYS_SECONDS = (1.5, 3.5, 7.0, 12.0)
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 20_000
-STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 20_000
 STORY_TURN_IMAGE_GENDER_PATTERNS_FEMALE: tuple[tuple[str, int], ...] = (
     (r"\bпол\s*[:=-]?\s*жен\w*\b", 10),
     (r"\bgender\s*[:=-]?\s*female\b", 10),
@@ -1254,19 +1260,16 @@ STORY_POLZA_TRANSLATION_FORCE_MODEL_IDS: set[str] = {
     "z-ai/glm-5",
     "z-ai/glm-5.1",
     "z-ai/glm-5.2",
-    "z-ai/glm-4.7-flash",
     "z-ai/glm-4.7",
 }
 STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "z-ai/glm-5": STORY_SERVICE_TEXT_MODEL,
     "z-ai/glm-5.1": STORY_SERVICE_TEXT_MODEL,
     "z-ai/glm-5.2": STORY_SERVICE_TEXT_MODEL,
-    "z-ai/glm-4.7-flash": STORY_SERVICE_TEXT_MODEL,
     "z-ai/glm-4.7": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-v3.2": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-v4-pro-0813": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-r1-0528": STORY_SERVICE_TEXT_MODEL,
-    "mistralai/mistral-nemo": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-3.0": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-3.0-mini": STORY_SERVICE_TEXT_MODEL,
@@ -1276,7 +1279,6 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "qwen/qwen3.7-plus": STORY_SERVICE_TEXT_MODEL,
     "moonshotai/kimi-k2.6": STORY_SERVICE_TEXT_MODEL,
     "moonshotai/kimi-k3": STORY_SERVICE_TEXT_MODEL,
-    "openai/gpt-5.6-luna-pro": STORY_SERVICE_TEXT_MODEL,
 }
 STORY_LEGACY_MODEL_ALIASES = {
     "deepseek/deepseek-v4-pro": "deepseek/deepseek-v4-pro-0813",
@@ -1302,11 +1304,9 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "z-ai/glm-5": STORY_POLZA_PROVIDER_NEBIUS,
     "z-ai/glm-5.1": STORY_POLZA_PROVIDER_IONSTREAM,
     "z-ai/glm-5.2": STORY_POLZA_PROVIDER_IONSTREAM,
-    "z-ai/glm-4.7-flash": STORY_POLZA_PROVIDER_CLOUDFLARE,
     "z-ai/glm-4.7": STORY_POLZA_PROVIDER_DEKALLM,
     STORY_SERVICE_TEXT_MODEL: STORY_POLZA_PROVIDER_CLOUDFLARE,
     "deepseek/deepseek-v3.2": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
-    "mistralai/mistral-nemo": STORY_POLZA_PROVIDER_AZURE,
     "aion-labs/aion-2.0": STORY_POLZA_PROVIDER_AION_LABS,
     "aion-labs/aion-3.0": STORY_POLZA_PROVIDER_AION_LABS,
     "aion-labs/aion-3.0-mini": STORY_POLZA_PROVIDER_AION_LABS,
@@ -1322,12 +1322,10 @@ STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-5",
     "z-ai/glm-5.1",
     "z-ai/glm-5.2",
-    "z-ai/glm-4.7-flash",
     "z-ai/glm-4.7",
     "deepseek/deepseek-v3.2",
     "deepseek/deepseek-v4-pro-0813",
     "deepseek/deepseek-r1-0528",
-    "mistralai/mistral-nemo",
     "aion-labs/aion-2.0",
     "aion-labs/aion-3.0",
     "aion-labs/aion-3.0-mini",
@@ -1338,23 +1336,17 @@ STORY_PAID_MODEL_HINTS = {
     "qwen/qwen3.7-plus",
     "moonshotai/kimi-k2.6",
     "moonshotai/kimi-k3",
-    "openai/gpt-5.6-luna-pro",
 }
 # OpenAI's reasoning family lists none of temperature / top_p / top_k / repetition_penalty in
 # its RouterAI supported_parameters, so sending them is at best ignored and at worst a 400.
 STORY_TOP_P_DISABLED_MODEL_IDS: set[str] = {
     "anthropic/claude-sonnet-4.6",
-    "openai/gpt-5.6-luna-pro",
 }
 STORY_TOP_K_DISABLED_MODEL_IDS: set[str] = {
     "anthropic/claude-sonnet-4.6",
-    "openai/gpt-5.6-luna-pro",
 }
-STORY_TEMPERATURE_DISABLED_MODEL_IDS: set[str] = {
-    "openai/gpt-5.6-luna-pro",
-}
+STORY_TEMPERATURE_DISABLED_MODEL_IDS: set[str] = set()
 STORY_REPETITION_PENALTY_DISABLED_MODEL_IDS: set[str] = {
-    "openai/gpt-5.6-luna-pro",
     "google/gemini-3.1-flash-lite",
     "google/gemini-2.5-pro",
     "google/gemini-3.1-pro-preview",
@@ -1578,10 +1570,6 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
         "Жёсткая дисциплина формата важнее красоты: НИКАКОГО markdown, звёздочек (* **), обратных кавычек, код-блоков и самодельных пометок речи вроде npc_name:'Имя' или markup::.",
         "Речь и мысли оформляй ТОЛЬКО абзацами с [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]]; остальное — обычная проза. Не выводи рассуждения и черновики — сразу финальную сцену.",
     ),
-    "mistralai/mistral-nemo": (
-        "Держи ровный темп, чистый русский и аккуратный контроль сцены; ясность важнее вычурности.",
-        "Одна свежая деталь и понятное последствие в каждом ходе делают сцену живой.",
-    ),
     "z-ai/glm-5": (
         "Пиши чистым, естественным русским без выдуманных слов; добавляй одну свежую сенсорную деталь за ход.",
         "Раскрывай эмоции через нюансы поведения и тёплую подачу, а не через прямые ярлыки.",
@@ -1604,11 +1592,6 @@ STORY_MODEL_HINTS: dict[str, tuple[str, ...]] = {
         "Твоя сила — логика и связность: строй продуманные сцены, где причины и следствия выверены.",
         "Глубину создавай через поведение, подтекст и последовательность характеров, а не через длинные объяснения.",
         "Ты компактная модель: не растекайся. Лучше короче и плотнее, чем длиннее и водянистее.",
-    ),
-    "openai/gpt-5.6-luna-pro": (
-        "Ты думаешь быстро и точно, но в сцену отдаёшь только живую прозу — без разборов, планов и служебных пометок.",
-        "Держи русский живым и литературным: никакой кальки с английского, канцелярита и следов машинного перевода.",
-        "Жёсткая дисциплина формата: никакого markdown, звёздочек и код-блоков; речь и мысли — только абзацами с [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]].",
     ),
     "google/gemini-3.1-flash-lite": (
         "Ты быстрый движок, но веди игру как премиальный рассказчик: не жертвуй качеством прозы ради скорости — держи уровень большой модели в каждом ходе.",
@@ -1669,7 +1652,6 @@ STORY_FICTION_FRAMING_LINES: tuple[str, ...] = (
     "никаких реальных инструкций по причинению вреда. Все участники сцен — совершеннолетние.",
 )
 STORY_MODEL_UNIQUE_NARRATION_PROMPTS: dict[str, str] = {
-    "z-ai/glm-4.7-flash": "Твоя сила — темп. Пиши плотно: 2–4 абзаца за ход, но каждый абзац — конкретика, а не общие слова. Запрещены дежурные фразы («по спине пробежал холодок», «воздух сгустился») и повтор собственных формулировок из прошлых ходов. Одна сцена за ход, без перескоков во времени. Если нечего добавить к описанию — добавь действие или реплику. Диалог — короткий, характерный, без пояснений после каждой фразы. Держи факты сцены: кто где стоит, что держит в руках, что уже сказано.",
     "deepseek/deepseek-v3.2": "Твоя яркость — оружие, но держи его в ножнах. Не больше одной метафоры на абзац. Запрещены: внезапная эскалация без причины, мелодрама, «безумные» повороты ради эффекта, описание запахов/дрожи/шёпота в каждом абзаце. Каждое событие вытекает из предыдущего — причина, затем следствие. Персонажи не меняют характер посреди сцены. Накал повышай медленно, ступенями, и давай сценам дышать: после напряжения — пауза, быт, тишина. Сдержанная фраза бьёт сильнее крика.",
     "deepseek/deepseek-v4-pro-0813": "Используй свой интеллект как режиссёр, а не как аналитик. Внутри себя просчитывай интриги, мотивы и последствия на несколько ходов вперёд — но в тексте показывай только живую сцену. Никаких рассуждений, планов, списков и структурного анализа в ответе. Персонажи умны: они помнят сказанное, замечают ложь, строят собственные планы против игрока и друг друга. Чехов работает: введённая деталь стреляет позже. Пиши тёплой, телесной прозой — читатель не должен догадаться, что за текстом стоит логическая машина.",
     "deepseek/deepseek-r1-0528": "Используй свой интеллект как режиссёр, а не как аналитик. Внутри себя просчитывай интриги, мотивы и последствия на несколько ходов вперёд — но в тексте показывай только живую сцену. Никаких рассуждений, планов, списков и структурного анализа в ответе. Персонажи умны: они помнят сказанное, замечают ложь, строят собственные планы против игрока и друг друга. Чехов работает: введённая деталь стреляет позже. Пиши тёплой, телесной прозой — читатель не должен догадаться, что за текстом стоит логическая машина.",
@@ -1681,7 +1663,6 @@ STORY_MODEL_UNIQUE_NARRATION_PROMPTS: dict[str, str] = {
     "z-ai/glm-5.2": "Твоя сила — стиль. Работай ритмом: длинная текучая фраза — и короткий удар. Абзацы разной длины, монтаж как в кино: смена плана с общего на деталь, склейка сцен без «а тем временем». Каждая сцена имеет свою температуру и свой звук. Не используй одни и те же глаголы и эпитеты в соседних абзацах. Финальная строка хода — всегда сильная: образ, реплика или действие, но не вывод. Красота не ради красоты: каждый стилистический жест обязан работать на сцену.",
     "google/gemini-2.5-pro": "Твой враг — сглаживание. Запрещено: смягчать конфликты, мирить персонажей в том же ходу, делать всех «в глубине души хорошими», заканчивать сцены нотой утешения. Персонажи имеют право злиться всерьёз, отказывать наотрез, ошибаться непоправимо, быть несправедливыми — и не извиняться. Плохое решение игрока приводит к плохим последствиям, мир их не отменяет. Убери и вербальные привычки сглаживания: «однако», «тем не менее», «стоит отметить» — в художественном тексте им не место. Напряжение держи до конца хода.",
     "google/gemini-3.1-pro-preview": "Ты снимаешь кино. Каждая сцена имеет режиссуру: где источник света, откуда звук, что в кадре и что намеренно за кадром. Главный инструмент — подтекст: персонажи почти никогда не говорят главного прямо, оно живёт в паузах, в выборе слов, в том, о чём молчат. Одна точная деталь заменяет абзац описания — найди её. Недосказанность — норма: доверяй игроку достроить, не разжёвывай. Меняй планы: широкий мир — и вдруг крупно дрожащие пальцы. Тишина в твоих сценах должна быть слышной.",
-    "openai/gpt-5.6-luna-pro": "Твоя сила — точность без холода. Внутри ты просчитываешь причинность и мотивы, а в текст отдаёшь только сцену: никаких рассуждений, списков, планов и итогов. Одна сцена за ход, 3–5 плотных абзацев, без промотки времени и пересказов. Персонажи умные: помнят сказанное, замечают ложь и действуют по своим целям. Эмоцию показывай телом и действием, а не ярлыком.",
     "qwen/qwen3.7-plus": "Твоя сила — чистота исполнения. Пиши на живом русском: никаких калек с английского, канцелярита и обрывков иероглифов — язык ответа только русский, всегда. Держи сцену собранной: 3–5 абзацев, одна сцена за ход, диалог отдельными строками. Не пересказывай то, что уже произошло, и не подводи итогов в конце хода. Конкретика важнее украшений: точное действие, точный предмет, точная реплика. Персонажи последовательны — характер, заданный ранее, не плывёт от хода к ходу.",
     "moonshotai/kimi-k2.6": "Твоя сила — ансамбль персонажей. В каждой сцене удерживай отдельный голос, мотив и линию внимания каждого участника; никто не превращается в декорацию и не знает того, чего не мог узнать. Диалог должен менять отношения: реплика вызывает жест, решение или новую трещину, а не висит отдельно от действия. Пользуйся длинной памятью незаметно — возвращай ранние детали как естественные последствия, без пересказа прошлых ходов. Одна сцена за ход, 3–5 плотных абзацев, финал — действие или реплика, а не вывод.",
     "moonshotai/kimi-k3": "Твоя сила — масштаб без потери близости. Держи дальние сюжетные дуги и скрытые планы мира, но каждый ход проживай через конкретный человеческий момент: выбор, паузу, предмет в руке, цену поступка. Причины могут быть заложены десятки ходов назад, последствия не обязаны приходить сразу. Не демонстрируй расчёты и не объясняй устройство сюжета — пусть замысел проявляется событиями и подтекстом. Не закрывай все линии одновременно: заверши сцену сильным сдвигом, который открывает следующий ход.",
@@ -6159,19 +6140,8 @@ def _story_output_translation_model_name(model_name: str | None = None) -> str:
 
 def _normalize_story_model_id(value: str | None) -> str:
     normalized = (value or "").strip().lower()
-    if normalized in {
-        STORY_TURN_IMAGE_MODEL_FLUX,
-        STORY_TURN_IMAGE_MODEL_FLUX_LEGACY,
-        STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B,
-        STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B_LEGACY,
-    }:
+    if normalized in STORY_TURN_IMAGE_MODEL_RETIRED_IDS:
         return STORY_TURN_IMAGE_MODEL_NANO_BANANO
-    if normalized in {
-        STORY_TURN_IMAGE_MODEL_SEEDREAM_SHORT_LEGACY,
-        STORY_TURN_IMAGE_MODEL_SEEDREAM_LEGACY,
-        STORY_TURN_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY,
-    }:
-        return STORY_TURN_IMAGE_MODEL_SEEDREAM
     if normalized in {
         STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT,
         STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT_PROVIDER_LEGACY,
@@ -6232,7 +6202,6 @@ def _apply_polza_story_reasoning_preferences(
             "google/gemini-3.1-pro-preview",
             "google/gemini-3.1-pro",
             "google/gemini-3.1-flash-lite",
-            "google/gemini-3-flash-preview",
         }:
             payload["reasoning"] = {
                 "enabled": True,
@@ -11351,9 +11320,7 @@ def _get_story_turn_image_read_timeout_seconds(model_name: str | None) -> int:
 
 
 def _get_story_turn_image_request_prompt_max_chars(model_name: str | None) -> int:
-    normalized_model = _normalize_story_model_id(str(model_name or "").strip())
-    if normalized_model == STORY_TURN_IMAGE_MODEL_SEEDREAM:
-        return STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM
+    _ = model_name
     return STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT
 
 
@@ -12825,8 +12792,6 @@ def _build_story_turn_image_media_payload(
     aspect_ratio = _resolve_story_turn_image_aspect_ratio(settings.polza_image_size)
     if aspect_ratio:
         input_payload["aspect_ratio"] = aspect_ratio
-    if selected_model == STORY_TURN_IMAGE_MODEL_SEEDREAM:
-        input_payload["quality"] = "basic"
     reference_images = _build_story_turn_image_media_references(reference_image_input)
     if reference_images:
         input_payload["images"] = reference_images

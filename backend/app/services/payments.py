@@ -25,36 +25,48 @@ VOLUNTARY_COMMISSION_RATE = Decimal("0.035")
 _RUBLE_QUANTUM = Decimal("0.01")
 from app.services.promo import apply_promo_to_plan, apply_promo_to_plans
 
+# Sol economy v2 (2026-09-18). The sol is the unit the whole catalogue is priced in, so its
+# rate is what decides every margin: turn tiers are ceil(worst_case_AI_cost / (0.25 x rate)),
+# computed against the WORST rate a player can buy into, i.e. the largest pack. Летописец at
+# 5990 RUB / 2150 sols = 2.786 RUB/sol is that floor; the smaller packs are deliberately worse
+# value, so pricing against the big one is safe for all four.
+#
+# The previous rate (7000 sols for 5990 RUB = 0.856 RUB/sol) was set before the per-turn
+# service-model cost was measured, and it left the catalogue at a 40-50% net margin instead of
+# the intended 55%. Balances issued under it are converted by the startup migration in
+# db_bootstrap (_migrate_sol_economy_v2), which divides them by SOL_ECONOMY_V2_RATE_DIVISOR.
 COIN_TOP_UP_PLANS: tuple[dict[str, Any], ...] = (
     {
         "id": "standard",
         "title": "Путник",
-        "description": "400 солов",
+        "description": "125 солов",
         "price_rub": 399,
-        "coins": 400,
+        "coins": 125,
     },
     {
         "id": "pro",
         "title": "Искатель",
-        "description": "1290 солов",
+        "description": "400 солов",
         "price_rub": 1190,
-        "coins": 1290,
+        "coins": 400,
     },
     {
         "id": "mega",
         "title": "Архонт",
-        "description": "3350 солов",
+        "description": "1050 солов",
         "price_rub": 2990,
-        "coins": 3350,
+        "coins": 1050,
     },
     {
         "id": "legendary",
         "title": "Летописец",
-        "description": "7000 солов",
+        "description": "2150 солов",
         "price_rub": 5990,
-        "coins": 7000,
+        "coins": 2150,
     },
 )
+# Old sols -> new sols. 7000 / 2150: what one rouble used to buy divided by what it buys now.
+SOL_ECONOMY_V2_RATE_DIVISOR = 7000 / 2150
 COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
 
 # Subscription-only narrator models, resolved from .env-overridable settings (see config.py).
@@ -62,15 +74,11 @@ COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
 SUBSCRIPTION_MODEL_DEEPSEEK_V4_FLASH = settings.subscription_model_deepseek_v4_flash
 SUBSCRIPTION_MODEL_GEMINI_25_FLASH_LITE = settings.subscription_model_gemini_25_flash_lite
 SUBSCRIPTION_MODEL_GLM_45_AIR = settings.subscription_model_glm_45_air
-SUBSCRIPTION_MODEL_GEMINI_3_FLASH_PREVIEW = settings.subscription_model_gemini_3_flash_preview
 
 # Tier model bundles (each higher tier is a superset of the one below).
-_SPARK_MODELS = (
-    SUBSCRIPTION_MODEL_DEEPSEEK_V4_FLASH,
-    SUBSCRIPTION_MODEL_GEMINI_25_FLASH_LITE,
-)
-_FLAME_MODELS = (*_SPARK_MODELS, SUBSCRIPTION_MODEL_GLM_45_AIR)
-_CONSTELLATION_MODELS = (*_FLAME_MODELS, SUBSCRIPTION_MODEL_GEMINI_3_FLASH_PREVIEW)
+_SPARK_MODELS = (SUBSCRIPTION_MODEL_DEEPSEEK_V4_FLASH,)
+_FLAME_MODELS = (*_SPARK_MODELS, SUBSCRIPTION_MODEL_GEMINI_25_FLASH_LITE)
+_CONSTELLATION_MODELS = (*_FLAME_MODELS, SUBSCRIPTION_MODEL_GLM_45_AIR)
 
 # Every model that is gated behind a subscription, across all tiers.
 ALL_SUBSCRIPTION_MODELS: tuple[str, ...] = _CONSTELLATION_MODELS
@@ -82,6 +90,20 @@ ALL_SUBSCRIPTION_MODELS: tuple[str, ...] = _CONSTELLATION_MODELS
 # Prices are in RUB. `daily_turn_limit` = turns/day on subscription models (no sol charge);
 # `memory_token_cap` = max scene-memory tokens. Subscription turns never grant or spend sols
 # for the base model cost (toggleable modules still cost sols).
+# Every plan is sized on 100% utilisation, because the daily allowance rolls over ("ходы не
+# сгорают"): a player can bank a whole month and spend it in one week, so the worst case is the
+# only case worth pricing. The binding number is the plan's MOST EXPENSIVE model at the plan's
+# own memory cap, times daily_turn_limit x 30 days; that bill must stay under 25% of price_rub,
+# which is what leaves >= 55% net after tax, YooKassa and hosting.
+#
+#   Искра       DeepSeek V4 Flash @ 8k  = 0.056 RUB/turn x 30 x 30 =  50 RUB of 299  (16.8%)
+#   Пламя       Gemini 2.5 Flash Lite @ 10k = 0.130 x 35 x 30      = 136 RUB of 599  (22.7%)
+#   Созвездие   GLM 4.5 Air @ 14k       = 0.242 x 40 x 30          = 290 RUB of 1190 (24.4%)
+#
+# Google Gemini 3 Flash Preview used to be the Созвездие headline model and is gone: at 2.08
+# RUB per turn on a 32k context it cost 5 602 RUB/month against 1 190 RUB of revenue, i.e. the
+# plan lost roughly four roubles for every one it took. No daily limit small enough to fix that
+# would still be worth selling, so the tier now tops out at GLM 4.5 Air.
 SUBSCRIPTION_PLANS: tuple[dict[str, Any], ...] = (
     {
         "id": "spark",
@@ -91,11 +113,11 @@ SUBSCRIPTION_PLANS: tuple[dict[str, Any], ...] = (
         "period": "month",
         "monthly_coins": 0,
         "models": list(_SPARK_MODELS),
-        "daily_turn_limit": 40,
+        "daily_turn_limit": 30,
         "memory_token_cap": 8000,
         "perks": [
-            "2 модели для отыгрыша: DeepSeek V4 Flash и Gemini 2.5 Flash Lite",
-            "До 40 ходов в день на этих моделях — без списания солов",
+            "Модель для отыгрыша: DeepSeek V4 Flash",
+            "До 30 ходов в день на ней — без списания солов",
             "Неиспользованные ходы не сгорают и накапливаются каждый день",
             "Память сцены до 8K токенов",
         ],
@@ -109,13 +131,13 @@ SUBSCRIPTION_PLANS: tuple[dict[str, Any], ...] = (
         "period": "month",
         "monthly_coins": 0,
         "models": list(_FLAME_MODELS),
-        "daily_turn_limit": 60,
-        "memory_token_cap": 20000,
+        "daily_turn_limit": 35,
+        "memory_token_cap": 10000,
         "perks": [
-            "3 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite и GLM 4.5 Air",
-            "До 60 ходов в день на этих моделях — без списания солов",
+            "2 модели: DeepSeek V4 Flash и Gemini 2.5 Flash Lite",
+            "До 35 ходов в день на этих моделях — без списания солов",
             "Неиспользованные ходы не сгорают и накапливаются каждый день",
-            "Память сцены до 20K токенов",
+            "Память сцены до 10K токенов",
         ],
         "badge": "Популярный",
     },
@@ -127,13 +149,13 @@ SUBSCRIPTION_PLANS: tuple[dict[str, Any], ...] = (
         "period": "month",
         "monthly_coins": 0,
         "models": list(_CONSTELLATION_MODELS),
-        "daily_turn_limit": 90,
-        "memory_token_cap": 32000,
+        "daily_turn_limit": 40,
+        "memory_token_cap": 14000,
         "perks": [
-            "4 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite, GLM 4.5 Air и Gemini 3 Flash Preview",
-            "До 90 ходов в день на этих моделях — без списания солов",
+            "3 модели: DeepSeek V4 Flash, Gemini 2.5 Flash Lite и GLM 4.5 Air",
+            "До 40 ходов в день на этих моделях — без списания солов",
             "Неиспользованные ходы не сгорают и накапливаются каждый день",
-            "Память сцены до 32K токенов",
+            "Память сцены до 14K токенов",
         ],
         "badge": None,
     },

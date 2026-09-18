@@ -60,27 +60,23 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertTrue(created.story_reasoning_enabled)
 
     def test_reasoning_surcharges_match_supported_model_catalog(self) -> None:
-        self.assertEqual(get_story_reasoning_surcharge_tokens("google/gemini-2.5-pro", reasoning_enabled=True), 8)
+        self.assertEqual(get_story_reasoning_surcharge_tokens("google/gemini-2.5-pro", reasoning_enabled=True), 4)
         self.assertEqual(
             get_story_reasoning_surcharge_tokens("google/gemini-3.1-pro-preview", reasoning_enabled=True),
-            10,
+            6,
         )
-        self.assertEqual(get_story_reasoning_surcharge_tokens("anthropic/claude-sonnet-4.6", reasoning_enabled=True), 12)
+        self.assertEqual(get_story_reasoning_surcharge_tokens("anthropic/claude-sonnet-4.6", reasoning_enabled=True), 5)
         self.assertEqual(get_story_reasoning_surcharge_tokens("google/gemini-2.5-pro", reasoning_enabled=False), 0)
-        self.assertFalse(is_story_reasoning_supported_model("mistralai/mistral-nemo"))
-        self.assertEqual(get_story_reasoning_surcharge_tokens("mistralai/mistral-nemo", reasoning_enabled=True), 0)
-        # GPT-5.6 Luna Pro can genuinely run with reasoning off, so it is a paid toggle.
-        self.assertTrue(is_story_reasoning_supported_model("openai/gpt-5.6-luna-pro"))
-        self.assertFalse(is_story_reasoning_minimum_model("openai/gpt-5.6-luna-pro"))
-        self.assertFalse(is_story_reasoning_fixed_model("openai/gpt-5.6-luna-pro"))
+        # Retired ids resolve through the alias table, so Mistral Nemo now answers for its
+        # replacement (DeepSeek V3.2) rather than for a model that no longer exists.
+        self.assertTrue(is_story_reasoning_supported_model("mistralai/mistral-nemo"))
         self.assertEqual(
-            get_story_reasoning_surcharge_tokens("openai/gpt-5.6-luna-pro", reasoning_enabled=True),
-            1,
+            get_story_reasoning_surcharge_tokens("mistralai/mistral-nemo", reasoning_enabled=True),
+            get_story_reasoning_surcharge_tokens("deepseek/deepseek-v3.2", reasoning_enabled=True),
         )
-        self.assertEqual(
-            get_story_reasoning_surcharge_tokens("openai/gpt-5.6-luna-pro", reasoning_enabled=False),
-            0,
-        )
+        # An id with no alias falls back to the default narrator and must never be billed as a
+        # paid toggle it does not have.
+        self.assertEqual(get_story_reasoning_surcharge_tokens("who/knows", reasoning_enabled=False), 0)
         self.assertFalse(is_story_reasoning_supported_model("aion-labs/aion-2.0"))
         self.assertTrue(is_story_reasoning_minimum_model("aion-labs/aion-2.0"))
         self.assertTrue(is_story_reasoning_fixed_model("aion-labs/aion-2.0"))
@@ -161,10 +157,6 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             64_000,
         )
         self.assertEqual(
-            normalize_story_context_limit_chars(128_000, model_name="openai/gpt-5.6-luna-pro"),
-            128_000,
-        )
-        self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="google/gemini-3.1-flash-lite"),
             64_000,
         )
@@ -221,14 +213,14 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertIn("не отменяют маркеры", prompt)
 
     def test_cost_tiers_respect_model_context_caps(self) -> None:
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 27)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 51)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.2"), 20)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 12)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 22)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.2"), 7)
         # GLM 5.2 stops at 64k, so past the tier-4 ceiling it is still charged tier 4.
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.2"), 20)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 23)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 36)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 17)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.2"), 7)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 10)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 16)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 8)
 
     def test_new_polza_models_have_planned_turn_costs(self) -> None:
         self.assertEqual(
@@ -247,9 +239,18 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             coerce_story_llm_model("z-ai/glm-5.2"),
             "z-ai/glm-5.2",
         )
+        # Retired by the sol economy v2 cleanup: saved games must land on a live model.
         self.assertEqual(
             coerce_story_llm_model("openai/gpt-5.6-luna-pro"),
-            "openai/gpt-5.6-luna-pro",
+            "deepseek/deepseek-v3.2",
+        )
+        self.assertEqual(
+            coerce_story_llm_model("mistralai/mistral-nemo"),
+            "deepseek/deepseek-v3.2",
+        )
+        self.assertEqual(
+            coerce_story_llm_model("z-ai/glm-4.7-flash"),
+            "z-ai/glm-4.7",
         )
         # Retired narrator ids survive in old saves and must land on their replacement
         # rather than silently snapping back to the global default.
@@ -277,15 +278,15 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             coerce_story_llm_model("moonshotai/kimi-k3"),
             "moonshotai/kimi-k3",
         )
-        self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-v4-pro-0813"), 5)
-        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-v4-pro-0813"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-v4-pro-0813"), 14)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v4-pro-0813"), 26)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "deepseek/deepseek-v4-pro-0813"), 48)
-        self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-r1-0528"), 7)
-        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-r1-0528"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-r1-0528"), 11)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-r1-0528"), 17)
+        self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-v4-pro-0813"), 3)
+        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-v4-pro-0813"), 4)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-v4-pro-0813"), 6)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v4-pro-0813"), 10)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "deepseek/deepseek-v4-pro-0813"), 18)
+        self.assertEqual(get_story_turn_cost_tokens(6_000, "deepseek/deepseek-r1-0528"), 3)
+        self.assertEqual(get_story_turn_cost_tokens(6_001, "deepseek/deepseek-r1-0528"), 4)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "deepseek/deepseek-r1-0528"), 5)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-r1-0528"), 8)
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="deepseek/deepseek-v4-pro-0813"),
             128_000,
@@ -298,44 +299,52 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             normalize_story_context_limit_chars(128_000, model_name="z-ai/glm-5.2"),
             64_000,
         )
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-2.5-pro"), 30)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 54)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 90)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-pro-preview"), 43)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "z-ai/glm-4.7"), 8)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "openai/gpt-5.6-luna-pro"), 4)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "openai/gpt-5.6-luna-pro"), 12)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-flash-lite"), 9)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k2.6"), 10)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.6"), 31)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k3"), 40)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k3"), 120)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-2.5-pro"), 13)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 23)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 38)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-pro-preview"), 19)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "z-ai/glm-4.7"), 4)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "google/gemini-3.1-flash-lite"), 4)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k2.6"), 4)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k2.6"), 11)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "moonshotai/kimi-k3"), 17)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "moonshotai/kimi-k3"), 49)
 
     def test_turn_cost_table_matches_product_matrix(self) -> None:
+        from app.services.story_games import (
+            STORY_SUBSCRIPTION_LLM_MODELS,
+            STORY_SUPPORTED_LLM_MODELS,
+        )
+
         # The last column is the cost actually charged past 64k, not the raw 5th tier
         # constant: usage is clamped to the model's own context ceiling first, so for the
         # models capped at 64k it necessarily equals their 64k price. DeepSeek V4 Pro,
         # GLM 5.1 and both Kimi models (128k), plus Aion 2.0 (108k), reach tier five.
         expected_rows = {
-            "z-ai/glm-4.7-flash": (4, 4, 4, 5, 5),
-            "deepseek/deepseek-v3.2": (4, 5, 6, 7, 7),
-            "deepseek/deepseek-v4-pro-0813": (5, 8, 14, 26, 48),
-            "deepseek/deepseek-r1-0528": (7, 8, 11, 17, 17),
-            "z-ai/glm-4.7": (6, 7, 8, 12, 12),
-            "z-ai/glm-5": (6, 8, 10, 17, 17),
-            "aion-labs/aion-2.0": (8, 10, 13, 23, 36),
-            "aion-labs/aion-3.0": (20, 30, 48, 85, 85),
-            "qwen/qwen3.7-plus": (6, 8, 10, 16, 16),
-            "openai/gpt-5.6-luna-pro": (2, 3, 4, 7, 12),
-            "google/gemini-3.1-flash-lite": (6, 7, 9, 13, 13),
-            "z-ai/glm-5.1": (8, 10, 16, 27, 51),
-            "z-ai/glm-5.2": (8, 10, 14, 20, 20),
-            "google/gemini-2.5-pro": (17, 22, 30, 47, 47),
-            "google/gemini-3.1-pro-preview": (23, 31, 43, 67, 67),
-            "anthropic/claude-sonnet-4.6": (24, 36, 54, 90, 90),
-            "moonshotai/kimi-k2.6": (5, 7, 10, 17, 31),
-            "moonshotai/kimi-k3": (22, 30, 40, 72, 120),
+            "deepseek/deepseek-v3.2": (1, 2, 3, 4, 4),
+            "deepseek/deepseek-v4-pro-0813": (3, 4, 6, 10, 18),
+            "deepseek/deepseek-r1-0528": (3, 4, 5, 8, 8),
+            "z-ai/glm-4.7": (2, 3, 4, 6, 6),
+            "z-ai/glm-5": (2, 3, 5, 8, 8),
+            "z-ai/glm-5.1": (3, 5, 7, 12, 22),
+            "z-ai/glm-5.2": (2, 3, 5, 7, 7),
+            "aion-labs/aion-2.0": (3, 4, 6, 10, 16),
+            "aion-labs/aion-3.0": (8, 13, 21, 36, 36),
+            "aion-labs/aion-3.0-mini": (3, 4, 6, 9, 9),
+            "qwen/qwen3.7-plus": (2, 3, 4, 5, 5),
+            "google/gemini-3.1-flash-lite": (2, 3, 4, 5, 5),
+            "google/gemini-2.5-pro": (7, 10, 13, 20, 20),
+            "google/gemini-3.1-pro-preview": (10, 13, 19, 29, 29),
+            "anthropic/claude-sonnet-4.6": (11, 15, 23, 38, 38),
+            "moonshotai/kimi-k2.6": (2, 3, 4, 7, 11),
+            "moonshotai/kimi-k3": (8, 11, 17, 28, 49),
         }
+        # The matrix is the whole sellable catalogue: a narrator added or retired without a
+        # price lands here as a failure rather than shipping unpriced.
+        self.assertEqual(
+            set(expected_rows),
+            set(STORY_SUPPORTED_LLM_MODELS) - set(STORY_SUBSCRIPTION_LLM_MODELS),
+        )
         usage_by_tier = (6_000, 6_001, 16_001, 32_001, 64_001)
         for model_name, expected_costs in expected_rows.items():
             with self.subTest(model_name=model_name):
@@ -368,9 +377,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
 
     def test_requested_narrator_sampling_profiles_match_approved_defaults(self) -> None:
         expected_profiles = {
-            "z-ai/glm-4.7-flash": {"temperature": 0.90, "top_r": 0.95, "top_k": 40, "repetition_penalty": 1.10},
             "deepseek/deepseek-v3.2": {"temperature": 0.75, "top_r": 0.90, "top_k": 40, "repetition_penalty": 1.10},
-            "openai/gpt-5.6-luna-pro": {"temperature": 1.00, "top_r": 1.00, "top_k": 0, "repetition_penalty": 1.00},
             "deepseek/deepseek-v4-pro-0813": {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
             "deepseek/deepseek-r1-0528": {"temperature": 0.70, "top_r": 0.90, "top_k": 0, "repetition_penalty": 1.05},
             "z-ai/glm-4.7": {"temperature": 0.85, "top_r": 0.95, "top_k": 50, "repetition_penalty": 1.08},
@@ -531,7 +538,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             memory_optimization_enabled=True,
         )
 
-        self.assertEqual(cost, 24)
+        self.assertEqual(cost, 11)
 
     def test_accelerated_service_flag_does_not_change_runtime_turn_cost(self) -> None:
         cost = _calculate_story_turn_cost_tokens(
@@ -588,7 +595,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             memory_optimization_enabled=True,
         )
 
-        self.assertEqual(cost, 54)
+        self.assertEqual(cost, 23)
 
     def test_runtime_turn_cost_ignores_hidden_service_context_cards(self) -> None:
         cost = _calculate_story_turn_cost_tokens(
@@ -602,7 +609,7 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             memory_optimization_enabled=True,
         )
 
-        self.assertEqual(cost, 24)
+        self.assertEqual(cost, 11)
 
     def test_runtime_turn_cost_ignores_hidden_instruction_prompts(self) -> None:
         cost = _calculate_story_turn_cost_tokens(
@@ -622,26 +629,24 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
             memory_optimization_enabled=True,
         )
 
-        self.assertEqual(cost, 24)
+        self.assertEqual(cost, 11)
 
     def test_standard_models_have_updated_64k_tier(self) -> None:
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v3.2"), 7)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v3.2"), 7)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-4.7-flash"), 5)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v3.2"), 4)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-4.7"), 6)
 
-    def test_seedream_image_model_legacy_id_maps_to_current_id(self) -> None:
-        self.assertEqual(
-            coerce_story_image_model("bytedance-seed/seedream-4.5"),
-            "bytedance-seed/seedream-4.5",
-        )
-
-    def test_nano_banano_is_default_and_removed_flux_models_migrate_to_it(self) -> None:
+    def test_nano_banano_is_default_and_retired_image_models_migrate_to_it(self) -> None:
         self.assertEqual(STORY_DEFAULT_IMAGE_MODEL, "google/gemini-2.5-flash-image")
         for old_flux_model in (
             "flux.2-pro",
             "black-forest-labs/flux.2-pro",
             "flux.2-klein-4b",
             "black-forest-labs/flux.2-klein-4b",
+            # Seedream 4.5 was still selectable until the sol economy v2 cleanup, so live
+            # games carry it and must fall back rather than fail to render.
+            "seedream-4.5",
+            "bytedance/seedream-4.5",
+            "bytedance-seed/seedream-4.5",
         ):
             with self.subTest(old_flux_model=old_flux_model):
                 self.assertEqual(

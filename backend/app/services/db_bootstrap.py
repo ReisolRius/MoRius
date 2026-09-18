@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
+import logging
 from pathlib import Path
 import re
 
@@ -63,6 +65,8 @@ from app.models import (
 )
 from app.services.media import MEDIA_URL_PREFIX, parse_media_token
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class StoryBootstrapDefaults:
@@ -89,14 +93,14 @@ SHOP_SYSTEM_COSMETICS = (
         "title": "Сакура",
         "description": "Платная рамка аватарки с лепестками сакуры.",
         "image_url": "/shop-assets/frame-sakura.png",
-        "price_coins": 50,
+        "price_coins": 15,
     },
     {
         "kind": "profile_banner",
         "title": "Замок под сакурой",
         "description": "Профильный баннер с закатным замком и цветущей сакурой.",
         "image_url": "/shop-assets/profile-banner-sakura-castle.png",
-        "price_coins": 50,
+        "price_coins": 15,
     },
 )
 BOOLEAN_COLUMN_ADD_STATEMENT_PATTERN = re.compile(
@@ -2000,6 +2004,135 @@ def _repair_legacy_story_avatar_media_tokens() -> None:
             db.commit()
 
 
+# --- Sol economy v2 migration -----------------------------------------------------------
+#
+# Runs once, on the first boot after the new prices ship, and is what keeps a live database
+# honest: every price in the catalogue was divided by ~3.26 when the sol was revalued, so a
+# balance issued under the old rate would buy three times more than it was sold for.
+#
+# Who is converted (the rest is left alone on purpose):
+#   * anyone who has ever completed a purchase -- they hold bought sols;
+#   * anyone holding more than the old 50-sol starter grant -- they hold earned or gifted sols.
+# A player who never paid and still sits on the untouched 50-sol starter is levelled to the new
+# 30-sol starter instead of being divided, and anyone below that keeps what little they have.
+#
+# Rounding is half-up with a floor of 1: nobody who had sols ends up with none.
+SOL_ECONOMY_V2_MIGRATION_KEY = "sol_economy_v2_migration"
+SOL_ECONOMY_V2_MIGRATION_VERSION = "2026-09-18"
+SOL_ECONOMY_V2_OLD_STARTER_COINS = 50
+SOL_ECONOMY_V2_NEW_STARTER_COINS = 30
+# Retired narrator / image ids rewritten in place so the picker never shows a model that no
+# longer exists. Mirrors STORY_LLM_MODEL_LEGACY_ALIASES / STORY_IMAGE_MODEL_LEGACY_ALIASES.
+SOL_ECONOMY_V2_NARRATOR_REMAP = {
+    "mistralai/mistral-nemo": "deepseek/deepseek-v3.2",
+    "openai/gpt-5.6-luna-pro": "deepseek/deepseek-v3.2",
+    "z-ai/glm-4.7-flash": "z-ai/glm-4.7",
+    "google/gemini-3-flash-preview": "z-ai/glm-4.5-air",
+}
+SOL_ECONOMY_V2_IMAGE_REMAP = {
+    "black-forest-labs/flux.2-pro": "google/gemini-2.5-flash-image",
+    "flux.2-pro": "google/gemini-2.5-flash-image",
+    "black-forest-labs/flux.2-klein-4b": "google/gemini-2.5-flash-image",
+    "flux.2-klein-4b": "google/gemini-2.5-flash-image",
+    "bytedance-seed/seedream-4.5": "google/gemini-2.5-flash-image",
+    "seedream-4.5": "google/gemini-2.5-flash-image",
+    "bytedance/seedream-4.5": "google/gemini-2.5-flash-image",
+    "qwen-image-edit": "google/gemini-2.5-flash-image",
+    "qwen/qwen-image-edit": "google/gemini-2.5-flash-image",
+}
+
+
+def _convert_sol_balance_to_v2(coins: int, *, divisor: float) -> int:
+    if coins <= 0:
+        return 0
+    converted = int(Decimal(coins) / Decimal(str(divisor)) + Decimal("0.5"))
+    return max(converted, 1)
+
+
+def _migrate_sol_economy_v2() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(User.__tablename__):
+        return
+    if not inspector.has_table(AppSetting.__tablename__):
+        return
+
+    db = SessionLocal()
+    try:
+        marker = db.get(AppSetting, SOL_ECONOMY_V2_MIGRATION_KEY)
+        if marker is not None and str(marker.value or "").strip() == SOL_ECONOMY_V2_MIGRATION_VERSION:
+            return
+
+        from app.services.payments import SOL_ECONOMY_V2_RATE_DIVISOR
+
+        paid_user_ids: set[int] = set()
+        if inspector.has_table(CoinPurchase.__tablename__):
+            paid_user_ids = {
+                int(user_id)
+                for user_id in db.scalars(
+                    select(CoinPurchase.user_id).where(CoinPurchase.coins_granted_at.is_not(None))
+                ).all()
+                if user_id is not None
+            }
+
+        converted_users = 0
+        levelled_users = 0
+        for user in db.scalars(select(User)).all():
+            current_coins = max(int(getattr(user, "coins", 0) or 0), 0)
+            has_paid = int(user.id) in paid_user_ids
+            if has_paid or current_coins > SOL_ECONOMY_V2_OLD_STARTER_COINS:
+                next_coins = _convert_sol_balance_to_v2(
+                    current_coins,
+                    divisor=SOL_ECONOMY_V2_RATE_DIVISOR,
+                )
+                if next_coins != current_coins:
+                    user.coins = next_coins
+                    converted_users += 1
+            elif current_coins >= SOL_ECONOMY_V2_OLD_STARTER_COINS:
+                user.coins = SOL_ECONOMY_V2_NEW_STARTER_COINS
+                levelled_users += 1
+
+            # The reward ladder went from 28 monthly days to 7 weekly ones, so a stored
+            # position inside the old cycle is meaningless. Clearing it starts everyone on
+            # day 1 of the current Moscow week; the daily cooldown still applies.
+            user.daily_reward_claimed_days = 0
+            user.daily_reward_claim_month = ""
+            user.daily_reward_claim_mask = 0
+            user.daily_reward_cycle_started_at = None
+
+        remapped_games = 0
+        if inspector.has_table(StoryGame.__tablename__):
+            for old_id, new_id in SOL_ECONOMY_V2_NARRATOR_REMAP.items():
+                remapped_games += (
+                    db.query(StoryGame)
+                    .filter(StoryGame.story_llm_model == old_id)
+                    .update({StoryGame.story_llm_model: new_id}, synchronize_session=False)
+                )
+            for old_id, new_id in SOL_ECONOMY_V2_IMAGE_REMAP.items():
+                remapped_games += (
+                    db.query(StoryGame)
+                    .filter(StoryGame.image_model == old_id)
+                    .update({StoryGame.image_model: new_id}, synchronize_session=False)
+                )
+
+        if marker is None:
+            db.add(AppSetting(key=SOL_ECONOMY_V2_MIGRATION_KEY, value=SOL_ECONOMY_V2_MIGRATION_VERSION))
+        else:
+            marker.value = SOL_ECONOMY_V2_MIGRATION_VERSION
+        db.commit()
+        logger.info(
+            "Sol economy v2 migration applied: converted=%s levelled=%s games_remapped=%s divisor=%.4f",
+            converted_users,
+            levelled_users,
+            remapped_games,
+            SOL_ECONOMY_V2_RATE_DIVISOR,
+        )
+    except Exception:
+        db.rollback()
+        logger.exception("Sol economy v2 migration failed; balances left untouched")
+    finally:
+        db.close()
+
+
 def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -> None:
     if database_url.startswith("sqlite:///"):
         raw_path = database_url.replace("sqlite:///", "")
@@ -2039,3 +2172,4 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     _repair_legacy_story_avatar_media_tokens()
     _repair_story_response_token_limits()
     _ensure_performance_indexes_exist()
+    _migrate_sol_economy_v2()
