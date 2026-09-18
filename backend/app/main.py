@@ -332,9 +332,12 @@ STORY_AION_INPUT_TOKENIZER_SAFETY_FACTOR = 1.12
 STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS = 2_048
 STORY_CONTEXT_RESPONSE_RESERVE_SAFETY_TOKENS = STORY_AION_PROMPT_OVERHEAD_RESERVE_TOKENS
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 6_000
-STORY_RESPONSE_MAX_TOKENS_MIN = 200
+STORY_RESPONSE_MAX_TOKENS_MIN = 300
 STORY_RESPONSE_MAX_TOKENS_MAX = 2_500
-STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
+STORY_DEFAULT_RESPONSE_MAX_TOKENS = 800
+# The length control is on for a new game: an unbounded narrator fills the context and
+# the player's balance far faster than anyone expects, and 800 tokens is a full scene.
+STORY_RESPONSE_MAX_TOKENS_DEFAULT_ENABLED = True
 STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS = 4
 STORY_POSTPROCESS_READ_TIMEOUT_SECONDS = 7
 STORY_PLOT_CARD_MEMORY_MAX_INPUT_TOKENS = 1_800
@@ -1493,13 +1496,21 @@ STORY_LATIN_TO_CYRILLIC_NAME_CHAR_MAP = {
     "y": "и",
     "z": "з",
 }
-# The model is told this target and nothing else. It is NOT told the hard ceiling, and the
-# gap between the two is deliberate: max_tokens is a guillotine the provider applies mid-word,
-# while the target is advice a model can only follow approximately (no model can count its own
-# tokens). Telling it "hard maximum N" while the API also cuts at N left zero slack, so every
-# overshoot became a half-word ending. 0.80 leaves a 25% cushion under the ceiling.
-STORY_RESPONSE_BUDGET_TARGET_FACTOR = 0.80
-STORY_RESPONSE_MIN_TARGET_TOKENS = 120
+# Response length is two numbers, never one.
+#
+#   TARGET  - what the player picked and what the model is told. Advice: no model can count
+#             its own tokens, so it lands near this number, not on it.
+#   REQUEST - what goes into max_tokens. A guillotine the provider applies mid-word.
+#
+# They must never be equal. The old code told the model "жесткий максимум N" and also set
+# max_tokens = N, so the moment a model wrote toward the number it had been given, the API cut
+# it mid-word. The request now carries a completion margin above the target, and anything that
+# still overruns is pulled back to the last finished sentence on the way out
+# (_trim_story_trailing_incomplete_fragment).
+STORY_RESPONSE_COMPLETION_MARGIN_MIN_TOKENS = 200
+STORY_RESPONSE_COMPLETION_MARGIN_SHARE = 0.25
+STORY_RESPONSE_TARGET_TOKENS_PER_PARAGRAPH = 250
+STORY_RESPONSE_MAX_TARGET_PARAGRAPHS = 10
 STORY_OUTPUT_SENTENCE_END_CHARS = ".!?…"
 # How much of a truncated reply must survive before it is cut back to the last finished
 # sentence. Below this the hanging clause is kept: losing most of a short answer reads worse
@@ -4578,21 +4589,28 @@ def _build_story_system_prompt(
         lines.extend(["", "КОНТЕКСТ ПЛОЩАДКИ:", *STORY_FICTION_FRAMING_LINES])
 
     if response_max_tokens is not None:
-        normalized_limit = _normalize_story_response_max_tokens(response_max_tokens)
-        target_tokens = max(
-            min(normalized_limit, int(normalized_limit * STORY_RESPONSE_BUDGET_TARGET_FACTOR)),
-            STORY_RESPONSE_MIN_TARGET_TOKENS,
-        )
+        target_tokens = _story_response_target_tokens(response_max_tokens)
         # Deliberately no "hard maximum": naming the ceiling made models write up to it and get
         # guillotined by max_tokens at the same number. Paragraph counts are something a model
         # can actually control; a token target on its own is not.
-        target_paragraphs = max(2, min(8, round(target_tokens / 260)))
+        target_paragraphs = max(
+            1,
+            min(
+                STORY_RESPONSE_MAX_TARGET_PARAGRAPHS,
+                round(target_tokens / STORY_RESPONSE_TARGET_TOKENS_PER_PARAGRAPH),
+            ),
+        )
+        paragraph_hint = (
+            "уложись в один-два коротких абзаца"
+            if target_paragraphs <= 1
+            else f"это примерно {target_paragraphs} {_russian_plural(target_paragraphs, 'абзац', 'абзаца', 'абзацев')}"
+        )
         lines.extend(
             [
                 "",
-                f"Длина ответа: ориентир — около {target_tokens} токенов, примерно {target_paragraphs} абзацев. "
-                "Планируй сцену так, чтобы уложиться, и всегда дописывай последнюю фразу до конца: "
-                "лучше закончить раньше, чем оборваться на полуслове.",
+                f"Длина ответа: ориентир — около {target_tokens} токенов, {paragraph_hint}. "
+                "Спланируй сцену под этот объём с самого начала и доведи последнюю фразу до точки. "
+                "Короче ориентира — нормально; обрывать себя на полуслове нельзя.",
             ]
         )
 
@@ -6385,11 +6403,53 @@ def _effective_story_context_limit_tokens(
     return normalized_limit
 
 
+def _russian_plural(count: int, one: str, few: str, many: str) -> str:
+    """Correct Russian noun form for a count, so prompts read as written Russian."""
+    value = abs(int(count))
+    if value % 100 in range(11, 15):
+        return many
+    last_digit = value % 10
+    if last_digit == 1:
+        return one
+    if last_digit in (2, 3, 4):
+        return few
+    return many
+
+
+def _story_response_request_max_tokens(response_target_tokens: int | None) -> int:
+    """max_tokens for the provider: the player's target plus a completion margin.
+
+    The margin is what lets a model finish its sentence instead of being guillotined on the
+    exact number it was asked to aim for. It never pushes past STORY_RESPONSE_MAX_TOKENS_MAX,
+    which is the output ceiling the turn prices are derived from.
+    """
+    target = _normalize_story_response_max_tokens(response_target_tokens)
+    margin = max(
+        int(target * STORY_RESPONSE_COMPLETION_MARGIN_SHARE),
+        STORY_RESPONSE_COMPLETION_MARGIN_MIN_TOKENS,
+    )
+    return min(target + margin, STORY_RESPONSE_MAX_TOKENS_MAX)
+
+
+def _story_response_target_tokens(response_target_tokens: int | None) -> int:
+    """What the model is told to aim for.
+
+    Equals the player's setting everywhere except the very top of the range, where the margin
+    would not fit under the hard ceiling and the target is pulled down to make room for it.
+    """
+    target = _normalize_story_response_max_tokens(response_target_tokens)
+    request_max = _story_response_request_max_tokens(target)
+    return max(
+        min(target, request_max - STORY_RESPONSE_COMPLETION_MARGIN_MIN_TOKENS),
+        STORY_RESPONSE_MAX_TOKENS_MIN,
+    )
+
+
 def _effective_story_response_max_tokens(response_max_tokens: int | None, *, model_name: str | None) -> int | None:
+    _ = model_name
     if response_max_tokens is None:
         return STORY_RESPONSE_MAX_TOKENS_MAX
-    normalized_limit = _normalize_story_response_max_tokens(response_max_tokens)
-    return normalized_limit
+    return _normalize_story_response_max_tokens(response_max_tokens)
 
 
 def _select_story_sampling_values(

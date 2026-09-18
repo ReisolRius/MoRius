@@ -156,9 +156,12 @@ STORY_NARRATOR_MODE_VALUES = {
     STORY_NARRATOR_MODE_RISK,
     STORY_NARRATOR_MODE_HARDCORE,
 }
-STORY_RESPONSE_MAX_TOKENS_MIN = 200
+STORY_RESPONSE_MAX_TOKENS_MIN = 300
 STORY_RESPONSE_MAX_TOKENS_MAX = 2_500
-STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
+STORY_DEFAULT_RESPONSE_MAX_TOKENS = 800
+# The length control is on for a new game: an unbounded narrator fills the context and
+# the player's balance far faster than anyone expects, and 800 tokens is a full scene.
+STORY_RESPONSE_MAX_TOKENS_DEFAULT_ENABLED = True
 STORY_REPETITION_PENALTY_MIN = 1.0
 STORY_REPETITION_PENALTY_MAX = 2.0
 STORY_DEFAULT_REPETITION_PENALTY = 1.05
@@ -744,7 +747,7 @@ def normalize_story_response_max_tokens(value: int | None) -> int:
 
 def normalize_story_response_max_tokens_enabled(value: bool | None) -> bool:
     if value is None:
-        return False
+        return STORY_RESPONSE_MAX_TOKENS_DEFAULT_ENABLED
     return bool(value)
 
 

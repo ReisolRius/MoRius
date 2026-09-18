@@ -400,12 +400,13 @@ class StoryGame(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(160), nullable=False, default="Новая игра")
     context_limit_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=6000, server_default="6000")
-    response_max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=400, server_default="400")
+    response_max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=800, server_default="800")
+    # On by default: see STORY_RESPONSE_MAX_TOKENS_DEFAULT_ENABLED.
     response_max_tokens_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
-        default=False,
-        server_default="0",
+        default=True,
+        server_default="1",
     )
     response_token_limit_enabled: Mapped[bool] = mapped_column(
         Boolean,

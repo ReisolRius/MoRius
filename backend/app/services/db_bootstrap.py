@@ -1861,33 +1861,74 @@ def _resolve_legacy_story_avatar_media_value(
     return str(resolved_value or "").strip() or normalized_value
 
 
+STORY_RESPONSE_LIMIT_MIGRATION_KEY = "story_response_limit_v2_migration"
+STORY_RESPONSE_LIMIT_MIGRATION_VERSION = "2026-09-18"
+
+
 def _repair_story_response_token_limits() -> None:
-    """Force every game's stored response-token ceiling back to the current canonical
-    values, regardless of whatever was persisted under old limits. The switchable
-    per-game override was removed from the interface, so any stale stored value (e.g.
-    from when the hidden ceiling was 4500) must not be allowed to desync from the
-    ceiling the runtime actually enforces (STORY_RESPONSE_MAX_TOKENS_MAX for regular
-    models, SUBSCRIPTION_RESPONSE_MAX_TOKENS for subscription-only models).
+    """Bring stored response-length settings into the range the control now offers.
+
+    The control was removed from the interface in July 2026 and this function used to force
+    every game onto the hidden ceiling with the toggle off. It is back as a player setting
+    (300-2500, default 800, on), so the stored values have to be migrated rather than
+    flattened -- and the toggle may only be switched on ONCE, or a player who turns it off
+    would find it back on after the next deploy. Hence the AppSetting marker; the clamp below
+    still runs every boot, because an out-of-range value is a bug in any case.
     """
-    from app.services.story_games import STORY_RESPONSE_MAX_TOKENS_MAX, STORY_SUBSCRIPTION_LLM_MODELS
-    from app.services.subscriptions import SUBSCRIPTION_RESPONSE_MAX_TOKENS
+    from app.services.story_games import (
+        STORY_DEFAULT_RESPONSE_MAX_TOKENS,
+        STORY_RESPONSE_MAX_TOKENS_MAX,
+        STORY_RESPONSE_MAX_TOKENS_MIN,
+    )
+
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryGame.__tablename__):
+        return
 
     with SessionLocal() as db:
+        marker = None
+        first_run = False
+        if inspector.has_table(AppSetting.__tablename__):
+            marker = db.get(AppSetting, STORY_RESPONSE_LIMIT_MIGRATION_KEY)
+            first_run = marker is None or str(marker.value or "").strip() != STORY_RESPONSE_LIMIT_MIGRATION_VERSION
+
         changed = False
+        enabled_count = 0
+        clamped_count = 0
         for game in db.query(StoryGame).all():
-            target_limit = (
-                SUBSCRIPTION_RESPONSE_MAX_TOKENS
-                if getattr(game, "story_llm_model", None) in STORY_SUBSCRIPTION_LLM_MODELS
-                else STORY_RESPONSE_MAX_TOKENS_MAX
+            stored = int(getattr(game, "response_max_tokens", 0) or 0)
+            # Anything left over from the forced-ceiling era (or any other out-of-range value)
+            # becomes the new default rather than the maximum: the point of the setting is a
+            # shorter reply, and 2500 would silently opt everyone into the longest one.
+            if stored < STORY_RESPONSE_MAX_TOKENS_MIN or stored >= STORY_RESPONSE_MAX_TOKENS_MAX:
+                game.response_max_tokens = STORY_DEFAULT_RESPONSE_MAX_TOKENS
+                clamped_count += 1
+                changed = True
+            if first_run and not bool(getattr(game, "response_max_tokens_enabled", False)):
+                game.response_max_tokens_enabled = True
+                enabled_count += 1
+                changed = True
+
+        if first_run and marker is not None:
+            marker.value = STORY_RESPONSE_LIMIT_MIGRATION_VERSION
+            changed = True
+        elif first_run and inspector.has_table(AppSetting.__tablename__):
+            db.add(
+                AppSetting(
+                    key=STORY_RESPONSE_LIMIT_MIGRATION_KEY,
+                    value=STORY_RESPONSE_LIMIT_MIGRATION_VERSION,
+                )
             )
-            if int(getattr(game, "response_max_tokens", 0) or 0) != target_limit:
-                game.response_max_tokens = target_limit
-                changed = True
-            if getattr(game, "response_max_tokens_enabled", False):
-                game.response_max_tokens_enabled = False
-                changed = True
+            changed = True
+
         if changed:
             db.commit()
+            logger.info(
+                "Story response limit migration: enabled=%s clamped=%s default=%s",
+                enabled_count,
+                clamped_count,
+                STORY_DEFAULT_RESPONSE_MAX_TOKENS,
+            )
 
 
 def _repair_legacy_story_avatar_media_tokens() -> None:

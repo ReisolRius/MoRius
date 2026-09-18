@@ -1072,8 +1072,11 @@ def _iter_polza_story_stream_chunks(
         for attempt_index in range(len(POLZA_RETRY_DELAYS_SECONDS) + 1):
             if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                 raise StoryGenerationCancelled("Story generation cancelled")
+            # The prompt above was built with the player's target; the provider gets that
+            # target plus its completion margin, with the reasoning reserve on top of both.
+            # Resolved before fitting so the context-window reserve matches what is sent.
             gateway_max_tokens = _story_reasoning_gateway_max_tokens(
-                max_tokens,
+                None if max_tokens is None else monolith_main._story_response_request_max_tokens(max_tokens),
                 model_name=model_name,
                 reasoning_enabled=reasoning_enabled,
             )
@@ -1601,7 +1604,11 @@ def _request_polza_story_text(
             request_messages_payload, request_max_tokens = _fit_polza_messages_to_context_window(
                 prepared_messages_payload,
                 model_name=candidate_model,
-                max_tokens=max_tokens,
+                max_tokens=(
+                    None
+                    if max_tokens is None
+                    else monolith_main._story_response_request_max_tokens(max_tokens)
+                ),
             )
             payload = {
                 "model": candidate_model,

@@ -5,6 +5,7 @@ import sys
 import unittest
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -129,11 +130,66 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
 
         self.assertEqual(payload.game_mode, "visual_novel")
 
-    def test_response_token_limit_allows_new_ceiling(self) -> None:
-        payload = StoryGameSettingsUpdateRequest(response_max_tokens=3_000)
+    def test_response_token_limit_accepts_the_published_range(self) -> None:
+        from app.services.story_games import (
+            STORY_DEFAULT_RESPONSE_MAX_TOKENS,
+            STORY_RESPONSE_MAX_TOKENS_MAX,
+            STORY_RESPONSE_MAX_TOKENS_MIN,
+        )
 
-        self.assertEqual(payload.response_max_tokens, 3_000)
-        self.assertIn("response_max_tokens", payload.model_fields_set)
+        for value in (STORY_RESPONSE_MAX_TOKENS_MIN, STORY_DEFAULT_RESPONSE_MAX_TOKENS, STORY_RESPONSE_MAX_TOKENS_MAX):
+            with self.subTest(value=value):
+                payload = StoryGameSettingsUpdateRequest(response_max_tokens=value)
+                self.assertEqual(payload.response_max_tokens, value)
+                self.assertIn("response_max_tokens", payload.model_fields_set)
+
+        # Outside the range the schema refuses rather than silently clamping, so a stale client
+        # cannot push a game back onto the old unbounded ceiling.
+        for value in (STORY_RESPONSE_MAX_TOKENS_MIN - 1, STORY_RESPONSE_MAX_TOKENS_MAX + 1):
+            with self.subTest(value=value):
+                with self.assertRaises(ValidationError):
+                    StoryGameSettingsUpdateRequest(response_max_tokens=value)
+
+    def test_response_length_is_a_target_with_a_completion_margin(self) -> None:
+        """The number the model is told and the number max_tokens cuts on must never be equal."""
+        from app.services.story_games import (
+            STORY_RESPONSE_MAX_TOKENS_MAX,
+            STORY_RESPONSE_MAX_TOKENS_MIN,
+        )
+
+        for target in (300, 400, 800, 1200, 2000, 2300, 2500):
+            with self.subTest(target=target):
+                told = monolith_main._story_response_target_tokens(target)
+                request_max = monolith_main._story_response_request_max_tokens(target)
+                self.assertGreater(request_max, told)
+                self.assertLessEqual(request_max, STORY_RESPONSE_MAX_TOKENS_MAX)
+                self.assertGreaterEqual(told, STORY_RESPONSE_MAX_TOKENS_MIN)
+                # The player's setting is honoured except at the very top, where the margin
+                # has to come out of the target to stay under the ceiling.
+                self.assertLessEqual(told, target)
+                if target <= STORY_RESPONSE_MAX_TOKENS_MAX - monolith_main.STORY_RESPONSE_COMPLETION_MARGIN_MIN_TOKENS:
+                    self.assertEqual(told, target)
+                prompt = monolith_main._build_story_system_prompt(
+                    [],
+                    [],
+                    [],
+                    model_name="deepseek/deepseek-v3.2",
+                    response_max_tokens=target,
+                )
+                self.assertIn(str(told), prompt)
+                self.assertNotIn(str(request_max), prompt)
+
+    def test_response_length_control_is_on_by_default(self) -> None:
+        from app.services.story_games import (
+            STORY_DEFAULT_RESPONSE_MAX_TOKENS,
+            normalize_story_response_max_tokens,
+            normalize_story_response_max_tokens_enabled,
+        )
+
+        self.assertTrue(normalize_story_response_max_tokens_enabled(None))
+        self.assertFalse(normalize_story_response_max_tokens_enabled(False))
+        self.assertEqual(normalize_story_response_max_tokens(None), STORY_DEFAULT_RESPONSE_MAX_TOKENS)
+        self.assertEqual(STORY_DEFAULT_RESPONSE_MAX_TOKENS, 800)
 
     def test_extended_context_models_use_model_specific_caps(self) -> None:
         self.assertEqual(

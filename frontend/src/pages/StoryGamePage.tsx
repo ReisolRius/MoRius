@@ -960,9 +960,13 @@ const STORY_DEFAULT_CONTEXT_LIMIT = 6000
 const STORY_KEY_MEMORY_BUDGET_SHARE = 0.1
 const STORY_KEY_MEMORY_MIN_BUDGET_TOKENS = 500
 const STORY_PLOT_CONTEXT_MAX_SHARE = 0.35
-const STORY_RESPONSE_MAX_TOKENS_MIN = 200
+// Mirrors STORY_RESPONSE_MAX_TOKENS_* in backend/app/services/story_games.py. The number is a
+// TARGET the narrator is asked to aim for, not a hard cut: the server sends max_tokens with a
+// completion margin above it so a reply is never guillotined mid-word.
+const STORY_RESPONSE_MAX_TOKENS_MIN = 300
 const STORY_RESPONSE_MAX_TOKENS_MAX = 2500
-const STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
+const STORY_DEFAULT_RESPONSE_MAX_TOKENS = 800
+const STORY_RESPONSE_MAX_TOKENS_STEP = 100
 const STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6000
 const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
 const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
@@ -1707,7 +1711,10 @@ const STORY_SETTINGS_INFO_TEXT = {
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
     'Ограничение памяти истории для ИИ. GLM 5.1 может держать до 128000 токенов, AionLabs — до 108000 безопасного лимита, остальные рассказчики ограничены 64000. Чем выше лимит, тем дороже ход.',
-  responseTokens: 'Максимум токенов ответа. ИИ может ответить короче и получает инструкцию завершать мысль внутри выбранного бюджета.',
+  responseTokens:
+    'Ориентир длины ответа рассказчика. Это не жёсткая обрезка: модель планирует сцену под этот объём, '
+    + 'а сервер оставляет ей запас, чтобы она успела закончить фразу. Ответ может выйти короче — это нормально. '
+    + 'Меньше токенов — дешевле ход и медленнее заполняется память истории.',
   responseTokenLimit:
     'Админ-настройка. Когда выключена, скрытый потолок 3000 токенов не отправляется в запрос рассказчика. Обычные пользователи всегда остаются под защитным лимитом.',
   showGgThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли вашего ГГ.',
@@ -8716,12 +8723,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     plotOverflowTokens: number
   } | null>(null)
   const [responseMaxTokens, setResponseMaxTokens] = useState(STORY_DEFAULT_RESPONSE_MAX_TOKENS)
-  const [responseMaxTokensEnabled, setResponseMaxTokensEnabled] = useState(false)
+  const [responseMaxTokensEnabled, setResponseMaxTokensEnabled] = useState(true)
   const [responseTokenLimitEnabled, setResponseTokenLimitEnabled] = useState(false)
   // Switchable response-token limit control was removed from the UI; these flags stay false
   // so the remaining save-guards keep compiling without the (now deleted) handlers.
-  const isSavingResponseMaxTokens = false
-  const isSavingResponseMaxTokensEnabled = false
+  const [isSavingResponseMaxTokens, setIsSavingResponseMaxTokens] = useState(false)
+  const [isSavingResponseMaxTokensEnabled, setIsSavingResponseMaxTokensEnabled] = useState(false)
   const [isSavingResponseTokenLimit, setIsSavingResponseTokenLimit] = useState(false)
   const [storyLlmModel, setStoryLlmModel] = useState<StoryNarratorModelId>(STORY_DEFAULT_NARRATOR_MODEL_ID)
   const [storyReasoningEnabled, setStoryReasoningEnabled] = useState(false)
@@ -16276,6 +16283,64 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     storyTopK,
     storyTopR,
   ])
+
+  const persistResponseMaxTokens = useCallback(
+    async (nextValue: number | null, nextEnabled: boolean | null) => {
+      const targetGameId = activeGameId
+      if (!targetGameId || isSavingResponseMaxTokens || isSavingResponseMaxTokensEnabled) {
+        return
+      }
+      const normalizedValue = nextValue === null ? responseMaxTokens : clampStoryResponseMaxTokens(nextValue)
+      const normalizedEnabled = nextEnabled === null ? responseMaxTokensEnabled : nextEnabled
+      setResponseMaxTokens(normalizedValue)
+      setResponseMaxTokensEnabled(normalizedEnabled)
+      setErrorMessage('')
+      if (nextEnabled === null) {
+        setIsSavingResponseMaxTokens(true)
+      } else {
+        setIsSavingResponseMaxTokensEnabled(true)
+      }
+      try {
+        const updatedGame = await updateStoryGameSettings({
+          token: authToken,
+          gameId: targetGameId,
+          responseMaxTokens: normalizedValue,
+          responseMaxTokensEnabled: normalizedEnabled,
+        })
+        setResponseMaxTokens(clampStoryResponseMaxTokens(updatedGame.response_max_tokens))
+        setResponseMaxTokensEnabled(Boolean(updatedGame.response_max_tokens_enabled))
+        applyUpdatedGameSummary(updatedGame)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить длину ответа'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingResponseMaxTokens(false)
+        setIsSavingResponseMaxTokensEnabled(false)
+      }
+    },
+    [
+      activeGameId,
+      applyUpdatedGameSummary,
+      authToken,
+      isSavingResponseMaxTokens,
+      isSavingResponseMaxTokensEnabled,
+      responseMaxTokens,
+      responseMaxTokensEnabled,
+    ],
+  )
+
+  const handleResponseMaxTokensSliderChange = useCallback((_event: Event, nextValue: number | number[]) => {
+    const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
+    setResponseMaxTokens(clampStoryResponseMaxTokens(rawValue))
+  }, [])
+
+  const handleResponseMaxTokensSliderCommit = useCallback(
+    async (_event: unknown, nextValue: number | number[]) => {
+      const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
+      await persistResponseMaxTokens(rawValue, null)
+    },
+    [persistResponseMaxTokens],
+  )
 
   const persistContextLimit = useCallback(
     async (nextValue: number) => {
@@ -26366,6 +26431,87 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               {currentStoryContextLimitMax}
                             </Typography>
                           </Stack>
+
+                          <Stack
+                            direction="row"
+                            justifyContent="space-between"
+                            alignItems="center"
+                            spacing={0.8}
+                            sx={{
+                              mt: 1.1,
+                              pt: 1.1,
+                              borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 85%, transparent)',
+                            }}
+                          >
+                            <SettingsSectionLabel text="Длина ответа" tooltip={STORY_SETTINGS_INFO_TEXT.responseTokens} />
+                            <Stack direction="row" alignItems="center" spacing={0.5}>
+                              {isSavingResponseMaxTokens || isSavingResponseMaxTokensEnabled ? (
+                                <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} />
+                              ) : null}
+                              <Switch
+                                size="small"
+                                checked={responseMaxTokensEnabled}
+                                onChange={(event) => {
+                                  void persistResponseMaxTokens(null, event.target.checked)
+                                }}
+                                disabled={isSavingStorySettings || isGenerating}
+                              />
+                            </Stack>
+                          </Stack>
+
+                          {responseMaxTokensEnabled ? (
+                            <>
+                              <Stack direction="row" alignItems="baseline" spacing={0.65} sx={{ mt: 0.5 }}>
+                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.7rem', fontWeight: 800, lineHeight: 1.1 }}>
+                                  {responseMaxTokens}
+                                </Typography>
+                                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.86rem', fontWeight: 600 }}>
+                                  токенов
+                                </Typography>
+                              </Stack>
+
+                              <Box sx={{ overflow: 'visible', px: 1.15, pt: 0.6 }}>
+                                <Slider
+                                  value={responseMaxTokens}
+                                  min={STORY_RESPONSE_MAX_TOKENS_MIN}
+                                  max={STORY_RESPONSE_MAX_TOKENS_MAX}
+                                  step={STORY_RESPONSE_MAX_TOKENS_STEP}
+                                  onChange={handleResponseMaxTokensSliderChange}
+                                  onChangeCommitted={(event, value) => {
+                                    void handleResponseMaxTokensSliderCommit(event, value)
+                                  }}
+                                  disabled={isSavingStorySettings || isGenerating}
+                                  sx={{
+                                    py: 1.15,
+                                    color: 'var(--morius-accent)',
+                                    overflow: 'visible',
+                                    '& .MuiSlider-thumb': {
+                                      width: 18,
+                                      height: 18,
+                                      backgroundColor: sliderThumbColor,
+                                      border: `2px solid ${sliderThumbBorderColor}`,
+                                      boxShadow: '0 0 0 4px color-mix(in srgb, var(--morius-accent) 12%, transparent)',
+                                    },
+                                    '& .MuiSlider-rail': { opacity: 1, backgroundColor: sliderRailColor },
+                                  }}
+                                />
+                              </Box>
+
+                              <Stack direction="row" justifyContent="space-between" sx={{ mt: -0.15 }}>
+                                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
+                                  {STORY_RESPONSE_MAX_TOKENS_MIN}
+                                </Typography>
+                                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
+                                  {STORY_RESPONSE_MAX_TOKENS_MAX}
+                                </Typography>
+                              </Stack>
+                            </>
+                          ) : (
+                            <Typography sx={{ mt: 0.5, color: 'var(--morius-text-secondary)', fontSize: '0.76rem', lineHeight: 1.35 }}>
+                              Без ограничения рассказчик пишет столько, сколько сочтёт нужным — до {STORY_RESPONSE_MAX_TOKENS_MAX} токенов.
+                              Ходы выходят длиннее, память истории заполняется быстрее.
+                            </Typography>
+                          )}
 
                           <Box
                             sx={{

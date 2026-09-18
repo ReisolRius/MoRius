@@ -3194,11 +3194,20 @@ def _generate_story_response_locked(
     show_npc_thoughts = False if raw_show_npc_thoughts is None else bool(raw_show_npc_thoughts)
     if payload.show_npc_thoughts is not None:
         show_npc_thoughts = bool(payload.show_npc_thoughts)
-    # The switchable per-game response-token limit was removed from the interface. Ignore any stored
-    # value or payload override so non-subscription turns always fall back to the hidden ceiling
-    # (STORY_RESPONSE_MAX_TOKENS_MAX); the admin bypass below is still honored.
-    story_response_max_tokens_enabled = False
+    # Per-game response length. The stored value is a TARGET the narrator is asked to aim for,
+    # not the number the provider cuts on -- see _story_response_request_max_tokens, which adds
+    # the completion margin on top of it. With the control off the turn falls back to the hidden
+    # ceiling (STORY_RESPONSE_MAX_TOKENS_MAX) and the admin bypass below still applies.
+    story_response_max_tokens_enabled = normalize_story_response_max_tokens_enabled(
+        getattr(game, "response_max_tokens_enabled", None)
+    )
+    if payload.response_max_tokens_enabled is not None:
+        story_response_max_tokens_enabled = normalize_story_response_max_tokens_enabled(
+            payload.response_max_tokens_enabled
+        )
     story_response_max_tokens = normalize_story_response_max_tokens(getattr(game, "response_max_tokens", None))
+    if payload.response_max_tokens is not None:
+        story_response_max_tokens = normalize_story_response_max_tokens(payload.response_max_tokens)
     if not story_response_max_tokens_enabled:
         response_token_limit_enabled = normalize_story_response_token_limit_enabled(
             getattr(game, "response_token_limit_enabled", None)

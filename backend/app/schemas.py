@@ -933,7 +933,7 @@ class StoryGameCreateRequest(BaseModel):
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
     cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
     context_limit_chars: int | None = Field(default=None, ge=6_000, le=128_000)
-    response_max_tokens: int | None = Field(default=None, ge=200, le=3_000)
+    response_max_tokens: int | None = Field(default=None, ge=300, le=2_500)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
     story_reasoning_enabled: bool | None = None
@@ -982,7 +982,7 @@ class StoryGameCloneRequest(BaseModel):
 
 class StoryGameSettingsUpdateRequest(BaseModel):
     context_limit_chars: int | None = Field(default=None, ge=6_000, le=128_000)
-    response_max_tokens: int | None = Field(default=None, ge=200, le=3_000)
+    response_max_tokens: int | None = Field(default=None, ge=300, le=2_500)
     response_max_tokens_enabled: bool | None = None
     response_token_limit_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
@@ -1060,7 +1060,8 @@ class StoryGenerateRequest(BaseModel):
     smart_regeneration: StorySmartRegenerationRequest | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
     story_reasoning_enabled: bool | None = None
-    response_max_tokens: int | None = Field(default=None, ge=200, le=3_000)
+    response_max_tokens: int | None = Field(default=None, ge=300, le=2_500)
+    response_max_tokens_enabled: bool | None = None
     memory_optimization_enabled: bool | None = None
     story_repetition_penalty: float | None = Field(default=None, ge=1.0, le=2.0)
     story_top_k: int | None = Field(default=None, ge=0, le=200)
