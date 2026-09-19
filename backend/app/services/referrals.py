@@ -125,6 +125,15 @@ def get_referred_reward_amount_for_purchase(db: Session, *, purchase_id: int, re
 
 
 def build_referral_summary(db: Session, user: User) -> ReferralSummary:
+    if bool(getattr(user, "is_guest", False)):
+        # A guest cannot buy, so it has nothing to invite with - and must not mint a code that
+        # would outlive it once it is merged into an account.
+        return ReferralSummary(
+            referral_code="",
+            paid_referrals_count=0,
+            referral_pending_purchase=False,
+            pending_bonus_amount=0,
+        )
     referral_code = ensure_user_referral_code(db, user)
     referral_pending_purchase = has_pending_referral_bonus(user)
     return ReferralSummary(
@@ -137,6 +146,15 @@ def build_referral_summary(db: Session, user: User) -> ReferralSummary:
 
 def apply_referral_code(db: Session, *, user: User, raw_code: str | None) -> ReferralApplyResult:
     code = normalize_referral_code(raw_code)
+    if bool(getattr(user, "is_guest", False)):
+        # Not an error: the client keeps the code and applies it again once the guest registers.
+        return ReferralApplyResult(
+            ok=False,
+            reason="account_required",
+            message="Реферальная ссылка применится после регистрации.",
+            referral_pending_purchase=False,
+            pending_bonus_amount=0,
+        )
     if not code:
         return ReferralApplyResult(
             ok=False,

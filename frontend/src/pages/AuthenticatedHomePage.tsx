@@ -3901,7 +3901,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       />
 
       <CreatorRewardPromoDialog
-        open={isCreatorRewardPromoOpen}
+        // The reward is paid in sols to an account; a guest sees the offer once it has one.
+        open={isCreatorRewardPromoOpen && !user.is_guest}
         onClose={() => {
           markCreatorRewardPromoSeen()
           setIsCreatorRewardPromoOpen(false)

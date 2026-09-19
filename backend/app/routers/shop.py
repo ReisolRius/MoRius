@@ -40,6 +40,7 @@ from app.schemas import (
     UserOut,
 )
 from app.services.auth_identity import get_current_user, serialize_user_out, user_has_admin_panel_access
+from app.services.guest_access import ACCOUNT_REQUIRED_REASON_SHOP, ensure_account_user
 from app.services.concurrency import add_user_tokens, spend_user_tokens_if_sufficient
 from app.services.cosmetics import (
     COSMETIC_KIND_AVATAR_FRAME,
@@ -685,6 +686,7 @@ def purchase_shop_cosmetic_item(
     db: Session = Depends(get_db),
 ) -> CosmeticPurchaseOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SHOP)
     item = db.scalar(select(CosmeticItem).where(CosmeticItem.id == int(item_id), CosmeticItem.is_active.is_(True)))
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cosmetic item not found")
@@ -725,6 +727,9 @@ def create_publication_encouragement(
     db: Session = Depends(get_db),
 ) -> EncouragementOut:
     sender = get_current_user(db, authorization)
+    # A guest's sols are its one-time starter grant; passing them on would launder free sols
+    # into a real account.
+    ensure_account_user(sender, reason=ACCOUNT_REQUIRED_REASON_SHOP)
     amount = max(int(payload.amount_coins or 0), 0)
     if amount < 5:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Минимум для поддержки — 5 солов")

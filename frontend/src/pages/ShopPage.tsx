@@ -68,6 +68,7 @@ import { withKnownCosmeticImageUrl } from '../utils/cosmeticImageFallbacks'
 import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
 import { formatCheckoutPrice } from '../utils/paymentPricing'
 import { PromoBanner, isPromoRunning } from '../components/shop/PromoDiscount'
+import { requestAccount } from '../utils/guestSession'
 
 type CosmeticSortMode = 'newest' | 'price'
 
@@ -416,6 +417,15 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const canManageShop = isPrivilegedUser(user)
   const isAdmin = user.role.trim().toLowerCase() === 'administrator'
+  // A guest may look around the shop; the moment it tries to pay, it is sent to sign up.
+  const isGuest = Boolean(user.is_guest)
+  const guardPurchase = useCallback((): boolean => {
+    if (!isGuest) {
+      return false
+    }
+    requestAccount('shop')
+    return true
+  }, [isGuest])
   // Subscriptions are previewable/testable ONLY by an administrator before ЮKassa launch.
   // Players and moderators see "Скоро добавим" until SUBSCRIPTIONS_ENABLED is flipped on.
   const subscriptionsAvailable = subscriptionsEnabled || isAdmin
@@ -470,11 +480,11 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   }, [])
 
   useEffect(() => {
-    if (isAdmin || subscriptionsEnabled) {
+    if (!isGuest && (isAdmin || subscriptionsEnabled)) {
       loadPaymentMethods()
       loadSubscriptions()
     }
-  }, [isAdmin, subscriptionsEnabled, loadPaymentMethods, loadSubscriptions])
+  }, [isAdmin, isGuest, subscriptionsEnabled, loadPaymentMethods, loadSubscriptions])
 
   // Deep link from the profile "Управление подпиской и картами" button: open card management
   // (отмена автопродления / отвязка карты) in one click.
@@ -483,7 +493,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
       return
     }
     const params = new URLSearchParams(window.location.search)
-    if (params.get('manage') !== 'cards') {
+    if (params.get('manage') !== 'cards' || isGuest) {
       return
     }
     setUnbindConsent({})
@@ -494,7 +504,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
     params.delete('manage')
     const nextSearch = params.toString()
     window.history.replaceState({}, '', `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`)
-  }, [loadPaymentMethods, loadSubscriptions])
+  }, [isGuest, loadPaymentMethods, loadSubscriptions])
 
   const plans = catalog?.plans.length ? catalog.plans : DEFAULT_PLANS
   const topUpPlanIndex = topUpPlan ? plans.findIndex((plan) => plan.id === topUpPlan.id) : -1
@@ -533,6 +543,9 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   const previewAvatarUser = useMemo(() => ({ ...user, avatar_frame_id: 'none', avatar_frame_image_url: null }), [user])
 
   const handleOpenTopUpPlan = (plan: CoinTopUpPlan) => {
+    if (guardPurchase()) {
+      return
+    }
     setTopUpCoverCommission(false)
     setTopUpPlan(plan)
     setError('')
@@ -573,7 +586,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   }
 
   const handleBuyCosmetic = async (item: CosmeticItem) => {
-    if (item.is_owned || buyingItemId || !item.is_active) {
+    if (item.is_owned || buyingItemId || !item.is_active || guardPurchase()) {
       return
     }
     setBuyingItemId(item.id)
@@ -761,6 +774,9 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   }
 
   const handleOpenSubscribe = (plan: SubscriptionPlan) => {
+    if (guardPurchase()) {
+      return
+    }
     setSubscribeConsent(false)
     setSubscribeCoverCommission(false)
     setSubscribeInfo(false)
@@ -905,6 +921,9 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   }
 
   const handleOpenCards = () => {
+    if (guardPurchase()) {
+      return
+    }
     setUnbindConsent({})
     setJustSubscribed(false)
     setIsCardsOpen(true)
@@ -1118,7 +1137,11 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
               <SoulAmount amount={item.price_coins} iconSize={19} color="var(--morius-accent)" fontSize="0.98rem" />
             </Typography>
             <Button
-              onClick={() => setPurchaseConfirmItem(item)}
+              onClick={() => {
+                if (!guardPurchase()) {
+                  setPurchaseConfirmItem(item)
+                }
+              }}
               disabled={isOwned || isBuying || isUnavailable}
               sx={{
                 minHeight: 38,
@@ -1401,7 +1424,11 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
           <Button onClick={() => setPreviewTarget(null)} sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}>Закрыть</Button>
           {previewTarget ? (
           <Button
-            onClick={() => setPurchaseConfirmItem(previewTarget.item)}
+            onClick={() => {
+              if (!guardPurchase()) {
+                setPurchaseConfirmItem(previewTarget.item)
+              }
+            }}
             disabled={previewTarget.item.is_owned || ownedSelectionIds.has(previewTarget.item.selection_id) || buyingItemId === previewTarget.item.id || !previewTarget.item.is_active}
             sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #ffffff 18%)' }}
           >

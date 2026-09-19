@@ -21,6 +21,11 @@ from app.schemas import (
     StoryInstructionTemplateUpdateRequest,
 )
 from app.services.auth_identity import get_current_user
+from app.services.guest_access import (
+    ACCOUNT_REQUIRED_REASON_PUBLISH,
+    ACCOUNT_REQUIRED_REASON_SOCIAL,
+    ensure_account_user,
+)
 from app.services.concurrency import (
     apply_story_instruction_template_rating_insert,
     apply_story_instruction_template_rating_update,
@@ -478,6 +483,7 @@ def rate_story_community_instruction_template(
     db: Session = Depends(get_db),
 ) -> StoryCommunityInstructionTemplateSummaryOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SOCIAL)
     template = get_public_story_instruction_template_or_404(db, template_id)
     rating_value = int(payload.rating)
     if rating_value <= 0:
@@ -534,6 +540,7 @@ def report_story_community_instruction_template(
     db: Session = Depends(get_db),
 ) -> StoryCommunityInstructionTemplateSummaryOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SOCIAL)
     template = get_public_story_instruction_template_or_404(db, template_id)
     description = payload.description.strip()
     if not description:
@@ -667,6 +674,8 @@ def create_story_instruction_template(
 ) -> StoryInstructionTemplateOut:
     user = get_current_user(db, authorization)
     requested_visibility = normalize_story_instruction_template_visibility(payload.visibility)
+    if requested_visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC:
+        ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_PUBLISH)
     template = StoryInstructionTemplate(
         user_id=user.id,
         title=normalize_story_instruction_title(payload.title),
@@ -713,6 +722,8 @@ def update_story_instruction_template(
     should_notify_publication_queue = False
     if payload.visibility is not None:
         requested_visibility = normalize_story_instruction_template_visibility(payload.visibility)
+        if requested_visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC:
+            ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_PUBLISH)
     if requested_visibility is not None:
         if requested_visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC and template.source_template_id is None:
             mark_story_publication_pending(template)

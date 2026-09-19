@@ -29,6 +29,7 @@ import type { AiAssistantChatResponse } from '../services/aiAssistantApi'
 import type { StoryCommunityInstructionTemplateSummary, StoryInstructionTemplate } from '../types/story'
 import { normalizeStoryPublicationStatus, resolvePublicationDraftVisibility } from '../utils/publication'
 import TextLimitIndicator from './TextLimitIndicator'
+import { guardGuestAction } from '../utils/guestSession'
 
 const TEMPLATE_TITLE_MAX_LENGTH = 120
 const TEMPLATE_CONTENT_MAX_LENGTH = 8000
@@ -1260,7 +1261,12 @@ function InstructionTemplateDialog({
                   Приватная
                 </Button>
                 <Button
-                  onClick={() => setTemplateVisibilityDraft('public')}
+                  onClick={() => {
+                    // Publishing needs an account; a guest is sent to sign up instead.
+                    if (!guardGuestAction('publish')) {
+                      setTemplateVisibilityDraft('public')
+                    }
+                  }}
                   disabled={isSavingTemplate}
                   sx={{
                     minHeight: 34,

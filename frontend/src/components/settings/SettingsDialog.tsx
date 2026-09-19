@@ -16,6 +16,7 @@ import {
 } from '@mui/material'
 import editIconMarkup from '../../assets/icons/community-edit.svg?raw'
 import {
+  deleteCurrentAccount,
   getShopCatalog,
   replaceCurrentAuthWithPassword,
   startVKIDOAuth,
@@ -32,7 +33,9 @@ import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 import ThemedSvgIcon from '../icons/ThemedSvgIcon'
 import ProgressiveImage from '../media/ProgressiveImage'
 import AvatarFrame from '../profile/AvatarFrame'
+import DeleteAccountDialog from '../profile/DeleteAccountDialog'
 import UserAvatar from '../profile/UserAvatar'
+import { notifyAccountDeleted, requestAccount } from '../../utils/guestSession'
 
 type SettingsDialogProps = {
   open: boolean
@@ -169,11 +172,25 @@ function SettingsDialog({
   const [isStartingYandexLink, setIsStartingYandexLink] = useState(false)
   const [vkIDLinkProvider, setVKIDLinkProvider] = useState<'vk' | 'mail' | null>(null)
   const [authMethodSuccess, setAuthMethodSuccess] = useState('')
+  const [isDeleteAccountOpen, setIsDeleteAccountOpen] = useState(false)
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false)
+  const [deleteAccountError, setDeleteAccountError] = useState('')
   const activeAuthProvider = resolveActiveAuthProvider(user.auth_provider || 'email')
   const isAuthMethodBusy = isStartingYandexLink || vkIDLinkProvider !== null || isReplacingAuthMethod
+  const isGuest = Boolean(user.is_guest)
+  // Every "Настройки" button in the app ends here, so this is where a guest is turned away.
+  const isOpen = open && !isGuest
 
   useEffect(() => {
-    if (!open) {
+    if (!open || !isGuest) {
+      return
+    }
+    onClose()
+    requestAccount('settings')
+  }, [isGuest, onClose, open])
+
+  useEffect(() => {
+    if (!isOpen) {
       return
     }
     setActiveTab('profile')
@@ -204,10 +221,10 @@ function SettingsDialog({
       show_public_characters: user.show_public_characters ?? false,
       show_public_instruction_templates: user.show_public_instruction_templates ?? false,
     })
-  }, [open, user])
+  }, [isOpen, user])
 
   useEffect(() => {
-    if (!open) {
+    if (!isOpen) {
       return
     }
     let ignore = false
@@ -229,7 +246,7 @@ function SettingsDialog({
     return () => {
       ignore = true
     }
-  }, [authToken, open])
+  }, [authToken, isOpen])
 
   const hasProfileUnsavedChanges = useMemo(() => (
     displayName !== (user.display_name ?? '') ||
@@ -397,6 +414,24 @@ function SettingsDialog({
     }
   }
 
+  const handleDeleteAccount = async (confirmation: string) => {
+    if (isDeletingAccount) {
+      return
+    }
+    setDeleteAccountError('')
+    setIsDeletingAccount(true)
+    try {
+      await deleteCurrentAccount({ token: authToken, confirmation })
+      setIsDeleteAccountOpen(false)
+      onClose()
+      notifyAccountDeleted()
+    } catch (requestError) {
+      setDeleteAccountError(requestError instanceof Error ? requestError.message : 'Не удалось удалить аккаунт')
+    } finally {
+      setIsDeletingAccount(false)
+    }
+  }
+
   const previewDescription = profileDescription.trim() || 'Краткое описание профиля'
   const selectedProfileBanner = useMemo(() => getProfileBannerPreset(profileBannerId), [profileBannerId])
   const selectedOwnedProfileBanner = useMemo(
@@ -414,7 +449,7 @@ function SettingsDialog({
 
   return (
     <Dialog
-      open={open}
+      open={isOpen}
       onClose={handleDialogClose}
       fullWidth
       maxWidth={false}
@@ -1047,6 +1082,43 @@ function SettingsDialog({
                     >
                       Выйти из аккаунта
                     </Button>
+
+                    <Box
+                      sx={{
+                        display: activeTab === 'profile' ? 'block' : 'none',
+                        mt: 1,
+                        borderRadius: '16px',
+                        border: '1px solid rgba(221, 110, 110, 0.32)',
+                        backgroundColor: 'rgba(160, 50, 50, 0.08)',
+                        p: 1.5,
+                      }}
+                    >
+                      <Typography sx={{ color: '#f1b4b4', fontSize: '1.05rem', fontWeight: 800 }}>Удаление аккаунта</Typography>
+                      <Typography sx={{ mt: 0.45, color: 'var(--morius-text-secondary)', fontSize: '0.88rem', lineHeight: 1.45 }}>
+                        Аккаунт удаляется навсегда вместе со всеми данными: мирами и историями, персонажами, балансом солов,
+                        историей покупок и донатов, подпиской и привязанными картами. Восстановить их будет нельзя.
+                      </Typography>
+                      <Button
+                        onClick={() => {
+                          setDeleteAccountError('')
+                          setIsDeleteAccountOpen(true)
+                        }}
+                        sx={{
+                          mt: 1.2,
+                          minHeight: 40,
+                          px: 1.7,
+                          borderRadius: '11px',
+                          textTransform: 'none',
+                          fontWeight: 700,
+                          color: '#ffd9d9',
+                          border: '1px solid rgba(221, 110, 110, 0.45)',
+                          backgroundColor: 'rgba(170, 56, 56, 0.2)',
+                          '&:hover': { backgroundColor: 'rgba(185, 62, 62, 0.34)', color: '#ffffff' },
+                        }}
+                      >
+                        Удалить аккаунт
+                      </Button>
+                    </Box>
                   </Stack>
                 </Box>
               </Stack>
@@ -1156,6 +1228,18 @@ function SettingsDialog({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <DeleteAccountDialog
+        open={isDeleteAccountOpen}
+        subject="self"
+        targetName={(user.display_name ?? '').trim() || user.email}
+        coins={user.coins}
+        subscriptionTitle={user.subscription?.plan_title ?? null}
+        isSubmitting={isDeletingAccount}
+        error={deleteAccountError}
+        onClose={() => setIsDeleteAccountOpen(false)}
+        onConfirm={(confirmation) => void handleDeleteAccount(confirmation)}
+      />
 
       <Dialog
         open={isCloseConfirmOpen}

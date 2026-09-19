@@ -215,9 +215,24 @@ def serialize_user_out(user: User, *, db: Session | None = None) -> UserOut:
     )
 
 
-def issue_auth_response(user: User, *, is_new_user: bool = False, db: Session | None = None) -> AuthResponse:
-    token = create_access_token(subject=str(user.id), claims={"email": user.email})
-    return AuthResponse(access_token=token, user=serialize_user_out(user, db=db), is_new_user=is_new_user)
+def issue_auth_response(
+    user: User,
+    *,
+    is_new_user: bool = False,
+    db: Session | None = None,
+    merged_guest: Any = None,
+) -> AuthResponse:
+    claims: dict[str, Any] = {"email": user.email}
+    if bool(getattr(user, "is_guest", False)):
+        # Lets GuestAccountRequiredMiddleware recognise a guest's 402 without a database read.
+        claims["guest"] = True
+    token = create_access_token(subject=str(user.id), claims=claims)
+    return AuthResponse(
+        access_token=token,
+        user=serialize_user_out(user, db=db),
+        is_new_user=is_new_user,
+        merged_guest=merged_guest,
+    )
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:

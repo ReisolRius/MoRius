@@ -148,6 +148,7 @@ import {
   type CloneSectionKey,
   type CloneSelectionState,
 } from '../constants/cloneSections'
+import { guardGuestAction } from '../utils/guestSession'
 
 type ProfilePageProps = {
   user: AuthUser
@@ -6359,7 +6360,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               </Box>
               {isOwnProfile ? (
                 <Button
-                  onClick={() => setProfileShowcaseDialogOpen(true)}
+                  onClick={() => {
+                    if (!guardGuestAction('settings')) {
+                      setProfileShowcaseDialogOpen(true)
+                    }
+                  }}
                   sx={{
                     minHeight: 38,
                     px: 1.6,

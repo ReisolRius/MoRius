@@ -39,6 +39,7 @@ from app.schemas import (
     StoryCommunityInstructionTemplateSummaryOut,
 )
 from app.services.auth_identity import get_current_user
+from app.services.guest_access import ACCOUNT_REQUIRED_REASON_SETTINGS, ACCOUNT_REQUIRED_REASON_SOCIAL, ensure_account_user
 from app.services.media import normalize_media_scale, resolve_media_display_url
 from app.services.profile_showcase import normalize_profile_showcase
 from app.services.cosmetics import (
@@ -967,6 +968,7 @@ def update_my_profile_privacy(
     db: Session = Depends(get_db),
 ) -> ProfilePrivacyOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SETTINGS)
     if not payload.model_fields_set:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -996,6 +998,7 @@ def follow_user_profile(
     db: Session = Depends(get_db),
 ) -> ProfileFollowStateOut:
     viewer_user = get_current_user(db, authorization)
+    ensure_account_user(viewer_user, reason=ACCOUNT_REQUIRED_REASON_SOCIAL)
     if viewer_user.id == user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1053,6 +1056,7 @@ def unfollow_user_profile(
     db: Session = Depends(get_db),
 ) -> ProfileFollowStateOut:
     viewer_user = get_current_user(db, authorization)
+    ensure_account_user(viewer_user, reason=ACCOUNT_REQUIRED_REASON_SOCIAL)
     if viewer_user.id == user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -152,7 +152,7 @@ def get_dashboard_stats(
     published_characters_count = int(
         db.scalar(select(func.count(StoryCharacter.id)).where(StoryCharacter.visibility == "public")) or 0
     )
-    players_count = int(db.scalar(select(func.count(User.id))) or 0)
+    players_count = int(db.scalar(select(func.count(User.id)).where(User.is_guest.is_(False))) or 0)
     return DashboardStatsOut(
         published_games_count=published_games_count,
         published_characters_count=published_characters_count,

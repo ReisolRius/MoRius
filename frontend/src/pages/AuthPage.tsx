@@ -1,17 +1,16 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { useGoogleLogin } from '@react-oauth/google'
 import {
-  Alert,
-  Box,
-  Button,
-  Checkbox,
-  CircularProgress,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material'
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
+import { useGoogleLogin } from '@react-oauth/google'
+import { Alert, Box, Button, Checkbox, CircularProgress, Collapse, Stack, Typography } from '@mui/material'
 import { brandLogo } from '../assets'
-const authHero = '/landing/auth.webp'
 import { GOOGLE_CLIENT_ID, IS_GOOGLE_AUTH_CONFIGURED } from '../config/env'
 import {
   loginWithEmail,
@@ -24,44 +23,72 @@ import {
   verifyPasswordReset,
 } from '../services/authApi'
 import type { AuthResponse } from '../types/auth'
+import { ACCOUNT_REQUIRED_MESSAGES, peekAuthReturnPath, type AccountRequiredReason } from '../utils/guestSession'
+
+const authHero = '/landing/auth.webp'
 
 export type AuthPageMode = 'login' | 'register' | 'reset'
 
 type AuthPageProps = {
   initialMode: AuthPageMode
+  /** Why the player was sent here - a guest who ran out of sols, a browser that has an account. */
+  reason?: AccountRequiredReason | null
+  /** The guest this browser is playing as; its worlds move into the account after sign-in. */
+  guestName?: string | null
+  isGuestSession?: boolean
   onNavigate: (path: string) => void
   onAuthSuccess: (payload: AuthResponse) => void
 }
 
-type AuthFieldProps = {
+type StepId = 'email' | 'nickname' | 'password' | 'confirm' | 'code'
+
+type StepConfig = {
+  id: StepId
   label: string
   value: string
   onChange: (value: string) => void
+  isValid: boolean
   type?: string
   placeholder?: string
   autoComplete?: string
-  disabled?: boolean
-  endLabel?: ReactNode
   inputMode?: 'email' | 'numeric' | 'text'
   maxLength?: number
-  error?: boolean
-  helperText?: string
+  disabled?: boolean
+  hint?: string
+  error?: string
+  endLabel?: ReactNode
 }
 
 const AUTH_EMAIL_MAX_LENGTH = 320
 const AUTH_NICKNAME_MAX_LENGTH = 120
 const AUTH_PASSWORD_MAX_LENGTH = 128
 const AUTH_CODE_LENGTH = 6
+const PASSWORD_MIN_LENGTH = 8
 const RESEND_COOLDOWN_SECONDS = 60
 const RESEND_COOLDOWN_REGEX = /please wait\s+(\d+)\s+seconds?/i
-const LOGIN_BUTTON_COLOR = '#f8ae2c'
-const REGISTER_LINK_COLOR = '#f8ae2c'
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+/** How long typing has to pause before a valid field opens the next one. */
+const STEP_REVEAL_DELAY_MS = 420
+
+const ACCENT = '#f8ae2c'
 const PAGE_BACKGROUND = '#000000'
 const PANEL_BACKGROUND = '#0d0e0f'
 const INPUT_BACKGROUND = '#1b1f22'
 const INPUT_TEXT = '#f9f7f4'
 const MUTED_TEXT = '#828a92'
 const BORDER_COLOR = 'rgba(199,231,255,0.13)'
+const ERROR_TEXT = '#ff8585'
+const SOFT_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+
+// Every field sits in a slot of the same height, so the space a field will take is reserved
+// before it appears and nothing below it ever moves while the form fills in.
+const STEP_LABEL_HEIGHT = 18
+const STEP_LABEL_GAP = 6
+const STEP_INPUT_HEIGHT = 48
+const STEP_GAP = 12
+const STEP_SLOT_HEIGHT = STEP_LABEL_HEIGHT + STEP_LABEL_GAP + STEP_INPUT_HEIGHT
+const RAIL_WIDTH = 26
+const RAIL_X = 5
 
 function extractResendCooldownSeconds(detail: string): number | null {
   const match = detail.match(RESEND_COOLDOWN_REGEX)
@@ -83,86 +110,18 @@ function normalizeEmail(value: string): string {
   return value.trim().toLowerCase()
 }
 
-function AuthField({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  placeholder,
-  autoComplete,
-  disabled = false,
-  endLabel,
-  inputMode = 'text',
-  maxLength,
-  error = false,
-  helperText,
-}: AuthFieldProps) {
-  return (
-    <Stack spacing={0.65}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-        <Typography sx={{ color: INPUT_TEXT, fontSize: '1rem', fontWeight: 400, lineHeight: 1.2 }}>
-          {label}
-        </Typography>
-        {endLabel}
-      </Stack>
-      <TextField
-        value={value}
-        type={type}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
-        disabled={disabled}
-        error={error}
-        helperText={helperText}
-        onChange={(event) => onChange(event.target.value)}
-        fullWidth
-        inputProps={{ inputMode, maxLength }}
-        sx={{
-          '& .MuiOutlinedInput-root': {
-            minHeight: 57,
-            borderRadius: '11px',
-            backgroundColor: INPUT_BACKGROUND,
-            color: INPUT_TEXT,
-            fontFamily: '"Manrope", sans-serif',
-            fontSize: '1rem',
-            fontWeight: 400,
-            '& fieldset': {
-              borderColor: error ? '#ff6b6b' : 'transparent',
-            },
-            '&:hover fieldset': {
-              borderColor: error ? '#ff8585' : 'color-mix(in srgb, #ffffff 12%, transparent)',
-            },
-            '&.Mui-focused fieldset': {
-              borderColor: error ? '#ff8585' : 'color-mix(in srgb, #ffffff 22%, transparent)',
-            },
-            '&.Mui-disabled': {
-              // A translucent accent over black reads as muddy brown. Solid muted fill instead.
-              opacity: 1,
-              backgroundColor: '#272c30',
-              color: '#666d75',
-            },
-          },
-          '& .MuiInputBase-input::placeholder': {
-            color: '#7f8790',
-            opacity: 1,
-          },
-          '& .MuiFormHelperText-root': {
-            mt: 0.6,
-            mx: 0,
-            color: '#ff8585',
-            fontFamily: '"Manrope", sans-serif',
-            fontSize: '0.84rem',
-            fontWeight: 700,
-          },
-        }}
-      />
-    </Stack>
-  )
+function stepTop(index: number): number {
+  return index * (STEP_SLOT_HEIGHT + STEP_GAP)
+}
+
+function stepsAreaHeight(count: number): number {
+  return count > 0 ? stepTop(count - 1) + STEP_SLOT_HEIGHT : 0
 }
 
 function TextButton({
   children,
   onClick,
-  color = REGISTER_LINK_COLOR,
+  color = ACCENT,
 }: {
   children: ReactNode
   onClick: () => void
@@ -184,6 +143,7 @@ function TextButton({
         fontWeight: 400,
         textDecoration: 'underline',
         textUnderlineOffset: '2px',
+        '&:hover': { filter: 'brightness(1.15)' },
       }}
     >
       {children}
@@ -193,12 +153,7 @@ function TextButton({
 
 function GoogleGlyph() {
   return (
-    <Box
-      component="svg"
-      aria-hidden
-      viewBox="0 0 18 18"
-      sx={{ width: 24, height: 24, display: 'block', flexShrink: 0 }}
-    >
+    <Box component="svg" aria-hidden viewBox="0 0 18 18" sx={{ width: 24, height: 24, display: 'block', flexShrink: 0 }}>
       <path
         fill="#4285F4"
         d="M17.64 9.204c0-.638-.057-1.252-.164-1.841H9v3.482h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.258h2.908c1.702-1.568 2.684-3.874 2.684-6.615z"
@@ -297,10 +252,7 @@ function GoogleAuthButton({
         fontWeight: 700,
         textTransform: 'none',
         gap: 1.2,
-        '&:hover': {
-          backgroundColor: '#171a1d',
-          borderColor: '#47505b',
-        },
+        '&:hover': { backgroundColor: '#171a1d', borderColor: '#47505b' },
       }}
     >
       <GoogleGlyph />
@@ -313,11 +265,13 @@ function ProviderAuthButton({
   provider,
   label,
   disabled,
+  busy,
   onClick,
 }: {
   provider: 'vk' | 'yandex' | 'mail'
   label: string
   disabled: boolean
+  busy: boolean
   onClick: () => void
 }) {
   const hoverColor = provider === 'yandex' ? '#fc3f1d' : provider === 'vk' ? '#2787f5' : '#168de2'
@@ -327,32 +281,187 @@ function ProviderAuthButton({
       fullWidth
       disabled={disabled}
       onClick={onClick}
+      aria-busy={busy || undefined}
       sx={{
-        minHeight: 43,
+        minHeight: 42,
         borderRadius: 'var(--morius-button-radius, 12px)',
         border: `1px solid ${BORDER_COLOR}`,
         color: INPUT_TEXT,
         backgroundColor: 'transparent',
         fontFamily: '"Manrope", sans-serif',
-        fontSize: '0.78rem',
+        fontSize: '0.8rem',
         fontWeight: 700,
         textTransform: 'none',
         minWidth: 0,
         px: 0.5,
         gap: 0.7,
-        '&:hover': {
-          backgroundColor: '#171a1d',
-          borderColor: hoverColor,
-        },
+        transition: 'border-color 180ms ease, background-color 180ms ease',
+        '&:hover': { backgroundColor: '#171a1d', borderColor: hoverColor },
+        '&.Mui-disabled': { color: busy ? INPUT_TEXT : '#5c636b', borderColor: busy ? hoverColor : BORDER_COLOR },
       }}
     >
-      <ProviderGlyph provider={provider} />
+      {busy ? <CircularProgress size={18} thickness={5} sx={{ color: hoverColor }} /> : <ProviderGlyph provider={provider} />}
       {label}
     </Button>
   )
 }
 
-export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: AuthPageProps) {
+/**
+ * One field of the stepped form. Its slot is always there; until the step is reached the field
+ * inside it stays invisible and out of the tab order, then fades down into place.
+ */
+function StepField({
+  step,
+  index,
+  revealed,
+  done,
+  current,
+  inputRef,
+  onKeyDown,
+  onBlur,
+}: {
+  step: StepConfig
+  index: number
+  revealed: boolean
+  done: boolean
+  current: boolean
+  inputRef: (node: HTMLInputElement | null) => void
+  onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void
+  onBlur: () => void
+}) {
+  const inputId = `auth-step-${step.id}`
+  const hasError = Boolean(step.error)
+  const dotColor = hasError ? ERROR_TEXT : done || current ? ACCENT : 'rgba(199,231,255,0.28)'
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        top: stepTop(index),
+        height: STEP_SLOT_HEIGHT,
+        transition: `top 460ms ${SOFT_EASE}`,
+      }}
+    >
+      {/* The dot on the progress rail for this field. */}
+      <Box
+        aria-hidden
+        sx={{
+          position: 'absolute',
+          left: RAIL_X - 4,
+          top: STEP_LABEL_HEIGHT / 2 - 5,
+          width: 10,
+          height: 10,
+          borderRadius: '50%',
+          boxSizing: 'border-box',
+          border: `2px solid ${dotColor}`,
+          backgroundColor: done && !hasError ? ACCENT : PAGE_BACKGROUND,
+          boxShadow: current && !hasError ? `0 0 0 4px rgba(248,174,44,0.16)` : 'none',
+          opacity: revealed ? 1 : 0.55,
+          transition: `background-color 320ms ease, border-color 320ms ease, box-shadow 320ms ease, opacity 320ms ease`,
+          zIndex: 1,
+        }}
+      />
+      <Box
+        aria-hidden={!revealed}
+        sx={{
+          position: 'absolute',
+          left: RAIL_WIDTH,
+          right: 0,
+          top: 0,
+          height: '100%',
+          opacity: revealed ? 1 : 0,
+          transform: revealed ? 'translateY(0)' : 'translateY(-12px)',
+          filter: revealed ? 'blur(0)' : 'blur(3px)',
+          visibility: revealed ? 'visible' : 'hidden',
+          pointerEvents: revealed ? 'auto' : 'none',
+          transition: revealed
+            ? `opacity 520ms ${SOFT_EASE} 140ms, transform 560ms ${SOFT_EASE} 140ms, filter 520ms ease 140ms, visibility 0s linear 0s`
+            : `opacity 240ms ease, transform 240ms ease, filter 240ms ease, visibility 0s linear 240ms`,
+        }}
+      >
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          spacing={1}
+          sx={{ height: STEP_LABEL_HEIGHT, mb: `${STEP_LABEL_GAP}px` }}
+        >
+          <Box
+            component="label"
+            htmlFor={inputId}
+            sx={{ color: INPUT_TEXT, fontSize: '0.92rem', lineHeight: 1.2, fontWeight: 500, whiteSpace: 'nowrap' }}
+          >
+            {step.label}
+          </Box>
+          {hasError ? (
+            <Box sx={{ color: ERROR_TEXT, fontSize: '0.8rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {step.error}
+            </Box>
+          ) : step.endLabel ? (
+            step.endLabel
+          ) : step.hint ? (
+            <Box sx={{ color: MUTED_TEXT, fontSize: '0.78rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {step.hint}
+            </Box>
+          ) : null}
+        </Stack>
+        <Box
+          component="input"
+          id={inputId}
+          ref={inputRef}
+          value={step.value}
+          type={step.type ?? 'text'}
+          placeholder={step.placeholder}
+          autoComplete={step.autoComplete}
+          inputMode={step.inputMode}
+          maxLength={step.maxLength}
+          disabled={step.disabled}
+          tabIndex={revealed ? 0 : -1}
+          aria-invalid={hasError || undefined}
+          onChange={(event) => step.onChange((event.target as HTMLInputElement).value)}
+          onKeyDown={onKeyDown}
+          onBlur={onBlur}
+          sx={{
+            display: 'block',
+            width: '100%',
+            height: STEP_INPUT_HEIGHT,
+            boxSizing: 'border-box',
+            px: '16px',
+            borderRadius: '11px',
+            border: `1px solid ${hasError ? ERROR_TEXT : 'transparent'}`,
+            outline: 'none',
+            backgroundColor: step.disabled ? '#272c30' : INPUT_BACKGROUND,
+            color: step.disabled ? '#8c949c' : INPUT_TEXT,
+            fontFamily: '"Manrope", sans-serif',
+            fontSize: '1rem',
+            transition: 'border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease',
+            '&::placeholder': { color: '#6f7780', opacity: 1 },
+            '&:hover:not(:disabled)': { borderColor: hasError ? ERROR_TEXT : 'rgba(255,255,255,0.12)' },
+            '&:focus': {
+              borderColor: hasError ? ERROR_TEXT : 'rgba(248,174,44,0.55)',
+              boxShadow: hasError ? 'none' : '0 0 0 3px rgba(248,174,44,0.12)',
+            },
+            '&:-webkit-autofill': {
+              WebkitBoxShadow: `0 0 0 100px ${INPUT_BACKGROUND} inset`,
+              WebkitTextFillColor: INPUT_TEXT,
+              caretColor: INPUT_TEXT,
+            },
+          }}
+        />
+      </Box>
+    </Box>
+  )
+}
+
+export default function AuthPage({
+  initialMode,
+  reason = null,
+  guestName = null,
+  isGuestSession = false,
+  onNavigate,
+  onAuthSuccess,
+}: AuthPageProps) {
   const [mode, setMode] = useState<AuthPageMode>(initialMode)
   const [registerStep, setRegisterStep] = useState<'credentials' | 'verify'>('credentials')
   const [resetStep, setResetStep] = useState<'email' | 'verify'>('email')
@@ -371,24 +480,30 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
   const [vkIDSubmittingProvider, setVKIDSubmittingProvider] = useState<'vk' | 'mail' | null>(null)
   const [isAuthHeroLoaded, setIsAuthHeroLoaded] = useState(false)
   const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0)
+  // The furthest field the player has reached in the current form. Only ever moves forward while
+  // a form is open, so correcting an earlier field never hides the ones already filled in.
+  const [reachedStep, setReachedStep] = useState(0)
+  const [touchedSteps, setTouchedSteps] = useState<Partial<Record<StepId, boolean>>>({})
+  const inputRefs = useRef<Partial<Record<StepId, HTMLInputElement | null>>>({})
+  const formRef = useRef<HTMLFormElement | null>(null)
 
   const isLoginMode = mode === 'login'
   const isRegisterMode = mode === 'register'
   const isResetMode = mode === 'reset'
   const isRegisterVerificationStep = isRegisterMode && registerStep === 'verify'
+  const isRegisterCredentialsStep = isRegisterMode && registerStep === 'credentials'
   const isResetVerificationStep = isResetMode && resetStep === 'verify'
   const shouldShowExternalAuth = !isRegisterVerificationStep && !isResetMode
   const shouldShowGoogle = false
   const hasGoogleClientId = IS_GOOGLE_AUTH_CONFIGURED && Boolean(GOOGLE_CLIENT_ID)
-  const shouldValidatePasswordMatch =
-    (isRegisterMode && registerStep === 'credentials') || isResetVerificationStep
-  const isPasswordMismatchVisible =
-    shouldValidatePasswordMatch &&
-    password.length > 0 &&
-    confirmPassword.length > 0 &&
-    password !== confirmPassword
-  const isRegisterSubmitBlocked = isRegisterMode && registerStep === 'credentials' && (!acceptedTerms || !acceptedAge)
   const isExternalAuthSubmitting = isGoogleSubmitting || isYandexSubmitting || vkIDSubmittingProvider !== null
+  const formKey = `${mode}:${isRegisterMode ? registerStep : isResetMode ? resetStep : 'form'}`
+
+  const isEmailValid = EMAIL_PATTERN.test(normalizeEmail(email))
+  const isNicknameValid = nickname.trim().length > 0
+  const isNewPasswordValid = password.length >= PASSWORD_MIN_LENGTH
+  const isConfirmValid = confirmPassword.length > 0 && confirmPassword === password
+  const isCodeValid = /^\d{6}$/.test(verificationCode.trim())
 
   useEffect(() => {
     const rootElement = document.getElementById('root')
@@ -437,10 +552,6 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
     return () => window.clearTimeout(timeoutId)
   }, [resendCooldownSeconds])
 
-  const startCooldown = (seconds = RESEND_COOLDOWN_SECONDS) => {
-    setResendCooldownSeconds(Math.max(0, seconds))
-  }
-
   const switchMode = (nextMode: AuthPageMode) => {
     setMode(nextMode)
     setRegisterStep('credentials')
@@ -449,7 +560,248 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
     setErrorMessage('')
     setInfoMessage('')
     setResendCooldownSeconds(0)
-    onNavigate(`/auth?mode=${nextMode}`)
+    onNavigate(`/auth?mode=${nextMode}${reason ? `&reason=${encodeURIComponent(reason)}` : ''}`)
+  }
+  const switchModeRef = useRef(switchMode)
+  switchModeRef.current = switchMode
+
+  const markTouched = useCallback((stepId: StepId) => {
+    setTouchedSteps((previous) => (previous[stepId] ? previous : { ...previous, [stepId]: true }))
+  }, [])
+
+  const steps: StepConfig[] = useMemo(() => {
+    const emailStep: StepConfig = {
+      id: 'email',
+      label: 'Электронная почта',
+      value: email,
+      onChange: setEmail,
+      isValid: isEmailValid,
+      type: 'email',
+      placeholder: 'mail@example.ru',
+      autoComplete: 'email',
+      inputMode: 'email',
+      maxLength: AUTH_EMAIL_MAX_LENGTH,
+      disabled: isRegisterVerificationStep || isResetVerificationStep,
+      error: touchedSteps.email && email.trim() && !isEmailValid ? 'Проверьте адрес' : undefined,
+    }
+    const newPasswordStep = (label: string): StepConfig => ({
+      id: 'password',
+      label,
+      value: password,
+      onChange: setPassword,
+      isValid: isNewPasswordValid,
+      type: 'password',
+      autoComplete: 'new-password',
+      maxLength: AUTH_PASSWORD_MAX_LENGTH,
+      hint: isNewPasswordValid ? undefined : `не короче ${PASSWORD_MIN_LENGTH} символов`,
+      error: touchedSteps.password && password && !isNewPasswordValid ? `Минимум ${PASSWORD_MIN_LENGTH} символов` : undefined,
+    })
+    const confirmStep: StepConfig = {
+      id: 'confirm',
+      label: 'Повторите пароль',
+      value: confirmPassword,
+      onChange: setConfirmPassword,
+      isValid: isConfirmValid,
+      type: 'password',
+      autoComplete: 'new-password',
+      maxLength: AUTH_PASSWORD_MAX_LENGTH,
+      error: confirmPassword && password && confirmPassword !== password && (touchedSteps.confirm || confirmPassword.length >= password.length)
+        ? 'Пароли не совпадают'
+        : undefined,
+    }
+    const codeStep: StepConfig = {
+      id: 'code',
+      label: 'Код из письма',
+      value: verificationCode,
+      onChange: (value) => setVerificationCode(value.replace(/\D/g, '').slice(0, AUTH_CODE_LENGTH)),
+      isValid: isCodeValid,
+      placeholder: '000000',
+      autoComplete: 'one-time-code',
+      inputMode: 'numeric',
+      maxLength: AUTH_CODE_LENGTH,
+      hint: 'шесть цифр',
+    }
+
+    if (isLoginMode) {
+      return [
+        emailStep,
+        {
+          id: 'password',
+          label: 'Пароль',
+          value: password,
+          onChange: setPassword,
+          isValid: password.length > 0,
+          type: 'password',
+          autoComplete: 'current-password',
+          maxLength: AUTH_PASSWORD_MAX_LENGTH,
+          endLabel: (
+            <Box sx={{ fontSize: '0.8rem' }}>
+              <TextButton color="#7d8791" onClick={() => switchModeRef.current('reset')}>
+                Забыли пароль?
+              </TextButton>
+            </Box>
+          ),
+        },
+      ]
+    }
+    if (isRegisterVerificationStep) {
+      return [emailStep, codeStep]
+    }
+    if (isRegisterMode) {
+      return [
+        emailStep,
+        {
+          id: 'nickname',
+          label: 'Никнейм',
+          value: nickname,
+          onChange: setNickname,
+          isValid: isNicknameValid,
+          placeholder: 'Как тебя называть в историях',
+          autoComplete: 'nickname',
+          maxLength: AUTH_NICKNAME_MAX_LENGTH,
+        },
+        newPasswordStep('Пароль'),
+        confirmStep,
+      ]
+    }
+    if (isResetVerificationStep) {
+      return [emailStep, codeStep, newPasswordStep('Новый пароль'), confirmStep]
+    }
+    return [emailStep]
+  }, [
+    confirmPassword,
+    email,
+    isCodeValid,
+    isConfirmValid,
+    isEmailValid,
+    isLoginMode,
+    isNewPasswordValid,
+    isNicknameValid,
+    isRegisterMode,
+    isRegisterVerificationStep,
+    isResetVerificationStep,
+    nickname,
+    password,
+    touchedSteps.confirm,
+    touchedSteps.email,
+    touchedSteps.password,
+    verificationCode,
+  ])
+
+  // A new form starts at its first open field. Verification forms open on the code, since the
+  // e-mail above it is already settled.
+  useEffect(() => {
+    setReachedStep(isRegisterVerificationStep || isResetVerificationStep ? 1 : 0)
+    setTouchedSteps({})
+  }, [formKey, isRegisterVerificationStep, isResetVerificationStep])
+
+  // Typing pauses on a valid field -> the next field fades in. A browser that autofilled a later
+  // field (a saved password) opens everything up to it at once.
+  const validPrefixLength = useMemo(() => {
+    let count = 0
+    while (count < steps.length && steps[count].isValid) {
+      count += 1
+    }
+    return count
+  }, [steps])
+  const autofilledIndex = useMemo(() => {
+    let last = -1
+    steps.forEach((step, index) => {
+      if (step.value && index > last) {
+        last = index
+      }
+    })
+    return last
+  }, [steps])
+
+  useEffect(() => {
+    if (autofilledIndex > reachedStep) {
+      setReachedStep(Math.min(autofilledIndex, steps.length - 1))
+      return
+    }
+    if (validPrefixLength <= reachedStep || reachedStep >= steps.length - 1) {
+      return
+    }
+    const timerId = window.setTimeout(() => {
+      setReachedStep((previous) => Math.max(previous, Math.min(validPrefixLength, steps.length - 1)))
+    }, STEP_REVEAL_DELAY_MS)
+    return () => window.clearTimeout(timerId)
+  }, [autofilledIndex, reachedStep, steps.length, validPrefixLength])
+
+  const revealedCount = Math.min(steps.length, reachedStep + 1)
+  const doneCount = Math.min(validPrefixLength, revealedCount)
+  const currentStepIndex = Math.min(doneCount, steps.length - 1)
+  const isFormComplete = validPrefixLength === steps.length
+  const isSubmitBlocked =
+    isSubmitting ||
+    isExternalAuthSubmitting ||
+    !isFormComplete ||
+    (isRegisterCredentialsStep && (!acceptedTerms || !acceptedAge))
+
+  // A field that is about to appear cannot take focus yet; the request waits for the render
+  // that reveals it (the effect below) instead of guessing a number of animation frames.
+  const pendingFocusRef = useRef<StepId | null>(null)
+  const tryFocusStep = useCallback((stepId: StepId): boolean => {
+    const node = inputRefs.current[stepId]
+    if (!node || node.disabled) {
+      return false
+    }
+    const wrapper = node.parentElement
+    if (wrapper && window.getComputedStyle(wrapper).visibility === 'hidden') {
+      return false
+    }
+    node.focus()
+    return document.activeElement === node
+  }, [])
+  const focusStep = useCallback(
+    (stepId: StepId) => {
+      pendingFocusRef.current = tryFocusStep(stepId) ? null : stepId
+    },
+    [tryFocusStep],
+  )
+  useEffect(() => {
+    const pendingStepId = pendingFocusRef.current
+    if (pendingStepId && tryFocusStep(pendingStepId)) {
+      pendingFocusRef.current = null
+    }
+  })
+
+  const handleStepKeyDown = (index: number) => (event: KeyboardEvent<HTMLInputElement>) => {
+    const isAdvanceKey = event.key === 'Enter' || (event.key === 'Tab' && !event.shiftKey)
+    if (!isAdvanceKey) {
+      return
+    }
+    const step = steps[index]
+    markTouched(step.id)
+    const nextStep = steps[index + 1]
+    if (event.key === 'Enter' && (!nextStep || isFormComplete)) {
+      // Enter on the last field - or on any field of a complete form - sends it.
+      return
+    }
+    if (!nextStep) {
+      return
+    }
+    if (!step.isValid) {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+      }
+      return
+    }
+    event.preventDefault()
+    setReachedStep((previous) => Math.max(previous, index + 1))
+    focusStep(nextStep.id)
+  }
+
+  const handleStepBlur = (index: number) => () => {
+    const step = steps[index]
+    markTouched(step.id)
+    if (step.isValid && index + 1 < steps.length) {
+      setReachedStep((previous) => Math.max(previous, index + 1))
+    }
+  }
+
+  const startCooldown = (seconds = RESEND_COOLDOWN_SECONDS) => {
+    setResendCooldownSeconds(Math.max(0, seconds))
   }
 
   const submitLogin = async () => {
@@ -485,8 +837,8 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
       setErrorMessage('Укажите никнейм.')
       return
     }
-    if (password.length < 8) {
-      setErrorMessage('Пароль должен быть не короче 8 символов.')
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      setErrorMessage(`Пароль должен быть не короче ${PASSWORD_MIN_LENGTH} символов.`)
       return
     }
     if (password !== confirmPassword) {
@@ -514,6 +866,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
       setRegisterStep('verify')
       startCooldown()
       setInfoMessage(response.message || 'Код подтверждения отправлен на вашу почту.')
+      focusStep('code')
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Ошибка регистрации'
       const cooldown = extractResendCooldownSeconds(detail)
@@ -560,6 +913,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
       setResetStep('verify')
       startCooldown()
       setInfoMessage(response.message || 'Если аккаунт существует, код отправлен на почту.')
+      focusStep('code')
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Ошибка восстановления пароля'
       const cooldown = extractResendCooldownSeconds(detail)
@@ -582,8 +936,8 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
       setErrorMessage('Введите 6-значный код из письма.')
       return
     }
-    if (password.length < 8) {
-      setErrorMessage('Пароль должен быть не короче 8 символов.')
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      setErrorMessage(`Пароль должен быть не короче ${PASSWORD_MIN_LENGTH} символов.`)
       return
     }
     if (password !== confirmPassword) {
@@ -622,6 +976,21 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (isSubmitBlocked) {
+      if (isSubmitting || isExternalAuthSubmitting) {
+        return
+      }
+      // Enter on an unfinished form: point at the first field that still needs attention.
+      const firstIncomplete = steps.find((step) => !step.isValid)
+      if (firstIncomplete) {
+        markTouched(firstIncomplete.id)
+        setReachedStep((previous) => Math.max(previous, steps.indexOf(firstIncomplete)))
+        focusStep(firstIncomplete.id)
+      } else if (isRegisterCredentialsStep) {
+        setErrorMessage('Отметь согласие с условиями и подтверди, что тебе есть 18 лет.')
+      }
+      return
+    }
     setErrorMessage('')
     setInfoMessage('')
 
@@ -684,13 +1053,23 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
     }
   }
 
-  const formTitle = isLoginMode ? 'С возвращением.' : isRegisterMode ? 'Добро пожаловать.' : 'Восстановление пароля'
+  const formTitle = isLoginMode
+    ? 'С возвращением.'
+    : isRegisterVerificationStep
+      ? 'Проверь почту.'
+      : isRegisterMode
+        ? 'Добро пожаловать.'
+        : 'Восстановление пароля'
   const formKicker = isLoginMode ? 'История продолжается' : isRegisterMode ? 'Первая глава' : 'Вернуться в историю'
   const formSubtitle = isLoginMode
     ? 'Твои миры ждут. Продолжим историю?'
-    : isRegisterMode
-      ? 'Создай аккаунт — и дай своей истории жизнь.'
-      : 'Укажи почту своего аккаунта для восстановления пароля.'
+    : isRegisterVerificationStep
+      ? 'Мы отправили код подтверждения на указанный адрес.'
+      : isRegisterMode
+        ? 'Создай аккаунт — и дай своей истории жизнь.'
+        : isResetVerificationStep
+          ? 'Введи код из письма и придумай новый пароль.'
+          : 'Укажи почту своего аккаунта — пришлём код.'
   const showModeTabs = !isResetMode && !isRegisterVerificationStep
   const submitLabel = isLoginMode
     ? 'Войти'
@@ -701,6 +1080,10 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
         : isResetVerificationStep
           ? 'Сохранить пароль'
           : 'Отправить код'
+  const reasonMessage = reason ? ACCOUNT_REQUIRED_MESSAGES[reason] : ''
+  const guestLine = guestName ? `Всё, что создал ${guestName}, перейдёт в твой аккаунт.` : ''
+  const hasNotice = Boolean(reasonMessage || guestLine)
+  const railFillHeight = stepTop(currentStepIndex) + (isFormComplete ? STEP_LABEL_HEIGHT / 2 : 0)
 
   return (
     <Box
@@ -720,6 +1103,10 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
         color: INPUT_TEXT,
         fontFamily: '"Manrope", sans-serif',
         overflow: 'hidden',
+        '@keyframes moriusAuthFadeIn': {
+          from: { opacity: 0, transform: 'translateY(6px)' },
+          to: { opacity: 1, transform: 'translateY(0)' },
+        },
       }}
     >
       <Box
@@ -735,15 +1122,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           backgroundColor: PAGE_BACKGROUND,
         }}
       >
-        <Box
-          sx={{
-            position: 'relative',
-            width: '100%',
-            height: '100%',
-            overflow: 'hidden',
-            background: PANEL_BACKGROUND,
-          }}
-        >
+        <Box sx={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: PANEL_BACKGROUND }}>
           <Box
             component="img"
             src={authHero}
@@ -786,13 +1165,13 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
             <Box sx={{ color: MUTED_TEXT, fontSize: 11, letterSpacing: '2px' }}>ТВОЙ МИР НАЧИНАЕТСЯ ЗДЕСЬ</Box>
           </Box>
           <Box sx={{ position: 'absolute', zIndex: 1, bottom: 44, left: '9%', right: '9%', color: INPUT_TEXT }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: 11, letterSpacing: '2px', textTransform: 'uppercase', fontWeight: 700, color: LOGIN_BUTTON_COLOR, mb: '19px', '&:before': { content: '""', height: '1px', width: 31, background: 'currentColor' } }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: 11, letterSpacing: '2px', textTransform: 'uppercase', fontWeight: 700, color: ACCENT, mb: '19px', '&:before': { content: '""', height: '1px', width: 31, background: 'currentColor' } }}>
               У каждой истории есть начало
             </Box>
             <Box component="h2" sx={{ fontFamily: 'var(--morius-font-heading, Georgia, serif)', fontWeight: 400, fontSize: 'clamp(36px, 3.5vw, 55px)', lineHeight: 1.12, letterSpacing: '-1.2px', m: '0 0 16px', color: INPUT_TEXT }}>
               За этой дверью —
               <br />
-              <Box component="em" sx={{ color: LOGIN_BUTTON_COLOR, fontStyle: 'normal' }}>твой новый мир.</Box>
+              <Box component="em" sx={{ color: ACCENT, fontStyle: 'normal' }}>твой новый мир.</Box>
             </Box>
             <Box component="p" sx={{ color: MUTED_TEXT, fontSize: 15, lineHeight: 1.8, maxWidth: 390, m: 0 }}>
               Я проведу тебя к первой главе.
@@ -806,6 +1185,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           </Box>
         </Box>
       </Box>
+
       <Box
         sx={{
           position: 'relative',
@@ -815,12 +1195,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           width: '100%',
           minWidth: 0,
           backgroundColor: PAGE_BACKGROUND,
-          display: 'flex',
-          alignItems: { xs: 'flex-start', md: 'center' },
-          justifyContent: 'center',
           boxSizing: 'border-box',
-          px: { xs: 2, sm: 4, md: 7 },
-          py: { xs: 9, md: 6 },
           overflowX: 'hidden',
           overflowY: 'auto',
         }}
@@ -831,11 +1206,11 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           aria-hidden
           sx={{
             display: { xs: 'none', md: 'block' },
-            position: 'absolute',
+            position: 'fixed',
             top: 0,
-            left: -13,
+            left: 'calc(52% - 13px)',
             width: 15,
-            height: '100%',
+            height: '100dvh',
             backgroundColor: PAGE_BACKGROUND,
             clipPath:
               'polygon(100% 0,100% 100%,30% 100%,64% 97%,20% 94%,53% 91%,10% 88%,65% 85%,25% 82%,60% 79%,15% 76%,68% 73%,20% 70%,57% 67%,15% 64%,60% 61%,25% 58%,65% 55%,18% 52%,60% 49%,20% 46%,65% 43%,15% 40%,55% 37%,20% 34%,63% 31%,15% 28%,62% 25%,25% 22%,55% 19%,12% 16%,65% 13%,20% 10%,60% 7%,15% 4%,55% 0)',
@@ -845,189 +1220,247 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
         />
         <Box
           sx={{
-            position: 'absolute',
-            top: { xs: 22, md: 28 },
-            left: { xs: 22, md: 34 },
-            right: { xs: 22, md: 34 },
+            minHeight: '100%',
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 2,
-            fontSize: 12,
-            color: MUTED_TEXT,
-            zIndex: 3,
+            flexDirection: 'column',
+            boxSizing: 'border-box',
+            px: { xs: 2, sm: 4, md: 7 },
           }}
         >
           <Box
-            component="button"
-            type="button"
-            onClick={() => onNavigate('/')}
             sx={{
               display: 'flex',
+              justifyContent: 'space-between',
               alignItems: 'center',
-              gap: '9px',
-              border: 'none',
-              background: 'transparent',
-              color: 'inherit',
-              font: 'inherit',
-              cursor: 'pointer',
-              p: 0,
-              '&:hover': { color: INPUT_TEXT },
+              gap: 2,
+              pt: { xs: '20px', md: '22px' },
+              mx: { xs: '6px', md: '-22px' },
+              fontSize: 12,
+              color: MUTED_TEXT,
             }}
           >
-            ← <Box component="span">На главную</Box>
-          </Box>
-          <Box sx={{ letterSpacing: '1.5px', fontSize: 10, color: LOGIN_BUTTON_COLOR, display: { xs: 'none', sm: 'block' } }}>
-            ТВОИ ЖИВЫЕ ИСТОРИИ
-          </Box>
-        </Box>
-
-        <Box sx={{ width: '100%', maxWidth: { xs: 'calc(100vw - 32px)', sm: 382 }, minWidth: 0, mx: 'auto' }}>
-          {showModeTabs ? (
-            <Box role="tablist" aria-label="Вход или регистрация" sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: `1px solid ${BORDER_COLOR}`, mb: 4 }}>
-              {([
-                { key: 'register', label: 'Регистрация' },
-                { key: 'login', label: 'Вход' },
-              ] as const).map((tab) => {
-                const selected = mode === tab.key
-                return (
-                  <Box
-                    key={tab.key}
-                    component="button"
-                    type="button"
-                    role="tab"
-                    aria-selected={selected}
-                    tabIndex={selected ? 0 : -1}
-                    onClick={() => switchMode(tab.key)}
-                    sx={{
-                      border: 0,
-                      background: 'none',
-                      font: 'inherit',
-                      cursor: 'pointer',
-                      position: 'relative',
-                      p: '13px 6px',
-                      fontSize: 14,
-                      fontFamily: '"Manrope", sans-serif',
-                      color: selected ? INPUT_TEXT : MUTED_TEXT,
-                      fontWeight: selected ? 700 : 400,
-                      '&:after': selected
-                        ? { content: '""', position: 'absolute', height: 2, background: LOGIN_BUTTON_COLOR, bottom: -1, left: 0, right: 0 }
-                        : undefined,
-                    }}
-                  >
-                    {tab.label}
-                  </Box>
-                )
-              })}
-            </Box>
-          ) : null}
-
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: 10, letterSpacing: '2px', textTransform: 'uppercase', fontWeight: 700, color: LOGIN_BUTTON_COLOR, mb: '12px', '&:before': { content: '""', height: '1px', width: 31, background: 'currentColor' } }}>
-              {formKicker}
-            </Box>
-            <Typography
-              component="h1"
+            <Box
+              component="button"
+              type="button"
+              onClick={() => onNavigate(isGuestSession ? peekAuthReturnPath() ?? '/dashboard' : '/')}
               sx={{
-                fontFamily: 'var(--morius-font-heading, Georgia, serif)',
-                fontWeight: 400,
-                fontSize: { xs: '2rem', md: '2.5rem' },
-                lineHeight: 1.12,
-                letterSpacing: '-1.1px',
-                color: INPUT_TEXT,
-                m: '0 0 11px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '9px',
+                border: 'none',
+                background: 'transparent',
+                color: 'inherit',
+                font: 'inherit',
+                cursor: 'pointer',
+                p: 0,
+                '&:hover': { color: INPUT_TEXT },
               }}
             >
-              {formTitle}
-            </Typography>
-            <Typography sx={{ fontSize: 14, lineHeight: 1.65, color: MUTED_TEXT, m: 0 }}>{formSubtitle}</Typography>
+              ← <Box component="span">{isGuestSession ? 'Вернуться к игре' : 'На главную'}</Box>
+            </Box>
+            <Box sx={{ letterSpacing: '1.5px', fontSize: 10, color: ACCENT, display: { xs: 'none', sm: 'block' } }}>
+              ТВОИ ЖИВЫЕ ИСТОРИИ
+            </Box>
           </Box>
 
-          <Box component="form" onSubmit={handleSubmit}>
-            <Stack spacing={2.25}>
-              <AuthField
-                label="Электронная почта"
-                type="email"
-                value={email}
-                onChange={setEmail}
-                placeholder="mail@example.ru"
-                autoComplete="email"
-                disabled={isRegisterVerificationStep || isResetVerificationStep}
-                inputMode="email"
-                maxLength={AUTH_EMAIL_MAX_LENGTH}
-              />
+          {/* Anchored to the top: switching tabs or opening fields never shifts what is above. */}
+          <Box
+            sx={{
+              width: '100%',
+              maxWidth: { xs: 'calc(100vw - 32px)', sm: 392 },
+              minWidth: 0,
+              mx: 'auto',
+              pt: { xs: '22px', md: 'clamp(8px, 2vh, 28px)' },
+              pb: 3,
+            }}
+          >
+            {hasNotice ? (
+              <Box
+                role="status"
+                sx={{
+                  mb: 2.2,
+                  p: '10px 13px',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(248,174,44,0.32)',
+                  background: 'linear-gradient(135deg, rgba(248,174,44,0.10), rgba(248,174,44,0.04))',
+                  animation: `moriusAuthFadeIn 420ms ${SOFT_EASE}`,
+                }}
+              >
+                {reasonMessage ? (
+                  <Typography sx={{ color: INPUT_TEXT, fontSize: '0.84rem', fontWeight: 700, lineHeight: 1.4 }}>
+                    {reasonMessage}
+                  </Typography>
+                ) : null}
+                {guestLine ? (
+                  <Typography sx={{ color: '#b9c0c7', fontSize: '0.78rem', lineHeight: 1.45, mt: reasonMessage ? 0.45 : 0 }}>
+                    {guestLine}
+                  </Typography>
+                ) : null}
+              </Box>
+            ) : null}
 
-              {isRegisterMode && registerStep === 'credentials' ? (
-                <AuthField
-                  label="Никнейм"
-                  value={nickname}
-                  onChange={setNickname}
-                  placeholder="Ваш никнейм"
-                  autoComplete="nickname"
-                  maxLength={AUTH_NICKNAME_MAX_LENGTH}
+            <Collapse in={showModeTabs} timeout={320}>
+              <Box
+                role="tablist"
+                aria-label="Вход или регистрация"
+                sx={{ position: 'relative', display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: `1px solid ${BORDER_COLOR}`, mb: 3 }}
+              >
+                {([
+                  { key: 'register', label: 'Регистрация' },
+                  { key: 'login', label: 'Вход' },
+                ] as const).map((tab) => {
+                  const selected = mode === tab.key
+                  return (
+                    <Box
+                      key={tab.key}
+                      component="button"
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      tabIndex={selected ? 0 : -1}
+                      onClick={() => {
+                        if (!selected) {
+                          switchMode(tab.key)
+                        }
+                      }}
+                      sx={{
+                        border: 0,
+                        background: 'none',
+                        font: 'inherit',
+                        cursor: 'pointer',
+                        p: '12px 6px',
+                        fontSize: 14,
+                        fontFamily: '"Manrope", sans-serif',
+                        color: selected ? INPUT_TEXT : MUTED_TEXT,
+                        fontWeight: selected ? 700 : 500,
+                        transition: 'color 240ms ease',
+                        '&:hover': { color: INPUT_TEXT },
+                      }}
+                    >
+                      {tab.label}
+                    </Box>
+                  )
+                })}
+                {/* One underline that slides between the tabs instead of two that blink. */}
+                <Box
+                  aria-hidden
+                  sx={{
+                    position: 'absolute',
+                    bottom: -1,
+                    left: 0,
+                    width: '50%',
+                    height: 2,
+                    background: ACCENT,
+                    transform: mode === 'login' ? 'translateX(100%)' : 'translateX(0)',
+                    transition: `transform 380ms ${SOFT_EASE}`,
+                  }}
                 />
-              ) : null}
+              </Box>
+            </Collapse>
 
-              {isRegisterVerificationStep || isResetVerificationStep ? (
-                <AuthField
-                  label="Код из письма"
-                  value={verificationCode}
-                  onChange={setVerificationCode}
-                  placeholder="000000"
-                  autoComplete="one-time-code"
-                  inputMode="numeric"
-                  maxLength={AUTH_CODE_LENGTH}
+            <Box sx={{ mb: 2.6 }}>
+              {hasNotice ? null : (
+                <Box
+                  key={`kicker-${formKicker}`}
+                  sx={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: 10, letterSpacing: '2px', textTransform: 'uppercase', fontWeight: 700, color: ACCENT, mb: '10px', animation: `moriusAuthFadeIn 360ms ${SOFT_EASE}`, '&:before': { content: '""', height: '1px', width: 31, background: 'currentColor' } }}
+                >
+                  {formKicker}
+                </Box>
+              )}
+              <Typography
+                key={`title-${formTitle}`}
+                component="h1"
+                sx={{
+                  fontFamily: 'var(--morius-font-heading, Georgia, serif)',
+                  fontWeight: 400,
+                  fontSize: { xs: '1.9rem', md: '2.25rem' },
+                  lineHeight: 1.12,
+                  letterSpacing: '-1.1px',
+                  color: INPUT_TEXT,
+                  m: '0 0 8px',
+                  whiteSpace: 'nowrap',
+                  animation: `moriusAuthFadeIn 420ms ${SOFT_EASE}`,
+                }}
+              >
+                {formTitle}
+              </Typography>
+              {/* With a notice above, the notice is the subtitle: it says why the player is here.
+                  The code and reset steps keep theirs - it says what to do next. */}
+              {hasNotice && !isRegisterVerificationStep && !isResetMode ? null : (
+                <Typography
+                  key={`subtitle-${formSubtitle}`}
+                  sx={{ fontSize: 14, lineHeight: 1.65, color: MUTED_TEXT, m: 0, minHeight: '1.65em', animation: `moriusAuthFadeIn 480ms ${SOFT_EASE}` }}
+                >
+                  {formSubtitle}
+                </Typography>
+              )}
+            </Box>
+
+            <Box component="form" ref={formRef} onSubmit={handleSubmit} noValidate>
+              {/* The progress rail and the fields. The area is as tall as all of this form's
+                  fields from the start; fields fade into their slots as the player gets there. */}
+              <Box
+                sx={{
+                  position: 'relative',
+                  height: stepsAreaHeight(steps.length),
+                  transition: `height 460ms ${SOFT_EASE}`,
+                }}
+              >
+                <Box
+                  aria-hidden
+                  sx={{
+                    position: 'absolute',
+                    left: RAIL_X,
+                    top: STEP_LABEL_HEIGHT / 2,
+                    width: 2,
+                    height: Math.max(0, stepTop(steps.length - 1)),
+                    borderRadius: 2,
+                    backgroundColor: 'rgba(199,231,255,0.10)',
+                    transition: `height 460ms ${SOFT_EASE}`,
+                  }}
                 />
-              ) : null}
-
-              {isLoginMode ? (
-                <AuthField
-                  label="Пароль"
-                  type="password"
-                  value={password}
-                  onChange={setPassword}
-                  autoComplete="current-password"
-                  maxLength={AUTH_PASSWORD_MAX_LENGTH}
-                  endLabel={
-                    <TextButton color="#5f6b78" onClick={() => switchMode('reset')}>
-                      Забыли пароль?
-                    </TextButton>
-                  }
+                <Box
+                  aria-hidden
+                  sx={{
+                    position: 'absolute',
+                    left: RAIL_X,
+                    top: STEP_LABEL_HEIGHT / 2,
+                    width: 2,
+                    height: Math.max(0, Math.min(railFillHeight, stepTop(steps.length - 1))),
+                    borderRadius: 2,
+                    background: `linear-gradient(180deg, ${ACCENT}, rgba(248,174,44,0.55))`,
+                    boxShadow: '0 0 12px rgba(248,174,44,0.35)',
+                    transition: `height 560ms ${SOFT_EASE}`,
+                  }}
                 />
-              ) : null}
-
-              {isRegisterMode && registerStep === 'credentials' ? (
-                <>
-                  <AuthField
-                    label="Пароль"
-                    type="password"
-                    value={password}
-                    onChange={setPassword}
-                    autoComplete="new-password"
-                    maxLength={AUTH_PASSWORD_MAX_LENGTH}
+                {steps.map((step, index) => (
+                  <StepField
+                    key={`${formKey}:${step.id}`}
+                    step={step}
+                    index={index}
+                    revealed={index < revealedCount}
+                    done={index < doneCount}
+                    current={index === currentStepIndex && !isFormComplete}
+                    inputRef={(node) => {
+                      inputRefs.current[step.id] = node
+                    }}
+                    onKeyDown={handleStepKeyDown(index)}
+                    onBlur={handleStepBlur(index)}
                   />
-                  <AuthField
-                    label="Повторите пароль"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={setConfirmPassword}
-                    autoComplete="new-password"
-                    maxLength={AUTH_PASSWORD_MAX_LENGTH}
-                    error={isPasswordMismatchVisible}
-                    helperText={isPasswordMismatchVisible ? 'Пароли не совпадают.' : undefined}
-                  />
+                ))}
+              </Box>
+
+              {/* Everything below the fields is there from the first frame. */}
+              <Collapse in={isRegisterCredentialsStep} timeout={360}>
+                <Stack spacing={1} sx={{ pt: 2 }}>
                   <Stack direction="row" spacing={1.1} alignItems="flex-start">
                     <Checkbox
                       checked={acceptedTerms}
                       onChange={(event) => setAcceptedTerms(event.target.checked)}
-                      sx={{
-                        p: 0.15,
-                        mt: 0.1,
-                        color: '#6f7881',
-                        '&.Mui-checked': { color: LOGIN_BUTTON_COLOR },
-                      }}
+                      inputProps={{ 'aria-label': 'Принимаю пользовательское соглашение и политику конфиденциальности' }}
+                      sx={{ p: 0.15, mt: 0.1, color: '#6f7881', '&.Mui-checked': { color: ACCENT } }}
                     />
-                    <Typography sx={{ color: '#d7d7d7', fontSize: '0.88rem', lineHeight: 1.45, fontWeight: 400 }}>
+                    <Typography sx={{ color: '#d7d7d7', fontSize: '0.82rem', lineHeight: 1.45, fontWeight: 400 }}>
                       Я принимаю условия{' '}
                       <TextButton onClick={() => onNavigate('/terms-of-service')}>пользовательского соглашения</TextButton>
                       {' '}и{' '}
@@ -1038,63 +1471,32 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                     <Checkbox
                       checked={acceptedAge}
                       onChange={(event) => setAcceptedAge(event.target.checked)}
-                      sx={{
-                        p: 0.15,
-                        mt: 0.1,
-                        color: '#6f7881',
-                        '&.Mui-checked': { color: LOGIN_BUTTON_COLOR },
-                      }}
+                      inputProps={{ 'aria-label': 'Подтверждаю, что мне есть 18 лет' }}
+                      sx={{ p: 0.15, mt: 0.1, color: '#6f7881', '&.Mui-checked': { color: ACCENT } }}
                     />
-                    <Typography sx={{ color: '#d7d7d7', fontSize: '0.88rem', lineHeight: 1.45, fontWeight: 400 }}>
+                    <Typography sx={{ color: '#d7d7d7', fontSize: '0.82rem', lineHeight: 1.45, fontWeight: 400 }}>
                       Подтверждаю, что мне есть 18 лет.
                     </Typography>
                   </Stack>
-                </>
-              ) : null}
+                </Stack>
+              </Collapse>
 
-              {isResetVerificationStep ? (
-                <>
-                  <AuthField
-                    label="Новый пароль"
-                    type="password"
-                    value={password}
-                    onChange={setPassword}
-                    autoComplete="new-password"
-                    maxLength={AUTH_PASSWORD_MAX_LENGTH}
-                  />
-                  <AuthField
-                    label="Повторите пароль"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={setConfirmPassword}
-                    autoComplete="new-password"
-                    maxLength={AUTH_PASSWORD_MAX_LENGTH}
-                    error={isPasswordMismatchVisible}
-                    helperText={isPasswordMismatchVisible ? 'Пароли не совпадают.' : undefined}
-                  />
-                </>
-              ) : null}
+              <Collapse in={Boolean(infoMessage || errorMessage)} timeout={280}>
+                <Stack spacing={1} sx={{ pt: 2.2 }}>
+                  {infoMessage ? <Alert severity="info" onClose={() => setInfoMessage('')}>{infoMessage}</Alert> : null}
+                  {errorMessage ? <Alert severity="error" onClose={() => setErrorMessage('')}>{errorMessage}</Alert> : null}
+                </Stack>
+              </Collapse>
 
-              {infoMessage ? <Alert severity="info">{infoMessage}</Alert> : null}
-              {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
-
-              {(isRegisterVerificationStep || isResetVerificationStep) ? (
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Collapse in={isRegisterVerificationStep || isResetVerificationStep} timeout={300}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ pt: 1.4 }}>
                   <Button
                     type="button"
                     disabled={isSubmitting || resendCooldownSeconds > 0}
                     onClick={() => void resendCode()}
-                    sx={{
-                      minHeight: 38,
-                      color: MUTED_TEXT,
-                      textTransform: 'none',
-                      fontWeight: 400,
-                      '&:hover': { color: INPUT_TEXT, backgroundColor: 'transparent' },
-                    }}
+                    sx={{ minHeight: 36, color: MUTED_TEXT, textTransform: 'none', fontWeight: 500, '&:hover': { color: INPUT_TEXT, backgroundColor: 'transparent' } }}
                   >
-                    {resendCooldownSeconds > 0
-                      ? `Отправить снова через ${formatCooldown(resendCooldownSeconds)}`
-                      : 'Отправить код снова'}
+                    {resendCooldownSeconds > 0 ? `Отправить снова через ${formatCooldown(resendCooldownSeconds)}` : 'Отправить код снова'}
                   </Button>
                   <Button
                     type="button"
@@ -1110,38 +1512,33 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                       setErrorMessage('')
                       setResendCooldownSeconds(0)
                     }}
-                    sx={{
-                      minHeight: 38,
-                      color: MUTED_TEXT,
-                      textTransform: 'none',
-                      fontWeight: 400,
-                      '&:hover': { color: INPUT_TEXT, backgroundColor: 'transparent' },
-                    }}
+                    sx={{ minHeight: 36, color: MUTED_TEXT, textTransform: 'none', fontWeight: 500, '&:hover': { color: INPUT_TEXT, backgroundColor: 'transparent' } }}
                   >
                     Изменить данные
                   </Button>
                 </Stack>
-              ) : null}
+              </Collapse>
 
               <Button
                 type="submit"
                 fullWidth
-                disabled={isSubmitting || isExternalAuthSubmitting || isRegisterSubmitBlocked}
+                disabled={isSubmitBlocked}
                 // Inline rather than sx: the theme's MuiButton override sets background-color on
                 // the same generated class, and an sx `background` shorthand kept losing to it.
                 // An inline declaration outranks any author rule that is not !important.
                 style={{
-                  background: (isSubmitting || isExternalAuthSubmitting || isRegisterSubmitBlocked) ? '#272c30' : '#f8ae2c',
-                  color: (isSubmitting || isExternalAuthSubmitting || isRegisterSubmitBlocked) ? '#666d75' : '#161009',
+                  background: isSubmitBlocked ? '#23272b' : ACCENT,
+                  color: isSubmitBlocked ? '#666d75' : '#161009',
                 }}
                 sx={{
-                  mt: { xs: 0.7, md: 1.2 },
-                  minHeight: 57,
+                  mt: 2.2,
+                  minHeight: 50,
                   border: 'none',
                   fontFamily: '"Manrope", sans-serif',
-                  fontSize: '1.05rem',
+                  fontSize: '1.02rem',
                   fontWeight: 700,
                   textTransform: 'none',
+                  transition: 'background-color 320ms ease, color 320ms ease, filter 160ms ease',
                   // One accent, one hue: hover and press change brightness, never colour.
                   '&:hover, &:focus, &.Mui-focusVisible': { filter: 'brightness(1.08)' },
                   '&:active': { filter: 'brightness(0.94)' },
@@ -1152,8 +1549,8 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                 {isSubmitting ? <CircularProgress size={22} sx={{ color: '#161009' }} /> : submitLabel}
               </Button>
 
-              {shouldShowExternalAuth ? (
-                <Stack spacing={2.3} sx={{ pt: { xs: 1.8, md: 2.8 } }}>
+              <Collapse in={shouldShowExternalAuth} timeout={320}>
+                <Stack spacing={1.25} sx={{ pt: 1.8 }}>
                   <Box
                     sx={{
                       display: 'flex',
@@ -1180,49 +1577,34 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                         setIsGoogleSubmitting(false)
                       }}
                     />
-                  ) : shouldShowGoogle ? (
-                    <Alert severity="warning">
-                      Google вход отключен. Проверьте VITE_GOOGLE_CLIENT_ID во frontend/.env и GOOGLE_CLIENT_ID в backend/.env.
-                    </Alert>
                   ) : null}
                   <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '9px' }}>
                     <ProviderAuthButton
                       provider="yandex"
                       label="Яндекс"
                       disabled={isSubmitting || isExternalAuthSubmitting}
+                      busy={isYandexSubmitting}
                       onClick={() => void handleYandexAuth()}
                     />
                     <ProviderAuthButton
                       provider="vk"
                       label="VK"
                       disabled={isSubmitting || isExternalAuthSubmitting}
+                      busy={vkIDSubmittingProvider === 'vk'}
                       onClick={() => void handleVKIDAuth('vk')}
                     />
                     <ProviderAuthButton
                       provider="mail"
                       label="Mail"
                       disabled={isSubmitting || isExternalAuthSubmitting}
+                      busy={vkIDSubmittingProvider === 'mail'}
                       onClick={() => void handleVKIDAuth('mail')}
                     />
                   </Box>
-                  {isExternalAuthSubmitting ? (
-                    <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
-                      <CircularProgress size={16} />
-                      <Typography sx={{ color: MUTED_TEXT, fontSize: '0.86rem' }}>
-                        {isYandexSubmitting
-                          ? 'Переходим в Яндекс...'
-                          : vkIDSubmittingProvider === 'mail'
-                            ? 'Переходим в Mail через VK ID...'
-                            : vkIDSubmittingProvider === 'vk'
-                              ? 'Переходим в VK ID...'
-                              : 'Проверяем Google аккаунт...'}
-                      </Typography>
-                    </Stack>
-                  ) : null}
                 </Stack>
-              ) : null}
+              </Collapse>
 
-              <Typography sx={{ pt: 0.6, textAlign: 'center', color: '#d7d7d7', fontSize: '0.9rem', fontWeight: 400 }}>
+              <Typography sx={{ pt: 2, textAlign: 'center', color: '#d7d7d7', fontSize: '0.88rem', fontWeight: 400 }}>
                 {isLoginMode ? (
                   <>
                     Еще нет аккаунта?{' '}
@@ -1240,32 +1622,31 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                   </>
                 )}
               </Typography>
-            </Stack>
+            </Box>
           </Box>
-        </Box>
 
-        <Box
-          sx={{
-            position: 'absolute',
-            bottom: { xs: 16, md: 22 },
-            left: 0,
-            right: 0,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: '8px',
-            fontSize: 10,
-            lineHeight: 1.5,
-            color: MUTED_TEXT,
-            px: 2,
-            textAlign: 'center',
-          }}
-        >
-          <Box component="svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden sx={{ width: 12, height: 12, flexShrink: 0 }}>
-            <rect x="5" y="8" width="10" height="9" rx="1" />
-            <path d="M7 8V5a3 3 0 0 1 6 0v3" />
+          <Box
+            sx={{
+              mt: 'auto',
+              pb: { xs: '14px', md: '16px' },
+              pt: 1.5,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: 10,
+              lineHeight: 1.5,
+              color: MUTED_TEXT,
+              px: 2,
+              textAlign: 'center',
+            }}
+          >
+            <Box component="svg" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden sx={{ width: 12, height: 12, flexShrink: 0 }}>
+              <rect x="5" y="8" width="10" height="9" rx="1" />
+              <path d="M7 8V5a3 3 0 0 1 6 0v3" />
+            </Box>
+            Соединение защищено · Moru не передаёт твои данные третьим лицам
           </Box>
-          Соединение защищено · Moru не передаёт твои данные третьим лицам
         </Box>
       </Box>
     </Box>

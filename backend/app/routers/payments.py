@@ -36,6 +36,7 @@ from app.services.auth_identity import (
     serialize_user_out,
     user_has_admin_panel_access,
 )
+from app.services.guest_access import ACCOUNT_REQUIRED_REASON_SHOP, ensure_account_user
 from app.services.payments import (
     COIN_TOP_UP_PLANS,
     get_coin_plans,
@@ -275,6 +276,7 @@ def create_subscription_checkout(
     pending subscription and return the redirect URL. The subscription is activated on the
     payment.succeeded webhook (or the pending-sync backstop)."""
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SHOP)
     if not is_subscriptions_enabled():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Подписки временно недоступны")
     plan = get_subscription_plan(payload.plan_id)
@@ -401,6 +403,7 @@ def create_mock_subscription(
     moderation. No real money moves and the full card number is never stored — only the last 4 digits.
     """
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SHOP)
     if str(getattr(user, "role", "") or "").strip().lower() != "administrator":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator access required")
 
@@ -518,6 +521,7 @@ def create_coin_top_up_payment(
     db: Session = Depends(get_db),
 ) -> CoinTopUpCreateResponse:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SHOP)
     plan = get_coin_plan(payload.plan_id)
     provider_payment_payload = create_payment_in_provider(
         plan,

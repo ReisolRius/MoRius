@@ -1435,6 +1435,9 @@ def _update_existing_entity_from_args(
             assign("opening_scene", _compact_text(_arg_value(args, "openingScene", "opening_scene"), max_length=12_000))
         if _arg_present(args, "visibility"):
             visibility = str(args.get("visibility") or "").strip().lower()
+            # A guest cannot publish, and the assistant must not become the way around that.
+            if visibility == STORY_GAME_VISIBILITY_PUBLIC and bool(getattr(user, "is_guest", False)):
+                visibility = STORY_GAME_VISIBILITY_PRIVATE
             if visibility in {STORY_GAME_VISIBILITY_PRIVATE, STORY_GAME_VISIBILITY_PUBLIC}:
                 assign("visibility", visibility)
         if changed:

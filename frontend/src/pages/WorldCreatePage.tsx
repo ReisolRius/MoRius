@@ -69,6 +69,7 @@ import {
   prepareAvatarPayloadForRequest,
 } from '../utils/avatar'
 import { resolvePublicationDraftVisibility } from '../utils/publication'
+import { requestAccount } from '../utils/guestSession'
 import { PUBLICATION_RULES_SHORT_ITEMS, PUBLICATION_RULES_SHORT_SUMMARY } from '../constants/legalDocuments'
 import {
   CharacterPickerTab,
@@ -1750,7 +1751,12 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     [buildOpeningSceneTag],
   )
 
-  const handleSaveWorld = useCallback(async (options?: { saveAsDraft?: boolean; navigateTo?: string }) => {
+  const handleSaveWorld = useCallback(async (options?: {
+    saveAsDraft?: boolean
+    navigateTo?: string
+    /** Replaces the navigation at the end: gets the id the world was saved under. */
+    onSaved?: (savedGameId: number) => void
+  }) => {
     const saveAsDraft = Boolean(options?.saveAsDraft)
     if (isSaveInFlightRef.current) return
     if (!saveAsDraft && !canSubmit) return
@@ -2169,7 +2175,11 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       } catch {
         // Ignore storage restrictions.
       }
-      onNavigate(options?.navigateTo ?? (isMyPublicationsEdit ? '/games/publications' : `/home/${gameId}`))
+      if (options?.onSaved) {
+        options.onSaved(gameId)
+      } else {
+        onNavigate(options?.navigateTo ?? (isMyPublicationsEdit ? '/games/publications' : `/home/${gameId}`))
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Не удалось сохранить мир')
     } finally {
@@ -2196,6 +2206,17 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     },
     [handleSaveWorld, isEditMode, onNavigate],
   )
+
+  // Publishing needs an account. The world is kept as a private draft first, so nothing typed
+  // here is lost on the way to the sign-up form - and it moves into the new account with the rest.
+  // Publishing needs an account. The world is kept as a private draft first, and signing up
+  // brings the player back to this editor - by then under their account - to publish it.
+  const handleGuestPublishAttempt = useCallback(() => {
+    void handleSaveWorld({
+      saveAsDraft: true,
+      onSaved: (savedGameId) => requestAccount('publish', 'register', { returnTo: `/worlds/${savedGameId}/edit` }),
+    })
+  }, [handleSaveWorld])
 
   const helpEmpty = (text: string) => (
     <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'var(--morius-elevated-bg)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
@@ -2744,7 +2765,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                   Частный
                 </Button>
                 <Button
-                  onClick={() => handleSelectVisibility('public')}
+                  onClick={() => (user.is_guest ? handleGuestPublishAttempt() : handleSelectVisibility('public'))}
                   sx={{
                     minHeight: 48,
                     flex: 1,

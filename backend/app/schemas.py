@@ -64,6 +64,8 @@ class UserOut(BaseModel):
     referral_bonus_claimed_at: datetime | None = None
     active_theme_id: str | None = None
     subscription: "UserSubscriptionOut | None" = None
+    is_guest: bool = False
+    guest_number: int | None = None
     is_banned: bool
     ban_expires_at: datetime | None
     created_at: datetime
@@ -99,6 +101,8 @@ class UserOut(BaseModel):
             max_value=3.0,
         )
         payload["profile_showcase"] = normalize_profile_showcase(payload.get("profile_showcase"))
+        # An account built in memory has no column defaults yet; None must read as "not a guest".
+        payload["is_guest"] = bool(payload.get("is_guest"))
         return payload
 
 
@@ -385,11 +389,60 @@ class ProfileUpdateRequest(BaseModel):
     email_notifications_enabled: bool | None = None
 
 
+class GuestMergeSummaryOut(BaseModel):
+    """What moved from a guest into the account the player just signed in to."""
+
+    # The guest's own id is gone once the merge commits; the client uses it to carry the
+    # browser-side state it kept under that id (unsent turn drafts) over to the account.
+    guest_user_id: int = 0
+    guest_name: str = ""
+    worlds: int = 0
+    characters: int = 0
+    instruction_templates: int = 0
+    # Only a brand-new account inherits the guest's balance; an existing one keeps its own.
+    coins_transferred: int = 0
+
+
 class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
     is_new_user: bool = False
+    merged_guest: GuestMergeSummaryOut | None = None
+
+
+class GuestSessionStartRequest(BaseModel):
+    # The id the browser keeps in localStorage. The HttpOnly cookie is the stronger signal;
+    # this one survives a cookie-only wipe.
+    device_id: str | None = Field(default=None, max_length=128)
+
+
+class GuestSessionStartResponse(BaseModel):
+    # "ok" -> play as `auth.user`; "login_required" -> this browser or network already has an
+    # account or has used up its guests, so the client opens the login form.
+    status: Literal["ok", "login_required"]
+    reason: str | None = None
+    message: str | None = None
+    auth: AuthResponse | None = None
+
+
+class GuestClaimRequest(BaseModel):
+    guest_token: str = Field(min_length=1, max_length=4096)
+
+
+class GuestClaimResponse(BaseModel):
+    user: UserOut
+    merged_guest: GuestMergeSummaryOut | None = None
+
+
+class AccountDeleteRequest(BaseModel):
+    # The player types this word by hand; a stray request without it is refused.
+    confirmation: str = Field(min_length=1, max_length=40)
+
+
+class AccountDeleteResponse(BaseModel):
+    message: str
+    deleted_user_id: int
 
 
 class YandexOAuthCompleteResponse(AuthResponse):
@@ -474,6 +527,15 @@ class AdminUserSubscriptionOut(BaseModel):
     next_charge_at: datetime | None = None
     auto_renew: bool = False
     is_admin_grant: bool = False
+    # Turn budget for the current billing period. `accrued` is what the daily limit has added up
+    # to so far, `bonus` is the operator's own adjustment, `remaining` is what the player can
+    # actually spend right now.
+    daily_turn_limit: int = 0
+    turns_accrued: int = 0
+    turns_used: int = 0
+    turns_bonus: int = 0
+    turns_remaining: int = 0
+    period_start: str = ""
 
 
 class AdminUserOut(BaseModel):
@@ -486,6 +548,7 @@ class AdminUserOut(BaseModel):
     profile_tag: str = ""
     coins: int
     is_banned: bool
+    is_guest: bool = False
     ban_expires_at: datetime | None
     created_at: datetime
     last_payment_at: datetime | None = None
@@ -505,6 +568,11 @@ class AdminUserTokensUpdateRequest(BaseModel):
 
 class AdminUserSubscriptionGrantRequest(BaseModel):
     plan_id: Literal["spark", "flame", "constellation"]
+
+
+class AdminUserSubscriptionTurnsUpdateRequest(BaseModel):
+    operation: Literal["add", "subtract"]
+    amount: int = Field(ge=1, le=1_000_000)
 
 
 class AdminUserModeratorUpdateRequest(BaseModel):

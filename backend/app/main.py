@@ -58,6 +58,7 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
     StoryCommunityWorldRating = None
     StoryCommunityWorldReport = None
     STORY_COMMUNITY_OPTIONAL_MODELS_AVAILABLE = False
+from app.routers.account import router as account_router
 from app.routers.auth import router as auth_router
 from app.routers.downloads import router as downloads_router
 from app.routers.landing import router as landing_router
@@ -89,6 +90,7 @@ from app.services.provider_resilience import (
     is_retryable_provider_error,
 )
 from app.services.sqlite_write_guard import commit_with_retry
+from app.services.guest_access import ACCOUNT_REQUIRED_HEADER, GuestAccountRequiredMiddleware
 from app.services.story_token_budget import (
     STORY_TOKEN_UNIT_DENOMINATOR,
     estimate_story_tokens,
@@ -1768,7 +1770,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # The client reads it to send a guest to the sign-up form; see services/guest_access.py.
+    expose_headers=[ACCOUNT_REQUIRED_HEADER],
 )
+app.add_middleware(GuestAccountRequiredMiddleware)
 
 SHOP_ASSETS_DIR_CANDIDATES = (
     Path(__file__).resolve().parents[2] / "frontend" / "public" / "shop-assets",
@@ -1780,6 +1785,7 @@ for shop_assets_dir in SHOP_ASSETS_DIR_CANDIDATES:
         break
 
 app.include_router(auth_router)
+app.include_router(account_router)
 app.include_router(downloads_router)
 app.include_router(landing_router)
 app.include_router(health_router)

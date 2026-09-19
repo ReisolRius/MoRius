@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Literal
 
@@ -40,6 +41,8 @@ from app.models import (
     User,
 )
 from app.schemas import (
+    AccountDeleteRequest,
+    AccountDeleteResponse,
     AdminBugReportDetailOut,
     AdminBugReportListResponse,
     AdminBugReportSummaryOut,
@@ -51,6 +54,7 @@ from app.schemas import (
     AdminUserOut,
     AdminUserRoleUpdateRequest,
     AdminUserSubscriptionGrantRequest,
+    AdminUserSubscriptionTurnsUpdateRequest,
     AdminUserSubscriptionOut,
     AdminUserTagUpdateRequest,
     AdminUserTokensUpdateRequest,
@@ -68,12 +72,22 @@ from app.services.auth_identity import (
     sync_user_access_state,
     user_has_admin_panel_access,
 )
+from app.services.account_lifecycle import ACCOUNT_DELETE_CONFIRMATION_WORD, delete_user_account
 from app.services.concurrency import add_user_tokens, spend_user_tokens_if_sufficient
 from app.services.maintenance import read_maintenance_settings, write_maintenance_settings
 from app.services.payments import grant_subscription_for_one_period
 from app.services.story_characters import unlink_story_character_from_world_cards
 from app.services.story_games import delete_story_game_with_relations, story_author_name
-from app.services.subscriptions import get_active_subscription
+from app.services.subscriptions import (
+    adjust_subscription_turns,
+    get_active_subscription,
+    get_daily_turns_remaining,
+    get_period_turns_bonus,
+    get_period_turns_used,
+    get_subscription_entitlement,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -260,11 +274,25 @@ def _attach_admin_user_payment_metadata(
                 and not method.is_demo
                 and str(method.provider_payment_method_id or "").strip()
             )
+            entitlement = get_subscription_entitlement(db, user)
+            turns_accrued = 0
+            if entitlement is not None:
+                turns_accrued = (
+                    get_daily_turns_remaining(user, entitlement)
+                    + get_period_turns_used(user, entitlement)
+                    - get_period_turns_bonus(user, entitlement)
+                )
             subscription_payload = AdminUserSubscriptionOut(
                 id=int(subscription.id),
                 plan_id=str(subscription.plan_id),
                 plan_title=str(subscription.plan_title),
                 next_charge_at=subscription.next_charge_at,
+                daily_turn_limit=int(entitlement["daily_turn_limit"]) if entitlement else 0,
+                turns_accrued=max(0, turns_accrued),
+                turns_used=get_period_turns_used(user, entitlement),
+                turns_bonus=get_period_turns_bonus(user, entitlement),
+                turns_remaining=get_daily_turns_remaining(user, entitlement),
+                period_start=str(entitlement["period_start"]) if entitlement else "",
                 auto_renew=auto_renew,
                 is_admin_grant=bool(subscription.provider_payment_id is None and not subscription.is_mock),
             )
@@ -755,6 +783,44 @@ def grant_user_subscription(
     return _admin_user_out(db, target_user)
 
 
+@router.post("/api/auth/admin/users/{user_id}/subscription-turns", response_model=AdminUserOut)
+def update_user_subscription_turns(
+    user_id: int,
+    payload: AdminUserSubscriptionTurnsUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AdminUserOut:
+    """Grant or take back subscription turns, the same way sols are adjusted.
+
+    The adjustment lives for the current billing period only: it is cleared together with the
+    usage counter when the period rolls over, so a grant is a one-month gift rather than a
+    permanent change to the plan.
+    """
+    _require_administrator(db=db, authorization=authorization)
+    target_user = _get_target_user_or_404(db, user_id=user_id)
+
+    entitlement = get_subscription_entitlement(db, target_user)
+    if entitlement is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="У пользователя нет активной подписки",
+        )
+
+    amount = int(payload.amount)
+    delta = amount if payload.operation == "add" else -amount
+    remaining_before = get_daily_turns_remaining(target_user, entitlement)
+    if payload.operation == "subtract" and remaining_before <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="У пользователя не осталось ходов подписки",
+        )
+
+    adjust_subscription_turns(db, user=target_user, entitlement=entitlement, delta=delta)
+    db.commit()
+    db.refresh(target_user)
+    return _admin_user_out(db, target_user)
+
+
 @router.post("/api/auth/admin/users/{user_id}/moderator", response_model=AdminUserOut)
 def update_user_moderator_role(
     user_id: int,
@@ -871,6 +937,48 @@ def unban_user(
     db.commit()
     db.refresh(target_user)
     return _admin_user_out(db, target_user)
+
+
+@router.post("/api/auth/admin/users/{user_id}/delete", response_model=AccountDeleteResponse)
+def delete_user_account_as_admin(
+    user_id: int,
+    payload: AccountDeleteRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AccountDeleteResponse:
+    """Erase an account for good: worlds, stories, characters, purchases and donation history,
+    subscriptions and saved cards. Administrators only; there is no undo."""
+    admin_user = _require_administrator(db=db, authorization=authorization)
+    target_user = _get_target_user_or_404(db, user_id=user_id)
+    if str(payload.confirmation or "").strip().casefold() != ACCOUNT_DELETE_CONFIRMATION_WORD.casefold():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Чтобы удалить аккаунт, введите слово «{ACCOUNT_DELETE_CONFIRMATION_WORD}».",
+        )
+    if int(target_user.id) == int(admin_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Свой аккаунт удаляется в настройках профиля, а не из админки.",
+        )
+    if is_privileged_email(target_user.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Служебный аккаунт нельзя удалить.",
+        )
+    deleted_user_id = int(target_user.id)
+    try:
+        delete_user_account(db, user=target_user)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        # Without this the endpoint answered 503 with nothing in the log, and the real cause --
+        # a foreign key from a table the deletion sweep did not know about -- was invisible.
+        logger.exception("Admin account deletion failed: user_id=%s", deleted_user_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Не удалось удалить аккаунт. Подробности в журнале сервера.",
+        ) from exc
+    return AccountDeleteResponse(message="Аккаунт удалён", deleted_user_id=deleted_user_id)
 
 
 @router.get("/api/auth/admin/reports", response_model=AdminReportListResponse)

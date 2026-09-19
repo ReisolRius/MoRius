@@ -66,6 +66,11 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
         start_mode: str
 
 from app.services.auth_identity import get_current_user
+from app.services.guest_access import (
+    ACCOUNT_REQUIRED_REASON_PUBLISH,
+    ACCOUNT_REQUIRED_REASON_SOCIAL,
+    ensure_account_user,
+)
 from app.services.concurrency import (
     apply_story_world_rating_delete,
     apply_story_world_rating_insert,
@@ -2337,6 +2342,7 @@ def rate_story_community_world(
     db: Session = Depends(get_db),
 ) -> StoryCommunityWorldSummaryOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SOCIAL)
     world = get_public_story_world_or_404(db, world_id)
     rating_value = int(payload.rating)
 
@@ -2405,6 +2411,7 @@ def report_story_community_world(
     db: Session = Depends(get_db),
 ) -> StoryCommunityWorldSummaryOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SOCIAL)
     world = get_public_story_world_or_404(db, world_id)
     description = payload.description.strip()
     if not description:
@@ -2481,6 +2488,7 @@ def create_story_community_world_comment(
     db: Session = Depends(get_db),
 ) -> StoryCommunityWorldCommentOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SOCIAL)
     world = get_public_story_world_or_404(db, world_id)
     content = normalize_story_community_world_comment_content(payload.content)
     if not content:
@@ -2526,6 +2534,7 @@ def update_story_community_world_comment(
     db: Session = Depends(get_db),
 ) -> StoryCommunityWorldCommentOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SOCIAL)
     world = get_public_story_world_or_404(db, world_id)
     comment = db.scalar(
         select(StoryCommunityWorldComment).where(
@@ -2649,6 +2658,8 @@ def create_story_game(
     description = normalize_story_game_description(payload.description)
     opening_scene = normalize_story_game_opening_scene(payload.opening_scene)
     requested_visibility = normalize_story_game_visibility(payload.visibility)
+    if requested_visibility == STORY_GAME_VISIBILITY_PUBLIC:
+        ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_PUBLISH)
     age_rating = normalize_story_game_age_rating(payload.age_rating)
     genres = normalize_story_game_genres(payload.genres)
     cover_image_url = normalize_story_cover_image_url(payload.cover_image_url, db=db)
@@ -4412,6 +4423,8 @@ def update_story_game_meta(
         game.opening_scene = normalize_story_game_opening_scene(payload.opening_scene)
     if payload.visibility is not None:
         requested_visibility = normalize_story_game_visibility(payload.visibility)
+        if requested_visibility == STORY_GAME_VISIBILITY_PUBLIC:
+            ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_PUBLISH)
     if payload.age_rating is not None:
         game.age_rating = normalize_story_game_age_rating(payload.age_rating)
     if payload.genres is not None:

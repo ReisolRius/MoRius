@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 try:
@@ -110,6 +110,21 @@ from app.services.auth_identity import (
     sync_user_access_state,
 )
 from app.services.media import normalize_avatar_value, normalize_media_scale, validate_avatar_url
+from app.services.account_lifecycle import NEW_ACCOUNT_STARTER_COINS, starter_coins_for_new_account
+from app.services.guest_access import (
+    ACCOUNT_REQUIRED_REASON_REWARDS,
+    ACCOUNT_REQUIRED_REASON_SETTINGS,
+    DEVICE_ID_HEADER,
+    GUEST_DEVICE_COOKIE,
+    GUEST_TOKEN_HEADER,
+    ensure_account_user,
+    new_device_cookie_value,
+    normalize_device_token,
+    optional_str,
+    request_is_secure,
+    set_device_cookie,
+)
+from app.services.guest_accounts import absorb_request_guest_safely, resolve_request_guest
 from app.services.image_compression import PROFILE_AVATAR
 from app.services.payments import sync_user_pending_purchases, sync_user_pending_subscriptions
 from app.services.profile_showcase import normalize_profile_showcase, serialize_profile_showcase
@@ -258,8 +273,9 @@ logger = logging.getLogger(__name__)
 AVATAR_SCALE_MIN = 1.0
 AVATAR_SCALE_MAX = 3.0
 AVATAR_SCALE_DEFAULT = 1.0
-# Sol economy v2: 50 old sols bought ~12 cheap turns, 30 new ones buy 30.
-NEW_USER_STARTER_COINS = 30
+# Sol economy v2: 50 old sols bought ~12 cheap turns, 30 new ones buy 30. The grant itself lives
+# in services/account_lifecycle.py: a deleted identity signing up again does not get it twice.
+NEW_USER_STARTER_COINS = NEW_ACCOUNT_STARTER_COINS
 ONBOARDING_GUIDE_DEFAULT_STATUS = "pending"
 ONBOARDING_GUIDE_ALLOWED_STATUSES = {"pending", "completed", "skipped"}
 ONBOARDING_GUIDE_STEP_ID_MAX_LENGTH = 120
@@ -293,6 +309,81 @@ def _to_utc(value: datetime) -> datetime:
 
 def _is_secure_yandex_cookie() -> bool:
     return settings.yandex_redirect_uri.lower().startswith("https://")
+
+
+GUEST_EMAIL_SUFFIXES = ("@guest.morius-ai.ru",)
+
+
+def _ensure_email_can_sign_up(normalized_email: str) -> None:
+    """Guest placeholder addresses are ours and receive no mail; nobody may claim one."""
+    if normalized_email.endswith(GUEST_EMAIL_SUFFIXES):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Этот адрес нельзя использовать для входа. Укажите свою почту.",
+        )
+
+
+def _merge_browser_guest_after_sign_in(
+    db: Session,
+    *,
+    user: User,
+    is_new_user: bool,
+    guest_token: Any = None,
+    device_cookie: Any = None,
+    device_id: Any = None,
+    response: Response | None = None,
+    secure_cookie: bool = False,
+    guest_user_id: int | None = None,
+) -> Any:
+    """After a sign-in has been committed: take this browser's guest along and remember that the
+    browser now belongs to an account. Never raises - see absorb_request_guest_safely."""
+    cookie_value = normalize_device_token(optional_str(device_cookie))
+    if cookie_value is None and response is not None:
+        cookie_value = new_device_cookie_value()
+        set_device_cookie(response, cookie_value, secure=secure_cookie)
+    return absorb_request_guest_safely(
+        db,
+        account=user,
+        account_is_new=is_new_user,
+        guest_token=optional_str(guest_token),
+        device_cookie=cookie_value,
+        client_device_id=optional_str(device_id),
+        guest_user_id=guest_user_id,
+    )
+
+
+def _guest_id_for_oauth_state(db: Session, *, guest_token: Any, device_cookie: Any) -> int | None:
+    """The guest to carry through an OAuth round trip, pinned in the signed state at the start."""
+    try:
+        guest = resolve_request_guest(
+            db,
+            guest_token=optional_str(guest_token),
+            device_cookie=optional_str(device_cookie),
+        )
+    except Exception:
+        logger.exception("Could not resolve the guest session at OAuth start")
+        return None
+    return int(guest.id) if guest is not None else None
+
+
+def _merged_guest_claim(merged: Any) -> dict[str, Any] | None:
+    if merged is None:
+        return None
+    try:
+        return merged.model_dump()
+    except Exception:
+        return None
+
+
+def _merged_guest_from_claim(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return None
+    try:
+        from app.schemas import GuestMergeSummaryOut
+
+        return GuestMergeSummaryOut.model_validate(value)
+    except Exception:
+        return None
 
 
 def _set_yandex_cookie(
@@ -462,6 +553,7 @@ def _encode_vk_id_state(
     provider: str,
     user_id: int | None,
     return_path: str,
+    guest_user_id: int | None = None,
 ) -> str:
     expires_at = int((_utcnow() + timedelta(minutes=VK_ID_OAUTH_STATE_TTL_MINUTES)).timestamp())
     state_payload: dict[str, Any] = {
@@ -473,6 +565,8 @@ def _encode_vk_id_state(
     }
     if user_id is not None:
         state_payload["u"] = int(user_id)
+    if guest_user_id is not None:
+        state_payload["gu"] = int(guest_user_id)
     encoded_payload = _base64url_encode(
         json.dumps(state_payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     )
@@ -507,6 +601,7 @@ def _decode_vk_id_state(value: str | None) -> dict[str, Any]:
             "action": "link" if payload.get("a") == "l" else "login",
             "provider": "mail" if payload.get("p") == "m" else "vk",
             "user_id": payload.get("u"),
+            "guest_user_id": payload.get("gu"),
             "return_path": str(payload.get("r") or ""),
         }
     return _decode_vk_id_token(raw_value, purpose=VK_ID_OAUTH_PURPOSE_STATE)
@@ -542,7 +637,7 @@ def _resolve_yandex_login_user(db: Session, identity: YandexIdentity) -> tuple[U
             avatar_url=identity.avatar_url,
             yandex_sub=identity.subject,
             auth_provider="yandex",
-            coins=NEW_USER_STARTER_COINS,
+            coins=starter_coins_for_new_account(db, email=identity.email, yandex_sub=identity.subject),
         )
         db.add(user)
         return user, True
@@ -624,7 +719,7 @@ def _resolve_vk_id_login_user(db: Session, identity: VKIDIdentity) -> tuple[User
             vk_id_sub=identity.subject,
             vk_id_provider=identity.provider,
             auth_provider=identity.provider,
-            coins=NEW_USER_STARTER_COINS,
+            coins=starter_coins_for_new_account(db, email=identity_email or None, vk_id_sub=identity.subject),
         )
         db.add(user)
         return user, True
@@ -1007,6 +1102,8 @@ def start_vk_id_oauth(
     payload: VKIDOAuthStartRequest,
     response: Response,
     authorization: str | None = Header(default=None),
+    guest_token: str | None = Header(default=None, alias=GUEST_TOKEN_HEADER),
+    device_cookie: str | None = Cookie(default=None, alias=GUEST_DEVICE_COOKIE),
     db: Session = Depends(get_db),
 ) -> VKIDOAuthStartResponse:
     client_id = settings.vk_id_client_id.strip()
@@ -1018,8 +1115,13 @@ def start_vk_id_oauth(
         )
 
     user_id: int | None = None
+    guest_user_id: int | None = None
     if payload.action == "link":
-        user_id = int(get_current_user(db, authorization).id)
+        link_user = get_current_user(db, authorization)
+        ensure_account_user(link_user, reason=ACCOUNT_REQUIRED_REASON_SETTINGS)
+        user_id = int(link_user.id)
+    else:
+        guest_user_id = _guest_id_for_oauth_state(db, guest_token=guest_token, device_cookie=device_cookie)
 
     return_path = _normalize_vk_id_return_path(payload.return_path, action=payload.action)
     nonce = secrets.token_urlsafe(24)
@@ -1033,6 +1135,7 @@ def start_vk_id_oauth(
         provider=payload.provider,
         user_id=user_id,
         return_path=return_path,
+        guest_user_id=guest_user_id,
     )
     _set_vk_id_cookie(
         response,
@@ -1061,6 +1164,7 @@ def vk_id_oauth_callback(
     device_id: str | None = Query(default=None),
     provider_error: str | None = Query(default=None, alias="error"),
     flow_cookie: str | None = Cookie(default=None, alias=VK_ID_OAUTH_FLOW_COOKIE),
+    device_cookie: str | None = Cookie(default=None, alias=GUEST_DEVICE_COOKIE),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     callback_payload: dict[str, Any] = {}
@@ -1198,6 +1302,22 @@ def vk_id_oauth_callback(
         )
         return redirect
 
+    redirect = RedirectResponse(
+        _build_vk_id_frontend_redirect(return_path=return_path, complete=True),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+    merged_guest = None
+    if action != "link":
+        state_guest_id = state_payload.get("guest_user_id")
+        merged_guest = _merge_browser_guest_after_sign_in(
+            db,
+            user=user,
+            is_new_user=is_new_user,
+            device_cookie=device_cookie,
+            response=redirect,
+            secure_cookie=_is_secure_vk_id_cookie(),
+            guest_user_id=int(state_guest_id) if isinstance(state_guest_id, int) else None,
+        )
     completion_token = create_access_token(
         subject=str(user.id),
         claims={
@@ -1205,12 +1325,9 @@ def vk_id_oauth_callback(
             "oauth_action": action,
             "oauth_provider": provider,
             "is_new_user": is_new_user,
+            "merged_guest": _merged_guest_claim(merged_guest),
         },
         expires_delta=timedelta(minutes=VK_ID_OAUTH_COMPLETION_TTL_MINUTES),
-    )
-    redirect = RedirectResponse(
-        _build_vk_id_frontend_redirect(return_path=return_path, complete=True),
-        status_code=status.HTTP_303_SEE_OTHER,
     )
     _delete_vk_id_cookie(
         redirect,
@@ -1250,6 +1367,7 @@ def complete_vk_id_oauth(
         user,
         is_new_user=bool(completion_payload.get("is_new_user")),
         db=db,
+        merged_guest=_merged_guest_from_claim(completion_payload.get("merged_guest")),
     )
     _delete_vk_id_cookie(
         response,
@@ -1268,6 +1386,8 @@ def start_yandex_oauth(
     payload: YandexOAuthStartRequest,
     response: Response,
     authorization: str | None = Header(default=None),
+    guest_token: str | None = Header(default=None, alias=GUEST_TOKEN_HEADER),
+    device_cookie: str | None = Cookie(default=None, alias=GUEST_DEVICE_COOKIE),
     db: Session = Depends(get_db),
 ) -> YandexOAuthStartResponse:
     client_id = settings.yandex_client_id.strip()
@@ -1279,8 +1399,13 @@ def start_yandex_oauth(
         )
 
     user_id: int | None = None
+    guest_user_id: int | None = None
     if payload.action == "link":
-        user_id = int(get_current_user(db, authorization).id)
+        link_user = get_current_user(db, authorization)
+        ensure_account_user(link_user, reason=ACCOUNT_REQUIRED_REASON_SETTINGS)
+        user_id = int(link_user.id)
+    else:
+        guest_user_id = _guest_id_for_oauth_state(db, guest_token=guest_token, device_cookie=device_cookie)
 
     return_path = _normalize_yandex_return_path(payload.return_path, action=payload.action)
     nonce = secrets.token_urlsafe(24)
@@ -1295,6 +1420,7 @@ def start_yandex_oauth(
             "nonce": nonce,
             "action": payload.action,
             "user_id": user_id,
+            "guest_user_id": guest_user_id,
             "return_path": return_path,
         },
         expires_delta=timedelta(minutes=YANDEX_OAUTH_STATE_TTL_MINUTES),
@@ -1332,6 +1458,7 @@ def yandex_oauth_callback(
     state_token: str | None = Query(default=None, alias="state"),
     provider_error: str | None = Query(default=None, alias="error"),
     flow_cookie: str | None = Cookie(default=None, alias=YANDEX_OAUTH_FLOW_COOKIE),
+    device_cookie: str | None = Cookie(default=None, alias=GUEST_DEVICE_COOKIE),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     state_payload = _decode_yandex_token(state_token, purpose=YANDEX_OAUTH_PURPOSE_STATE)
@@ -1422,18 +1549,31 @@ def yandex_oauth_callback(
         )
         return redirect
 
+    redirect = RedirectResponse(
+        _build_yandex_frontend_redirect(return_path=return_path, complete=True),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+    merged_guest = None
+    if action != "link":
+        state_guest_id = state_payload.get("guest_user_id")
+        merged_guest = _merge_browser_guest_after_sign_in(
+            db,
+            user=user,
+            is_new_user=is_new_user,
+            device_cookie=device_cookie,
+            response=redirect,
+            secure_cookie=_is_secure_yandex_cookie(),
+            guest_user_id=int(state_guest_id) if isinstance(state_guest_id, int) else None,
+        )
     completion_token = create_access_token(
         subject=str(user.id),
         claims={
             "purpose": YANDEX_OAUTH_PURPOSE_COMPLETION,
             "oauth_action": action,
             "is_new_user": is_new_user,
+            "merged_guest": _merged_guest_claim(merged_guest),
         },
         expires_delta=timedelta(minutes=YANDEX_OAUTH_COMPLETION_TTL_MINUTES),
-    )
-    redirect = RedirectResponse(
-        _build_yandex_frontend_redirect(return_path=return_path, complete=True),
-        status_code=status.HTTP_303_SEE_OTHER,
     )
     _delete_yandex_cookie(
         redirect,
@@ -1473,6 +1613,7 @@ def complete_yandex_oauth(
         user,
         is_new_user=bool(completion_payload.get("is_new_user")),
         db=db,
+        merged_guest=_merged_guest_from_claim(completion_payload.get("merged_guest")),
     )
     _delete_yandex_cookie(
         response,
@@ -1492,6 +1633,7 @@ def replace_auth_method_with_password(
     db: Session = Depends(get_db),
 ) -> UserOut:
     current_user = get_current_user(db, authorization)
+    ensure_account_user(current_user, reason=ACCOUNT_REQUIRED_REASON_SETTINGS)
     repaired_user, _ = repair_duplicate_users_for_email(
         db,
         current_user.email,
@@ -1522,6 +1664,7 @@ def replace_auth_method_with_password(
 @router.post("/api/auth/register", response_model=MessageResponse)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> MessageResponse:
     normalized_email = normalize_email(payload.email)
+    _ensure_email_can_sign_up(normalized_email)
     if not payload.accepted_terms:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Terms should be accepted")
     if not payload.accepted_age:
@@ -1580,8 +1723,17 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> Message
 
 
 @router.post("/api/auth/register/verify", response_model=AuthResponse)
-def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(get_db)) -> AuthResponse:
+def verify_registration(
+    payload: RegisterVerifyRequest,
+    request: Request,
+    response: Response,
+    guest_token: str | None = Header(default=None, alias=GUEST_TOKEN_HEADER),
+    device_id: str | None = Header(default=None, alias=DEVICE_ID_HEADER),
+    device_cookie: str | None = Cookie(default=None, alias=GUEST_DEVICE_COOKIE),
+    db: Session = Depends(get_db),
+) -> AuthResponse:
     normalized_email = normalize_email(payload.email)
+    _ensure_email_can_sign_up(normalized_email)
     verification = db.scalar(select(EmailVerification).where(EmailVerification.email == normalized_email))
     if verification is None:
         raise HTTPException(
@@ -1635,7 +1787,7 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
             password_hash=verification.password_hash,
             display_name=verification.display_name or build_user_name(normalized_email),
             auth_provider="email",
-            coins=NEW_USER_STARTER_COINS,
+            coins=starter_coins_for_new_account(db, email=normalized_email),
         )
         db.add(user)
 
@@ -1646,12 +1798,23 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
     db.commit()
     db.refresh(user)
     clear_verification_code_cooldown(normalized_email)
-    return issue_auth_response(user, is_new_user=is_new_user, db=db)
+    merged_guest = _merge_browser_guest_after_sign_in(
+        db,
+        user=user,
+        is_new_user=is_new_user,
+        guest_token=guest_token,
+        device_cookie=device_cookie,
+        device_id=device_id,
+        response=response,
+        secure_cookie=request_is_secure(request),
+    )
+    return issue_auth_response(user, is_new_user=is_new_user, db=db, merged_guest=merged_guest)
 
 
 @router.post("/api/auth/password-reset", response_model=MessageResponse)
 def request_password_reset(payload: PasswordResetRequest, db: Session = Depends(get_db)) -> MessageResponse:
     normalized_email = normalize_email(payload.email)
+    _ensure_email_can_sign_up(normalized_email)
     cooldown_key = f"{PASSWORD_RESET_COOLDOWN_PREFIX}{normalized_email}"
     now = _utcnow()
     cooldown_remaining_seconds = get_resend_cooldown_remaining_seconds(cooldown_key, now)
@@ -1702,8 +1865,17 @@ def request_password_reset(payload: PasswordResetRequest, db: Session = Depends(
 
 
 @router.post("/api/auth/password-reset/verify", response_model=AuthResponse)
-def verify_password_reset(payload: PasswordResetVerifyRequest, db: Session = Depends(get_db)) -> AuthResponse:
+def verify_password_reset(
+    payload: PasswordResetVerifyRequest,
+    request: Request,
+    response: Response,
+    guest_token: str | None = Header(default=None, alias=GUEST_TOKEN_HEADER),
+    device_id: str | None = Header(default=None, alias=DEVICE_ID_HEADER),
+    device_cookie: str | None = Cookie(default=None, alias=GUEST_DEVICE_COOKIE),
+    db: Session = Depends(get_db),
+) -> AuthResponse:
     normalized_email = normalize_email(payload.email)
+    _ensure_email_can_sign_up(normalized_email)
     cooldown_key = f"{PASSWORD_RESET_COOLDOWN_PREFIX}{normalized_email}"
     verification = db.scalar(
         select(PasswordResetVerification).where(PasswordResetVerification.email == normalized_email)
@@ -1755,11 +1927,29 @@ def verify_password_reset(payload: PasswordResetVerifyRequest, db: Session = Dep
     db.commit()
     db.refresh(user)
     clear_verification_code_cooldown(cooldown_key)
-    return issue_auth_response(user, db=db)
+    merged_guest = _merge_browser_guest_after_sign_in(
+        db,
+        user=user,
+        is_new_user=False,
+        guest_token=guest_token,
+        device_cookie=device_cookie,
+        device_id=device_id,
+        response=response,
+        secure_cookie=request_is_secure(request),
+    )
+    return issue_auth_response(user, db=db, merged_guest=merged_guest)
 
 
 @router.post("/api/auth/login", response_model=AuthResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
+def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    guest_token: str | None = Header(default=None, alias=GUEST_TOKEN_HEADER),
+    device_id: str | None = Header(default=None, alias=DEVICE_ID_HEADER),
+    device_cookie: str | None = Cookie(default=None, alias=GUEST_DEVICE_COOKIE),
+    db: Session = Depends(get_db),
+) -> AuthResponse:
     normalized_email = normalize_email(payload.email)
     user = db.scalar(select(User).where(User.email == normalized_email))
 
@@ -1777,11 +1967,29 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
         db.commit()
         db.refresh(user)
 
-    return issue_auth_response(user, db=db)
+    merged_guest = _merge_browser_guest_after_sign_in(
+        db,
+        user=user,
+        is_new_user=False,
+        guest_token=guest_token,
+        device_cookie=device_cookie,
+        device_id=device_id,
+        response=response,
+        secure_cookie=request_is_secure(request),
+    )
+    return issue_auth_response(user, db=db, merged_guest=merged_guest)
 
 
 @router.post("/api/auth/google", response_model=AuthResponse)
-def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db)) -> AuthResponse:
+def login_with_google(
+    payload: GoogleAuthRequest,
+    request: Request,
+    response: Response,
+    guest_token: str | None = Header(default=None, alias=GUEST_TOKEN_HEADER),
+    device_id: str | None = Header(default=None, alias=DEVICE_ID_HEADER),
+    device_cookie: str | None = Cookie(default=None, alias=GUEST_DEVICE_COOKIE),
+    db: Session = Depends(get_db),
+) -> AuthResponse:
     allowed_google_client_ids = parse_google_client_ids(settings.google_client_id)
     if not allowed_google_client_ids:
         raise HTTPException(
@@ -1908,7 +2116,7 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
             avatar_url=avatar_url,
             google_sub=google_sub,
             auth_provider="google",
-            coins=NEW_USER_STARTER_COINS,
+            coins=starter_coins_for_new_account(db, email=email, google_sub=google_sub),
         )
         db.add(user)
     else:
@@ -1954,7 +2162,17 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
             detail = f"{detail}: {exc}"
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail) from exc
 
-    return issue_auth_response(user, is_new_user=is_new_user, db=db)
+    merged_guest = _merge_browser_guest_after_sign_in(
+        db,
+        user=user,
+        is_new_user=is_new_user,
+        guest_token=guest_token,
+        device_cookie=device_cookie,
+        device_id=device_id,
+        response=response,
+        secure_cookie=request_is_secure(request),
+    )
+    return issue_auth_response(user, is_new_user=is_new_user, db=db, merged_guest=merged_guest)
 
 
 @router.post("/api/auth/logout", response_model=MessageResponse)
@@ -2022,6 +2240,7 @@ def update_avatar(
     db: Session = Depends(get_db),
 ) -> UserOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SETTINGS)
     avatar_value = normalize_avatar_value(payload.avatar_url)
     user.avatar_url = validate_avatar_url(avatar_value, profile=PROFILE_AVATAR) if avatar_value else None
     if payload.avatar_scale is not None:
@@ -2044,6 +2263,7 @@ def update_profile(
     db: Session = Depends(get_db),
 ) -> UserOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SETTINGS)
     if not payload.model_fields_set:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -2252,6 +2472,7 @@ def claim_my_daily_reward(
     db: Session = Depends(get_db),
 ) -> DailyRewardStatusOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_REWARDS)
     try:
         reward_grant = claim_daily_reward(db, user=user)
     except SQLAlchemyError as exc:

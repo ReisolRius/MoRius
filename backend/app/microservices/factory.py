@@ -10,6 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import settings
+from app.services.guest_access import ACCOUNT_REQUIRED_HEADER, GuestAccountRequiredMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ _PREFIX_TO_ROUTER_MODULES: dict[str, tuple[str, ...]] = {
     "/api/downloads": ("app.routers.downloads",),
     "/api/auth": (
         "app.routers.auth",
+        "app.routers.account",
         "app.routers.profiles",
         "app.routers.admin",
         "app.routers.dashboard_news",
@@ -202,7 +204,10 @@ def create_service_app(
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # The client reads it to send a guest to the sign-up form; see services/guest_access.py.
+        expose_headers=[ACCOUNT_REQUIRED_HEADER],
     )
+    service_app.add_middleware(GuestAccountRequiredMiddleware)
     _register_service_lifecycle(service_app)
     _include_service_routers(
         service_app,

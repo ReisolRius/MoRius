@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getCurrentUserNotificationUnreadCount } from '../services/authApi'
 import type { AuthUser } from '../types/auth'
 import { NOTIFICATIONS_CHANGED_EVENT, type NotificationsChangedDetail } from '../utils/notifications'
+import { requestAccount } from '../utils/guestSession'
 import DailyRewardsButton from './DailyRewardsButton'
 import { useAppHeaderSlots } from './header/appHeaderSlots'
 import HeaderPlayButton from './header/HeaderPlayButton'
@@ -28,6 +29,8 @@ function HeaderAccountActions({
 }: HeaderAccountActionsProps) {
   const [unreadCount, setUnreadCount] = useState(0)
   const shouldHideAvatar = useMediaQuery(hideAvatarBelowQuery ?? '(max-width:0px)')
+  const isCompactGuestButton = useMediaQuery('(max-width:599.95px)')
+  const isGuest = Boolean(user.is_guest)
   const headerSlots = useAppHeaderSlots()
   const registerAccountActions = headerSlots?.registerAccountActions
   // Inside the redesigned header every control shares one height; standalone uses keep the size they ask for.
@@ -36,6 +39,9 @@ function HeaderAccountActions({
   useEffect(() => registerAccountActions?.(), [registerAccountActions])
 
   const refreshUnreadCount = useCallback(async () => {
+    if (isGuest) {
+      return true
+    }
     try {
       const response = await getCurrentUserNotificationUnreadCount({ token: authToken })
       setUnreadCount(Math.max(0, response.unread_count))
@@ -44,7 +50,7 @@ function HeaderAccountActions({
       // Keep the previous value when polling fails.
       return false
     }
-  }, [authToken])
+  }, [authToken, isGuest])
 
   useEffect(() => {
     let active = true
@@ -102,7 +108,31 @@ function HeaderAccountActions({
   return (
     <Stack direction="row" spacing={1} alignItems="center">
       {headerSlots?.search}
-      {showDailyRewards ? <DailyRewardsButton authToken={authToken} size={resolvedAvatarSize} /> : null}
+      {/* A guest has nothing to collect here - rewards need an account - so it gets the way to one. */}
+      {isGuest ? (
+        <Button
+          onClick={() => requestAccount('guest')}
+          data-tour-id="header-guest-register"
+          sx={{
+            height: resolvedAvatarSize,
+            minWidth: 0,
+            px: isCompactGuestButton ? 1.2 : 1.8,
+            borderRadius: '11px',
+            border: 'none',
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
+            textTransform: 'none',
+            fontWeight: 700,
+            fontSize: isCompactGuestButton ? '0.8rem' : '0.86rem',
+            color: 'var(--morius-accent-contrast, #161009)',
+            backgroundColor: 'var(--morius-accent)',
+            '&:hover': { backgroundColor: 'var(--morius-accent)', filter: 'brightness(1.08)' },
+          }}
+        >
+          {isCompactGuestButton ? 'Регистрация' : 'Сохранить прогресс'}
+        </Button>
+      ) : null}
+      {showDailyRewards && !isGuest ? <DailyRewardsButton authToken={authToken} size={resolvedAvatarSize} /> : null}
       {headerSlots?.aiAssistant}
       {headerSlots?.showPlay ? <HeaderPlayButton authToken={authToken} /> : null}
       {shouldHideAvatar ? null : (

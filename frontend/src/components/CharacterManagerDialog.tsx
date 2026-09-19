@@ -61,6 +61,7 @@ import {
   resolveImageSourceToDataUrl,
 } from '../utils/avatar'
 import { resolvePublicationDraftVisibility } from '../utils/publication'
+import { guardGuestAction } from '../utils/guestSession'
 
 type CharacterManagerDialogProps = {
   open: boolean
@@ -1794,7 +1795,12 @@ function CharacterManagerDialog({
                       Приватная
                     </Button>
                     <Button
-                      onClick={() => setVisibilityDraft('public')}
+                      onClick={() => {
+                        // Publishing needs an account; a guest is sent to sign up instead.
+                        if (!guardGuestAction('publish')) {
+                          setVisibilityDraft('public')
+                        }
+                      }}
                       disabled={isAvatarActionsLocked}
                       sx={{
                         minHeight: 34,

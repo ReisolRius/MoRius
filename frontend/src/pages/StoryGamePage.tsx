@@ -210,8 +210,10 @@ import {
   canUseStoryGraphFeatures,
   canUseVisualNovelFeatures,
   isAdministratorRole,
+  isGuestUser,
   type AuthUser,
 } from '../types/auth'
+import { requestAccount } from '../utils/guestSession'
 import {
   STORY_CHARACTER_EMOTION_IDS,
   STORY_CHARACTER_EMOTION_LABELS,
@@ -927,6 +929,7 @@ const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Введите ваше действие...'
 const OUT_OF_TOKENS_INPUT_PLACEHOLDER = 'Недостаточно валюты'
+const GUEST_OUT_OF_SOLS_INPUT_PLACEHOLDER = 'Стартовые солы закончились — зарегистрируйся, чтобы играть дальше'
 const STORY_GAME_TITLE_MAX_LENGTH = 160
 const STORY_CARD_TITLE_MAX_LENGTH = 120
 const STORY_MEMORY_BLOCK_TITLE_MAX_LENGTH = 160
@@ -10340,6 +10343,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     ],
   )
   const hasInsufficientTokensForTurn = user.coins < currentTurnCostTokens
+  const isGuestPlayer = isGuestUser(user)
+  // A guest short of sols has spent its starter grant and has no top-up to reach for, so its
+  // composer stays open: sending the turn is what takes it to the sign-up form, and the text it
+  // typed waits in the draft for the account.
+  const isComposerLockedBySols = hasInsufficientTokensForTurn && !isGuestPlayer
+  /** Not enough sols for a turn: the shop for a player with an account, an account for a guest. */
+  const handleInsufficientSolsForTurn = useCallback(() => {
+    setTopUpError('')
+    setProfileDialogOpen(false)
+    setConfirmLogoutOpen(false)
+    if (isGuestPlayer) {
+      setErrorMessage('')
+      requestAccount('sols')
+      return
+    }
+    setErrorMessage(`Недостаточно валюты для хода: нужно ${currentTurnCostTokens}.`)
+    onNavigate('/shop')
+  }, [currentTurnCostTokens, isGuestPlayer, onNavigate])
   const composerStatusLabel = isFinalizingStoryTurn
     ? storyPostprocessLabel
     : isStoryGenerationActive
@@ -10362,7 +10383,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [contextLimitChars, isGenerating, plotContextOverflowTokens, recommendedContextLimitForBudget])
   const isSavingThoughtVisibility = isSavingShowGgThoughts || isSavingShowNpcThoughts
   const inputPlaceholder = hasInsufficientTokensForTurn
-    ? OUT_OF_TOKENS_INPUT_PLACEHOLDER
+    ? isGuestPlayer
+      ? GUEST_OUT_OF_SOLS_INPUT_PLACEHOLDER
+      : OUT_OF_TOKENS_INPUT_PLACEHOLDER
     : hasMessages
       ? NEXT_INPUT_PLACEHOLDER
       : INITIAL_INPUT_PLACEHOLDER
@@ -10374,7 +10397,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     !isVisualNovelInputLocked &&
     !isStoryTurnBusy &&
     !isCreatingGame &&
-    !hasInsufficientTokensForTurn &&
+    !isComposerLockedBySols &&
     voiceInputSupported
   const isSavingStorySettings =
     isSavingContextLimit ||
@@ -19102,10 +19125,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         if (generationCancelledByUser) {
           setErrorMessage('')
         } else if (/недостаточно (?:токенов|солов)/i.test(detail)) {
-          setTopUpError('')
-          setProfileDialogOpen(false)
-          setConfirmLogoutOpen(false)
-          onNavigate('/shop')
+          handleInsufficientSolsForTurn()
         } else if (generationInterrupted) {
           setErrorMessage('')
         } else {
@@ -19299,10 +19319,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       environmentTimeEnabled,
       environmentWeatherEnabled,
       authToken,
+      handleInsufficientSolsForTurn,
       loadGameById,
       memoryOptimizationEnabled,
       mergeNovelPlace,
-      onNavigate,
       onUserUpdate,
       responseMaxTokensEnabled,
       responseMaxTokens,
@@ -19414,7 +19434,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         if (voiceRecognitionRef.current) {
           return
         }
-        if (isGenerating || isCreatingGame || hasInsufficientTokensForTurn) {
+        if (isGenerating || isCreatingGame || isComposerLockedBySols) {
           voiceSessionRequestedRef.current = false
           return
         }
@@ -19429,7 +19449,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setIsVoiceInputActive(false)
       setErrorMessage('Не удалось запустить голосовой ввод.')
     }
-  }, [canUseVoiceInput, hasPromptText, isCreatingGame, isGenerating, isVoiceInputActive, hasInsufficientTokensForTurn, speechRecognitionCtor, syncComposerDraft])
+  }, [canUseVoiceInput, hasPromptText, isCreatingGame, isGenerating, isVoiceInputActive, isComposerLockedBySols, speechRecognitionCtor, syncComposerDraft])
 
   const prepareComposerDraftForSubmission = useCallback(
     (gameId: number, prompt: string) => {
@@ -19699,11 +19719,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
 
       if (hasInsufficientTokensForTurn) {
-        setErrorMessage(`Недостаточно валюты для хода: нужно ${currentTurnCostTokens}.`)
-        setTopUpError('')
-        setProfileDialogOpen(false)
-        setConfirmLogoutOpen(false)
-        onNavigate('/shop')
+        handleInsufficientSolsForTurn()
         return null
       }
 
@@ -19786,7 +19802,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       applyStoryGameSettings,
       applyWorldCardEvents,
       authToken,
-      currentTurnCostTokens,
+      handleInsufficientSolsForTurn,
       hasInsufficientTokensForTurn,
       instructionCards,
       isVisualNovelInputLocked,
@@ -19816,11 +19832,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     if (hasInsufficientTokensForTurn) {
-      setErrorMessage(`Недостаточно валюты для хода: нужно ${currentTurnCostTokens}.`)
-      setTopUpError('')
-      setProfileDialogOpen(false)
-      setConfirmLogoutOpen(false)
-      onNavigate('/shop')
+      handleInsufficientSolsForTurn()
       return
     }
 
@@ -19866,7 +19878,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     await dispatchComposerTurn(targetGameId, normalizedPrompt)
-  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, dispatchComposerTurn, hasInsufficientTokensForTurn, isStoryTurnBusy, isVisualNovelInputLocked, isVoiceInputActive, onNavigate, runDndPreTurnCheck])
+  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, dispatchComposerTurn, handleInsufficientSolsForTurn, hasInsufficientTokensForTurn, isStoryTurnBusy, isVisualNovelInputLocked, isVoiceInputActive, onNavigate, runDndPreTurnCheck])
 
   const handleStopStoryGeneration = useCallback(async () => {
     const activeRequest = generationRequestRef.current
@@ -20197,11 +20209,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     if (hasInsufficientTokensForTurn) {
-      setErrorMessage(`Недостаточно валюты для хода: нужно ${currentTurnCostTokens}.`)
-      setTopUpError('')
-      setProfileDialogOpen(false)
-      setConfirmLogoutOpen(false)
-      onNavigate('/shop')
+      handleInsufficientSolsForTurn()
       return
     }
 
@@ -20243,9 +20251,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     activeGameId,
     canReroll,
     clearTurnImageEntries,
-    currentTurnCostTokens,
     currentRerollAssistantMessage,
     currentRerollSourceUserMessage,
+    handleInsufficientSolsForTurn,
     hasInsufficientTokensForTurn,
     sendStoryPrompt,
     setIsRerollTurnPendingReplacement,
@@ -30614,7 +30622,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               defaultValue={composerDraftRef.current}
               placeholder={isDndCheckPending ? 'Мастер решает, нужен ли бросок…' : inputPlaceholder}
               maxLength={STORY_PROMPT_MAX_LENGTH}
-              disabled={isVisualNovelInputLocked || isStoryGenerationActive || hasInsufficientTokensForTurn}
+              disabled={isVisualNovelInputLocked || isStoryGenerationActive || isComposerLockedBySols}
               onChange={handleComposerInputChange}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') {

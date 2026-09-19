@@ -5,6 +5,7 @@ import {
   STORY_API_BASE_URL,
 } from '../config/env'
 import { dispatchServiceUnavailable } from '../utils/serviceAvailability'
+import { buildGuestAwareHeaders, handleAccountRequiredResponse } from '../utils/guestSession'
 
 const GATEWAY_ERROR_STATUSES = new Set([502, 503, 504])
 
@@ -127,6 +128,9 @@ function buildNetworkErrorMessage(path: string, customMessage?: string): string 
 }
 
 export async function parseApiError(response: Response, fallbackDetail = 'Request failed'): Promise<Error> {
+  // Every API error passes through here, so this one line is what sends a guest to the sign-up
+  // form whenever the server says the action needs an account.
+  handleAccountRequiredResponse(response)
   let detail = fallbackDetail
   try {
     const payload = (await response.json()) as { detail?: string }
@@ -153,6 +157,11 @@ async function executeRequest(
   if (!options.skipJsonContentType && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
+  Object.entries(buildGuestAwareHeaders(path)).forEach(([name, value]) => {
+    if (!headers.has(name)) {
+      headers.set(name, value)
+    }
+  })
 
   try {
     const method = String(options.method ?? 'GET').toUpperCase()

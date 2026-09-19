@@ -64,6 +64,7 @@ import type {
 import { STORY_CHARACTER_EMOTION_IDS } from '../types/story'
 import { buildApiUrl, normalizeApiMediaPayload, parseApiError, requestNoContent } from './httpClient'
 import { dispatchServiceUnavailable } from '../utils/serviceAvailability'
+import { normalizeAccountRequiredReason, requestAccount } from '../utils/guestSession'
 import type { AuthUser } from '../types/auth'
 
 const GATEWAY_ERROR_STATUSES_STORY = new Set([502, 503, 504])
@@ -2737,9 +2738,15 @@ async function runStoryGenerationStreamAttempt(options: StoryGenerationStreamOpt
     if (parsed.event === 'error') {
       let detail = 'Text generation failed'
       try {
-        const payload = JSON.parse(parsed.data) as { detail?: string }
+        const payload = JSON.parse(parsed.data) as { detail?: string; account_required?: string }
         if (typeof payload.detail === 'string' && payload.detail.trim()) {
           detail = payload.detail.trim()
+        }
+        // The stream's copy of the X-Moru-Account-Required header: a guest whose starter sols ran
+        // out mid-turn goes to the sign-up form, exactly as a plain 402 would send it.
+        const accountRequiredReason = normalizeAccountRequiredReason(payload.account_required)
+        if (accountRequiredReason) {
+          requestAccount(accountRequiredReason)
         }
       } catch {
         // Use fallback detail for malformed error payloads.

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
-import { Box, Stack, Typography, type SxProps, type Theme } from '@mui/material'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { Box, CircularProgress, Stack, Typography, type SxProps, type Theme } from '@mui/material'
 import { brandLogo, icons } from '../assets'
 import {
   ArrowDownIcon,
@@ -119,18 +119,21 @@ type ActionProps = {
   icon?: ReactNode
   sx?: SxProps<Theme>
   ariaLabel?: string
+  /** Shows a spinner in place of the icon and ignores clicks - the guest start takes a moment. */
+  busy?: boolean
 }
 
 /** The mockup's `.btn`. Solid is the flat amber accent — never a gradient. */
-function Action({ children, onClick, href, variant = 'solid', icon, sx, ariaLabel }: ActionProps) {
+function Action({ children, onClick, href, variant = 'solid', icon, sx, ariaLabel, busy = false }: ActionProps) {
   const solid = variant === 'solid'
   return (
     <Box
       component={href ? 'a' : 'button'}
       href={href}
-      onClick={onClick}
+      onClick={busy ? undefined : onClick}
       type={href ? undefined : 'button'}
       aria-label={ariaLabel}
+      aria-busy={busy || undefined}
       sx={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -156,11 +159,16 @@ function Action({ children, onClick, href, variant = 'solid', icon, sx, ariaLabe
         },
         '&:focus-visible': { outline: `3px solid ${L.accent}`, outlineOffset: 5 },
         '@media (max-width: 720px)': { px: '18px', py: '13px', fontSize: 13, gap: '15px' },
+        ...(busy ? { cursor: 'progress', '&:hover': { transform: 'none' } } : null),
         ...sx,
       }}
     >
       <span>{children}</span>
-      {icon ?? <ArrowUpRightIcon size={18} />}
+      {busy ? (
+        <CircularProgress size={16} thickness={5} sx={{ color: solid ? '#161009' : L.accent }} />
+      ) : (
+        icon ?? <ArrowUpRightIcon size={18} />
+      )}
     </Box>
   )
 }
@@ -353,13 +361,22 @@ export type PublicLandingPageProps = {
   pendingReferralCode?: string | null
   onNavigate: (path: string) => void
   onGoHome: () => void
+  /** "Начать игру" without an account: resumes or issues this browser's guest, then opens `nextPath`. */
+  onStartPlaying: (nextPath?: string) => Promise<void>
 }
 
-export default function PublicLandingPage({ isAuthenticated, pendingReferralCode, onNavigate, onGoHome }: PublicLandingPageProps) {
+export default function PublicLandingPage({
+  isAuthenticated,
+  pendingReferralCode,
+  onNavigate,
+  onGoHome,
+  onStartPlaying,
+}: PublicLandingPageProps) {
   const openedReferralCodeRef = useRef<string | null>(null)
   const stickySentinelRef = useRef<HTMLDivElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [headerStuck, setHeaderStuck] = useState(false)
+  const [isStartingPlay, setIsStartingPlay] = useState(false)
   const [showcase, setShowcase] = useState<LandingShowcase>({ players: 0, worlds: 0, characters: 0, avatars: [] })
 
   /**
@@ -408,12 +425,34 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
     return () => window.clearTimeout(timerId)
   }, [isAuthenticated, onNavigate, pendingReferralCode])
 
-  const openAuthPage = (mode: 'login' | 'register' = 'register') => {
+  /** Every "Начать игру" on the page: straight into the app, as a guest when there is no account. */
+  const startPlaying = useCallback(
+    (nextPath?: string) => {
+      setMenuOpen(false)
+      if (isAuthenticated) {
+        if (nextPath) {
+          onNavigate(nextPath)
+        } else {
+          onGoHome()
+        }
+        return
+      }
+      if (isStartingPlay) {
+        return
+      }
+      setIsStartingPlay(true)
+      void onStartPlaying(nextPath).finally(() => setIsStartingPlay(false))
+    },
+    [isAuthenticated, isStartingPlay, onGoHome, onNavigate, onStartPlaying],
+  )
+
+  const openRegistration = () => {
+    setMenuOpen(false)
     if (isAuthenticated) {
       onGoHome()
       return
     }
-    onNavigate(`/auth?mode=${mode}`)
+    onNavigate('/auth?mode=register')
   }
 
   /**
@@ -525,7 +564,7 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
             ))}
           </Box>
           {/* The mockup left this one transparent and the label disappeared — it is accent-filled now. */}
-          <Action onClick={() => openAuthPage('register')} sx={{ px: '19px', py: '9px', minHeight: 42, gap: '14px', '@media (max-width: 720px)': { display: 'none' } }}>
+          <Action busy={isStartingPlay} onClick={() => startPlaying()} sx={{ px: '19px', py: '9px', minHeight: 42, gap: '14px', '@media (max-width: 720px)': { display: 'none' } }}>
             {isAuthenticated ? 'Продолжить' : 'Начать игру'}
           </Action>
           <Box
@@ -576,7 +615,7 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
                 {link.label}
               </a>
             ))}
-            <Action onClick={() => openAuthPage('register')}>{isAuthenticated ? 'Продолжить' : 'Начать игру'}</Action>
+            <Action busy={isStartingPlay} onClick={() => startPlaying()}>{isAuthenticated ? 'Продолжить' : 'Начать игру'}</Action>
           </Box>
         ) : null}
         </Box>
@@ -591,8 +630,12 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
           // Pulled up under the sticky bar, which is transparent here, so the art is full-bleed.
           mt: '-99px',
           pt: '99px',
-          minHeight: 850,
-          height: 'min(920px, 100vh)',
+          // Grows with the frosted panel instead of clipping it; the bottom padding keeps the
+          // scroll hint and the torn edge clear of the panel.
+          minHeight: 'max(850px, min(920px, 100vh))',
+          height: 'auto',
+          pb: '104px',
+          boxSizing: 'border-box',
           color: L.title,
           background: L.deep,
           isolation: 'isolate',
@@ -618,13 +661,31 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
         <TornEdge place="bottom" color={L.deepPage} />
         <Box sx={WRAP}>
 
+          {/* Frosted glass, so the headline and the buttons read over any part of the art - on a
+              wide screen and on a phone alike. */}
           <Box
             sx={{
-              pt: '106px',
-              width: 570,
-              maxWidth: '55%',
-              '@media (max-width: 1000px)': { maxWidth: '59%', pt: '95px' },
-              '@media (max-width: 720px)': { pt: '44px', maxWidth: 'none', width: '100%' },
+              mt: '36px',
+              width: 680,
+              maxWidth: '60%',
+              boxSizing: 'border-box',
+              p: '34px 42px 30px',
+              position: 'relative',
+              borderRadius: '22px',
+              border: '1px solid rgba(199,231,255,0.12)',
+              background: 'linear-gradient(145deg, rgba(12,13,15,0.66) 0%, rgba(12,13,15,0.48) 55%, rgba(12,13,15,0.36) 100%)',
+              backdropFilter: 'blur(18px) saturate(135%)',
+              WebkitBackdropFilter: 'blur(18px) saturate(135%)',
+              boxShadow: '0 30px 80px -24px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06)',
+              '@media (max-width: 1000px)': { maxWidth: '66%', mt: '40px', p: '30px 30px 26px' },
+              '@media (max-width: 720px)': {
+                mt: '28px',
+                maxWidth: 'none',
+                width: '100%',
+                p: '26px 20px 24px',
+                borderRadius: '18px',
+                background: 'linear-gradient(160deg, rgba(10,11,12,0.74) 0%, rgba(10,11,12,0.56) 100%)',
+              },
             }}
           >
             <Eyebrow tone="accent">Платформа для живых AI-историй</Eyebrow>
@@ -655,12 +716,20 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
               Свободный storytelling, D&amp;D и визуальные новеллы — в одной платформе для долгих, живых приключений.
             </Typography>
             <Box sx={{ display: 'flex', gap: '12px', flexWrap: 'wrap', '@media (max-width: 720px)': { gap: '10px' } }}>
-              <Action onClick={() => openAuthPage('register')}>{isAuthenticated ? 'Продолжить историю' : 'Начать игру'}</Action>
-              <Action href="#formats" variant="ghost" icon={<ArrowDownIcon size={18} />}>
-                Как это работает
+              <Action busy={isStartingPlay} onClick={() => startPlaying()}>
+                {isAuthenticated ? 'Продолжить историю' : 'Начать игру'}
               </Action>
+              {isAuthenticated ? null : (
+                <Action
+                  variant="ghost"
+                  onClick={openRegistration}
+                  sx={{ background: 'rgba(8,9,10,0.35)', '&:hover': { background: 'rgba(8,9,10,0.5)', borderColor: L.accent, transform: 'translateY(-2px)' } }}
+                >
+                  Зарегистрироваться
+                </Action>
+              )}
             </Box>
-            <Box sx={{ display: 'flex', gap: '28px', mt: '34px', fontSize: 12, color: L.muted, flexWrap: 'wrap', '@media (max-width: 720px)': { mt: '25px', gap: '24px' } }}>
+            <Box sx={{ display: 'flex', gap: '14px 28px', mt: '32px', fontSize: 12, color: L.muted, flexWrap: 'wrap', '@media (max-width: 720px)': { mt: '25px', gap: '16px 24px' } }}>
               {[
                 playersLabel ? { strong: playersLabel, rest: 'игроков' } : null,
                 worldsLabel ? { strong: `${worldsLabel} миров`, rest: 'создано сообществом' } : null,
@@ -874,7 +943,8 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
                     <Box
                       component="button"
                       type="button"
-                      onClick={() => openAuthPage('register')}
+                      onClick={() => startPlaying()}
+                      disabled={isStartingPlay}
                       sx={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -1055,7 +1125,7 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
                 <br />
                 Выбирай удобный объём игры. Стоимость зависит от модели.
               </Typography>
-              <Action variant="ghost" onClick={() => onNavigate('/shop')}>
+              <Action variant="ghost" onClick={() => startPlaying('/shop')}>
                 О стоимости подробнее
               </Action>
             </Box>
@@ -1298,7 +1368,7 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
                 Делись мирами, персонажами и опытом. Самые активные игроки собираются в нашем Telegram: там разборы, идеи для кампаний и первые новости обновлений.
               </Typography>
               <Box sx={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                <Action onClick={() => openAuthPage('register')}>Начать свою историю</Action>
+                <Action busy={isStartingPlay} onClick={() => startPlaying()}>Начать свою историю</Action>
                 <Action href={TELEGRAM_URL} variant="ghost" icon={<TelegramIcon size={20} />}>
                   Вступить в сообщество
                 </Action>
@@ -1387,7 +1457,7 @@ export default function PublicLandingPage({ isAuthenticated, pendingReferralCode
           <Typography component="h2" sx={{ ...H2, fontSize: 44, mb: '25px', '@media (max-width: 720px)': { fontSize: 35 } }}>
             Следующая история — твоя.
           </Typography>
-          <Action onClick={() => openAuthPage('register')}>{isAuthenticated ? 'Продолжить историю' : 'Начать игру'}</Action>
+          <Action busy={isStartingPlay} onClick={() => startPlaying()}>{isAuthenticated ? 'Продолжить историю' : 'Начать игру'}</Action>
         </Box>
       </Box>
 

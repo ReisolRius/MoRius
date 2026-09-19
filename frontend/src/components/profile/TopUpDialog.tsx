@@ -28,6 +28,7 @@ import planFeatherIcon from '../../assets/images/presentation/plan-feather.png'
 import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 import { formatCheckoutPrice } from '../../utils/paymentPricing'
 import { PromoBanner, isPromoRunning } from '../shop/PromoDiscount'
+import { requestAccount, useIsGuestSession } from '../../utils/guestSession'
 
 type TopUpDialogProps = {
   open: boolean
@@ -118,6 +119,10 @@ function TopUpDialog({
   const [fetchedReferralBonusAmount, setFetchedReferralBonusAmount] = useState(500)
   const [purchasePlan, setPurchasePlan] = useState<CoinTopUpPlan | null>(null)
   const [coverCommission, setCoverCommission] = useState(false)
+  const isGuestSession = useIsGuestSession()
+  // Every page opens this dialog its own way; answering here covers all of them. A guest cannot
+  // buy sols, so "open the shop" sends it to the sign-up form instead.
+  const isOpen = open && !isGuestSession
   const resolvedReferralBonusPending = referralBonusPending ?? fetchedReferralBonusPending
   const resolvedReferralBonusAmount = referralBonusAmount ?? fetchedReferralBonusAmount
   const handleCloseDialog = () => {
@@ -131,6 +136,14 @@ function TopUpDialog({
   const mobileSheet = useMobileDialogSheet({ onClose: handleCloseDialog })
 
   useEffect(() => {
+    if (!open || !isGuestSession) {
+      return
+    }
+    onClose()
+    requestAccount('shop')
+  }, [isGuestSession, onClose, open])
+
+  useEffect(() => {
     if (open) {
       return undefined
     }
@@ -142,7 +155,7 @@ function TopUpDialog({
   }, [open])
 
   useEffect(() => {
-    if (!open || !authToken || referralBonusPending !== undefined) {
+    if (!isOpen || !authToken || referralBonusPending !== undefined) {
       return
     }
     let active = true
@@ -162,10 +175,10 @@ function TopUpDialog({
     return () => {
       active = false
     }
-  }, [authToken, open, referralBonusPending])
+  }, [authToken, isOpen, referralBonusPending])
   return (
     <Dialog
-      open={open}
+      open={isOpen}
       onClose={handleCloseDialog}
       maxWidth={purchasePlan ? 'xs' : 'lg'}
       fullWidth

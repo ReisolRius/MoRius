@@ -36,6 +36,11 @@ from app.services.concurrency import (
     increment_story_character_additions,
 )
 from app.services.auth_identity import get_current_user
+from app.services.guest_access import (
+    ACCOUNT_REQUIRED_REASON_PUBLISH,
+    ACCOUNT_REQUIRED_REASON_SOCIAL,
+    ensure_account_user,
+)
 from app.services.story_characters import (
     STORY_CHARACTER_VISIBILITY_PRIVATE,
     STORY_CHARACTER_VISIBILITY_PUBLIC,
@@ -723,6 +728,7 @@ def rate_story_community_character(
     db: Session = Depends(get_db),
 ) -> StoryCommunityCharacterSummaryOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SOCIAL)
     character = get_public_story_character_or_404(db, character_id)
     rating_value = int(payload.rating)
     if rating_value <= 0:
@@ -779,6 +785,7 @@ def report_story_community_character(
     db: Session = Depends(get_db),
 ) -> StoryCommunityCharacterSummaryOut:
     user = get_current_user(db, authorization)
+    ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_SOCIAL)
     character = get_public_story_character_or_404(db, character_id)
     description = payload.description.strip()
     if not description:
@@ -974,6 +981,8 @@ def create_story_character(
         payload=payload,
     )
     requested_visibility = normalize_story_character_visibility(payload.visibility)
+    if requested_visibility == STORY_CHARACTER_VISIBILITY_PUBLIC:
+        ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_PUBLISH)
     character = StoryCharacter(
         user_id=user.id,
         name=normalized_name,
@@ -1075,6 +1084,8 @@ def update_story_character(
     should_notify_publication_queue = False
     if payload.visibility is not None:
         requested_visibility = normalize_story_character_visibility(payload.visibility)
+        if requested_visibility == STORY_CHARACTER_VISIBILITY_PUBLIC:
+            ensure_account_user(user, reason=ACCOUNT_REQUIRED_REASON_PUBLISH)
     if requested_visibility is not None:
         if requested_visibility == STORY_CHARACTER_VISIBILITY_PUBLIC and character.source_character_id is None:
             mark_story_publication_pending(character)

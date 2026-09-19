@@ -1,17 +1,19 @@
 ﻿import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   applyReferralCode,
+  claimGuestSession,
   completeVKIDOAuth,
   completeYandexOAuth,
   getCurrentUser,
   getMaintenanceSettings,
+  startGuestSession,
   type MaintenanceSettings,
 } from './services/authApi'
 import { Alert, Snackbar } from '@mui/material'
 import { PRIVACY_POLICY_TEXT, PUBLICATION_RULES_TEXT, SUBSCRIPTION_TERMS_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
 import { RIUS_PRIVACY_POLICY_TEXT, RIUS_TERMS_OF_SERVICE_TEXT } from './constants/riusGamesLegal'
 import type { ReactNode } from 'react'
-import type { AuthResponse, AuthUser } from './types/auth'
+import type { AuthResponse, AuthUser, GuestMergeSummary } from './types/auth'
 import FantasyRouteTransition from './components/navigation/FantasyRouteTransition'
 import AiAssistantPanel from './components/ai/AiAssistantPanel'
 import { AI_ASSISTANT_OPEN_EVENT } from './components/ai/aiAssistantEvents'
@@ -25,6 +27,25 @@ import {
 import { normalizeProfileBannerId } from './constants/profileBanners'
 import { normalizeAvatarFrameId } from './constants/avatarFrames'
 import { ServiceUnavailableOverlay } from './components/ServiceUnavailableOverlay'
+import {
+  ACCOUNT_DELETED_EVENT,
+  ACCOUNT_REQUIRED_EVENT,
+  carryGuestDraftsToAccount,
+  clearAuthReturnPath,
+  forgetGuestSession,
+  getOrCreateDeviceId,
+  hasKnownAccountOnDevice,
+  markKnownAccountOnDevice,
+  normalizeAccountRequiredReason,
+  readGuestToken,
+  readStoredGuestName,
+  rememberAuthReturnPath,
+  rememberGuestSession,
+  setGuestSessionActive,
+  takeAuthReturnPath,
+  type AccountRequiredDetail,
+  type AccountRequiredReason,
+} from './utils/guestSession'
 
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
 const USER_STORAGE_KEY = 'morius.auth.user'
@@ -203,6 +224,51 @@ function parseAuthRouteMode(search: string): AuthRouteMode {
   return 'login'
 }
 
+function parseAuthRouteReason(search: string): AccountRequiredReason | null {
+  return normalizeAccountRequiredReason(new URLSearchParams(search).get('reason'))
+}
+
+function formatRussianCount(value: number, one: string, few: string, many: string): string {
+  const absolute = Math.abs(Math.trunc(value))
+  const lastTwo = absolute % 100
+  const last = absolute % 10
+  const word = lastTwo >= 11 && lastTwo <= 14 ? many : last === 1 ? one : last >= 2 && last <= 4 ? few : many
+  return `${absolute} ${word}`
+}
+
+/** The line shown once a guest's belongings have moved into the account the player signed in to. */
+function buildGuestMergeNotice(summary: GuestMergeSummary): string {
+  const moved: string[] = []
+  if (summary.worlds > 0) {
+    moved.push(formatRussianCount(summary.worlds, 'мир', 'мира', 'миров'))
+  }
+  if (summary.characters > 0) {
+    moved.push(formatRussianCount(summary.characters, 'персонаж', 'персонажа', 'персонажей'))
+  }
+  if (summary.instruction_templates > 0) {
+    moved.push(formatRussianCount(summary.instruction_templates, 'инструкция', 'инструкции', 'инструкций'))
+  }
+  const movedLine = moved.length > 0 ? `Перенесли в аккаунт: ${moved.join(', ')}.` : 'Прогресс гостя перенесён в аккаунт.'
+  const coinsLine =
+    summary.coins_transferred > 0
+      ? ` Остаток стартовых солов тоже с тобой: ${formatRussianCount(summary.coins_transferred, 'сол', 'сола', 'солов')}.`
+      : ''
+  return `${movedLine}${coinsLine}`
+}
+
+/**
+ * Where a sign-in lands. A guest sent to the form from a game - or the shop, or a world it was
+ * publishing - goes back there once its things have moved into the account. Everyone else, and a
+ * guest whose merge did not go through on the server, starts from the home page.
+ */
+function resolvePostSignInPath(payload: AuthResponse): string {
+  const returnPath = takeAuthReturnPath()
+  if (!payload.merged_guest || !returnPath) {
+    return '/dashboard'
+  }
+  return isAuthenticatedPath(normalizePath(returnPath.split(/[?#]/, 1)[0])) ? returnPath : '/dashboard'
+}
+
 function isReferralPath(pathname: string): boolean {
   return /^\/ref\/[^/?#]+\/?$/.test(pathname)
 }
@@ -314,6 +380,9 @@ function normalizeStoredAuthUser(rawValue: unknown): AuthUser | null {
     notify_moderation_queue:
       typeof value.notify_moderation_queue === 'boolean' ? value.notify_moderation_queue : true,
     ai_assistant_visible: typeof value.ai_assistant_visible === 'boolean' ? value.ai_assistant_visible : true,
+    is_guest: Boolean(value.is_guest),
+    guest_number:
+      typeof value.guest_number === 'number' && Number.isFinite(value.guest_number) ? Math.trunc(value.guest_number) : null,
     email_notifications_enabled:
       typeof value.email_notifications_enabled === 'boolean' ? value.email_notifications_enabled : false,
     show_subscriptions: typeof value.show_subscriptions === 'boolean' ? value.show_subscriptions : false,
@@ -438,8 +507,14 @@ function App() {
   const vkIDCompletionStartedRef = useRef(false)
   const yandexCompletionStartedRef = useRef(false)
   const isAuthenticated = Boolean(authToken && authUser)
+  const isGuestSession = isAuthenticated && Boolean(authUser?.is_guest)
   const currentUserRole = authUser?.role.trim().toLowerCase() ?? ''
   const canCurrentUserBypassMaintenance = currentUserRole === 'administrator' || currentUserRole === 'moderator'
+
+  // Components that are not handed the user (the top-up and settings dialogs) read this flag.
+  useLayoutEffect(() => {
+    setGuestSessionActive(isGuestSession)
+  }, [isGuestSession])
 
   useEffect(() => {
     const ym = (window as Window & { ym?: (...args: unknown[]) => void }).ym
@@ -561,6 +636,30 @@ function App() {
     setPath(normalizedTarget.pathname)
   }, [])
 
+  /**
+   * Every successful sign-in lands here: the email form, password reset and both OAuth returns.
+   * A real account marks this browser as "has an account" and drops the guest it played as -
+   * the server has already moved that guest into the account; if it could not, the effect below
+   * claims it.
+   */
+  const applySignedInSession = useCallback((payload: AuthResponse) => {
+    persistAuthSession(payload)
+    setAuthToken(payload.access_token)
+    setAuthUser(payload.user)
+    setIsHydratingSession(false)
+    if (payload.user.is_guest) {
+      rememberGuestSession(payload.access_token, payload.user)
+      return
+    }
+    markKnownAccountOnDevice()
+    if (payload.merged_guest) {
+      forgetGuestSession()
+      carryGuestDraftsToAccount(payload.merged_guest.guest_user_id ?? 0, payload.user.id)
+      setAuthNotice({ severity: 'success', message: buildGuestMergeNotice(payload.merged_guest) })
+    }
+    setShouldOpenAiAssistantAfterAuth(Boolean(payload.is_new_user) && !payload.merged_guest)
+  }, [])
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const oauthError = params.get('yandex_oauth_error')
@@ -598,15 +697,12 @@ function App() {
     window.setTimeout(() => setIsHydratingSession(true), 0)
     void completeYandexOAuth()
       .then((payload) => {
-        persistAuthSession(payload)
-        setAuthToken(payload.access_token)
-        setAuthUser(payload.user)
-        setShouldOpenAiAssistantAfterAuth(Boolean(payload.is_new_user))
+        applySignedInSession(payload)
         if (payload.oauth_action === 'link') {
           setAuthNotice({ severity: 'success', message: 'Аккаунт успешно перепривязан к Яндексу.' })
           navigate('/profile', { replace: true })
         } else {
-          navigate('/dashboard', { replace: true })
+          navigate(resolvePostSignInPath(payload), { replace: true })
         }
       })
       .catch((error) => {
@@ -625,7 +721,7 @@ function App() {
       .finally(() => {
         setIsHydratingSession(false)
       })
-  }, [navigate])
+  }, [applySignedInSession, navigate])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -671,16 +767,13 @@ function App() {
     window.setTimeout(() => setIsHydratingSession(true), 0)
     void completeVKIDOAuth()
       .then((payload) => {
-        persistAuthSession(payload)
-        setAuthToken(payload.access_token)
-        setAuthUser(payload.user)
-        setShouldOpenAiAssistantAfterAuth(Boolean(payload.is_new_user))
+        applySignedInSession(payload)
         if (payload.oauth_action === 'link') {
           const providerLabel = payload.oauth_provider === 'mail' ? 'Mail' : 'VK'
           setAuthNotice({ severity: 'success', message: `Аккаунт успешно перепривязан к ${providerLabel}.` })
           navigate('/profile', { replace: true })
         } else {
-          navigate('/dashboard', { replace: true })
+          navigate(resolvePostSignInPath(payload), { replace: true })
         }
       })
       .catch((error) => {
@@ -699,7 +792,7 @@ function App() {
       .finally(() => {
         setIsHydratingSession(false)
       })
-  }, [navigate])
+  }, [applySignedInSession, navigate])
 
   useEffect(() => {
     const referralCode = extractReferralCodeFromLocation(window.location)
@@ -720,7 +813,8 @@ function App() {
   }, [navigate, path])
 
   useEffect(() => {
-    if (!authToken || !pendingReferralCode) {
+    // A guest cannot buy, so the invitation waits until it registers; the code stays pending.
+    if (!authToken || !pendingReferralCode || isGuestSession) {
       return
     }
 
@@ -743,7 +837,7 @@ function App() {
     return () => {
       active = false
     }
-  }, [authToken, pendingReferralCode])
+  }, [authToken, isGuestSession, pendingReferralCode])
 
   const resetSession = useCallback(() => {
     clearAuthSession()
@@ -783,6 +877,11 @@ function App() {
         }
         setAuthUser(user)
         localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user))
+        if (user.is_guest) {
+          rememberGuestSession(authToken, user)
+        } else {
+          markKnownAccountOnDevice()
+        }
       })
       .catch(() => {
         if (!active) {
@@ -838,13 +937,64 @@ function App() {
       return
     }
 
-    if (!isAuthenticatedPath(path) && !isLegalPath(path) && !isWikiPath(path)) {
+    const isGuestOnSignIn = Boolean(authUser.is_guest) && path === '/auth'
+    if (!isAuthenticatedPath(path) && !isLegalPath(path) && !isWikiPath(path) && !isGuestOnSignIn) {
       const redirectId = window.setTimeout(() => {
         navigate('/dashboard', { replace: true })
       }, 0)
       return () => window.clearTimeout(redirectId)
     }
   }, [authToken, authUser, isHydratingSession, navigate, path])
+
+  // A sign-in the server could not take the guest along with: move it now. Also retries a claim
+  // that failed on a bad connection, on the next start of the app.
+  useEffect(() => {
+    if (!authToken || !authUser || authUser.is_guest || isHydratingSession) {
+      return
+    }
+    const leftoverGuestToken = readGuestToken()
+    if (!leftoverGuestToken) {
+      return
+    }
+    let active = true
+    void claimGuestSession({ token: authToken, guest_token: leftoverGuestToken })
+      .then((result) => {
+        forgetGuestSession()
+        if (!active) {
+          return
+        }
+        setAuthUser(result.user)
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(result.user))
+        if (result.merged_guest) {
+          carryGuestDraftsToAccount(result.merged_guest.guest_user_id ?? 0, result.user.id)
+          setAuthNotice({ severity: 'success', message: buildGuestMergeNotice(result.merged_guest) })
+        }
+      })
+      .catch((error) => {
+        // Keep the token for the next start when the network failed; an answer from the server
+        // (the guest is gone, or never was) settles it for good.
+        if (error instanceof Error && !/Не удалось подключиться/.test(error.message)) {
+          forgetGuestSession()
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [authToken, authUser, isHydratingSession])
+
+  // Anything a guest may not do ends here: the sign-up form, with a line saying why.
+  useEffect(() => {
+    const handleAccountRequired = (event: Event) => {
+      const detail = (event as CustomEvent<AccountRequiredDetail>).detail
+      const reason = detail?.reason ?? 'guest'
+      const mode = detail?.mode ?? 'register'
+      // Signing up brings the player back here: the game the sols ran out in, the shop, the world.
+      rememberAuthReturnPath(detail?.returnTo ?? getCurrentNavigationHref())
+      navigate(`/auth?mode=${mode}&reason=${encodeURIComponent(reason)}`)
+    }
+    window.addEventListener(ACCOUNT_REQUIRED_EVENT, handleAccountRequired)
+    return () => window.removeEventListener(ACCOUNT_REQUIRED_EVENT, handleAccountRequired)
+  }, [navigate])
 
   useEffect(() => {
     const isAuthenticated = Boolean(authToken && authUser)
@@ -880,19 +1030,61 @@ function App() {
 
   const handleAuthSuccess = useCallback(
     (payload: AuthResponse) => {
-      persistAuthSession(payload)
-      setAuthToken(payload.access_token)
-      setAuthUser(payload.user)
-      setIsHydratingSession(false)
-      setShouldOpenAiAssistantAfterAuth(Boolean(payload.is_new_user))
-      navigate('/dashboard')
+      applySignedInSession(payload)
+      navigate(resolvePostSignInPath(payload))
     },
-    [navigate],
+    [applySignedInSession, navigate],
+  )
+
+  /**
+   * "Начать игру": the browser's guest, resumed or newly issued. A browser that has ever signed
+   * in to an account - or a network that has used up its guests - is sent to the login form
+   * instead; that is what keeps the free starter sols from being farmed.
+   */
+  const startGuestPlay = useCallback(
+    async (nextPath = '/dashboard') => {
+      if (hasKnownAccountOnDevice()) {
+        navigate('/auth?mode=login&reason=account_exists')
+        return
+      }
+      try {
+        const result = await startGuestSession({ device_id: getOrCreateDeviceId() })
+        if (result.status === 'ok' && result.auth) {
+          applySignedInSession(result.auth)
+          navigate(nextPath)
+          return
+        }
+        const reason = normalizeAccountRequiredReason(result.reason) ?? 'account_exists'
+        if (reason === 'account_exists') {
+          markKnownAccountOnDevice()
+        }
+        navigate(`/auth?mode=login&reason=${reason}`)
+      } catch (error) {
+        setAuthNotice({
+          severity: 'error',
+          message: error instanceof Error ? error.message : 'Не удалось начать игру. Попробуйте ещё раз.',
+        })
+      }
+    },
+    [applySignedInSession, navigate],
   )
 
   const handleLogout = useCallback(() => {
+    clearAuthReturnPath()
     resetSession()
     navigate('/')
+  }, [navigate, resetSession])
+
+  useEffect(() => {
+    const handleAccountDeleted = () => {
+      forgetGuestSession()
+      clearAuthReturnPath()
+      resetSession()
+      navigate('/', { replace: true })
+      setAuthNotice({ severity: 'success', message: 'Аккаунт и все его данные удалены.' })
+    }
+    window.addEventListener(ACCOUNT_DELETED_EVENT, handleAccountDeleted)
+    return () => window.removeEventListener(ACCOUNT_DELETED_EVENT, handleAccountDeleted)
   }, [navigate, resetSession])
 
   const handleUserUpdate = useCallback((nextUser: AuthUser) => {
@@ -921,8 +1113,8 @@ function App() {
   const shouldShowRiusPrivacyPage = path === RIUS_PRIVACY_PATH
   const shouldShowRiusTermsPage = path === RIUS_TERMS_PATH
   const shouldShowWikiPage = path === '/wiki'
-  const shouldShowAuthPage = !isAuthenticated && path === '/auth'
-  const shouldAllowMaintenanceAuthBypass = !isAuthenticated && path === '/auth'
+  const shouldShowAuthPage = (!isAuthenticated || isGuestSession) && path === '/auth'
+  const shouldAllowMaintenanceAuthBypass = (!isAuthenticated || isGuestSession) && path === '/auth'
   const shouldShowMaintenancePage = Boolean(
     maintenanceSettings?.enabled && !canCurrentUserBypassMaintenance && !shouldAllowMaintenanceAuthBypass,
   )
@@ -1015,6 +1207,9 @@ function App() {
       <Suspense fallback={routeTransitionFallback}>
         <AuthPage
           initialMode={parseAuthRouteMode(window.location.search)}
+          reason={parseAuthRouteReason(window.location.search)}
+          guestName={isGuestSession ? authUser?.display_name ?? null : readGuestToken() ? readStoredGuestName() : null}
+          isGuestSession={isGuestSession}
           onNavigate={navigate}
           onAuthSuccess={handleAuthSuccess}
         />
@@ -1138,6 +1333,7 @@ function App() {
           pendingReferralCode={pendingReferralCode}
           onNavigate={navigate}
           onGoHome={() => navigate('/dashboard')}
+          onStartPlaying={startGuestPlay}
         />
       </Suspense>
     )

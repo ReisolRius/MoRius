@@ -1,4 +1,4 @@
-import type { AuthResponse, AuthUser, ProfileShowcaseItem, ProfileShowcaseKind } from '../types/auth'
+import type { AuthResponse, AuthUser, GuestMergeSummary, ProfileShowcaseItem, ProfileShowcaseKind } from '../types/auth'
 export type { ProfileShowcaseItem, ProfileShowcaseKind } from '../types/auth'
 import { normalizeProfileBannerId } from '../constants/profileBanners'
 import { normalizeAvatarFrameId } from '../constants/avatarFrames'
@@ -507,6 +507,7 @@ export type AdminManagedUser = {
   profile_tag: string
   coins: number
   is_banned: boolean
+  is_guest?: boolean
   ban_expires_at: string | null
   created_at: string
   last_payment_at?: string | null
@@ -517,6 +518,14 @@ export type AdminManagedUser = {
     next_charge_at: string | null
     auto_renew: boolean
     is_admin_grant: boolean
+    // Turn budget for the current billing period: accrued by the daily limit, plus the
+    // operator's own adjustment, minus what the player has spent.
+    daily_turn_limit: number
+    turns_accrued: number
+    turns_used: number
+    turns_bonus: number
+    turns_remaining: number
+    period_start: string
   } | null
 }
 
@@ -927,6 +936,60 @@ function normalizeOnboardingGuideState(rawState: OnboardingGuideState | null | u
   }
 }
 
+export type GuestSessionStartResponse = {
+  status: 'ok' | 'login_required'
+  reason: string | null
+  message: string | null
+  auth: AuthResponse | null
+}
+
+/** "Начать игру" without an account: this browser's guest, resumed or newly issued. */
+export async function startGuestSession(payload: { device_id: string }): Promise<GuestSessionStartResponse> {
+  return requestJson<GuestSessionStartResponse>(
+    '/api/auth/guest/session',
+    {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+/** The safety net when a sign-in could not take the browser's guest along by itself. */
+export async function claimGuestSession(payload: {
+  token: string
+  guest_token: string
+}): Promise<{ user: AuthUser; merged_guest: GuestMergeSummary | null }> {
+  return requestJson<{ user: AuthUser; merged_guest: GuestMergeSummary | null }>(
+    '/api/auth/guest/claim',
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({ guest_token: payload.guest_token }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+/** Erases the signed-in account for good. `confirmation` is the word the player typed. */
+export async function deleteCurrentAccount(payload: { token: string; confirmation: string }): Promise<MessageResponse> {
+  return requestJson<MessageResponse>(
+    '/api/auth/me/delete',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({ confirmation: payload.confirmation }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
 export async function registerWithEmail(payload: {
   email: string
   display_name?: string
@@ -949,6 +1012,7 @@ export async function verifyEmailRegistration(payload: { email: string; code: st
     '/api/auth/register/verify',
     {
       method: 'POST',
+      credentials: 'include',
       body: JSON.stringify(payload),
     },
     AUTH_NETWORK_ERROR,
@@ -960,6 +1024,7 @@ export async function loginWithEmail(payload: { email: string; password: string 
     '/api/auth/login',
     {
       method: 'POST',
+      credentials: 'include',
       body: JSON.stringify(payload),
     },
     AUTH_NETWORK_ERROR,
@@ -1114,6 +1179,7 @@ export async function verifyPasswordReset(payload: {
     '/api/auth/password-reset/verify',
     {
       method: 'POST',
+      credentials: 'include',
       body: JSON.stringify(payload),
     },
     AUTH_NETWORK_ERROR,
@@ -1678,6 +1744,28 @@ export async function searchUsersForAdminPanel(payload: {
   )
 }
 
+export async function updateUserSubscriptionTurnsAsAdmin(payload: {
+  token: string
+  user_id: number
+  operation: 'add' | 'subtract'
+  amount: number
+}): Promise<AdminManagedUser> {
+  return requestJson<AdminManagedUser>(
+    `/api/auth/admin/users/${payload.user_id}/subscription-turns`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        operation: payload.operation,
+        amount: payload.amount,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
 export async function updateUserTokensAsAdmin(payload: {
   token: string
   user_id: number
@@ -1793,6 +1881,24 @@ export async function banUserAsAdmin(payload: {
       body: JSON.stringify({
         duration_hours: payload.duration_hours ?? null,
       }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function deleteUserAsAdmin(payload: {
+  token: string
+  user_id: number
+  confirmation: string
+}): Promise<MessageResponse> {
+  return requestJson<MessageResponse>(
+    `/api/auth/admin/users/${payload.user_id}/delete`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({ confirmation: payload.confirmation }),
     },
     AUTH_NETWORK_ERROR,
   )

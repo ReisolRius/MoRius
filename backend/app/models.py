@@ -64,10 +64,20 @@ class User(Base):
     # date string is the Moscow calendar day (YYYY-MM-DD) the counter currently belongs to.
     subscription_turns_date: Mapped[str] = mapped_column(String(10), nullable=False, default="", server_default="")
     subscription_turns_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Admin-granted (or admin-deducted) turns for the current billing period. Lives beside
+    # subscription_turns_used and is scoped by the same subscription_turns_date key, so it
+    # resets with the period exactly like the usage counter does.
+    subscription_turns_bonus: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     referral_code: Mapped[str | None] = mapped_column(String(24), unique=True, nullable=True, index=True)
     referred_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     referral_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     referral_bonus_claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # A pseudo-account created by "Начать игру" without registration. It can play and create,
+    # but never pay, publish, post or change settings; see services/guest_accounts.py.
+    is_guest: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0", index=True)
+    # "Гость №N". Taken from GuestSession.id, so a number is never handed out twice even after
+    # the guest it belonged to was merged into an account and deleted.
+    guest_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -113,6 +123,67 @@ class UserNotification(Base):
     body: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     action_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GuestSession(Base):
+    """The registry of every guest pseudo-account ever issued. Rows are never deleted.
+
+    Its id is the guest's public number, and it outlives the guest on purpose: after the guest
+    is merged into an account (or erased) the row still remembers which device and network it
+    came from, which is what stops the same person from farming fresh starter sols.
+
+    User references are plain integers rather than foreign keys because the row must survive
+    the user it points at.
+    """
+
+    __tablename__ = "guest_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # active -> the guest user exists; converted -> merged into converted_user_id; deleted -> erased.
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", server_default="active", index=True)
+    device_cookie_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="", server_default="", index=True)
+    client_device_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="", server_default="", index=True)
+    ip_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="", server_default="", index=True)
+    converted_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # The balance the guest had when it stopped existing; a returning device resumes from it.
+    coins_at_close: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class AccountDeviceMark(Base):
+    """A browser that a real account has signed in from.
+
+    "Начать игру" on a marked browser sends the player to the login form instead of minting
+    another guest: whoever uses it already has an account.
+    """
+
+    __tablename__ = "account_device_marks"
+    __table_args__ = (
+        UniqueConstraint("device_hash", "user_id", name="uq_account_device_marks_device_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    device_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AccountTombstone(Base):
+    """A salted one-way hash of a sign-in identity whose account was deleted.
+
+    Only the hash is kept, never the address itself. It exists so that deleting an account and
+    registering it again cannot be looped to collect the starter sols over and over.
+    """
+
+    __tablename__ = "account_tombstones"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    identity_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -63,6 +63,7 @@ from app.services.story_canonical_pipeline import (
     persist_canonical_state_to_game,
 )
 from app.services.story_memory import resolve_story_current_location_label
+from app.services.guest_access import ACCOUNT_REQUIRED_REASON_SOLS, bearer_token_is_guest, is_guest_user
 from app.services.provider_resilience import is_retryable_provider_error
 from app.services.story_token_budget import estimate_story_tokens
 from app.services.story_service_budget import (
@@ -278,6 +279,21 @@ class StoryRuntimeDeps:
 
 def _sse_event(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _sse_error_event(detail: str, *, status_code: int | None = None, is_guest: bool = False) -> str:
+    """An `error` frame that keeps what an HTTP answer would have carried in its status and headers.
+
+    A turn reports its failures inside a 200 stream, so the 402 a guest gets when the starter
+    sols run out never reaches `GuestAccountRequiredMiddleware`. `account_required` is the
+    stream's copy of that middleware's header: the client opens the sign-up form on it.
+    """
+    payload: dict[str, Any] = {"detail": detail}
+    if status_code is not None:
+        payload["status_code"] = int(status_code)
+    if is_guest and status_code == status.HTTP_402_PAYMENT_REQUIRED:
+        payload["account_required"] = ACCOUNT_REQUIRED_REASON_SOLS
+    return _sse_event("error", payload)
 
 
 def _sse_keepalive() -> str:
@@ -1788,6 +1804,8 @@ def _stream_story_response(
         # The subscription covers the ordinary narrator turn. Optional reasoning is an explicit
         # paid add-on and remains in turn_cost_tokens; unrelated service surcharges stay disabled.
         precharged_graph_cost_tokens = 0
+    # Read while the row is fresh: the billing step below reads it after a rollback.
+    user_is_guest = is_guest_user(user)
     assistant_message: StoryMessage | None = None
     discarded_assistant_ids = [
         int(message_id)
@@ -2459,7 +2477,11 @@ def _stream_story_response(
                 deps.touch_story_game(game)
                 commit_with_retry(db)
                 _restore_discarded_assistant_steps("billing_insufficient")
-                yield _sse_event("error", {"detail": "Недостаточно солов для хода"})
+                yield _sse_error_event(
+                    "Недостаточно солов для хода",
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    is_guest=user_is_guest,
+                )
                 return
             commit_with_retry(db)
             db.refresh(user)
@@ -4160,9 +4182,10 @@ def generate_story_response(
                 queue.put(
                     (
                         "chunk",
-                        _sse_event(
-                            "error",
-                            {"detail": str(getattr(exc, "detail", "") or "") or "Story generation failed"},
+                        _sse_error_event(
+                            str(getattr(exc, "detail", "") or "") or "Story generation failed",
+                            status_code=int(exc.status_code),
+                            is_guest=bearer_token_is_guest(authorization),
                         ),
                     )
                 )

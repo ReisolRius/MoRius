@@ -125,6 +125,7 @@ POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
     (User.__tablename__, "notify_moderation_report"): True,
     (User.__tablename__, "notify_moderation_queue"): True,
     (User.__tablename__, "ai_assistant_visible"): True,
+    (User.__tablename__, "is_guest"): False,
     (CosmeticItem.__tablename__, "is_active"): True,
     (StoryGame.__tablename__, "response_max_tokens_enabled"): False,
     (StoryGame.__tablename__, "response_token_limit_enabled"): False,
@@ -299,6 +300,8 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN subscription_turns_date VARCHAR(10) NOT NULL DEFAULT ''")
     if "subscription_turns_used" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN subscription_turns_used INTEGER NOT NULL DEFAULT 0")
+    if "subscription_turns_bonus" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN subscription_turns_bonus INTEGER NOT NULL DEFAULT 0")
     if "referral_code" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN referral_code VARCHAR(24)")
     if "referred_by_user_id" not in user_columns:
@@ -307,10 +310,18 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN referral_applied_at TIMESTAMP WITH TIME ZONE")
     if "referral_bonus_claimed_at" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN referral_bonus_claimed_at TIMESTAMP WITH TIME ZONE")
+    if "is_guest" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN is_guest INTEGER NOT NULL DEFAULT 0")
+    if "guest_number" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN guest_number INTEGER")
 
     with engine.begin() as connection:
         for statement in alter_statements:
             _execute_schema_statement(connection, statement)
+        _execute_schema_statement(
+            connection,
+            "CREATE INDEX IF NOT EXISTS ix_users_is_guest ON users (is_guest)",
+        )
         _execute_schema_statement(
             connection,
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_yandex_sub ON users (yandex_sub)",

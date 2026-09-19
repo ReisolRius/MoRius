@@ -42,9 +42,23 @@ export type AuthUser = {
   referral_bonus_claimed_at?: string | null
   active_theme_id?: string | null
   subscription?: UserSubscription | null
+  /** A pseudo-account from "Начать игру" without registering. See utils/guestSession.ts. */
+  is_guest?: boolean
+  guest_number?: number | null
   is_banned: boolean
   ban_expires_at: string | null
   created_at: string
+}
+
+/** What moved from a guest into the account the player just signed in to. */
+export type GuestMergeSummary = {
+  /** The guest's former user id: browser-side drafts kept under it move to the account. */
+  guest_user_id?: number
+  guest_name: string
+  worlds: number
+  characters: number
+  instruction_templates: number
+  coins_transferred: number
 }
 
 export type UserSubscription = {
@@ -63,6 +77,11 @@ export type AuthResponse = {
   token_type: 'bearer'
   user: AuthUser
   is_new_user?: boolean
+  merged_guest?: GuestMergeSummary | null
+}
+
+export function isGuestUser(user: Pick<AuthUser, 'is_guest'> | null | undefined): boolean {
+  return Boolean(user?.is_guest)
 }
 
 const ROLE_BADGE_LABELS: Record<string, string> = {

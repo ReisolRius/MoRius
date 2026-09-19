@@ -30,6 +30,7 @@ import {
   type AdminModerationQueueItem,
   type AdminModerationWorldDetail,
   banUserAsAdmin,
+  deleteUserAsAdmin,
   dismissCharacterReportsAsAdmin,
   dismissInstructionTemplateReportsAsAdmin,
   dismissWorldReportsAsAdmin,
@@ -55,6 +56,7 @@ import {
   updateModerationInstructionTemplateForAdmin,
   updateModerationWorldForAdmin,
   updateMaintenanceSettingsForAdmin,
+  updateUserSubscriptionTurnsAsAdmin,
   updateUserTokensAsAdmin,
   type AdminManagedUser,
   type AdminBugReportSummary,
@@ -70,6 +72,7 @@ import {
   getCommunityWorld,
 } from '../../services/storyApi'
 import TextLimitIndicator from '../TextLimitIndicator'
+import DeleteAccountDialog from './DeleteAccountDialog'
 import { getDisplayedTagLabel } from '../../types/auth'
 import type {
   StoryCharacter,
@@ -128,6 +131,21 @@ type AdminPanelDialogProps = {
   initialTarget?: AdminPanelInitialTarget | null
   onNavigate: (path: string) => void
   onClose: () => void
+}
+
+function formatAdminTurnsLabel(count: number): string {
+  const value = Math.abs(Math.trunc(count))
+  if (value % 100 >= 11 && value % 100 <= 14) {
+    return 'ходов'
+  }
+  const lastDigit = value % 10
+  if (lastDigit === 1) {
+    return 'ход'
+  }
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return 'хода'
+  }
+  return 'ходов'
 }
 
 function formatBanLabel(user: AdminManagedUser): string {
@@ -309,6 +327,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
   const [userSortMode, setUserSortMode] = useState<AdminUserSortMode>('created_desc')
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
   const [tokenAmountDraft, setTokenAmountDraft] = useState('100')
+  const [subscriptionTurnsDraft, setSubscriptionTurnsDraft] = useState('50')
   const [subscriptionPlanDraft, setSubscriptionPlanDraft] = useState<'spark' | 'flame' | 'constellation'>('constellation')
   const [banDurationDraft, setBanDurationDraft] = useState('24')
   const [banDurationUnit, setBanDurationUnit] = useState<'hours' | 'days'>('hours')
@@ -317,6 +336,9 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
   const [hasMoreUsers, setHasMoreUsers] = useState(false)
   const [usersTotalCount, setUsersTotalCount] = useState(0)
   const [isApplyingUserAction, setIsApplyingUserAction] = useState(false)
+  const [isDeleteUserDialogOpen, setIsDeleteUserDialogOpen] = useState(false)
+  const [isDeletingUser, setIsDeletingUser] = useState(false)
+  const [deleteUserError, setDeleteUserError] = useState('')
 
   const [reports, setReports] = useState<AdminReport[]>([])
   const [selectedReportKey, setSelectedReportKey] = useState<string | null>(null)
@@ -879,6 +901,47 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
     [authToken, mergeUpdatedUser, selectedUser, tokenAmountDraft],
   )
 
+  const handleUpdateSubscriptionTurns = useCallback(
+    async (operation: 'add' | 'subtract') => {
+      if (!selectedUser) {
+        setErrorMessage('Выберите пользователя')
+        return
+      }
+      if (!selectedUser.subscription) {
+        setErrorMessage('У пользователя нет активной подписки')
+        return
+      }
+      const parsedAmount = Number.parseInt(subscriptionTurnsDraft.trim(), 10)
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        setErrorMessage('Укажите корректное количество ходов')
+        return
+      }
+
+      setIsApplyingUserAction(true)
+      setErrorMessage('')
+      setSuccessMessage('')
+      try {
+        const updatedUser = await updateUserSubscriptionTurnsAsAdmin({
+          token: authToken,
+          user_id: selectedUser.id,
+          operation,
+          amount: parsedAmount,
+        })
+        mergeUpdatedUser(updatedUser)
+        const remaining = updatedUser.subscription?.turns_remaining ?? 0
+        setSuccessMessage(
+          `${operation === 'add' ? 'Ходы начислены' : 'Ходы списаны'}. Осталось: ${remaining.toLocaleString('ru-RU')}`,
+        )
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось изменить ходы подписки'
+        setErrorMessage(detail)
+      } finally {
+        setIsApplyingUserAction(false)
+      }
+    },
+    [authToken, mergeUpdatedUser, selectedUser, subscriptionTurnsDraft],
+  )
+
   const handleGrantSubscription = useCallback(async () => {
     if (!selectedUser) {
       setErrorMessage('Выберите пользователя')
@@ -1011,6 +1074,33 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
       setIsApplyingUserAction(false)
     }
   }, [authToken, customTagDraft, mergeUpdatedUser, selectedUser])
+
+  const handleDeleteUser = useCallback(
+    async (confirmation: string) => {
+      if (!selectedUser || isDeletingUser) {
+        return
+      }
+      const deletedUser = selectedUser
+      setIsDeletingUser(true)
+      setDeleteUserError('')
+      setErrorMessage('')
+      setSuccessMessage('')
+      try {
+        await deleteUserAsAdmin({ token: authToken, user_id: deletedUser.id, confirmation })
+        const remainingUsers = users.filter((user) => user.id !== deletedUser.id)
+        setUsers(remainingUsers)
+        setSelectedUserId(remainingUsers[0]?.id ?? null)
+        setUsersTotalCount((previous) => Math.max(0, previous - 1))
+        setIsDeleteUserDialogOpen(false)
+        setSuccessMessage(`Аккаунт «${deletedUser.display_name || deletedUser.email}» удалён со всеми данными`)
+      } catch (error) {
+        setDeleteUserError(error instanceof Error ? error.message : 'Не удалось удалить аккаунт')
+      } finally {
+        setIsDeletingUser(false)
+      }
+    },
+    [authToken, isDeletingUser, selectedUser, users],
+  )
 
   const handleOpenReportedTarget = useCallback(
     async (report: AdminReport) => {
@@ -1478,6 +1568,18 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
 
   return (
     <>
+      <DeleteAccountDialog
+        open={isDeleteUserDialogOpen && Boolean(selectedUser)}
+        subject="admin"
+        targetName={selectedUser ? selectedUser.display_name || selectedUser.email : ''}
+        targetEmail={selectedUser && !selectedUser.is_guest ? selectedUser.email : null}
+        coins={selectedUser?.coins ?? null}
+        subscriptionTitle={selectedUser?.subscription?.plan_title ?? null}
+        isSubmitting={isDeletingUser}
+        error={deleteUserError}
+        onClose={() => setIsDeleteUserDialogOpen(false)}
+        onConfirm={(confirmation) => void handleDeleteUser(confirmation)}
+      />
       <Dialog
         open={open}
         onClose={onClose}
@@ -1677,15 +1779,26 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
                                 {user.display_name || user.email}
                               </Typography>
                               <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem' }} noWrap>
-                                {user.email} · {getDisplayedTagLabel(user.role, user.profile_tag)}
+                                {user.is_guest
+                                  ? 'Гость без регистрации'
+                                  : `${user.email} · ${getDisplayedTagLabel(user.role, user.profile_tag)}`}
                               </Typography>
                               <Typography sx={{ color: 'text.secondary', fontSize: '0.76rem' }} noWrap>
                                 {formatLastPaymentLabel(user)}
                               </Typography>
                             </Stack>
-                            <Typography sx={{ color: 'text.secondary', ml: 1.2, fontSize: '0.85rem' }}>
-                              {formatBanLabel(user)}
-                            </Typography>
+                            <Stack sx={{ ml: 1.2, minWidth: 0 }} alignItems="flex-end" spacing={0.1}>
+                              <Typography sx={{ color: 'text.secondary', fontSize: '0.85rem' }} noWrap>
+                                {formatBanLabel(user)}
+                              </Typography>
+                              {/* Subscribers carry a second balance the sols figure says nothing
+                                  about, so the list shows it beside the sols rather than instead. */}
+                              {user.subscription ? (
+                                <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.78rem', fontWeight: 700 }} noWrap>
+                                  {`${user.subscription.turns_remaining.toLocaleString('ru-RU')} ${formatAdminTurnsLabel(user.subscription.turns_remaining)}`}
+                                </Typography>
+                              ) : null}
+                            </Stack>
                           </Button>
                         )
                       })}
@@ -1793,6 +1906,80 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
                             }`
                           : 'Активной подписки нет. Выданный месяц не списывает деньги сразу.'}
                       </Typography>
+
+                      {selectedUser?.subscription ? (
+                        <>
+                          <Box
+                            sx={{
+                              mt: 0.2,
+                              borderRadius: '12px',
+                              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                              backgroundColor: 'var(--morius-card-bg)',
+                              px: 1.1,
+                              py: 0.9,
+                            }}
+                          >
+                            <Stack direction="row" alignItems="baseline" spacing={0.8} flexWrap="wrap" rowGap={0.3}>
+                              <Typography sx={{ fontWeight: 900, fontSize: '1.3rem', color: 'var(--morius-title-text)', lineHeight: 1.1 }}>
+                                {selectedUser.subscription.turns_remaining.toLocaleString('ru-RU')}
+                              </Typography>
+                              <Typography sx={{ color: 'text.secondary', fontSize: '0.8rem' }}>
+                                {formatAdminTurnsLabel(selectedUser.subscription.turns_remaining)} доступно
+                              </Typography>
+                            </Stack>
+                            <Typography sx={{ color: 'text.secondary', fontSize: '0.76rem', lineHeight: 1.45, mt: 0.35 }}>
+                              {`Накоплено за период: ${selectedUser.subscription.turns_accrued.toLocaleString('ru-RU')}`}
+                              {` · истрачено: ${selectedUser.subscription.turns_used.toLocaleString('ru-RU')}`}
+                              {selectedUser.subscription.turns_bonus !== 0
+                                ? ` · правка админа: ${selectedUser.subscription.turns_bonus > 0 ? '+' : ''}${selectedUser.subscription.turns_bonus.toLocaleString('ru-RU')}`
+                                : ''}
+                            </Typography>
+                            <Typography sx={{ color: 'text.secondary', fontSize: '0.76rem', lineHeight: 1.45 }}>
+                              {`По тарифу ${selectedUser.subscription.daily_turn_limit} в день, период с ${selectedUser.subscription.period_start || 'неизвестной даты'}. Начисление идёт каждый день, обнуляется только в конце месяца.`}
+                            </Typography>
+                          </Box>
+
+                          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                            <TextField
+                              value={subscriptionTurnsDraft}
+                              onChange={(event) =>
+                                setSubscriptionTurnsDraft(
+                                  event.target.value.replace(/[^\d]/g, '').slice(0, ADMIN_TOKEN_AMOUNT_MAX_LENGTH),
+                                )
+                              }
+                              label="Сколько ходов"
+                              size="small"
+                              disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
+                              inputProps={{ inputMode: 'numeric', maxLength: ADMIN_TOKEN_AMOUNT_MAX_LENGTH }}
+                              helperText={
+                                <TextLimitIndicator
+                                  currentLength={subscriptionTurnsDraft.length}
+                                  maxLength={ADMIN_TOKEN_AMOUNT_MAX_LENGTH}
+                                />
+                              }
+                              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                              sx={{ flex: 1 }}
+                            />
+                            <Button
+                              onClick={() => void handleUpdateSubscriptionTurns('subtract')}
+                              disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
+                              sx={adminNeutralButtonSx}
+                            >
+                              Списать
+                            </Button>
+                            <Button
+                              onClick={() => void handleUpdateSubscriptionTurns('add')}
+                              disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
+                              sx={adminPrimaryButtonSx}
+                            >
+                              Выдать
+                            </Button>
+                          </Stack>
+                          <Typography sx={{ color: 'text.secondary', fontSize: '0.75rem', lineHeight: 1.4 }}>
+                            Правка действует до конца текущего месяца подписки и сгорает вместе с ним.
+                          </Typography>
+                        </>
+                      ) : null}
                     </Box>
 
                     <Box sx={adminActionCardSx}>
@@ -1903,6 +2090,39 @@ function AdminPanelDialog({ open, authToken, currentUserRole, initialTarget = nu
                         >
                           Забанить
                         </Button>
+                      </Stack>
+                    </Box>
+
+                    <Box
+                      sx={{
+                        ...adminActionCardSx,
+                        gridColumn: '1 / -1',
+                        borderColor: 'rgba(220, 90, 90, 0.42)',
+                        backgroundColor: 'rgba(160, 50, 50, 0.07)',
+                      }}
+                    >
+                      <Typography sx={{ ...adminActionLabelSx, color: '#f1b4b4' }}>Удаление аккаунта</Typography>
+                      <Typography sx={{ color: 'text.secondary', fontSize: '0.8rem', lineHeight: 1.45 }}>
+                        Стирает аккаунт навсегда: все миры и истории, персонажей, инструкции, галерею, баланс солов, историю
+                        покупок и донатов, подписку и привязанные карты. Отменить нельзя.
+                        {!canManageUserRole ? ' Удалять аккаунты может только администратор.' : ''}
+                      </Typography>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                        <Button
+                          onClick={() => {
+                            setDeleteUserError('')
+                            setIsDeleteUserDialogOpen(true)
+                          }}
+                          disabled={!selectedUser || isApplyingUserAction || isDeletingUser || !canManageUserRole}
+                          sx={{ ...adminDangerButtonSx, px: 2.2 }}
+                        >
+                          Удалить аккаунт навсегда
+                        </Button>
+                        {selectedUser ? (
+                          <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem' }} noWrap>
+                            {selectedUser.display_name || selectedUser.email} · ID {selectedUser.id}
+                          </Typography>
+                        ) : null}
                       </Stack>
                     </Box>
                   </Box>

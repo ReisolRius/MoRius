@@ -91,17 +91,27 @@ def _period_start_date(subscription: Subscription, *, now: datetime) -> date:
         return _moscow_date(_to_utc(next_charge_at) - timedelta(days=SUBSCRIPTION_PERIOD_DAYS))
     started_at = subscription.started_at
     if started_at is not None:
-        return _moscow_date(started_at)
+        # No charge date: an admin grant or an admin-test mock. Roll the anchor forward in whole
+        # periods from the start date so the budget still resets once a month instead of accruing
+        # without end for as long as the row lives.
+        start = _moscow_date(started_at)
+        elapsed_days = max((_moscow_date(now) - start).days, 0)
+        return start + timedelta(days=(elapsed_days // SUBSCRIPTION_PERIOD_DAYS) * SUBSCRIPTION_PERIOD_DAYS)
     return _moscow_date(now)
 
 
 def _days_elapsed_in_period(period_start: str, *, now: datetime | None = None) -> int:
+    """Moscow days accrued so far in this period, 1-based and never more than one period.
+
+    The clamp matters when a renewal is late: access continues through the grace window, but the
+    budget must not keep growing past the month that was actually paid for.
+    """
     today = _moscow_date(now or _utcnow())
     try:
         start = datetime.strptime(period_start, _DATE_FORMAT).date()
     except (TypeError, ValueError):
         return 1
-    return max(1, (today - start).days + 1)
+    return max(1, min((today - start).days + 1, SUBSCRIPTION_PERIOD_DAYS))
 
 
 def _period_turn_cap(daily_turn_limit: int, period_start: str, *, now: datetime | None = None) -> int:
@@ -133,16 +143,30 @@ def get_subscription_entitlement(
     }
 
 
+def _is_current_period(user: User, entitlement: dict[str, Any] | None) -> bool:
+    if not entitlement:
+        return False
+    return str(getattr(user, "subscription_turns_date", "") or "") == str(entitlement.get("period_start", ""))
+
+
 def get_period_turns_used(
     user: User,
     entitlement: dict[str, Any] | None,
 ) -> int:
     """Turns used in the current billing period (0 once a new period begins, before the DB reset)."""
-    if not entitlement:
-        return 0
-    if str(getattr(user, "subscription_turns_date", "") or "") != str(entitlement.get("period_start", "")):
+    if not _is_current_period(user, entitlement):
         return 0
     return max(0, int(getattr(user, "subscription_turns_used", 0) or 0))
+
+
+def get_period_turns_bonus(
+    user: User,
+    entitlement: dict[str, Any] | None,
+) -> int:
+    """Admin adjustment for this period: positive granted, negative deducted."""
+    if not _is_current_period(user, entitlement):
+        return 0
+    return int(getattr(user, "subscription_turns_bonus", 0) or 0)
 
 
 def get_daily_turns_remaining(
@@ -155,7 +179,7 @@ def get_daily_turns_remaining(
     if not entitlement:
         return 0
     cap = _period_turn_cap(int(entitlement.get("daily_turn_limit", 0)), str(entitlement.get("period_start", "")), now=now)
-    return max(0, cap - get_period_turns_used(user, entitlement))
+    return max(0, cap + get_period_turns_bonus(user, entitlement) - get_period_turns_used(user, entitlement))
 
 
 def try_consume_subscription_turn(
@@ -173,24 +197,54 @@ def try_consume_subscription_turn(
     cap grows by ``daily_turn_limit`` each Moscow day, so unspent turns roll over.
     """
     cap = _period_turn_cap(int(daily_turn_limit), period_start, now=now)
-    if cap <= 0:
-        return False
 
-    # 1) Roll the counter over to the current period if it belongs to a previous one.
+    # 1) Roll the counters over to the current period if they belong to a previous one. The admin
+    #    bonus is period-scoped too, so it is cleared here with the usage.
     db.execute(
         sa_update(User)
         .where(User.id == user_id, User.subscription_turns_date != period_start)
-        .values(subscription_turns_date=period_start, subscription_turns_used=0)
+        .values(subscription_turns_date=period_start, subscription_turns_used=0, subscription_turns_bonus=0)
     )
 
-    # 2) Increment only while still under the accrued cap for this period.
+    # 2) Increment only while still under the accrued cap (plus any admin grant) for this period.
     result = db.execute(
         sa_update(User)
         .where(
             User.id == user_id,
             User.subscription_turns_date == period_start,
-            User.subscription_turns_used < cap,
+            User.subscription_turns_used < cap + User.subscription_turns_bonus,
         )
         .values(subscription_turns_used=User.subscription_turns_used + 1)
     )
     return (result.rowcount or 0) > 0
+
+
+def adjust_subscription_turns(
+    db: Session,
+    *,
+    user: User,
+    entitlement: dict[str, Any],
+    delta: int,
+    now: datetime | None = None,
+) -> int:
+    """Grant or take back subscription turns by hand. Returns the new remaining balance.
+
+    Implemented as a period-scoped bonus rather than by rewinding the usage counter: usage is
+    what the player actually spent and stays honest, while the bonus is the operator's
+    adjustment. Taking turns away can drive the bonus negative, but never below the point where
+    the player would owe turns -- the floor is a remaining balance of zero.
+    """
+    period_start = str(entitlement.get("period_start", ""))
+    cap = _period_turn_cap(int(entitlement.get("daily_turn_limit", 0)), period_start, now=now)
+
+    if str(getattr(user, "subscription_turns_date", "") or "") != period_start:
+        user.subscription_turns_date = period_start
+        user.subscription_turns_used = 0
+        user.subscription_turns_bonus = 0
+
+    used = max(0, int(getattr(user, "subscription_turns_used", 0) or 0))
+    bonus = int(getattr(user, "subscription_turns_bonus", 0) or 0)
+    remaining = max(0, cap + bonus - used)
+    applied_delta = max(int(delta), -remaining)
+    user.subscription_turns_bonus = bonus + applied_delta
+    return max(0, cap + int(user.subscription_turns_bonus) - used)
