@@ -35,7 +35,8 @@ import ProgressiveImage from '../media/ProgressiveImage'
 import AvatarFrame from '../profile/AvatarFrame'
 import DeleteAccountDialog from '../profile/DeleteAccountDialog'
 import UserAvatar from '../profile/UserAvatar'
-import { notifyAccountDeleted, requestAccount } from '../../utils/guestSession'
+import ExperienceModeSettingsPanel from './ExperienceModeSettingsPanel'
+import { ACCOUNT_REQUIRED_MESSAGES, notifyAccountDeleted, requestAccount } from '../../utils/guestSession'
 
 type SettingsDialogProps = {
   open: boolean
@@ -52,7 +53,7 @@ type SettingsDialogProps = {
   onAvatarChange?: (event: ChangeEvent<HTMLInputElement>) => void
 }
 
-type SettingsTabId = 'profile' | 'appearance' | 'privacy' | 'notifications'
+type SettingsTabId = 'profile' | 'appearance' | 'difficulty' | 'privacy' | 'notifications'
 type AccountAuthProvider = 'email' | 'google' | 'yandex' | 'vk' | 'mail'
 
 const PROFILE_DESCRIPTION_MAX = 4000
@@ -60,6 +61,7 @@ const DISPLAY_NAME_MAX = 120
 const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
   { id: 'profile', label: 'Профиль' },
   { id: 'appearance', label: 'Оформление' },
+  { id: 'difficulty', label: 'Сложность' },
   { id: 'privacy', label: 'Приватность' },
   { id: 'notifications', label: 'Уведомления' },
 ]
@@ -178,22 +180,18 @@ function SettingsDialog({
   const activeAuthProvider = resolveActiveAuthProvider(user.auth_provider || 'email')
   const isAuthMethodBusy = isStartingYandexLink || vkIDLinkProvider !== null || isReplacingAuthMethod
   const isGuest = Boolean(user.is_guest)
-  // Every "Настройки" button in the app ends here, so this is where a guest is turned away.
-  const isOpen = open && !isGuest
-
-  useEffect(() => {
-    if (!open || !isGuest) {
-      return
-    }
-    onClose()
-    requestAccount('settings')
-  }, [isGuest, onClose, open])
+  // Every "Настройки" button in the app ends here, so this is where a guest is turned away - from the
+  // account settings. Сложность is not one of those: it only decides how much of the game
+  // screen the player sees, a guest chose it in the welcome dialog, and that dialog promised
+  // they could change it whenever they liked. So a guest gets the dialog with that tab alone.
+  const isOpen = open
+  const visibleTabs = isGuest ? SETTINGS_TABS.filter((tab) => tab.id === 'difficulty') : SETTINGS_TABS
 
   useEffect(() => {
     if (!isOpen) {
       return
     }
-    setActiveTab('profile')
+    setActiveTab(isGuest ? 'difficulty' : 'profile')
     setAuthMethodSuccess('')
     setPasswordAuthValue('')
     setPasswordAuthConfirmValue('')
@@ -221,7 +219,7 @@ function SettingsDialog({
       show_public_characters: user.show_public_characters ?? false,
       show_public_instruction_templates: user.show_public_instruction_templates ?? false,
     })
-  }, [isOpen, user])
+  }, [isGuest, isOpen, user])
 
   useEffect(() => {
     if (!isOpen) {
@@ -586,7 +584,7 @@ function SettingsDialog({
                   },
                 }}
               >
-                {SETTINGS_TABS.map((tab) => {
+                {visibleTabs.map((tab) => {
                   const isActive = activeTab === tab.id
                   return (
                     <Button
@@ -968,6 +966,29 @@ function SettingsDialog({
                 </Box>
 
                 <Box sx={{ display: activeTab === 'appearance' ? 'none' : 'grid', gap: 1.4, gridTemplateColumns: '1fr' }}>
+                  <Box sx={{ display: activeTab === 'difficulty' ? 'grid' : 'none', gap: 1.4 }}>
+                    <ExperienceModeSettingsPanel userId={user.id} authToken={authToken} />
+                    {isGuest ? (
+                      <Box sx={{ borderRadius: '16px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 76%, transparent)', p: 1.5 }}>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.02rem', fontWeight: 800, mb: 0.6 }}>
+                          Остальные настройки
+                        </Typography>
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.85rem', lineHeight: 1.45 }}>
+                          {ACCOUNT_REQUIRED_MESSAGES.settings} Всё, что вы уже создали, перейдёт в аккаунт.
+                        </Typography>
+                        <Button
+                          onClick={() => {
+                            onClose()
+                            requestAccount('settings')
+                          }}
+                          sx={{ mt: 1.2, minHeight: 40, px: 1.7, borderRadius: '11px', textTransform: 'none', fontWeight: 800, border: 'none', color: 'var(--morius-accent-contrast, #161009)', backgroundColor: 'var(--morius-accent)', '&:hover': { filter: 'brightness(1.08)' } }}
+                        >
+                          Сохранить прогресс
+                        </Button>
+                      </Box>
+                    ) : null}
+                  </Box>
+
                   <Stack spacing={1.3} sx={{ display: activeTab === 'profile' || activeTab === 'privacy' || activeTab === 'notifications' ? 'flex' : 'none' }}>
                     <TextField label="Описание" multiline minRows={4} maxRows={6} value={profileDescription} onChange={(event) => setProfileDescription(event.target.value.slice(0, PROFILE_DESCRIPTION_MAX))} helperText={`${profileDescription.length}/${PROFILE_DESCRIPTION_MAX}`} sx={{ display: activeTab === 'profile' ? 'flex' : 'none', '& .MuiOutlinedInput-root': { alignItems: 'flex-start', borderRadius: '14px', backgroundColor: 'var(--morius-elevated-bg)' } }} />
                     <TextField label="Отображаемое имя" value={displayName} onChange={(event) => setDisplayName(event.target.value.slice(0, DISPLAY_NAME_MAX))} helperText={`${displayName.length}/${DISPLAY_NAME_MAX}`} sx={{ display: activeTab === 'profile' ? 'flex' : 'none', '& .MuiOutlinedInput-root': { borderRadius: '14px', backgroundColor: 'var(--morius-elevated-bg)' } }} />
@@ -1138,15 +1159,17 @@ function SettingsDialog({
         >
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between">
               <Typography sx={{ display: { xs: 'none', sm: 'block' }, color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>
-                Изменения видны всем сразу после сохранения
+                {isGuest ? 'Сложность сохраняется сразу' : 'Изменения видны всем сразу после сохранения'}
               </Typography>
               <Stack direction="row" spacing={1} justifyContent="flex-end">
                 <Button onClick={requestDialogClose} sx={{ minHeight: 38, px: 1.8, borderRadius: '11px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'rgba(255,255,255,0.05)', '&:hover': { backgroundColor: 'rgba(255,255,255,0.09)' } }}>
-                  Отмена
+                  {isGuest ? 'Закрыть' : 'Отмена'}
                 </Button>
-                <Button onClick={() => void handleSaveProfile()} disabled={isSavingProfile} sx={{ minHeight: 38, px: 2.1, borderRadius: '11px', textTransform: 'none', color: '#fff', border: 'none', background: 'var(--morius-accent)', '&:hover': { filter: 'brightness(1.08)' } }}>
-                  {isSavingProfile ? 'Сохраняем...' : 'Сохранить'}
-                </Button>
+                {isGuest ? null : (
+                  <Button onClick={() => void handleSaveProfile()} disabled={isSavingProfile} sx={{ minHeight: 38, px: 2.1, borderRadius: '11px', textTransform: 'none', color: '#fff', border: 'none', background: 'var(--morius-accent)', '&:hover': { filter: 'brightness(1.08)' } }}>
+                    {isSavingProfile ? 'Сохраняем...' : 'Сохранить'}
+                  </Button>
+                )}
               </Stack>
             </Stack>
         </Box>

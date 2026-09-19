@@ -1250,6 +1250,7 @@ function AppHeader({
                 </IconButton>
                 <IconButton
                   aria-label={isMobileActionSheetOpen ? '\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u0431\u044b\u0441\u0442\u0440\u044b\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f' : '\u0411\u044b\u0441\u0442\u0440\u044b\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f'}
+                  data-tour-id="mobile-play-button"
                   onClick={() => {
                     setIsMobileMoreSheetOpen(false)
                     setIsMobileActionSheetOpen((previous) => !previous)

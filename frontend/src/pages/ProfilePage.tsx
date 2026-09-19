@@ -6580,11 +6580,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             }}
           >
             <Box
+              data-tour-id="profile-library-section"
               sx={{
                 p: 0,
                 border: 'none',
                 background: 'transparent',
                 minWidth: 0,
+                scrollMarginTop: '120px',
               }}
             >
               <Box sx={{ display: 'none', mb: 1, minWidth: 0 }}>

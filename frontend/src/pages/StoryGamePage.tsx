@@ -98,6 +98,7 @@ import StorySummaryDialog from '../components/story/StorySummaryDialog'
 import WorldCardBannerPreview from '../components/story/WorldCardBannerPreview'
 import WorldCardTemplatePickerDialog from '../components/story/WorldCardTemplatePickerDialog'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
+import useExperienceMode from '../hooks/useExperienceMode'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
@@ -8557,6 +8558,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isDndCheckPending, setIsDndCheckPending] = useState(false)
   const dndCheckPendingRef = useRef(false)
   const dndHeldPromptRef = useRef<string | null>(null)
+  // A novice sees a stripped-down game screen. What gets pinned under the hood in place of the
+  // hidden controls is in the "simple mode defaults" effect further down.
+  const { isSimpleMode } = useExperienceMode(user.id)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_WIDTH_DEFAULT)
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('ai')
@@ -9811,6 +9815,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setRightPanelSection('narrator')
     setRightPanelMode('ai')
   }, [isDndMode, rightPanelSection])
+  // Switching to simple mode while the engine tab is open would leave an empty panel behind.
+  useEffect(() => {
+    if (!isSimpleMode || rightPanelSection !== 'engine') {
+      return
+    }
+    setRightPanelSection('narrator')
+    setRightPanelMode('ai')
+  }, [isSimpleMode, rightPanelSection])
   const environmentTimeEnabled = Boolean(
     activeGameSummary?.environment_time_enabled ?? activeGameSummary?.environment_enabled,
   )
@@ -15929,6 +15941,84 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
   }, [])
 
+  /**
+   * What simple mode pins in place of the controls it hides, so a novice never plays with a
+   * setting they cannot see: an 800-token reply, NPC thoughts off, no paid reasoning, the place
+   * module on and the time and weather modules off. Smooth typing is a per-browser preference,
+   * so it is turned on outside the per-game write.
+   *
+   * Applied once per game, and only when that game actually differs - a player who switches back
+   * to the advanced mode keeps whatever they set afterwards.
+   */
+  const simpleModeDefaultsAppliedRef = useRef<Set<number>>(new Set())
+  useEffect(() => {
+    if (!isSimpleMode) {
+      simpleModeDefaultsAppliedRef.current.clear()
+      return
+    }
+
+    if (!smoothStreamingEnabled) {
+      setSmoothStreamingEnabled(true)
+      writeSmoothStreamingPreference(true)
+    }
+
+    const targetGameId = activeGameId
+    const summary = activeGameSummary
+    if (!targetGameId || !summary || summary.id !== targetGameId || isGenerating) {
+      return
+    }
+    if (simpleModeDefaultsAppliedRef.current.has(targetGameId)) {
+      return
+    }
+
+    const isAlreadyDefault =
+      summary.response_max_tokens === STORY_DEFAULT_RESPONSE_MAX_TOKENS &&
+      summary.response_max_tokens_enabled &&
+      !summary.show_npc_thoughts &&
+      !summary.story_reasoning_enabled &&
+      summary.location_module_enabled !== false &&
+      !(summary.environment_time_enabled ?? summary.environment_enabled) &&
+      !(summary.environment_weather_enabled ?? summary.environment_enabled)
+
+    simpleModeDefaultsAppliedRef.current.add(targetGameId)
+    if (isAlreadyDefault) {
+      return
+    }
+
+    setResponseMaxTokens(STORY_DEFAULT_RESPONSE_MAX_TOKENS)
+    setResponseMaxTokensEnabled(true)
+    setShowNpcThoughts(false)
+    setStoryReasoningEnabled(false)
+
+    void updateStoryGameSettings({
+      token: authToken,
+      gameId: targetGameId,
+      responseMaxTokens: STORY_DEFAULT_RESPONSE_MAX_TOKENS,
+      responseMaxTokensEnabled: true,
+      showNpcThoughts: false,
+      storyReasoningEnabled: false,
+      locationModuleEnabled: true,
+      environmentEnabled: false,
+      environmentTimeEnabled: false,
+      environmentWeatherEnabled: false,
+    })
+      .then((updatedGame) => {
+        applyUpdatedGameSummary(updatedGame)
+      })
+      .catch(() => {
+        // Nothing the player did has failed, so no error banner - just try again next visit.
+        simpleModeDefaultsAppliedRef.current.delete(targetGameId)
+      })
+  }, [
+    activeGameId,
+    activeGameSummary,
+    applyUpdatedGameSummary,
+    authToken,
+    isGenerating,
+    isSimpleMode,
+    smoothStreamingEnabled,
+  ])
+
   const handleToggleRightPanel = useCallback(() => {
     setIsRightPanelOpen((previousValue) => {
       const nextValue = !previousValue
@@ -20535,7 +20625,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     ...(isVisualNovelTechDemoEnabled ? (['places'] as const) : []),
     ...(isDndMode ? (['dnd'] as const) : []),
   ]
-  const rightPanelUtilitySections: RightPanelSection[] = ['engine', 'appearance']
+  // Simple mode drops the engine tab from the rail altogether - not just its contents.
+  const rightPanelUtilitySections: RightPanelSection[] = isSimpleMode ? ['appearance'] : ['engine', 'appearance']
   const getRightPanelSectionLabel = (section: RightPanelSection) => rightPanelSectionMeta[section].title
   const renderRightPanelSectionIcon = (section: RightPanelSection) => {
     if (section === 'narrator') {
@@ -21373,7 +21464,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             Покинуть игру
           </Button>
 
-          {isDndMode ? null : (
+          {isDndMode || isSimpleMode ? null : (
           <Typography
             sx={{
               color: 'var(--morius-title-text)',
@@ -21390,7 +21481,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Typography>
           )}
 
-          {isDndMode ? null : (
+          {isDndMode || isSimpleMode ? null : (
           <Stack direction="row" spacing={0.65} flexWrap="wrap" useFlexGap>
             <Button
               disableRipple
@@ -21529,175 +21620,179 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               </Box>
               ) : null}
 
-              <Box
-                sx={{
-                  pt: 1.15,
-                  borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 68%, transparent)',
-                }}
-              >
-                <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.2}>
-                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 900, lineHeight: 1.2 }}>
-                    Время
-                  </Typography>
-                  <Switch
-                    checked={environmentTimeEnabled}
-                    disabled={isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather}
-                    onChange={(event) => void handleToggleEnvironmentEnabled(event.target.checked)}
-                    color="default"
-                    sx={{
-                      mr: -0.6,
-                      '& .MuiSwitch-switchBase.Mui-checked': {
-                        color: 'var(--morius-accent)',
-                      },
-                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                        backgroundColor: 'var(--morius-accent)',
-                        opacity: 0.86,
-                      },
-                    }}
-                  />
-                </Stack>
-                <Collapse in={environmentTimeEnabled} timeout={220} unmountOnExit>
-                  <Box
-                    role="button"
-                    tabIndex={0}
-                    onClick={openEnvironmentEditor}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        openEnvironmentEditor()
-                      }
-                    }}
-                    sx={{ pt: 0.8, cursor: 'pointer', outline: 'none' }}
-                  >
-                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.34rem', fontWeight: 900, lineHeight: 1.2 }}>
-                      {environmentDateInfo.title}
+              {isSimpleMode ? null : (
+                <Box
+                  sx={{
+                    pt: 1.15,
+                    borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 68%, transparent)',
+                  }}
+                >
+                  <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.2}>
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 900, lineHeight: 1.2 }}>
+                      Время
                     </Typography>
-                    <Typography sx={{ mt: 0.45, color: 'var(--morius-text-secondary)', fontSize: '0.84rem', lineHeight: 1.35 }}>
-                      {environmentDateInfo.meta}
-                    </Typography>
-                    {environmentDateInfo.seasonAndMonth ? (
-                      <Typography sx={{ mt: 1.2, color: 'var(--morius-accent)', fontSize: '0.9rem', fontWeight: 900 }}>
-                        {environmentDateInfo.seasonAndMonth}
+                    <Switch
+                      checked={environmentTimeEnabled}
+                      disabled={isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather}
+                      onChange={(event) => void handleToggleEnvironmentEnabled(event.target.checked)}
+                      color="default"
+                      sx={{
+                        mr: -0.6,
+                        '& .MuiSwitch-switchBase.Mui-checked': {
+                          color: 'var(--morius-accent)',
+                        },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                          backgroundColor: 'var(--morius-accent)',
+                          opacity: 0.86,
+                        },
+                      }}
+                    />
+                  </Stack>
+                  <Collapse in={environmentTimeEnabled} timeout={220} unmountOnExit>
+                    <Box
+                      role="button"
+                      tabIndex={0}
+                      onClick={openEnvironmentEditor}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          openEnvironmentEditor()
+                        }
+                      }}
+                      sx={{ pt: 0.8, cursor: 'pointer', outline: 'none' }}
+                    >
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.34rem', fontWeight: 900, lineHeight: 1.2 }}>
+                        {environmentDateInfo.title}
                       </Typography>
-                    ) : null}
-                  </Box>
-                </Collapse>
-              </Box>
+                      <Typography sx={{ mt: 0.45, color: 'var(--morius-text-secondary)', fontSize: '0.84rem', lineHeight: 1.35 }}>
+                        {environmentDateInfo.meta}
+                      </Typography>
+                      {environmentDateInfo.seasonAndMonth ? (
+                        <Typography sx={{ mt: 1.2, color: 'var(--morius-accent)', fontSize: '0.9rem', fontWeight: 900 }}>
+                          {environmentDateInfo.seasonAndMonth}
+                        </Typography>
+                      ) : null}
+                    </Box>
+                  </Collapse>
+                </Box>
+              )}
 
-              <Box
-                sx={{
-                  pt: 1.15,
-                  borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 68%, transparent)',
-                }}
-              >
-                <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.2}>
-                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 900, lineHeight: 1.2 }}>
-                    Погода
-                  </Typography>
-                  <Switch
-                    checked={environmentWeatherEnabled}
-                    disabled={isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather}
-                    onChange={(event) => void handleToggleEnvironmentWeatherEnabled(event.target.checked)}
-                    color="default"
-                    sx={{
-                      mr: -0.6,
-                      '& .MuiSwitch-switchBase.Mui-checked': {
-                        color: 'var(--morius-accent)',
-                      },
-                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                        backgroundColor: 'var(--morius-accent)',
-                        opacity: 0.86,
-                      },
-                    }}
-                  />
-                </Stack>
-                <Collapse in={environmentWeatherEnabled} timeout={220} unmountOnExit>
-                  <Box
-                    role="button"
-                    tabIndex={0}
-                    onClick={openEnvironmentEditor}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        openEnvironmentEditor()
-                      }
-                    }}
-                    sx={{ pt: 0.8, cursor: 'pointer', outline: 'none' }}
-                  >
-                    <Stack direction="row" spacing={0.8} alignItems="center">
-                      <Box
-                        component="img"
-                        src={resolveEnvironmentSummaryIcon(environmentSummaryText)}
-                        alt=""
-                        sx={environmentPanelIconSx}
-                      />
-                      <Stack spacing={0.2} sx={{ minWidth: 0 }}>
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 900, lineHeight: 1.2 }}>
-                          {environmentSummaryText}
-                        </Typography>
-                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', lineHeight: 1.35 }}>
-                          {environmentWeatherMeta}
-                        </Typography>
+              {isSimpleMode ? null : (
+                <Box
+                  sx={{
+                    pt: 1.15,
+                    borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 68%, transparent)',
+                  }}
+                >
+                  <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.2}>
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 900, lineHeight: 1.2 }}>
+                      Погода
+                    </Typography>
+                    <Switch
+                      checked={environmentWeatherEnabled}
+                      disabled={isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather}
+                      onChange={(event) => void handleToggleEnvironmentWeatherEnabled(event.target.checked)}
+                      color="default"
+                      sx={{
+                        mr: -0.6,
+                        '& .MuiSwitch-switchBase.Mui-checked': {
+                          color: 'var(--morius-accent)',
+                        },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                          backgroundColor: 'var(--morius-accent)',
+                          opacity: 0.86,
+                        },
+                      }}
+                    />
+                  </Stack>
+                  <Collapse in={environmentWeatherEnabled} timeout={220} unmountOnExit>
+                    <Box
+                      role="button"
+                      tabIndex={0}
+                      onClick={openEnvironmentEditor}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          openEnvironmentEditor()
+                        }
+                      }}
+                      sx={{ pt: 0.8, cursor: 'pointer', outline: 'none' }}
+                    >
+                      <Stack direction="row" spacing={0.8} alignItems="center">
+                        <Box
+                          component="img"
+                          src={resolveEnvironmentSummaryIcon(environmentSummaryText)}
+                          alt=""
+                          sx={environmentPanelIconSx}
+                        />
+                        <Stack spacing={0.2} sx={{ minWidth: 0 }}>
+                          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 900, lineHeight: 1.2 }}>
+                            {environmentSummaryText}
+                          </Typography>
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', lineHeight: 1.35 }}>
+                            {environmentWeatherMeta}
+                          </Typography>
+                        </Stack>
                       </Stack>
-                    </Stack>
-                    <Stack direction="row" spacing={{ xs: 0.4, md: 0.75 }} sx={{ mt: 1.45, width: '100%' }}>
-                      {environmentTimeline.slice(0, 4).map((entry, index) => {
-                        const isActive = index === activeEnvironmentTimelineIndex
-                        const label = resolveEnvironmentTimelineLabel(entry, index)
-                        const summary = readEnvironmentString(entry.summary) || environmentSummaryText
-                        return (
-                          <Box
-                            key={`${label}-${index}`}
-                            sx={{
-                              flex: '1 1 0',
-                              minWidth: 0,
-                              borderRadius: '12px',
-                              px: { xs: 0.3, md: 0.7 },
-                              py: 0.72,
-                              textAlign: 'center',
-                              border: isActive
-                                ? 'var(--morius-border-width) solid var(--morius-accent)'
-                                : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
-                              backgroundColor: isActive
-                                ? 'var(--morius-elevated-bg)'
-                                : 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
-                              boxShadow: isActive ? '0 14px 28px -24px rgba(0,0,0,0.78)' : 'none',
-                            }}
-                          >
-                            <Typography
+                      <Stack direction="row" spacing={{ xs: 0.4, md: 0.75 }} sx={{ mt: 1.45, width: '100%' }}>
+                        {environmentTimeline.slice(0, 4).map((entry, index) => {
+                          const isActive = index === activeEnvironmentTimelineIndex
+                          const label = resolveEnvironmentTimelineLabel(entry, index)
+                          const summary = readEnvironmentString(entry.summary) || environmentSummaryText
+                          return (
+                            <Box
+                              key={`${label}-${index}`}
                               sx={{
-                                color: 'var(--morius-title-text)',
-                                fontSize: { xs: '0.66rem', md: '0.72rem' },
-                                fontWeight: 900,
-                                lineHeight: 1.15,
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
+                                flex: '1 1 0',
+                                minWidth: 0,
+                                borderRadius: '12px',
+                                px: { xs: 0.3, md: 0.7 },
+                                py: 0.72,
+                                textAlign: 'center',
+                                border: isActive
+                                  ? 'var(--morius-border-width) solid var(--morius-accent)'
+                                  : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+                                backgroundColor: isActive
+                                  ? 'var(--morius-elevated-bg)'
+                                  : 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
+                                boxShadow: isActive ? '0 14px 28px -24px rgba(0,0,0,0.78)' : 'none',
                               }}
                             >
-                              {label}
-                            </Typography>
-                            <Box
-                              component="img"
-                              src={resolveEnvironmentSummaryIcon(summary)}
-                              alt=""
-                              sx={{ ...environmentPanelIconSx, width: { xs: 18, md: 22 }, height: { xs: 18, md: 22 }, mt: 0.55, mx: 'auto' }}
-                            />
-                          </Box>
-                        )
-                      })}
-                    </Stack>
-                    {isRegeneratingEnvironmentWeather ? (
-                      <Stack direction="row" spacing={0.7} alignItems="center" sx={{ mt: 1.2 }}>
-                        <CircularProgress size={15} sx={{ color: 'var(--morius-accent)' }} />
-                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', fontWeight: 700 }}>
-                          Обновляется
-                        </Typography>
+                              <Typography
+                                sx={{
+                                  color: 'var(--morius-title-text)',
+                                  fontSize: { xs: '0.66rem', md: '0.72rem' },
+                                  fontWeight: 900,
+                                  lineHeight: 1.15,
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {label}
+                              </Typography>
+                              <Box
+                                component="img"
+                                src={resolveEnvironmentSummaryIcon(summary)}
+                                alt=""
+                                sx={{ ...environmentPanelIconSx, width: { xs: 18, md: 22 }, height: { xs: 18, md: 22 }, mt: 0.55, mx: 'auto' }}
+                              />
+                            </Box>
+                          )
+                        })}
                       </Stack>
-                    ) : null}
-                  </Box>
-                </Collapse>
-              </Box>
+                      {isRegeneratingEnvironmentWeather ? (
+                        <Stack direction="row" spacing={0.7} alignItems="center" sx={{ mt: 1.2 }}>
+                          <CircularProgress size={15} sx={{ color: 'var(--morius-accent)' }} />
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', fontWeight: 700 }}>
+                            Обновляется
+                          </Typography>
+                        </Stack>
+                      ) : null}
+                    </Box>
+                  </Collapse>
+                </Box>
+              )}
             </Stack>
           </EnvironmentModuleCard>
         </Box>
@@ -24929,42 +25024,44 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           </Typography>
                         </Box>
                       ) : null}
-                      <Box
-                        sx={{
-                          mt: 0.15,
-                          px: 0.9,
-                          borderRadius: '14px',
-                          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
-                          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, transparent)',
-                        }}
-                      >
-                        <RightPanelSettingRow
-                          title={storyReasoningMinimum ? 'Уровень рассуждения' : 'Режим рассуждения'}
-                          description={
-                            storyReasoningFixed
-                              ? 'Базовый · рассуждение обязательно, его стоимость уже включена в цену хода'
-                              : storyReasoningSupported && storyReasoningMinimum
+                      {isSimpleMode ? null : (
+                        <Box
+                          sx={{
+                            mt: 0.15,
+                            px: 0.9,
+                            borderRadius: '14px',
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, transparent)',
+                          }}
+                        >
+                          <RightPanelSettingRow
+                            title={storyReasoningMinimum ? 'Уровень рассуждения' : 'Режим рассуждения'}
+                            description={
+                              storyReasoningFixed
+                                ? 'Базовый · рассуждение обязательно, его стоимость уже включена в цену хода'
+                                : storyReasoningSupported && storyReasoningMinimum
+                                  ? storyReasoningEnabled
+                                    ? `Усиленный · резерв до ${STORY_REASONING_MAX_TOKENS} токенов · +${formatRussianSolsLabel(storyReasoningSurchargeTokens)} за ход`
+                                    : `Минимальный · обязательная часть уже включена в цену хода`
+                                  : storyReasoningSupported
                                 ? storyReasoningEnabled
-                                  ? `Усиленный · резерв до ${STORY_REASONING_MAX_TOKENS} токенов · +${formatRussianSolsLabel(storyReasoningSurchargeTokens)} за ход`
-                                  : `Минимальный · обязательная часть уже включена в цену хода`
-                                : storyReasoningSupported
-                              ? storyReasoningEnabled
-                                ? `Включён · до ${STORY_REASONING_MAX_TOKENS} токенов · +${formatRussianSolsLabel(storyReasoningSurchargeTokens)} за ход`
-                                : `Выключен · включение добавит ${formatRussianSolsLabel(storyReasoningSurchargeTokens)} к ходу`
-                              : 'Эта модель не поддерживает управляемый режим рассуждения'
-                          }
-                          checked={storyReasoningFixed || (storyReasoningSupported && storyReasoningEnabled)}
-                          disabled={storyReasoningFixed || !storyReasoningSupported || isSavingStorySettings || isGenerating}
-                          onToggle={() => void toggleStoryReasoningEnabled()}
-                          tooltip={
-                            storyReasoningFixed
-                              ? 'Эта модель всегда рассуждает. Неизбежные расходы уже учтены в базовой цене хода.'
-                              : storyReasoningMinimum
-                                ? 'Минимальный уровень используется по умолчанию. Платное усиление увеличивает глубину рассуждения.'
-                                : 'Дополнительный внутренний анализ модели. По умолчанию выключен; стоимость зависит от выбранного рассказчика.'
-                          }
-                        />
-                      </Box>
+                                  ? `Включён · до ${STORY_REASONING_MAX_TOKENS} токенов · +${formatRussianSolsLabel(storyReasoningSurchargeTokens)} за ход`
+                                  : `Выключен · включение добавит ${formatRussianSolsLabel(storyReasoningSurchargeTokens)} к ходу`
+                                : 'Эта модель не поддерживает управляемый режим рассуждения'
+                            }
+                            checked={storyReasoningFixed || (storyReasoningSupported && storyReasoningEnabled)}
+                            disabled={storyReasoningFixed || !storyReasoningSupported || isSavingStorySettings || isGenerating}
+                            onToggle={() => void toggleStoryReasoningEnabled()}
+                            tooltip={
+                              storyReasoningFixed
+                                ? 'Эта модель всегда рассуждает. Неизбежные расходы уже учтены в базовой цене хода.'
+                                : storyReasoningMinimum
+                                  ? 'Минимальный уровень используется по умолчанию. Платное усиление увеличивает глубину рассуждения.'
+                                  : 'Дополнительный внутренний анализ модели. По умолчанию выключен; стоимость зависит от выбранного рассказчика.'
+                            }
+                          />
+                        </Box>
+                      )}
                     </Stack>
                   </Box>
 
@@ -25028,78 +25125,82 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Select>
                   </FormControl>
 
-                  <Box
-                    component="input"
-                    value={imageStylePromptDraft}
-                    placeholder="Стиль и запреты для изображений..."
-                    maxLength={STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH}
-                    onChange={(event: ChangeEvent<HTMLInputElement>) => handleImageStylePromptDraftChange(event.target.value)}
-                    onBlur={() => {
-                      void handleImageStylePromptCommit()
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
+                  {isSimpleMode ? null : (
+                    <Box
+                      component="input"
+                      value={imageStylePromptDraft}
+                      placeholder="Стиль и запреты для изображений..."
+                      maxLength={STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) => handleImageStylePromptDraftChange(event.target.value)}
+                      onBlur={() => {
                         void handleImageStylePromptCommit()
-                      }
-                    }}
-                    disabled={isSavingStorySettings || isGenerating}
-                    sx={{
-                      width: '100%',
-                      minHeight: 42,
-                      borderRadius: '14px',
-                      border: 'var(--morius-border-width) solid rgba(255,255,255,0.08)',
-                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 84%, var(--morius-app-base) 16%)',
-                      color: 'var(--morius-title-text)',
-                      px: 1,
-                      outline: 'none',
-                      fontSize: '0.86rem',
-                      fontWeight: 750,
-                      '&::placeholder': {
-                        color: 'color-mix(in srgb, var(--morius-text-secondary) 74%, transparent)',
-                        opacity: 1,
-                      },
-                    }}
-                  />
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          void handleImageStylePromptCommit()
+                        }
+                      }}
+                      disabled={isSavingStorySettings || isGenerating}
+                      sx={{
+                        width: '100%',
+                        minHeight: 42,
+                        borderRadius: '14px',
+                        border: 'var(--morius-border-width) solid rgba(255,255,255,0.08)',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 84%, var(--morius-app-base) 16%)',
+                        color: 'var(--morius-title-text)',
+                        px: 1,
+                        outline: 'none',
+                        fontSize: '0.86rem',
+                        fontWeight: 750,
+                        '&::placeholder': {
+                          color: 'color-mix(in srgb, var(--morius-text-secondary) 74%, transparent)',
+                          opacity: 1,
+                        },
+                      }}
+                    />
+                  )}
 
                    <Stack spacing={1.1}>
-                    <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
-                      <Stack spacing={0.85}>
-                        <RightPanelSectionHeading
-                          title="Память контекста"
-                          count={`${formatContextChars(cardsContextCharsUsed)} / ${formatContextChars(contextLimitChars)}`}
-                        />
-                        <Box
-                          sx={{
-                            height: 9,
-                            borderRadius: '999px',
-                            backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 54%, transparent)',
-                            overflow: 'hidden',
-                            display: 'flex',
-                          }}
-                        >
-                          {rightPanelContextUsageSegments.map((segment) => {
-                            const widthPercent = contextLimitChars > 0 ? Math.max(0, Math.min(100, (segment.value / contextLimitChars) * 100)) : 0
-                            return widthPercent > 0 ? (
-                              <Box key={segment.key} sx={{ width: `${widthPercent}%`, height: '100%', backgroundColor: segment.color, flexShrink: 0 }} />
-                            ) : null
-                          })}
-                        </Box>
-                        <Stack direction="row" spacing={1.25} useFlexGap flexWrap="wrap">
-                          {rightPanelContextUsageSegments.map((segment) => (
-                            <Stack key={segment.key} direction="row" spacing={0.55} alignItems="center">
-                              <Box sx={{ width: 9, height: 9, borderRadius: '3px', backgroundColor: segment.color, flexShrink: 0 }} />
-                              <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)', fontSize: '0.8rem', fontWeight: 750 }}>
-                                {segment.label}
-                              </Typography>
-                              <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 78%, transparent)', fontSize: '0.8rem', fontWeight: 950 }}>
-                                {formatContextChars(segment.value)}
-                              </Typography>
-                            </Stack>
-                          ))}
+                    {isSimpleMode ? null : (
+                      <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
+                        <Stack spacing={0.85}>
+                          <RightPanelSectionHeading
+                            title="Память контекста"
+                            count={`${formatContextChars(cardsContextCharsUsed)} / ${formatContextChars(contextLimitChars)}`}
+                          />
+                          <Box
+                            sx={{
+                              height: 9,
+                              borderRadius: '999px',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 54%, transparent)',
+                              overflow: 'hidden',
+                              display: 'flex',
+                            }}
+                          >
+                            {rightPanelContextUsageSegments.map((segment) => {
+                              const widthPercent = contextLimitChars > 0 ? Math.max(0, Math.min(100, (segment.value / contextLimitChars) * 100)) : 0
+                              return widthPercent > 0 ? (
+                                <Box key={segment.key} sx={{ width: `${widthPercent}%`, height: '100%', backgroundColor: segment.color, flexShrink: 0 }} />
+                              ) : null
+                            })}
+                          </Box>
+                          <Stack direction="row" spacing={1.25} useFlexGap flexWrap="wrap">
+                            {rightPanelContextUsageSegments.map((segment) => (
+                              <Stack key={segment.key} direction="row" spacing={0.55} alignItems="center">
+                                <Box sx={{ width: 9, height: 9, borderRadius: '3px', backgroundColor: segment.color, flexShrink: 0 }} />
+                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 92%, transparent)', fontSize: '0.8rem', fontWeight: 750 }}>
+                                  {segment.label}
+                                </Typography>
+                                <Typography sx={{ color: 'color-mix(in srgb, var(--morius-title-text) 78%, transparent)', fontSize: '0.8rem', fontWeight: 950 }}>
+                                  {formatContextChars(segment.value)}
+                                </Typography>
+                              </Stack>
+                            ))}
+                          </Stack>
                         </Stack>
-                      </Stack>
-                    </Box>
+                      </Box>
+                    )}
                     <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
                       <Stack spacing={0.8}>
                         <Stack direction="row" justifyContent="space-between" alignItems="baseline">
@@ -25149,76 +25250,78 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         </Stack>
                       </Stack>
                     </Box>
-                    <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
-                      <Stack spacing={0.8}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                          <Stack direction="row" alignItems="center" spacing={0.5}>
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950 }}>
-                              Длина ответа
-                            </Typography>
-                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.responseTokens} />
-                          </Stack>
-                          <Stack direction="row" alignItems="center" spacing={0.6}>
-                            {responseMaxTokensEnabled ? (
-                              <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.98rem', fontWeight: 950 }}>
-                                {responseMaxTokens}
+                    {isSimpleMode ? null : (
+                      <Box sx={{ ...rightPanelCardSx, p: 1.1 }}>
+                        <Stack spacing={0.8}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <Stack direction="row" alignItems="center" spacing={0.5}>
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 950 }}>
+                                Длина ответа
                               </Typography>
-                            ) : null}
-                            {isSavingResponseMaxTokens || isSavingResponseMaxTokensEnabled ? (
-                              <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} />
-                            ) : null}
-                            <Switch
-                              size="small"
-                              checked={responseMaxTokensEnabled}
-                              onChange={(event) => {
-                                void persistResponseMaxTokens(null, event.target.checked)
-                              }}
-                              disabled={isSavingStorySettings || isGenerating}
-                            />
-                          </Stack>
-                        </Stack>
-                        {responseMaxTokensEnabled ? (
-                          <>
-                            <Slider
-                              value={responseMaxTokens}
-                              min={STORY_RESPONSE_MAX_TOKENS_MIN}
-                              max={STORY_RESPONSE_MAX_TOKENS_MAX}
-                              step={STORY_RESPONSE_MAX_TOKENS_STEP}
-                              onChange={handleResponseMaxTokensSliderChange}
-                              onChangeCommitted={(event, value) => {
-                                void handleResponseMaxTokensSliderCommit(event, value)
-                              }}
-                              disabled={isSavingStorySettings || isGenerating}
-                              sx={{
-                                color: 'var(--morius-accent)',
-                                '& .MuiSlider-thumb': {
-                                  width: 22,
-                                  height: 22,
-                                  backgroundColor: 'var(--morius-accent)',
-                                  border: 'none',
-                                  boxShadow: '0 0 0 4px color-mix(in srgb, var(--morius-accent) 16%, transparent)',
-                                },
-                                '& .MuiSlider-track': { height: 5, border: 'none' },
-                                '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
-                              }}
-                            />
-                            <Stack direction="row" justifyContent="space-between">
-                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
-                                {STORY_RESPONSE_MAX_TOKENS_MIN}
-                              </Typography>
-                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
-                                {STORY_RESPONSE_MAX_TOKENS_MAX}
-                              </Typography>
+                              <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.responseTokens} />
                             </Stack>
-                          </>
-                        ) : (
-                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.35 }}>
-                            Без ограничения рассказчик пишет столько, сколько сочтёт нужным — до {STORY_RESPONSE_MAX_TOKENS_MAX} токенов.
-                            Ходы длиннее, память истории заполняется быстрее.
-                          </Typography>
-                        )}
-                      </Stack>
-                    </Box>
+                            <Stack direction="row" alignItems="center" spacing={0.6}>
+                              {responseMaxTokensEnabled ? (
+                                <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.98rem', fontWeight: 950 }}>
+                                  {responseMaxTokens}
+                                </Typography>
+                              ) : null}
+                              {isSavingResponseMaxTokens || isSavingResponseMaxTokensEnabled ? (
+                                <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} />
+                              ) : null}
+                              <Switch
+                                size="small"
+                                checked={responseMaxTokensEnabled}
+                                onChange={(event) => {
+                                  void persistResponseMaxTokens(null, event.target.checked)
+                                }}
+                                disabled={isSavingStorySettings || isGenerating}
+                              />
+                            </Stack>
+                          </Stack>
+                          {responseMaxTokensEnabled ? (
+                            <>
+                              <Slider
+                                value={responseMaxTokens}
+                                min={STORY_RESPONSE_MAX_TOKENS_MIN}
+                                max={STORY_RESPONSE_MAX_TOKENS_MAX}
+                                step={STORY_RESPONSE_MAX_TOKENS_STEP}
+                                onChange={handleResponseMaxTokensSliderChange}
+                                onChangeCommitted={(event, value) => {
+                                  void handleResponseMaxTokensSliderCommit(event, value)
+                                }}
+                                disabled={isSavingStorySettings || isGenerating}
+                                sx={{
+                                  color: 'var(--morius-accent)',
+                                  '& .MuiSlider-thumb': {
+                                    width: 22,
+                                    height: 22,
+                                    backgroundColor: 'var(--morius-accent)',
+                                    border: 'none',
+                                    boxShadow: '0 0 0 4px color-mix(in srgb, var(--morius-accent) 16%, transparent)',
+                                  },
+                                  '& .MuiSlider-track': { height: 5, border: 'none' },
+                                  '& .MuiSlider-rail': { height: 5, opacity: 1, backgroundColor: 'rgba(91, 93, 105, 0.6)' },
+                                }}
+                              />
+                              <Stack direction="row" justifyContent="space-between">
+                                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
+                                  {STORY_RESPONSE_MAX_TOKENS_MIN}
+                                </Typography>
+                                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
+                                  {STORY_RESPONSE_MAX_TOKENS_MAX}
+                                </Typography>
+                              </Stack>
+                            </>
+                          ) : (
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.35 }}>
+                              Без ограничения рассказчик пишет столько, сколько сочтёт нужным — до {STORY_RESPONSE_MAX_TOKENS_MAX} токенов.
+                              Ходы длиннее, память истории заполняется быстрее.
+                            </Typography>
+                          )}
+                        </Stack>
+                      </Box>
+                    )}
                     {cardsContextOverflowChars > 0 ? (
                       <Alert
                         severity="warning"
@@ -25240,6 +25343,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       title="Мысли NPC"
                       description="Показывать, о чём думают персонажи, перед их репликой"
                       checked={showNpcThoughts}
+                      visible={!isSimpleMode}
                       onToggle={() => {
                         void toggleShowNpcThoughts()
                       }}
@@ -25250,7 +25354,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       title="Плавная печать"
                       description="Ответ печатается постепенно, как живой набор текста"
                       checked={smoothStreamingEnabled}
-                      visible={isAdministrator}
+                      visible={isAdministrator && !isSimpleMode}
                       onToggle={toggleSmoothStreamingEnabled}
                       disabled={isGenerating}
                     />
@@ -25267,6 +25371,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       title="Авто-состояния"
                       description="Следить за ранами, инвентарём и статусами по ходу"
                       checked={characterStateEnabled}
+                      visible={!isSimpleMode}
                       onToggle={() => {
                         void toggleCharacterStateEnabled()
                       }}

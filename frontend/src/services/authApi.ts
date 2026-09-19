@@ -294,11 +294,17 @@ export type DashboardStats = {
 }
 
 export type OnboardingGuideStatus = 'pending' | 'completed' | 'skipped'
+/** How much the player says they already know about AI role-play. */
+export type PlayerExperienceLevel = 'novice' | 'expert'
+export type StarterTourStatus = 'pending' | 'completed' | 'skipped'
 
 export type OnboardingGuideState = {
   status: OnboardingGuideStatus
   current_step_id: string | null
   tutorial_game_id: number | null
+  /** `null` until the welcome question is answered - that is what keeps it to one showing. */
+  experience_level: PlayerExperienceLevel | null
+  starter_tour_status: StarterTourStatus
 }
 
 export type CoinTopUpPlan = {
@@ -926,6 +932,10 @@ function normalizeUserNotificationListResponse(
 
 function normalizeOnboardingGuideState(rawState: OnboardingGuideState | null | undefined): OnboardingGuideState {
   const status = rawState?.status === 'completed' || rawState?.status === 'skipped' ? rawState.status : 'pending'
+  const starterTourStatus =
+    rawState?.starter_tour_status === 'completed' || rawState?.starter_tour_status === 'skipped'
+      ? rawState.starter_tour_status
+      : 'pending'
   return {
     status,
     current_step_id: typeof rawState?.current_step_id === 'string' && rawState.current_step_id.trim() ? rawState.current_step_id.trim() : null,
@@ -933,6 +943,9 @@ function normalizeOnboardingGuideState(rawState: OnboardingGuideState | null | u
       typeof rawState?.tutorial_game_id === 'number' && Number.isFinite(rawState.tutorial_game_id) && rawState.tutorial_game_id > 0
         ? Math.trunc(rawState.tutorial_game_id)
         : null,
+    experience_level:
+      rawState?.experience_level === 'novice' || rawState?.experience_level === 'expert' ? rawState.experience_level : null,
+    starter_tour_status: starterTourStatus,
   }
 }
 
@@ -1214,6 +1227,12 @@ export async function updateOnboardingGuideState(
   }
   if (Object.prototype.hasOwnProperty.call(payload, 'tutorial_game_id')) {
     requestPayload.tutorial_game_id = payload.tutorial_game_id ?? null
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'experience_level')) {
+    requestPayload.experience_level = payload.experience_level ?? null
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'starter_tour_status')) {
+    requestPayload.starter_tour_status = payload.starter_tour_status ?? null
   }
   const response = await requestJson<OnboardingGuideState>(
     '/api/auth/me/onboarding-guide',

@@ -139,12 +139,19 @@ class OnboardingGuideStateOut(BaseModel):
     status: Literal["pending", "completed", "skipped"]
     current_step_id: str | None
     tutorial_game_id: int | None
+    # How much the player says they already know. `None` means the question was never answered,
+    # which is what makes the welcome dialog appear exactly once.
+    experience_level: Literal["novice", "expert"] | None = None
+    # The short "where is everything" tour a novice gets after answering.
+    starter_tour_status: Literal["pending", "completed", "skipped"] = "pending"
 
 
 class OnboardingGuideStateUpdateRequest(BaseModel):
     status: Literal["pending", "completed", "skipped"] | None = None
     current_step_id: str | None = Field(default=None, max_length=120)
     tutorial_game_id: int | None = Field(default=None, ge=1)
+    experience_level: Literal["novice", "expert"] | None = None
+    starter_tour_status: Literal["pending", "completed", "skipped"] | None = None
 
 
 class ProfilePrivacyOut(BaseModel):

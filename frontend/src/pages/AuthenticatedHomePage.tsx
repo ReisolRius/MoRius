@@ -3650,7 +3650,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           </Box>
 
           {/* ── Персонажи (characters slider) ───────────────────────────── */}
-          <Box sx={{ mt: 'var(--morius-cards-title-gap)' }}>
+          <Box data-tour-id="home-characters-section" sx={{ mt: 'var(--morius-cards-title-gap)', scrollMarginTop: '120px' }}>
             <HomeSliderHeader
               title="Персонажи"
               subtitle="Публичные персонажи игроков"

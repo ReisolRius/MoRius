@@ -29,6 +29,12 @@ type BaseDialogProps = {
   confirmCloseDescription?: string
   confirmCloseConfirmLabel?: string
   confirmCloseCancelLabel?: string
+  /**
+   * Lifts this dialog above the others. Dialogs all sit at MUI's 1300, so whichever mounts last
+   * paints on top - fine when only one is ever open, wrong when something must be answered
+   * before anything else can be read.
+   */
+  zIndex?: number
 }
 
 const editableTextSelector = [
@@ -108,6 +114,7 @@ function BaseDialog({
   confirmCloseDescription = 'Внесенные изменения будут потеряны.',
   confirmCloseConfirmLabel = 'Закрыть',
   confirmCloseCancelLabel = 'Остаться',
+  zIndex,
 }: BaseDialogProps) {
   const [isConfirmCloseOpen, setIsConfirmCloseOpen] = useState(false)
   const [hasUserInputChanges, setHasUserInputChanges] = useState(false)
@@ -168,6 +175,7 @@ function BaseDialog({
       fullWidth={fullWidth}
       TransitionComponent={transitionComponent}
       sx={{
+        ...(zIndex === undefined ? {} : { zIndex }),
         ...mobileSheet.dialogSx,
         // Text buttons in a dialog are borderless and unfilled - but `contained` is exactly the
         // variant that asked for a fill, and stripping it left the confirm action as near-black

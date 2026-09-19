@@ -16,6 +16,7 @@ import type { ReactNode } from 'react'
 import type { AuthResponse, AuthUser, GuestMergeSummary } from './types/auth'
 import FantasyRouteTransition from './components/navigation/FantasyRouteTransition'
 import AiAssistantPanel from './components/ai/AiAssistantPanel'
+import PlayerOnboarding from './components/onboarding/PlayerOnboarding'
 import { AI_ASSISTANT_OPEN_EVENT } from './components/ai/aiAssistantEvents'
 import { useMoriusThemeController, type MoriusThemeSurface } from './theme'
 import {
@@ -1346,6 +1347,11 @@ function App() {
   return (
     <>
       {pageContent}
+      {/* The level question and the novice tour: the game screens read the answer, this decides
+          when it is asked. Legal pages, the auth form and maintenance stay uninterrupted. */}
+      {isAuthenticated && authUser && authToken && !shouldShowPrivacyPolicyPage && !shouldShowTermsPage && !shouldShowMaintenancePage && !shouldShowAuthPage ? (
+        <PlayerOnboarding key={authUser.id} userId={authUser.id} authToken={authToken} path={path} onNavigate={navigate} />
+      ) : null}
       {isAuthenticated && authUser && authToken && !shouldShowPrivacyPolicyPage && !shouldShowTermsPage && !shouldShowMaintenancePage ? (
         <AiAssistantPanel
           user={authUser}

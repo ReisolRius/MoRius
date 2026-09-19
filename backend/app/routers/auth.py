@@ -279,6 +279,11 @@ NEW_USER_STARTER_COINS = NEW_ACCOUNT_STARTER_COINS
 ONBOARDING_GUIDE_DEFAULT_STATUS = "pending"
 ONBOARDING_GUIDE_ALLOWED_STATUSES = {"pending", "completed", "skipped"}
 ONBOARDING_GUIDE_STEP_ID_MAX_LENGTH = 120
+# Two ways to play: a novice gets a stripped-down game screen and the starter tour, an expert
+# gets everything. Unanswered stays `None` so the welcome dialog is asked exactly once.
+ONBOARDING_EXPERIENCE_LEVELS = {"novice", "expert"}
+STARTER_TOUR_DEFAULT_STATUS = "pending"
+STARTER_TOUR_ALLOWED_STATUSES = {"pending", "completed", "skipped"}
 PASSWORD_RESET_COOLDOWN_PREFIX = "password-reset:"
 PASSWORD_RESET_SUCCESS_MESSAGE = "If an account with this email exists, password reset code was sent"
 YANDEX_OAUTH_FLOW_COOKIE = "morius_yandex_oauth_flow"
@@ -814,6 +819,22 @@ def _normalize_onboarding_guide_tutorial_game_id(value: Any) -> int | None:
     return None
 
 
+def _normalize_experience_level(value: Any) -> str | None:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ONBOARDING_EXPERIENCE_LEVELS:
+            return normalized
+    return None
+
+
+def _normalize_starter_tour_status(value: Any) -> str:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in STARTER_TOUR_ALLOWED_STATUSES:
+            return normalized
+    return STARTER_TOUR_DEFAULT_STATUS
+
+
 def _read_onboarding_guide_state(user: User) -> dict[str, Any]:
     raw_state = (user.onboarding_guide_state or "").strip()
     parsed_state: dict[str, Any] = {}
@@ -835,6 +856,8 @@ def _read_onboarding_guide_state(user: User) -> dict[str, Any]:
         "status": normalized_status,
         "current_step_id": normalized_step_id,
         "tutorial_game_id": normalized_tutorial_game_id,
+        "experience_level": _normalize_experience_level(parsed_state.get("experience_level")),
+        "starter_tour_status": _normalize_starter_tour_status(parsed_state.get("starter_tour_status")),
     }
 
 
@@ -843,6 +866,8 @@ def _store_onboarding_guide_state(user: User, state: dict[str, Any]) -> dict[str
         "status": _normalize_onboarding_guide_status(state.get("status")),
         "current_step_id": _normalize_onboarding_guide_step_id(state.get("current_step_id")),
         "tutorial_game_id": _normalize_onboarding_guide_tutorial_game_id(state.get("tutorial_game_id")),
+        "experience_level": _normalize_experience_level(state.get("experience_level")),
+        "starter_tour_status": _normalize_starter_tour_status(state.get("starter_tour_status")),
     }
     if normalized_state["status"] in {"completed", "skipped"}:
         normalized_state["current_step_id"] = None
@@ -856,6 +881,8 @@ def _serialize_onboarding_guide_state(user: User) -> OnboardingGuideStateOut:
         status=state["status"],
         current_step_id=state["current_step_id"],
         tutorial_game_id=state["tutorial_game_id"],
+        experience_level=state["experience_level"],
+        starter_tour_status=state["starter_tour_status"],
     )
 
 
@@ -2226,6 +2253,10 @@ def update_onboarding_guide_state(
         next_state["current_step_id"] = payload.current_step_id
     if "tutorial_game_id" in payload.model_fields_set:
         next_state["tutorial_game_id"] = payload.tutorial_game_id
+    if "experience_level" in payload.model_fields_set:
+        next_state["experience_level"] = payload.experience_level
+    if "starter_tour_status" in payload.model_fields_set:
+        next_state["starter_tour_status"] = payload.starter_tour_status
 
     _store_onboarding_guide_state(user, next_state)
     db.commit()
